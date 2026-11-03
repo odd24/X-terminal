@@ -10,6 +10,8 @@ P04 SSH1 见 [ADR-003](decisions/ADR-003.md)（PROPOSED）：Plink 0.85 仅通�
 
 P05 串口候选见 [ADR-006](decisions/ADR-006.md)（PROPOSED）：原生枚举与字节逻辑通过，未打开设备，驱动收发与控制线行为未验收。
 
+P06 mock SDK/stdio 见 [ADR-004](decisions/ADR-004.md)：rmcp 3.8.0 与实际 Codex CLI 客户端互通通过；Named Pipe、配对、统一服务和真实会话仍未实现。
+
 ## 分层
 
 ```text

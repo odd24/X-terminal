@@ -1,6 +1,12 @@
 # Codex 首版接入方案
 
-日期：2026-11-03；状态：设计，桥接程序尚未实现。
+日期：2026-11-03；状态：P06 已有只读 mock stdio 原型，实际 Codex CLI app-server 客户端发现/调用通过；真实共享会话桥尚未实现。
+
+## 当前可运行的 P06 原型
+
+执行 `. ./scripts/Enter-Toolchain.ps1`、`cargo build -p mcp-bridge --locked` 后，`target/debug/terminal-mcp.exe --mock` 仅提供 sessions_list/terminal_read；不访问实际设备、认证或文件。`npm run test:mcp` 验证 stdio 契约，`npm run test:codex-mcp` 用本机实际 Codex 客户端和隔离配置验证发现/调用，无模型推理。详细范围和证据见 [P06](records/P06.md)、[ADR-004](decisions/ADR-004.md)。
+
+mock 的 connection_id 固定为 mock-p06-connection，generation=1，read cursor 是合成 UTF-8 字节偏移，max_bytes 4–65536。stdout 仅协议；128 KiB 输入行与 4 工具处理并发上限。所有输出含 mock=true；这些语义不是生产权限和游标承诺。
 
 ## 方向与职责
 

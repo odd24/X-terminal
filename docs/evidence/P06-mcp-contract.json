@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "protocolVersion": "2025-03-26",
+  "tools": [
+    "sessions_list",
+    "terminal_read"
+  ],
+  "scope": "read-only mock; no real device",
+  "checks": [
+    "initialize",
+    "tool discovery",
+    "bounded UTF-8 cursor reads",
+    "generation",
+    "connection visibility",
+    "argument rejection",
+    "oversized frame resynchronization",
+    "bounded tool concurrency",
+    "client timeout and cancellation",
+    "responsive ping",
+    "stderr separation",
+    "EOF exit"
+  ]
+}

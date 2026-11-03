@@ -1,0 +1,63 @@
+{
+  "tools": [
+    {
+      "name": "sessions_list",
+      "description": "List the single synthetic P06 connection. No real sessions.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "title": "ListArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "terminal_read",
+      "description": "Read bounded synthetic UTF-8 output. Cursor is a mock byte offset, generation must be 1.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection_id": {
+            "type": "string"
+          },
+          "cursor": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "generation": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_bytes": {
+            "format": "uint",
+            "maximum": 65536,
+            "minimum": 4,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection_id",
+          "generation",
+          "cursor",
+          "max_bytes"
+        ],
+        "title": "ReadArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

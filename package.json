@@ -18,6 +18,8 @@
     "test": "node --test tests/terminal-writer.test.mjs",
     "test:screen": "node scripts/Compare-Screens.mjs",
     "test:desktop": "node scripts/Smoke-Desktop.mjs --terminal",
+    "test:mcp": "node scripts/Test-Mcp.mjs",
+    "test:codex-mcp": "node scripts/Test-Codex-Mcp.mjs",
     "desktop": "npm run tauri --workspace apps/desktop -- dev",
     "desktop:build": "npm run tauri --workspace apps/desktop -- build --debug --no-bundle"
   },

@@ -36,6 +36,9 @@ npm test
 npm run test:screen
 cargo test -p transport-ssh2 --locked
 cargo test -p transport-serial --locked
+cargo build -p mcp-bridge --locked
+npm run test:mcp
+npm run test:codex-mcp
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -50,3 +53,5 @@ npm run test:desktop
 P03 的 SSH2 测试服务器只在回环地址启动，key/测试口令在内存生成；这证明协议子项，不代表 Linux/UNIX/真实设备验收。具体缺口见 [P03 矩阵](docs/evidence/P03-ssh2-matrix.md)。
 
 P05 可用 `cargo run -p transport-serial --example enumerate` 只读列举端口；不自动打开设备。真实字节收发与控制线行为待指定设备验证，见 [P05](docs/records/P05.md)。
+
+P06 已有只读 mock MCP 原型与真实 Codex CLI app-server 客户端互通测试，使用隔离配置、无模型推理，不修改全局设置。它不访问实际会话，见 [P06](docs/records/P06.md)。

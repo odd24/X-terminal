@@ -1,6 +1,6 @@
 # 执行台账
 
-更新：2026-11-03（Asia/Shanghai）。当前阶段：P01/P02 完成；P03 回环 SSH2 协议通过、P04 SSH1 banner 探针通过，相关完整验收阻塞；尚无用户可用的真实连接功能。下一步：P06（P05 枚举/逻辑通过，驱动实测阻塞）。
+更新：2026-11-03（Asia/Shanghai）。当前阶段：P01/P02 完成；P03 回环 SSH2 协议通过、P04 SSH1 banner 探针通过，相关完整验收阻塞；尚无用户可用的真实连接功能。P05 枚举/逻辑与 P06 mock/实际 CLI 客户端互通已完成相应验证。下一步：登记用户“后续验收”的开发准入变更。
 
 DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变更管理](CHANGE_CONTROL.md)。Pxx 记录在开始该步骤时创建，不预填产品测试结果。
 
@@ -13,7 +13,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
 | P05 | 串口底层试验 | BLOCKED | [P05](records/P05.md) | Step-ID: P05 |
-| P06 | Codex MCP 最小贯通 | TODO | 待创建 | — |
+| P06 | Codex MCP 最小贯通 | DONE | [P06](records/P06.md) | Step-ID: P06 |
 | P07 | 会话服务与 IPC | TODO | 待创建 | — |
 | P08 | 配置与凭据 | TODO | 待创建 | — |
 | P09 | SSH2 正式接入 | TODO | 待创建 | — |

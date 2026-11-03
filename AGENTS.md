@@ -69,6 +69,9 @@ npm test
 npm run test:screen
 cargo test -p transport-ssh2 --locked
 cargo test -p transport-serial --locked
+cargo build -p mcp-bridge --locked
+npm run test:mcp
+npm run test:codex-mcp
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
