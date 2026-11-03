@@ -1,0 +1,9 @@
+:root { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #e7edf5; background: #101720; font-synthesis: none; }
+body { margin: 0; }
+main { max-width: 840px; padding: 72px 48px; margin: auto; }
+.eyebrow { color: #84d9ca; font-size: 14px; letter-spacing: 2px; }
+h1 { font-size: 38px; font-weight: 600; margin: 24px 0; }
+p { color: #a9b8c9; line-height: 1.8; }
+section { border: 1px solid #314054; border-radius: 12px; padding: 28px; margin: 48px 0; background: #17222e; }
+h2 { font-size: 19px; margin-top: 0; }
+footer { color: #8294a9; font-size: 13px; }

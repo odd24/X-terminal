@@ -1,0 +1,17 @@
+{
+  "name": "shared-terminal",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "npm@11.9.0",
+  "engines": { "node": "24.14.0", "npm": "11.9.0" },
+  "workspaces": ["apps/desktop"],
+  "scripts": {
+    "dev": "npm run dev --workspace apps/desktop",
+    "build": "npm run build --workspace apps/desktop",
+    "lint": "npm run lint --workspace apps/desktop",
+    "desktop": "npm run tauri --workspace apps/desktop -- dev",
+    "desktop:build": "npm run tauri --workspace apps/desktop -- build --debug --no-bundle"
+  },
+  "devDependencies": { "@tauri-apps/cli": "2.12.4" }
+}

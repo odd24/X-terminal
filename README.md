@@ -2,7 +2,7 @@
 
 面向 SSH/串口调试、延续 Xshell 使用习惯、支持 Codex 通过 MCP 协作的 Windows 桌面终端。
 
-当前状态：**方案基线已建立，应用尚未实现**。本仓库不包含可运行程序；文档中的目录、命令和接口若标记为“规划”，不代表已经存在。
+当前状态：**P01 桌面骨架已构建启动**。已建立 React/Tauri/Rust workspace；尚无 SSH、串口和 Codex 会话功能。验证与完成状态见执行台账。
 
 ## 执行入口
 
@@ -22,3 +22,22 @@
 - v1.0 必须包含用户提出的功能；内置 AI 聊天、SFTP、X11、云同步为后续候选，不代替首版 Codex 接入。
 
 所有执行步骤均需本地 Git 提交；不自动推送、发布或修改用户全局 Codex 配置。
+
+## 本地开发
+
+Node 24.14.0 / npm 11.9.0；Rust 1.99.1 MSVC（rust-toolchain.toml）；MSVC 与 Windows SDK、WebView2 是系统前置条件。版本和本机调查见 [ADR-001](docs/decisions/ADR-001.md) 与 [环境清单](docs/evidence/P01-environment.md)。
+
+```powershell
+. ./scripts/Enter-Toolchain.ps1
+npm ci --ignore-scripts
+npm run lint
+npm run build
+cargo fmt --all -- --check
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+npm run desktop
+# 生成本地调试版桌面可执行文件，不打安装包
+npm run desktop:build
+```
+
+仓库本地 Rust 存放在被忽略的 .tools 目录，其他开发机可以使用已安装的 rustup；Enter-Toolchain 仅在本地工具存在时切换。安装依赖后可用 `node scripts/Dependency-Licenses.mjs --cargo` 更新依赖许可元数据。产品代码许可尚未确定，当前 workspace 标为 LicenseRef-Proprietary；不暗示获得第三方分发权。安装发布留待 P25。

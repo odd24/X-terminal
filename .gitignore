@@ -26,3 +26,13 @@ artifacts/private/
 .idea/
 Thumbs.db
 Desktop.ini
+
+# Workspace-only tools and generated output
+.tools/
+artifacts/
+*.local
+.private/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/icons/*
+!apps/desktop/src-tauri/icons/icon.ico
+!apps/desktop/src-tauri/icons/icon.png

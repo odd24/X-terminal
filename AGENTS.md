@@ -8,7 +8,7 @@
 2. 阅读 `docs/EXECUTION_LOG.md`，再阅读当前步骤在 `docs/EXECUTION_PLAN.md` 的条目、关联需求/架构/测试和已有记录。
 3. 只选择前置条件满足的工作包；未完成工作从现有状态继续，禁止重建仓库或覆盖历史。
 4. 本轮用户只要求方案与文件时，不自动展开整个应用开发。进入实施后按获授权范围持续完成步骤。
-5. 当前产品代码尚不存在；不得声称功能或实际设备验收已完成。
+5. 当前已建立 P01 桌面骨架；不得将骨架构建当作产品功能或实际设备验收完成。
 
 ## 每步必须提交
 
@@ -58,7 +58,20 @@ git diff --cached --check
 git log --all --format=fuller --grep='^Step-ID: P01$'
 ```
 
-当前无应用 build/test 命令。P01 建立真实工具链后在此补充命令，不能运行虚构脚本。代码变更执行受影响的格式/静态/单元/集成检查；协议、调度、权限和迁移必须有实质测试。仅文档变更做文档检查，不为文字修改编写镜像测试。
+P01 建立的实际命令如下（执行结果见步骤记录，不以命令存在推断通过）：
+
+```powershell
+. ./scripts/Enter-Toolchain.ps1
+npm ci --ignore-scripts
+npm run lint
+npm run build
+cargo fmt --all -- --check
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+npm run desktop:build
+```
+
+`npm run lint` 当前为 TypeScript 严格类型检查。P01 无业务单元用例，不以零用例测试宣称功能通过。`npm run desktop` 启动开发窗口。代码变更执行受影响的格式/静态/单元/集成检查；协议、调度、权限和迁移必须有实质测试。仅文档变更做文档检查，不为文字修改编写镜像测试。
 
 ## 结束工作
 

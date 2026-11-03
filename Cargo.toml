@@ -1,0 +1,13 @@
+[workspace]
+members = ["apps/desktop/src-tauri", "crates/session-core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "LicenseRef-Proprietary"
+
+[profile.release]
+strip = true
+lto = "thin"
