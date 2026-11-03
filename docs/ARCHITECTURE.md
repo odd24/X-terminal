@@ -8,6 +8,8 @@ P03 SSH2 候选见 [ADR-002](decisions/ADR-002.md)（PROPOSED）：russh 回环�
 
 P04 SSH1 见 [ADR-003](decisions/ADR-003.md)（PROPOSED）：Plink 0.85 仅通过启动/banner/无自动切换探针；Windows 原版缺少 resize 路径，独立 helper 和真实握手仍待完成。
 
+P05 串口候选见 [ADR-006](decisions/ADR-006.md)（PROPOSED）：原生枚举与字节逻辑通过，未打开设备，驱动收发与控制线行为未验收。
+
 ## 分层
 
 ```text
