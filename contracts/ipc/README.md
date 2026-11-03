@@ -1,6 +1,6 @@
 # Session IPC v1
 
-P07.1 定义，原生 Windows 承载在 P07.2 实现。每帧 u32 little-endian 长度 + UTF-8 JSON，1–524288 字节；正常 EOF 不等于部分头/主体。连接建立后首帧为 Hello，成功响应 id=0 的 welcome，然后发送带 u32 id 的 RequestEnvelope。请求串行、响应回显 id；角色不能由客户端声明。
+P07.1 定义，P07.2 已实现原生 Windows 承载。每帧 u32 little-endian 长度 + UTF-8 JSON，1–524288 字节；正常 EOF 不等于部分头/主体。连接建立后首帧为 Hello，成功响应 id=0 的 welcome，然后发送带 u32 id 的 RequestEnvelope。请求串行、响应回显 id；角色不能由客户端声明。
 
 固定 schema：[v1.schema.json](v1.schema.json)，三个入口 hello/request/response。生成：
 
@@ -17,3 +17,5 @@ Hello 包含 protocol_version=1、1–64 UTF-8 字节的非控制字符 client_n
 read 的 connection 必须明确 connection_id/generation；cursor 为下一事件序号、起点 1，max_bytes 4096–65536。响应 OutputPage 包含该连接代次、原始 bytes 事件、next_cursor、available_from、truncated 和 disconnected。覆盖导致缺口时客户端必须显示并重新建立解码状态，不能悄悄将截断控制序列接在一起。新代次重置事件序号，旧游标不能跨代次复用。
 
 观察票据限 30 分钟、绑定精确连接代次，撤销/到期必须逐请求重新校验；P14 再加入生产 Agent 写权限。当前契约是本地开发 v1，不表示 P15 MCP 工具或所有设备能力已经完成。
+
+原生入口为 `session_service::client::Client`，根据当前用户 SID 和受限 instance 名确定本机端点，必须提供预期服务 PID，发送票据前检查。服务 bootstrap 经父进程匿名 stdin 帧传递，禁止 argv/env/明文配置文件。默认禁止所有 fixture 操作；仅 `--test-fixture` 启用合成生命周期，不是实际终端会话。测试命令 `cargo test -p session-service --locked` 会启动临时子进程并在结束时清理。

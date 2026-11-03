@@ -1,6 +1,6 @@
 # 执行台账
 
-更新：2026-11-04（Asia/Shanghai）。P01/P02/P06 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。P07.1 领域/契约完成；下一步：P07.2。
+更新：2026-11-04（Asia/Shanghai）。P01/P02/P06 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。P07.1 领域/契约、P07.2 原生安全服务完成；下一步：P07.3 桌面生命周期。
 
 DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变更管理](CHANGE_CONTROL.md)。Pxx 记录在开始该步骤时创建，不预填产品测试结果。
 
@@ -17,7 +17,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P06 | Codex MCP 最小贯通 | DONE | [P06](records/P06.md) | Step-ID: P06 |
 | P07 | 会话服务与 IPC | IN_PROGRESS | 待子步骤完成后汇总 | — |
 | P07.1 | 会话领域与 IPC 契约 | DONE | [P07.1](records/P07.1.md) | Step-ID: P07.1 |
-| P07.2 | Windows 受限服务与 Named Pipe | TODO | 待创建 | — |
+| P07.2 | Windows 受限服务与 Named Pipe | DONE | [P07.2](records/P07.2.md) | Step-ID: P07.2 |
 | P07.3 | 桌面共享服务生命周期 | TODO | 待创建 | — |
 | P08 | 配置与凭据 | TODO | 待创建 | — |
 | P09 | SSH2 正式接入 | TODO | 待创建 | — |
