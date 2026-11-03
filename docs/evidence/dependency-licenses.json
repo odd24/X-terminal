@@ -386,6 +386,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "config-store",
+    "version": "0.1.0",
+    "license": "LicenseRef-Proprietary",
+    "source": "workspace"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "const-oid",
     "version": "0.10.2",
     "license": "Apache-2.0 OR MIT",
@@ -827,6 +834,20 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "fallible-iterator",
+    "version": "0.3.0",
+    "license": "MIT/Apache-2.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "fallible-streaming-iterator",
+    "version": "0.1.9",
+    "license": "MIT/Apache-2.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "fastrand",
     "version": "2.5.0",
     "license": "Apache-2.0 OR MIT",
@@ -1158,6 +1179,13 @@
     "ecosystem": "cargo",
     "name": "hashbrown",
     "version": "0.17.1",
+    "license": "MIT OR Apache-2.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "hashlink",
+    "version": "0.12.2",
     "license": "MIT OR Apache-2.0",
     "source": "registry+https://github.com/rust-lang/crates.io-index"
   },
@@ -1557,6 +1585,13 @@
     "ecosystem": "cargo",
     "name": "libredox",
     "version": "0.1.25",
+    "license": "MIT",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "libsqlite3-sys",
+    "version": "0.39.1",
     "license": "MIT",
     "source": "registry+https://github.com/rust-lang/crates.io-index"
   },
@@ -2318,6 +2353,20 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "rsqlite-vfs",
+    "version": "0.2.0",
+    "license": "MIT",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "rusqlite",
+    "version": "0.41.1",
+    "license": "MIT",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "russh-cryptovec",
     "version": "0.62.0",
     "license": "Apache-2.0",
@@ -2720,6 +2769,13 @@
     "name": "sponge-cursor",
     "version": "0.1.0",
     "license": "MIT OR Apache-2.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "sqlite-wasm-rs",
+    "version": "0.6.2",
+    "license": "MIT",
     "source": "registry+https://github.com/rust-lang/crates.io-index"
   },
   {
@@ -3231,6 +3287,13 @@
     "name": "uuid",
     "version": "1.29.0",
     "license": "Apache-2.0 OR MIT",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "vcpkg",
+    "version": "0.2.15",
+    "license": "MIT/Apache-2.0",
     "source": "registry+https://github.com/rust-lang/crates.io-index"
   },
   {

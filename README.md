@@ -58,4 +58,6 @@ P06 已有只读 mock MCP 原型与真实 Codex CLI app-server 客户端互通�
 
 P07 已增加协议中立状态机、有界原始输出、内存只读票据与 [IPC v1](contracts/ipc/README.md)，以及受限 Windows Named Pipe 服务。可运行 `cargo test -p session-core -p session-protocol -p session-service --locked`；桌面启动、原生 ACL/跨进程、页面暂停/重载、退出/崩溃已验证，不代表实际设备会话已接入。
 
+P08.1 已有独立 SQLite 配置存储与真实临时数据库测试：`cargo test -p config-store --locked`。配置迁移/备份/新目标恢复、Profile/目录 CRUD 可在库层使用，尚未接入桌面；Windows 凭据与编辑器仍在后续子步骤，见 [ADR-008](docs/decisions/ADR-008.md)。
+
 `npm run desktop:build` 同时构建相邻的 session-service.exe。直接运行 `target/debug/shared-terminal-desktop.exe` 默认不启用合成接口；追加 `--test-fixture` 可手动新建合成会话。键盘合成回显和高输出均通过同一服务，页面重载从保留游标重新呈现；输出覆盖会明确报缺口。退出桌面会停止服务，当前没有后台保留选项（P12 后续实现）。服务不可用时不自动重连/重放，退出后重新启动会得到全新服务；不能把重载当作重连。启动失败请检查相邻服务文件与普通用户权限，当前不提供安装包。

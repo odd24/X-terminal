@@ -71,6 +71,7 @@ cargo test -p transport-ssh2 --locked
 cargo test -p transport-serial --locked
 cargo test -p session-core -p session-protocol --locked
 cargo test -p session-service --locked
+cargo test -p config-store --locked
 cargo build -p mcp-bridge --locked
 npm run test:mcp
 npm run test:codex-mcp

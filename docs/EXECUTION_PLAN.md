@@ -114,6 +114,30 @@
 - 验收：重启数据保留，导出无秘密，损坏数据库可诊断；未知 schema 不覆盖。
 - 提交：`feat(P08): persist profiles and protected credentials`。
 
+### P08.1 配置模型与 SQLite 迁移
+
+- 依赖：P07。
+- 动作：带类型的 SSH1/SSH2/SERIAL Profile、目录约束、SQLite 版本/迁移/事务、凭据引用、配置快照导出和备份恢复基础。
+- 验收：重启保留、拒绝循环目录/非法配置、迁移失败回滚且有迁移前备份、未知版本和损坏数据不覆盖；配置导出不含凭据引用/秘密。
+- 产物：独立 config-store 与真实临时数据库测试、ADR。
+- 提交：`feat(P08.1): persist typed profiles with transactional migrations`。
+
+### P08.2 Windows 保护凭据
+
+- 依赖：P08.1。
+- 动作：当前用户 Windows 保护存储、凭据引用、写入/读取/删除与错误处理，秘密不经配置导出。
+- 验收：真实 Windows 合成秘密往返与错误/损坏拒绝、无明文落盘，未知引用不返回假值。
+- 产物：凭据存储实现/原生测试，不使用真实设备秘密。
+- 提交：`feat(P08.2): protect credential storage on windows`。
+
+### P08.3 配置服务与会话编辑器
+
+- 依赖：P08.1/P08.2。
+- 动作：服务独占配置入口、受限 IPC、桌面目录/Profile CRUD/凭据编辑/主机密钥/备份恢复。
+- 验收：实际桌面重启保留、导出无秘密、未知 schema/损坏故障明确；所有路径通过统一服务。
+- 产物：桌面操作与跨进程/原生 WebView 验证，完成后汇总 P08。
+- 提交：`feat(P08.3): expose configuration service and profile editor`。
+
 ### P09 SSH2 正式接入
 
 - 依赖：P03、P07、P08。
