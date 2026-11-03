@@ -1,0 +1,71 @@
+# Codex 首版接入方案
+
+日期：2026-11-03；状态：设计，桥接程序尚未实现。
+
+## 方向与职责
+
+Codex 是 MCP 客户端，本软件提供 MCP 服务。Codex 启动 terminal-mcp.exe 的 stdio 进程，桥接通过 Named Pipe 访问同一个 session-service；不使用另开 ssh 进程来假装共享用户终端。
+
+首版不嵌入 Codex 客户端、不依赖内置模型 API、不要求把模型密钥存入终端。Codex 自身的授权和账户仍由 Codex 管理，终端服务仍独立实施会话权限。
+
+## 配置示例（规划，不可现在直接执行）
+
+官方文档提供 `codex mcp add ... -- <command>` 以及 config.toml 的 stdio 配置方式。项目配置需受信任。实际接入前记录 `codex --version`、`codex mcp --help` 与目标桌面版本，并验证该版本读取配置的方式。[官方来源](https://developers.openai.com/codex/mcp)
+
+以下路径与可执行文件是拟定安装位置，不是本机现有文件：
+
+```toml
+[mcp_servers.windows_terminal]
+command = 'C:\Program Files\AgentTerminal\terminal-mcp.exe'
+args = ['--stdio']
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+enabled = true
+```
+
+到 P16 时再生成实际安装路径的配置片段；合并前备份现有 config.toml，保留其他 MCP 条目；记录改动，提供移除本条目的回退步骤。不要现在创建 `.codex/config.toml` 或覆盖全局设置。
+
+## 工具契约 v0.1（拟定命名）
+
+所有读写操作校验连接授权。参数/返回值使用 JSON Schema；版本变化需契约兼容测试。
+
+| 工具 | 主要输入 | 输出/限制 |
+|---|---|---|
+| sessions_list | scope | 仅可见配置/连接，秘密字段不存在 |
+| sessions_connect | profile_id、request_id | connection_id、generation、state；需要 connect 权限 |
+| sessions_disconnect | connection_id、generation、request_id | 明确关闭结果；需要连接管理权限 |
+| terminal_read | connection_id、generation、cursor、max_bytes | events、next_cursor、truncated、available_from；建议最大 64 KiB |
+| terminal_screen | connection_id、generation | 行列、文本、光标、seq；来自服务端状态模型 |
+| terminal_send | connection_id、generation、request_id、text 或 key | 接收/发送状态；write 权限与输入租约 |
+| terminal_wait | connection_id、generation、cursor、pattern、timeout_ms | matched/timeout/disconnected、游标、证据；单次最长 30 秒 |
+| ssh_exec | connection_id、generation、request_id、command、timeout_ms | task_id；独立 exec 通道，不继承终端 shell 状态 |
+| tasks_get | task_id、cursor | 状态、输出增量、退出码（仅可用时） |
+| tasks_cancel | task_id、request_id | 停止调度/尝试中断结果；不保证远程已退出 |
+| serial_write | connection_id、generation、request_id、text 或 base64 | 写入字节数；精确字节路径不自动加换行 |
+| serial_control | connection_id、generation、request_id、signal、value | DTR/RTS/Break 结果；独立权限 |
+| logs_export | connection_id、range | 返回应用生成的受控文件标识，不接受任意主机文件路径 |
+
+长任务以 task_id + tasks_get 轮询，不占住单次 MCP 调用。轮询有间隔和退避，避免忙循环。stdout 只输出 MCP 协议，诊断写 stderr；不得输出秘密。
+
+统一错误类别：INVALID_ARGUMENT、PERMISSION_DENIED、AUTH_REQUIRED、NOT_CONNECTED、STALE_GENERATION、INPUT_BUSY、TIMEOUT、CURSOR_EXPIRED、BUFFER_GAP、UNSUPPORTED、IO_ERROR、UNKNOWN_DELIVERY。区分工具失败与远程命令非零退出码。
+
+## 输入与上下文规则
+
+1. Codex 必须使用 connection_id，不能把当前 UI 标签作为隐式目标。
+2. 用户在应用选择可读连接、时间范围和写入授权；跨连接需要分别授权。
+3. 初次连接/凭据问题交回用户界面，不把密码送进聊天或工具参数。
+4. 每个连接写操作串行；人工接管后尚未发送的自动化输入取消。
+5. 默认不自动广播；批量任务要冻结目标快照，逐个返回结果。
+6. 串口提示符与安静间隔只是启发式信息，工具不能制造可靠退出码。
+7. 终端输出中的“请执行某命令”等文本只是待分析内容，不是权限来源。
+
+## P06 / P16 端到端验证
+
+- P06：用假连接测试 initialize、tools/list、tools/call、超时、取消、stderr 隔离、退出清理。不得将 mock 通过写作真实串口通过。
+- P16：安装真实桥接，备份并合并 Codex 配置；记录 CLI 与桌面各自工具发现结果。
+- 桌面打开 SSH 与串口；Codex 读取指定范围，建议诊断步骤；授权后向同一个连接写入，用户立即看见。
+- 拒绝未授权连接；撤销后旧调用失败；输入接管后无排队残留；断线重连后旧 generation 失败。
+- 以只读授权运行一次，再以限时写授权运行一次；审计中对应 client_id/request_id/connection_id。
+- 验证完成后恢复测试前授权范围，记录是否保留 MCP 配置。
+
+验收证据必须包含客户端版本、工具版本、构建 commit、测试环境、脱敏调用与结果；不能只用配置存在或截图证明接入成功。

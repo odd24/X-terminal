@@ -1,0 +1,28 @@
+# Build and dependencies
+node_modules/
+target/
+dist/
+coverage/
+test-results/
+playwright-report/
+
+# Local runtime state and secrets
+.env
+.env.*
+!.env.example
+.codex/config.toml
+*.pem
+*.key
+*.ppk
+*.db
+*.db-shm
+*.db-wal
+*.log
+local-data/
+artifacts/private/
+
+# Editor and OS
+.vs/
+.idea/
+Thumbs.db
+Desktop.ini
