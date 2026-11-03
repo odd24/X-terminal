@@ -470,6 +470,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "credential-vault",
+    "version": "0.1.0",
+    "license": "LicenseRef-Proprietary",
+    "source": "workspace"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "crossbeam-channel",
     "version": "0.5.17",
     "license": "MIT OR Apache-2.0",

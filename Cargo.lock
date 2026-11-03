@@ -603,6 +603,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "credential-vault"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "getrandom 0.4.3",
+ "rusqlite",
+ "thiserror 2.0.21",
+ "uuid",
+ "windows-sys 0.61.2",
+ "zeroize",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
