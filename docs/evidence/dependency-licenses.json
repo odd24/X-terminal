@@ -2570,6 +2570,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "session-protocol",
+    "version": "0.1.0",
+    "license": "LicenseRef-Proprietary",
+    "source": "workspace"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "sha1",
     "version": "0.11.0",
     "license": "MIT OR Apache-2.0",

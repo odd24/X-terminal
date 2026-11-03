@@ -12,6 +12,8 @@ P05 串口候选见 [ADR-006](decisions/ADR-006.md)（PROPOSED）：原生枚举
 
 P06 mock SDK/stdio 见 [ADR-004](decisions/ADR-004.md)：rmcp 3.8.0 与实际 Codex CLI 客户端互通通过；Named Pipe、配对、统一服务和真实会话仍未实现。
 
+P07.1 已建立协议中立领域/内存配对身份与 [IPC v1](../contracts/ipc/README.md)，见 [ADR-007](decisions/ADR-007.md)；P07.2 原生 ACL/服务、P07.3 桌面生命周期尚待完成。
+
 ## 分层
 
 ```text
@@ -36,6 +38,7 @@ SQLite 保存结构化配置；Windows Credential Manager/DPAPI 保存秘密；�
 ```text
 apps/desktop/             React UI 与 Tauri 外壳
 crates/session-core/      状态机、权限、调度、缓冲
+crates/session-protocol/  版本化 IPC 类型、schema 与有界帧
 crates/session-service/   Named Pipe 服务及进程生命周期
 crates/transport-ssh2/    SSH2 适配
 crates/transport-ssh1/    SSH1 隔离适配

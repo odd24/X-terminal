@@ -55,3 +55,5 @@ P03 的 SSH2 测试服务器只在回环地址启动，key/测试口令在内存
 P05 可用 `cargo run -p transport-serial --example enumerate` 只读列举端口；不自动打开设备。真实字节收发与控制线行为待指定设备验证，见 [P05](docs/records/P05.md)。
 
 P06 已有只读 mock MCP 原型与真实 Codex CLI app-server 客户端互通测试，使用隔离配置、无模型推理，不修改全局设置。它不访问实际会话，见 [P06](docs/records/P06.md)。
+
+P07.1 增加协议中立状态机、带代次的有界原始输出、内存只读票据与 [IPC v1](contracts/ipc/README.md)。可运行 `cargo test -p session-core -p session-protocol --locked`；原生服务/ACL 与桌面整合仍待 P07.2/P07.3，不代表实际会话已接入。

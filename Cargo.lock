@@ -3597,6 +3597,7 @@ dependencies = [
  "schemars_derive 1.2.3",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -3887,9 +3888,27 @@ name = "session-core"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
+ "rand",
+ "schemars 1.2.3",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
+ "uuid",
  "vt100",
+ "zeroize",
+]
+
+[[package]]
+name = "session-protocol"
+version = "0.1.0"
+dependencies = [
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "session-core",
+ "tokio",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]

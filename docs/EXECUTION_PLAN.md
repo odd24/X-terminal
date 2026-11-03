@@ -82,6 +82,30 @@
 - 验收：无权客户端被拒、旧代次失败、重复启动处理正确；UI 重载不丢服务连接。
 - 提交：`feat(P07): implement session service and ipc`。
 
+### P07.1 会话领域与版本化 IPC 契约
+
+- 依赖：P02/P06、CR-001；P03–P05 已有候选结论和缺口。
+- 动作：实现状态转换、connection_id/generation、有界原始输出游标、最小配对身份与只读票据；定义严格 JSON 帧与 schema。
+- 验收：非法转换/旧代次/越权连接拒绝；输出缺口显式；新代次不保留旧输出/授权；参数与帧限额有测试。
+- 产物：session-core、session-protocol、schema 和测试，不声明原生 ACL 已通过。
+- 提交：`feat(P07.1): define session domain and ipc contract`。
+
+### P07.2 Windows 会话服务与受限 Named Pipe
+
+- 依赖：P07.1。
+- 动作：当前用户 SID DACL、远程拒绝、首实例、版本握手、票据身份、连接上限/超时、独立进程及诊断。
+- 验收：真实 Windows Pipe 跨进程调用；无票据/错误票据/旧代次拒绝；受限 token 的 OS 访问拒绝；重复实例和服务退出正确。
+- 产物：session-service、原生 IPC 客户端、Windows 集成测试；默认不打开实际设备。
+- 提交：`feat(P07.2): implement secured windows session service`。
+
+### P07.3 桌面共享服务生命周期
+
+- 依赖：P07.2。
+- 动作：Rust 外壳通过私有启动通道启动服务，renderer 仅调用已注册 IPC；重载/多个客户端共享同一服务状态；退出/后台状态明确。
+- 验收：实际 WebView 重载保持 connection_id/generation/输出；服务崩溃明确反馈；关闭不重放输入；P07 父步骤范围完成后再标 DONE。
+- 产物：桌面整合、脱敏集成证据、使用/故障说明。
+- 提交：`feat(P07.3): integrate desktop session service lifecycle`。
+
 ### P08 配置与凭据
 
 - 依赖：P07。

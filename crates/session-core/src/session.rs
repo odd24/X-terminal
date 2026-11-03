@@ -1,0 +1,414 @@
+//! Protocol-neutral lifecycle and bounded raw output; no device I/O occurs here.
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
+use uuid::Uuid;
+
+pub const EVENT_BYTES: usize = 4096;
+pub const MAX_APPEND: usize = 65536;
+pub const MAX_CONNECTIONS: usize = 64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct ConnectionId(pub Uuid);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionRef {
+    pub connection_id: ConnectionId,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Protocol {
+    Ssh1,
+    Ssh2,
+    Serial,
+    Fixture,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum State {
+    Disconnected,
+    Connecting,
+    Authenticating,
+    Connected,
+    Closing,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ErrorCode {
+    InvalidArgument,
+    NotFound,
+    StaleGeneration,
+    InvalidState,
+    NotConnected,
+    PermissionDenied,
+    CapacityExceeded,
+    Unsupported,
+    VersionMismatch,
+    AuthRequired,
+}
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for ErrorCode {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionInfo {
+    pub connection_id: ConnectionId,
+    pub generation: u64,
+    pub protocol: Protocol,
+    pub state: State,
+}
+impl ConnectionInfo {
+    pub fn reference(&self) -> ConnectionRef {
+        ConnectionRef {
+            connection_id: self.connection_id,
+            generation: self.generation,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OutputEvent {
+    pub seq: u64,
+    pub timestamp_ms: u64,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OutputPage {
+    pub connection: ConnectionRef,
+    pub events: Vec<OutputEvent>,
+    pub next_cursor: u64,
+    pub available_from: u64,
+    pub truncated: bool,
+    pub disconnected: bool,
+}
+
+pub struct OutputBuffer {
+    events: VecDeque<OutputEvent>,
+    bytes: usize,
+    next_seq: u64,
+    max_bytes: usize,
+    max_events: usize,
+}
+impl OutputBuffer {
+    pub fn new(max_bytes: usize, max_events: usize) -> Result<Self, ErrorCode> {
+        if !(EVENT_BYTES..=16 * 1024 * 1024).contains(&max_bytes)
+            || !(1..=4096).contains(&max_events)
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        Ok(Self {
+            events: VecDeque::new(),
+            bytes: 0,
+            next_seq: 1,
+            max_bytes,
+            max_events,
+        })
+    }
+    pub fn append(&mut self, raw: &[u8], timestamp_ms: u64) -> Result<(), ErrorCode> {
+        if raw.len() > MAX_APPEND {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let count = raw.len().div_ceil(EVENT_BYTES);
+        self.next_seq
+            .checked_add(count as u64)
+            .ok_or(ErrorCode::CapacityExceeded)?;
+        for bytes in raw.chunks(EVENT_BYTES) {
+            while self.bytes + bytes.len() > self.max_bytes || self.events.len() >= self.max_events
+            {
+                let old = self.events.pop_front().expect("bounded nonempty queue");
+                self.bytes -= old.bytes.len();
+            }
+            self.events.push_back(OutputEvent {
+                seq: self.next_seq,
+                timestamp_ms,
+                bytes: bytes.to_vec(),
+            });
+            self.next_seq += 1;
+            self.bytes += bytes.len();
+        }
+        Ok(())
+    }
+    pub fn read(
+        &self,
+        reference: ConnectionRef,
+        cursor: u64,
+        max_bytes: usize,
+        disconnected: bool,
+    ) -> Result<OutputPage, ErrorCode> {
+        if cursor == 0 || cursor > self.next_seq || !(EVENT_BYTES..=MAX_APPEND).contains(&max_bytes)
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let available_from = self.events.front().map_or(self.next_seq, |event| event.seq);
+        let start = cursor.max(available_from);
+        let mut events = vec![];
+        let mut bytes = 0;
+        let mut next_cursor = start;
+        for event in self.events.iter().filter(|event| event.seq >= start) {
+            if bytes + event.bytes.len() > max_bytes {
+                break;
+            }
+            bytes += event.bytes.len();
+            next_cursor = event.seq + 1;
+            events.push(event.clone());
+        }
+        Ok(OutputPage {
+            connection: reference,
+            events,
+            next_cursor,
+            available_from,
+            truncated: cursor < available_from,
+            disconnected,
+        })
+    }
+    pub fn allocated_bytes(&self) -> usize {
+        self.bytes
+    }
+}
+
+struct Connection {
+    info: ConnectionInfo,
+    output: OutputBuffer,
+}
+
+#[derive(Default)]
+pub struct Sessions {
+    connections: HashMap<ConnectionId, Connection>,
+}
+impl Sessions {
+    pub fn create(&mut self, protocol: Protocol) -> Result<ConnectionInfo, ErrorCode> {
+        if self.connections.len() >= MAX_CONNECTIONS {
+            return Err(ErrorCode::CapacityExceeded);
+        }
+        let info = ConnectionInfo {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 0,
+            protocol,
+            state: State::Disconnected,
+        };
+        self.connections.insert(
+            info.connection_id,
+            Connection {
+                info: info.clone(),
+                output: Self::buffer(),
+            },
+        );
+        Ok(info)
+    }
+    fn buffer() -> OutputBuffer {
+        OutputBuffer::new(256 * 1024, 128).unwrap()
+    }
+    fn get(&self, reference: ConnectionRef) -> Result<&Connection, ErrorCode> {
+        let connection = self
+            .connections
+            .get(&reference.connection_id)
+            .ok_or(ErrorCode::NotFound)?;
+        if connection.info.generation != reference.generation {
+            return Err(ErrorCode::StaleGeneration);
+        }
+        Ok(connection)
+    }
+    fn get_mut(&mut self, reference: ConnectionRef) -> Result<&mut Connection, ErrorCode> {
+        self.get(reference)?;
+        Ok(self.connections.get_mut(&reference.connection_id).unwrap())
+    }
+    pub fn info(&self, reference: ConnectionRef) -> Result<ConnectionInfo, ErrorCode> {
+        Ok(self.get(reference)?.info.clone())
+    }
+    pub fn list(&self) -> Vec<ConnectionInfo> {
+        let mut result: Vec<_> = self.connections.values().map(|c| c.info.clone()).collect();
+        result.sort_by_key(|info| info.connection_id.0);
+        result
+    }
+    pub fn begin_connect(&mut self, reference: ConnectionRef) -> Result<ConnectionInfo, ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        if !matches!(connection.info.state, State::Disconnected | State::Failed) {
+            return Err(ErrorCode::InvalidState);
+        }
+        let generation = reference
+            .generation
+            .checked_add(1)
+            .ok_or(ErrorCode::CapacityExceeded)?;
+        connection.output = Self::buffer();
+        connection.info.generation = generation;
+        connection.info.state = State::Connecting;
+        Ok(connection.info.clone())
+    }
+    pub fn transition(
+        &mut self,
+        reference: ConnectionRef,
+        target: State,
+    ) -> Result<ConnectionInfo, ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        let current = connection.info.state;
+        let ssh = matches!(connection.info.protocol, Protocol::Ssh1 | Protocol::Ssh2);
+        let allowed = match (current, target) {
+            (State::Connecting, State::Authenticating) => ssh,
+            (State::Connecting, State::Connected) => !ssh,
+            (State::Authenticating, State::Connected) => true,
+            (
+                State::Connecting | State::Authenticating | State::Connected | State::Failed,
+                State::Closing,
+            ) => true,
+            (State::Closing, State::Disconnected) => true,
+            (_, State::Failed) => true,
+            _ => false,
+        };
+        if !allowed {
+            return Err(ErrorCode::InvalidState);
+        }
+        connection.info.state = target;
+        Ok(connection.info.clone())
+    }
+    pub fn append(
+        &mut self,
+        reference: ConnectionRef,
+        bytes: &[u8],
+        timestamp_ms: u64,
+    ) -> Result<(), ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        if connection.info.state != State::Connected {
+            return Err(ErrorCode::NotConnected);
+        }
+        connection.output.append(bytes, timestamp_ms)
+    }
+    pub fn read(
+        &self,
+        reference: ConnectionRef,
+        cursor: u64,
+        max_bytes: usize,
+    ) -> Result<OutputPage, ErrorCode> {
+        let connection = self.get(reference)?;
+        connection.output.read(
+            reference,
+            cursor,
+            max_bytes,
+            matches!(connection.info.state, State::Disconnected | State::Failed),
+        )
+    }
+    pub fn remove(&mut self, reference: ConnectionRef) -> Result<(), ErrorCode> {
+        let connection = self.get(reference)?;
+        if !matches!(connection.info.state, State::Disconnected | State::Failed) {
+            return Err(ErrorCode::InvalidState);
+        }
+        self.connections.remove(&reference.connection_id);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ssh_requires_auth_and_reconnect_expires_old_generation_and_output() {
+        let mut sessions = Sessions::default();
+        let initial = sessions.create(Protocol::Ssh2).unwrap().reference();
+        assert_eq!(
+            sessions.transition(initial, State::Connected),
+            Err(ErrorCode::InvalidState)
+        );
+        let active = sessions.begin_connect(initial).unwrap().reference();
+        assert_eq!(
+            sessions.transition(active, State::Connected),
+            Err(ErrorCode::InvalidState)
+        );
+        assert_eq!(
+            sessions.append(active, b"not-authenticated", 0),
+            Err(ErrorCode::NotConnected)
+        );
+        sessions.transition(active, State::Authenticating).unwrap();
+        sessions.transition(active, State::Connected).unwrap();
+        sessions.append(active, b"old output", 1).unwrap();
+        assert_eq!(sessions.begin_connect(active), Err(ErrorCode::InvalidState));
+        sessions.transition(active, State::Failed).unwrap();
+        let next = sessions.begin_connect(active).unwrap().reference();
+        assert_eq!(next.generation, 2);
+        assert_eq!(
+            sessions.read(active, 1, EVENT_BYTES),
+            Err(ErrorCode::StaleGeneration)
+        );
+        assert!(
+            sessions
+                .read(next, 1, EVENT_BYTES)
+                .unwrap()
+                .events
+                .is_empty()
+        );
+    }
+    #[test]
+    fn serial_skips_auth_but_cannot_be_removed_while_active() {
+        let mut sessions = Sessions::default();
+        let id = sessions.create(Protocol::Serial).unwrap().reference();
+        let active = sessions.begin_connect(id).unwrap().reference();
+        assert_eq!(
+            sessions.transition(active, State::Authenticating),
+            Err(ErrorCode::InvalidState)
+        );
+        sessions.transition(active, State::Connected).unwrap();
+        assert_eq!(sessions.remove(active), Err(ErrorCode::InvalidState));
+        sessions.transition(active, State::Closing).unwrap();
+        sessions.transition(active, State::Disconnected).unwrap();
+        sessions.remove(active).unwrap();
+        assert_eq!(sessions.info(active), Err(ErrorCode::NotFound));
+    }
+    #[test]
+    fn event_and_byte_overflow_are_visible_to_independent_consumers() {
+        let reference = ConnectionRef {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let mut buffer = OutputBuffer::new(EVENT_BYTES * 2, 2).unwrap();
+        buffer.append(&vec![0xff; EVENT_BYTES * 3], 123).unwrap();
+        assert_eq!(buffer.allocated_bytes(), EVENT_BYTES * 2);
+        let first = buffer.read(reference, 1, EVENT_BYTES, false).unwrap();
+        assert!(first.truncated);
+        assert_eq!(first.available_from, 2);
+        assert_eq!(first.next_cursor, 3);
+        assert_eq!(first.events[0].bytes, vec![0xff; EVENT_BYTES]);
+        let other = buffer.read(reference, 2, EVENT_BYTES * 2, false).unwrap();
+        assert!(!other.truncated);
+        assert_eq!(other.events.len(), 2);
+        assert_eq!(
+            buffer.read(reference, 5, EVENT_BYTES, false),
+            Err(ErrorCode::InvalidArgument)
+        );
+        let end = buffer.read(reference, 4, EVENT_BYTES, true).unwrap();
+        assert!(end.events.is_empty() && end.disconnected);
+        assert_eq!(
+            buffer.append(&vec![0; MAX_APPEND + 1], 0),
+            Err(ErrorCode::InvalidArgument)
+        );
+    }
+    #[test]
+    fn event_count_and_connection_count_are_bounded() {
+        let mut buffer = OutputBuffer::new(EVENT_BYTES, 2).unwrap();
+        for i in 0..100 {
+            buffer.append(&[i], i as u64).unwrap();
+        }
+        assert_eq!(buffer.events.len(), 2);
+        assert_eq!(buffer.allocated_bytes(), 2);
+        buffer.next_seq = u64::MAX;
+        assert_eq!(buffer.append(b"x", 0), Err(ErrorCode::CapacityExceeded));
+        let mut sessions = Sessions::default();
+        for _ in 0..MAX_CONNECTIONS {
+            sessions.create(Protocol::Serial).unwrap();
+        }
+        assert_eq!(
+            sessions.create(Protocol::Serial),
+            Err(ErrorCode::CapacityExceeded)
+        );
+    }
+}
