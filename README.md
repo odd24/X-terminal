@@ -63,3 +63,5 @@ P08.1 已有独立 SQLite 配置存储与真实临时数据库测试：`cargo te
 P08.2 已有 Windows 用户级 DPAPI/AES-GCM 凭据库：`cargo test -p credential-vault --locked`，只用合成秘密验证真实保护 API、跨进程重开与篡改拒绝。配置服务与桌面凭据流程仍待 P08.3，见 [ADR-009](docs/decisions/ADR-009.md)。
 
 `npm run desktop:build` 同时构建相邻的 session-service.exe。直接运行 `target/debug/shared-terminal-desktop.exe` 默认不启用合成接口；追加 `--test-fixture` 可手动新建合成会话。键盘合成回显和高输出均通过同一服务，页面重载从保留游标重新呈现；输出覆盖会明确报缺口。退出桌面会停止服务，当前没有后台保留选项（P12 后续实现）。服务不可用时不自动重连/重放，退出后重新启动会得到全新服务；不能把重载当作重连。启动失败请检查相邻服务文件与普通用户权限，当前不提供安装包。
+
+P08.3 已有 Desktop 专用配置 IPC 后端、有界工作线程和明确配置故障；当前桌面尚未传入数据目录/提供编辑器。进展与主机密钥/导出/备份恢复等剩余项见 [P08.3](docs/records/P08.3.md)。

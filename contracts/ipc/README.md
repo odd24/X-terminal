@@ -14,6 +14,8 @@ Hello 包含 protocol_version=1、1–64 UTF-8 字节的非控制字符 client_n
 
 当前 Request：ping/list/read、桌面签发/撤销观察票据、显式测试 fixture 的 create/append/reconnect/close/remove、桌面 shutdown。fixture API 默认不可用，不打开设备；真实设备操作在后续步骤通过统一服务/调度接入。没有“默认当前 UI 标签”目标。
 
+P08.3 开发增量加入 config 请求，只有 active Desktop 可用，Observer 查/写均拒。包括分页、目录/Profile 保存删除；SaveProfile 输入无 credential_ref，凭据 Keep/Clear/Replace 由服务查旧引用或分配新 ID，没有读秘密操作。ConfigReply 错误为固定类别，不包含秘密/SQL/路径。每页最多 64 项，后续页必须携带 revision，修改/重启后 Conflict；不能将不同 revision 拼为快照。配置需本地启动参数 --data-dir 绝对路径显式启用，缺省 Unsupported；IPC 不收任意文件路径。详见 [ADR-010](../../docs/decisions/ADR-010.md)，桌面/主机密钥/备份恢复仍在实施。
+
 read 的 connection 必须明确 connection_id/generation；cursor 为下一事件序号、起点 1，max_bytes 4096–65536。响应 OutputPage 包含该连接代次、原始 bytes 事件、next_cursor、available_from、truncated 和 disconnected。覆盖导致缺口时客户端必须显示并重新建立解码状态，不能悄悄将截断控制序列接在一起。新代次重置事件序号，旧游标不能跨代次复用。
 
 观察票据限 30 分钟、绑定精确连接代次，撤销/到期必须逐请求重新校验；P14 再加入生产 Agent 写权限。当前契约是本地开发 v1，不表示 P15 MCP 工具或所有设备能力已经完成。

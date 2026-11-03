@@ -1,4 +1,5 @@
 //! Length-prefixed, strictly typed, local session IPC v1.
+pub mod config;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use session_core::{PROTOCOL_VERSION, session::*};
@@ -88,6 +89,9 @@ pub struct RequestEnvelope {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Config {
+        request: config::ConfigRequest,
+    },
     Ping {},
     List {},
     Read {
@@ -121,6 +125,9 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
+            Self::Config { request } if !request.validate() => {
+                return Err(ErrorCode::InvalidArgument);
+            }
             Self::Read {
                 connection,
                 cursor,
@@ -172,6 +179,7 @@ impl Request {
     deny_unknown_fields
 )]
 pub enum Reply {
+    Config(config::ConfigReply),
     Welcome(Welcome),
     Pong {
         service_id: Uuid,

@@ -22,11 +22,21 @@ impl Fixture {
         Self::on_instance(instance, fixture).await
     }
     async fn on_instance(instance: String, fixture: bool) -> Self {
+        Self::on_instance_with_data(instance, fixture, None).await
+    }
+    async fn on_instance_with_data(
+        instance: String,
+        fixture: bool,
+        directory: Option<&std::path::Path>,
+    ) -> Self {
         let token = SecretToken::generate();
         let mut command = Command::new(env!("CARGO_BIN_EXE_session-service"));
         command.args(["--instance", &instance]);
         if fixture {
             command.arg("--test-fixture");
+        }
+        if let Some(directory) = directory {
+            command.arg("--data-dir").arg(directory);
         }
         let mut child = command
             .creation_flags(0x08000000)
@@ -522,4 +532,500 @@ async fn service_crash_drops_client_and_restart_does_not_restore_state_or_ticket
         std::io::ErrorKind::PermissionDenied
     );
     restarted.stop(&mut new_desktop).await;
+}
+
+struct ConfigTemp(std::path::PathBuf);
+impl ConfigTemp {
+    fn new() -> Self {
+        let path =
+            std::env::temp_dir().join(format!("shared-terminal-service-config-{}", Uuid::new_v4()));
+        std::fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+    async fn start(&self) -> Fixture {
+        Fixture::on_instance_with_data(Uuid::new_v4().to_string(), true, Some(&self.0)).await
+    }
+}
+impl Drop for ConfigTemp {
+    fn drop(&mut self) {
+        assert_eq!(self.0.parent(), Some(std::env::temp_dir().as_path()));
+        for _ in 0..100 {
+            if std::fs::remove_dir_all(&self.0).is_ok() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("isolated test directory cleanup failed");
+    }
+}
+async fn config_call(client: &mut Client, request: config::ConfigRequest) -> config::ConfigReply {
+    match ok(client.request(Request::Config { request }).await.unwrap()) {
+        Reply::Config(reply) => reply,
+        _ => panic!("expected config response"),
+    }
+}
+fn portable() -> config_store::PortableProfile {
+    config_store::PortableProfile {
+        id: Uuid::new_v4(),
+        folder_id: None,
+        name: "synthetic SSH".into(),
+        settings: config_store::Settings::Ssh2 {
+            host: "example.invalid".into(),
+            port: 22,
+            username: "synthetic".into(),
+            auth: config_store::Auth::Password,
+            encoding: config_store::Encoding::Utf8,
+        },
+    }
+}
+fn replace_password(value: &str) -> config::CredentialEdit {
+    config::CredentialEdit::Replace {
+        value: config::CredentialBundle {
+            password: Some(Sensitive::new(value.into())),
+            private_key: None,
+            passphrase: None,
+        },
+    }
+}
+#[tokio::test]
+async fn config_persists_across_service_processes_and_credentials_are_only_references() {
+    use config::{ConfigReply as C, ConfigRequest as Q, CredentialEdit as E};
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let profile = portable();
+    let C::SavedProfile {
+        profile: saved,
+        revision,
+    } = config_call(
+        &mut client,
+        Q::SaveProfile {
+            profile: profile.clone(),
+            credential: replace_password("synthetic protected value"),
+        },
+    )
+    .await
+    else {
+        panic!("save failed")
+    };
+    assert!(saved.credential_ref.is_some());
+    let page = config_call(
+        &mut client,
+        Q::Page {
+            revision: Some(revision),
+            offset: 0,
+            folders: false,
+        },
+    )
+    .await;
+    assert!(
+        !serde_json::to_string(&page)
+            .unwrap()
+            .contains("synthetic protected value")
+    );
+    assert!(
+        !format!("{:?}", replace_password("synthetic protected value"))
+            .contains("synthetic protected value")
+    );
+    // A failed profile link must keep the old profile/secret and remove only the new orphan.
+    let mut invalid = profile.clone();
+    invalid.folder_id = Some(Uuid::new_v4());
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::SaveProfile {
+                profile: invalid,
+                credential: replace_password("failed synthetic replacement")
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Invalid
+        }
+    ));
+    let conn = rusqlite::Connection::open(temp.0.join("credentials.sqlite")).unwrap();
+    assert_eq!(
+        conn.query_row::<i64, _, _>("SELECT count(*) FROM credentials", [], |row| row.get(0))
+            .unwrap(),
+        1
+    );
+    drop(conn);
+    let vault = credential_vault::Vault::open(&temp.0.join("credentials.sqlite")).unwrap();
+    assert!(
+        vault
+            .get(saved.credential_ref.unwrap())
+            .unwrap()
+            .expose()
+            .windows(b"synthetic protected value".len())
+            .any(|part| part == b"synthetic protected value")
+    );
+    drop(vault);
+    service.stop(&mut client).await;
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::Page {
+                revision: Some(revision),
+                offset: 0,
+                folders: false
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Conflict
+        }
+    ));
+    let C::Page { profiles, .. } = config_call(
+        &mut client,
+        Q::Page {
+            revision: None,
+            offset: 0,
+            folders: false,
+        },
+    )
+    .await
+    else {
+        panic!("page failed")
+    };
+    assert_eq!(profiles, vec![saved.clone()]);
+    let C::SavedProfile { profile: kept, .. } = config_call(
+        &mut client,
+        Q::SaveProfile {
+            profile: profile.clone(),
+            credential: E::Keep {},
+        },
+    )
+    .await
+    else {
+        panic!("keep failed")
+    };
+    assert_eq!(kept.credential_ref, saved.credential_ref);
+    let C::SavedProfile {
+        profile: cleared, ..
+    } = config_call(
+        &mut client,
+        Q::SaveProfile {
+            profile: profile.clone(),
+            credential: E::Clear {},
+        },
+    )
+    .await
+    else {
+        panic!("clear failed")
+    };
+    assert!(cleared.credential_ref.is_none());
+    assert!(matches!(
+        config_call(&mut client, Q::DeleteProfile { id: profile.id }).await,
+        C::Updated { .. }
+    ));
+    service.stop(&mut client).await;
+}
+
+#[tokio::test]
+async fn config_observers_are_denied_and_revision_pages_are_bounded() {
+    use config::{ConfigReply as C, ConfigRequest as Q, CredentialEdit as E};
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let fixture = match ok(client.request(Request::CreateFixture {}).await.unwrap()) {
+        Reply::Connection(info) => info.reference(),
+        _ => panic!(),
+    };
+    let ticket = match ok(client
+        .request(Request::IssueRead {
+            scopes: vec![fixture],
+            lifetime_ms: 10000,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::ReadTicket { token, .. } => token,
+        _ => panic!(),
+    };
+    let mut observer = Client::connect(&service.instance, ticket.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    for request in [
+        Q::Page {
+            revision: None,
+            offset: 0,
+            folders: false,
+        },
+        Q::SaveProfile {
+            profile: portable(),
+            credential: E::Keep {},
+        },
+    ] {
+        assert!(matches!(
+            observer.request(Request::Config { request }).await.unwrap(),
+            Response::Error {
+                code: ErrorCode::PermissionDenied,
+                ..
+            }
+        ));
+    }
+    for _ in 0..65 {
+        assert!(matches!(
+            config_call(
+                &mut client,
+                Q::SaveProfile {
+                    profile: portable(),
+                    credential: E::Keep {}
+                }
+            )
+            .await,
+            C::SavedProfile { .. }
+        ));
+    }
+    let C::Page {
+        revision,
+        profiles,
+        next_offset,
+        ..
+    } = config_call(
+        &mut client,
+        Q::Page {
+            revision: None,
+            offset: 0,
+            folders: false,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(profiles.len(), 64);
+    assert_eq!(next_offset, Some(64));
+    let C::Page {
+        profiles,
+        next_offset,
+        ..
+    } = config_call(
+        &mut client,
+        Q::Page {
+            revision: Some(revision),
+            offset: 64,
+            folders: false,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(profiles.len(), 1);
+    assert!(next_offset.is_none());
+    config_call(
+        &mut client,
+        Q::SaveFolder {
+            folder: config_store::Folder {
+                id: Uuid::new_v4(),
+                parent_id: None,
+                name: "folder".into(),
+            },
+        },
+    )
+    .await;
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::Page {
+                revision: Some(revision),
+                offset: 64,
+                folders: false
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Conflict
+        }
+    ));
+    service.stop(&mut client).await;
+}
+
+#[tokio::test]
+async fn configuration_owner_lock_and_unknown_schema_are_diagnosed_without_overwrite() {
+    use config::{ConfigError, ConfigReply as C, ConfigRequest as Q};
+    let temp = ConfigTemp::new();
+    let mut first = temp.start().await;
+    let mut a = first.connect().await;
+    assert!(matches!(
+        config_call(
+            &mut a,
+            Q::Page {
+                revision: None,
+                offset: 0,
+                folders: false
+            }
+        )
+        .await,
+        C::Page { .. }
+    ));
+    let mut second = temp.start().await;
+    let mut b = second.connect().await;
+    assert!(matches!(
+        config_call(
+            &mut b,
+            Q::Page {
+                revision: None,
+                offset: 0,
+                folders: false
+            }
+        )
+        .await,
+        C::Error {
+            code: ConfigError::Locked
+        }
+    ));
+    second.stop(&mut b).await;
+    first.stop(&mut a).await;
+    let path = temp.0.join("config.sqlite");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("PRAGMA user_version=99").unwrap();
+    drop(conn);
+    let before = std::fs::read(&path).unwrap();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::Page {
+                revision: None,
+                offset: 0,
+                folders: false
+            }
+        )
+        .await,
+        C::Error {
+            code: ConfigError::UnsupportedSchema
+        }
+    ));
+    assert!(matches!(
+        ok(client.request(Request::Ping {}).await.unwrap()),
+        Reply::Pong { .. }
+    ));
+    service.stop(&mut client).await;
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    std::fs::write(&path, b"synthetic corrupted config").unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::Page {
+                revision: None,
+                offset: 0,
+                folders: false
+            }
+        )
+        .await,
+        C::Error {
+            code: ConfigError::Corrupt
+        }
+    ));
+    service.stop(&mut client).await;
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[tokio::test]
+async fn blocked_configuration_has_a_bounded_queue_and_does_not_block_session_ping() {
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            config::ConfigRequest::Page {
+                revision: None,
+                offset: 0,
+                folders: false
+            }
+        )
+        .await,
+        config::ConfigReply::Page { .. }
+    ));
+    let blocker = rusqlite::Connection::open(temp.0.join("config.sqlite")).unwrap();
+    blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let mut clients = Vec::new();
+    for _ in 0..20 {
+        clients.push(service.connect().await);
+    }
+    let mut tasks = tokio::task::JoinSet::new();
+    for mut client in clients {
+        tasks.spawn(async move {
+            client
+                .request(Request::Config {
+                    request: config::ConfigRequest::SaveFolder {
+                        folder: config_store::Folder {
+                            id: Uuid::new_v4(),
+                            parent_id: None,
+                            name: "queued synthetic folder".into(),
+                        },
+                    },
+                })
+                .await
+                .unwrap()
+        });
+    }
+    let first = timeout(Duration::from_secs(1), tasks.join_next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(
+            first,
+            Response::Error {
+                code: ErrorCode::CapacityExceeded,
+                ..
+            }
+        ),
+        "bounded actor must reject overload while DB is busy"
+    );
+    assert!(matches!(
+        timeout(Duration::from_secs(1), desktop.request(Request::Ping {}))
+            .await
+            .unwrap()
+            .unwrap(),
+        Response::Ok {
+            reply: Reply::Pong { .. },
+            ..
+        }
+    ));
+    blocker.execute_batch("ROLLBACK").unwrap();
+    drop(blocker);
+    let mut rejected = 1;
+    let mut accepted = 0;
+    while let Some(response) = tasks.join_next().await {
+        match response.unwrap() {
+            Response::Error {
+                code: ErrorCode::CapacityExceeded,
+                ..
+            } => rejected += 1,
+            Response::Ok {
+                reply: Reply::Config(config::ConfigReply::Updated { .. }),
+                ..
+            } => accepted += 1,
+            other => panic!("unexpected queue result: {other:?}"),
+        }
+    }
+    assert!(rejected >= 3);
+    assert_eq!(accepted + rejected, 20);
+    let config::ConfigReply::Page { folders, .. } = config_call(
+        &mut desktop,
+        config::ConfigRequest::Page {
+            revision: None,
+            offset: 0,
+            folders: true,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(folders.len(), accepted);
+    service.stop(&mut desktop).await;
 }

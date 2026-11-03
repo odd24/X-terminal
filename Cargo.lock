@@ -497,9 +497,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "config-model"
+version = "0.1.0"
+dependencies = [
+ "schemars 1.2.3",
+ "serde",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
 name = "config-store"
 version = "0.1.0"
 dependencies = [
+ "config-model",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3985,6 +3996,7 @@ dependencies = [
 name = "session-protocol"
 version = "0.1.0"
 dependencies = [
+ "config-model",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -3998,6 +4010,9 @@ dependencies = [
 name = "session-service"
 version = "0.1.0"
 dependencies = [
+ "config-store",
+ "credential-vault",
+ "rusqlite",
  "serde",
  "serde_json",
  "session-core",

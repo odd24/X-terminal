@@ -23,6 +23,7 @@ struct Store {
     pairing: Pairing,
 }
 struct Runtime {
+    config: crate::config::ConfigWorker,
     store: Mutex<Store>,
     service_id: Uuid,
     started: Instant,
@@ -30,6 +31,21 @@ struct Runtime {
     shutdown: watch::Sender<bool>,
 }
 impl Runtime {
+    async fn handle_config(
+        &self,
+        identity: &Identity,
+        request: config::ConfigRequest,
+    ) -> Result<Reply, ErrorCode> {
+        if !request.validate() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            store.pairing.require_active(identity, self.now())?;
+            store.pairing.require_desktop(identity, self.now())?;
+        }
+        self.config.request(request).await.map(Reply::Config)
+    }
     fn now(&self) -> u64 {
         self.started.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
@@ -201,7 +217,11 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
             _ = shutdown.changed() => return Ok(()),
             frame = timeout(Duration::from_secs(30), read_frame(&mut pipe)) => match frame.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "idle client timeout"))?? { Some(value) => value, None => return Ok(()) }
         };
-        let response = match runtime.handle(&identity, request.request) {
+        let result = match request.request {
+            Request::Config { request } => runtime.handle_config(&identity, request).await,
+            request => runtime.handle(&identity, request),
+        };
+        let response = match result {
             Ok(reply) => Response::Ok {
                 id: request.id,
                 reply,
@@ -216,6 +236,14 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
 }
 
 pub async fn serve(instance: &str, bootstrap: SecretToken, fixture: bool) -> io::Result<()> {
+    serve_with_config(instance, bootstrap, fixture, None).await
+}
+pub async fn serve_with_config(
+    instance: &str,
+    bootstrap: SecretToken,
+    fixture: bool,
+    directory: Option<std::path::PathBuf>,
+) -> io::Result<()> {
     require_standard_user()?;
     let security = PipeSecurity::current_user()?;
     let name = pipe_name(instance)?;
@@ -223,6 +251,7 @@ pub async fn serve(instance: &str, bootstrap: SecretToken, fixture: bool) -> io:
     let mut listener = security.create(&name, true)?;
     let (shutdown, mut stopping) = watch::channel(false);
     let runtime = Arc::new(Runtime {
+        config: crate::config::ConfigWorker::start(directory)?,
         store: Mutex::new(Store {
             sessions: Sessions::default(),
             pairing: Pairing::new(&bootstrap),
@@ -262,5 +291,8 @@ pub async fn serve(instance: &str, bootstrap: SecretToken, fixture: bool) -> io:
     .await;
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
+    let runtime = Arc::try_unwrap(runtime)
+        .map_err(|_| io::Error::other("session tasks still own runtime"))?;
+    runtime.config.close().await?;
     Ok(())
 }

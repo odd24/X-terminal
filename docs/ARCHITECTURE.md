@@ -33,6 +33,8 @@ Tauri 桌面 / React + xterm.js       Codex
 
 SQLite 保存结构化配置；Windows Credential Manager/DPAPI 保存秘密；滚动日志单独存储。前端不能持有私钥明文或绕过服务直接操作连接。
 
+P08.3 后端阶段已将配置模型提取至 config-model，由服务专用 OS 线程独占 SQLite/DPAPI，16 条有界队列；active Desktop 专用配置 IPC 不返回已保存秘密。当前仅显式 --data-dir 启用，桌面编辑器/主机密钥/备份恢复仍在实施，见 [ADR-010](decisions/ADR-010.md)。前端新输入的凭据仅提交到服务，不提供读取已保存秘密接口。
+
 ## 规划目录（P01 以后创建）
 
 ```text

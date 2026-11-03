@@ -30,6 +30,122 @@
   },
   "request": {
     "$defs": {
+      "Auth": {
+        "enum": [
+          "password",
+          "public_key",
+          "keyboard_interactive"
+        ],
+        "type": "string"
+      },
+      "ConfigRequest": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "folders": {
+                "type": "boolean"
+              },
+              "offset": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "page",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "offset",
+              "folders"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "folder": {
+                "$ref": "#/$defs/Folder"
+              },
+              "op": {
+                "const": "save_folder",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "folder"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "delete_folder",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "credential": {
+                "$ref": "#/$defs/CredentialEdit"
+              },
+              "op": {
+                "const": "save_profile",
+                "type": "string"
+              },
+              "profile": {
+                "$ref": "#/$defs/PortableProfile"
+              }
+            },
+            "required": [
+              "op",
+              "profile",
+              "credential"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "delete_profile",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ConnectionId": {
         "format": "uuid",
         "type": "string"
@@ -52,8 +168,185 @@
         ],
         "type": "object"
       },
+      "CredentialBundle": {
+        "additionalProperties": false,
+        "properties": {
+          "passphrase": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Sensitive"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "password": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Sensitive"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "private_key": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Sensitive"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "CredentialEdit": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "keep",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "clear",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "replace",
+                "type": "string"
+              },
+              "value": {
+                "$ref": "#/$defs/CredentialBundle"
+              }
+            },
+            "required": [
+              "action",
+              "value"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Encoding": {
+        "enum": [
+          "utf8",
+          "gbk",
+          "gb18030"
+        ],
+        "type": "string"
+      },
+      "Flow": {
+        "enum": [
+          "none",
+          "software",
+          "hardware"
+        ],
+        "type": "string"
+      },
+      "Folder": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "Parity": {
+        "enum": [
+          "none",
+          "odd",
+          "even"
+        ],
+        "type": "string"
+      },
+      "PortableProfile": {
+        "additionalProperties": false,
+        "description": "Portable export intentionally has no credential_ref field.",
+        "properties": {
+          "folder_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/$defs/Settings"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "settings"
+        ],
+        "type": "object"
+      },
       "Request": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "config",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/$defs/ConfigRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -258,6 +551,144 @@
             "type": "object"
           }
         ]
+      },
+      "Sensitive": {
+        "type": "string"
+      },
+      "Settings": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "auth": {
+                "$ref": "#/$defs/Auth"
+              },
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
+              "host": {
+                "type": "string"
+              },
+              "port": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "protocol": {
+                "const": "ssh2",
+                "type": "string"
+              },
+              "username": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "protocol",
+              "host",
+              "port",
+              "username",
+              "auth",
+              "encoding"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
+              "explicitly_enabled": {
+                "type": "boolean"
+              },
+              "host": {
+                "type": "string"
+              },
+              "port": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "protocol": {
+                "const": "ssh1",
+                "type": "string"
+              },
+              "username": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "protocol",
+              "host",
+              "port",
+              "username",
+              "explicitly_enabled",
+              "encoding"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "baud_rate": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "data_bits": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "dtr_on_open": {
+                "type": "boolean"
+              },
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
+              "flow": {
+                "$ref": "#/$defs/Flow"
+              },
+              "parity": {
+                "$ref": "#/$defs/Parity"
+              },
+              "port": {
+                "type": "string"
+              },
+              "protocol": {
+                "const": "serial",
+                "type": "string"
+              },
+              "rts_on_open": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "stop_bits": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "protocol",
+              "port",
+              "baud_rate",
+              "data_bits",
+              "stop_bits",
+              "parity",
+              "flow",
+              "dtr_on_open",
+              "encoding"
+            ],
+            "type": "object"
+          }
+        ]
       }
     },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -281,12 +712,134 @@
   },
   "response": {
     "$defs": {
+      "Auth": {
+        "enum": [
+          "password",
+          "public_key",
+          "keyboard_interactive"
+        ],
+        "type": "string"
+      },
       "ClientKind": {
         "enum": [
           "desktop",
           "observer"
         ],
         "type": "string"
+      },
+      "ConfigError": {
+        "enum": [
+          "INVALID",
+          "NOT_FOUND",
+          "CONFLICT",
+          "STORAGE",
+          "UNSUPPORTED_SCHEMA",
+          "CORRUPT",
+          "CREDENTIAL_UNAVAILABLE",
+          "LOCKED"
+        ],
+        "type": "string"
+      },
+      "ConfigReply": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "folders": {
+                "items": {
+                  "$ref": "#/$defs/Folder"
+                },
+                "type": "array"
+              },
+              "next_offset": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "profiles": {
+                "items": {
+                  "$ref": "#/$defs/Profile"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "page",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "revision",
+              "folders",
+              "profiles"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "profile": {
+                "$ref": "#/$defs/Profile"
+              },
+              "result": {
+                "const": "saved_profile",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "profile",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "result": {
+                "const": "updated",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ConfigError"
+              },
+              "result": {
+                "const": "error",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "code"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ConnectionId": {
         "format": "uuid",
@@ -336,6 +889,14 @@
         ],
         "type": "object"
       },
+      "Encoding": {
+        "enum": [
+          "utf8",
+          "gbk",
+          "gb18030"
+        ],
+        "type": "string"
+      },
       "ErrorCode": {
         "enum": [
           "INVALID_ARGUMENT",
@@ -350,6 +911,38 @@
           "AUTH_REQUIRED"
         ],
         "type": "string"
+      },
+      "Flow": {
+        "enum": [
+          "none",
+          "software",
+          "hardware"
+        ],
+        "type": "string"
+      },
+      "Folder": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
       },
       "OutputEvent": {
         "additionalProperties": false,
@@ -420,6 +1013,49 @@
         ],
         "type": "object"
       },
+      "Parity": {
+        "enum": [
+          "none",
+          "odd",
+          "even"
+        ],
+        "type": "string"
+      },
+      "Profile": {
+        "additionalProperties": false,
+        "properties": {
+          "credential_ref": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "folder_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/$defs/Settings"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "settings"
+        ],
+        "type": "object"
+      },
       "Protocol": {
         "enum": [
           "SSH1",
@@ -431,6 +1067,23 @@
       },
       "Reply": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/ConfigReply"
+              },
+              "type": {
+                "const": "config",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -589,6 +1242,141 @@
       },
       "Sensitive": {
         "type": "string"
+      },
+      "Settings": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "auth": {
+                "$ref": "#/$defs/Auth"
+              },
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
+              "host": {
+                "type": "string"
+              },
+              "port": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "protocol": {
+                "const": "ssh2",
+                "type": "string"
+              },
+              "username": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "protocol",
+              "host",
+              "port",
+              "username",
+              "auth",
+              "encoding"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
+              "explicitly_enabled": {
+                "type": "boolean"
+              },
+              "host": {
+                "type": "string"
+              },
+              "port": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "protocol": {
+                "const": "ssh1",
+                "type": "string"
+              },
+              "username": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "protocol",
+              "host",
+              "port",
+              "username",
+              "explicitly_enabled",
+              "encoding"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "baud_rate": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "data_bits": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "dtr_on_open": {
+                "type": "boolean"
+              },
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
+              "flow": {
+                "$ref": "#/$defs/Flow"
+              },
+              "parity": {
+                "$ref": "#/$defs/Parity"
+              },
+              "port": {
+                "type": "string"
+              },
+              "protocol": {
+                "const": "serial",
+                "type": "string"
+              },
+              "rts_on_open": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "stop_bits": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "protocol",
+              "port",
+              "baud_rate",
+              "data_bits",
+              "stop_bits",
+              "parity",
+              "flow",
+              "dtr_on_open",
+              "encoding"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "State": {
         "enum": [

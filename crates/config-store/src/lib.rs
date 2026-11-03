@@ -13,6 +13,8 @@ pub const SCHEMA_VERSION: i64 = 2;
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(transparent)]
+    Validation(#[from] config_model::ValidationError),
     #[error("configuration database operation failed")]
     Sql(#[from] rusqlite::Error),
     #[error("configuration file operation failed")]
@@ -225,6 +227,34 @@ impl Store {
     }
     pub fn delete_profile(&mut self, id: Uuid) -> Result<()> {
         delete(&self.connection, "DELETE FROM profiles WHERE id=?1", id)
+    }
+    pub fn profile(&self, id: Uuid) -> Result<Option<Profile>> {
+        use rusqlite::OptionalExtension;
+        let row = self
+            .connection
+            .query_row(
+                "SELECT folder_id,name,credential_ref,settings FROM profiles WHERE id=?1",
+                [id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        row.map(|(folder, name, credential, settings)| {
+            Ok(Profile {
+                id,
+                folder_id: folder.map(|v| parse_id(&v)).transpose()?,
+                name,
+                credential_ref: credential.map(|v| parse_id(&v)).transpose()?,
+                settings: serde_json::from_str(&settings)?,
+            })
+        })
+        .transpose()
     }
     pub fn delete_folder(&mut self, id: Uuid) -> Result<()> {
         delete(&self.connection, "DELETE FROM folders WHERE id=?1", id)

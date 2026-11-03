@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+config-model = { path = "../config-model" }
 session-core = { path = "../session-core" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
