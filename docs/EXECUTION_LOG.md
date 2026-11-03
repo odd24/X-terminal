@@ -1,6 +1,6 @@
 # 执行台账
 
-更新：2026-11-03（Asia/Shanghai）。当前阶段：P01/P02 完成；P03 回环 SSH2 协议通过、P04 SSH1 banner 探针通过，相关完整验收阻塞；尚无用户可用的真实连接功能。P05 枚举/逻辑与 P06 mock/实际 CLI 客户端互通已完成相应验证。下一步：登记用户“后续验收”的开发准入变更。
+更新：2026-11-03（Asia/Shanghai）。P01/P02/P06 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。下一步：P07。
 
 DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变更管理](CHANGE_CONTROL.md)。Pxx 记录在开始该步骤时创建，不预填产品测试结果。
 
@@ -8,6 +8,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 |---|---|---|---|---|
 | D01 | 需求/架构/25 步计划 | DONE | [D01](records/D01.md) | cd395c3 / Step-ID: D01 |
 | D02 | AGENTS/治理/台账/模板/文档校验 | DONE | [D02](records/D02.md) | Step-ID: D02 |
+| D03 | 实机后验收与独立开发准入 CR-001 | DONE | [D03](records/D03.md) | Step-ID: D03 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
@@ -38,7 +39,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 
 | 门 | 状态 | 证据 |
 |---|---|---|
-| G0 | TODO | 尚未技术验证 |
+| G0 | TODO | P01/P02/P06 已验证；P03–P05 完整验收未齐。[CR-001](changes/CR-001.md) 允许独立软件开发先行，不代表本门通过 |
 | G1 | TODO | 尚未基础应用 |
 | G2 | TODO | 尚未真实 Codex 接入 |
 | G3 | TODO | 尚未效率工具 |
