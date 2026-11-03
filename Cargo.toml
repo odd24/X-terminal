@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop/src-tauri", "crates/session-core"]
+members = ["apps/desktop/src-tauri", "crates/session-core", "crates/transport-ssh2"]
 resolver = "2"
 
 [workspace.package]

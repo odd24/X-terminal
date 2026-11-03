@@ -1,0 +1,14 @@
+[package]
+name = "transport-ssh2"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+russh = { version = "=0.65.0", default-features = false, features = ["ring", "rsa", "flate2"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "net", "time", "macros", "sync", "io-util", "process"] }
+anyhow = "=1.0.104"
+
+[dev-dependencies]
+rand = "=0.10.3"

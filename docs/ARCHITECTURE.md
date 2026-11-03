@@ -4,6 +4,8 @@
 
 P02 渲染/增量解码与候选屏幕范围见 [ADR-005](decisions/ADR-005.md)：合成样本通过，vt100 resize/reflow 差异仍开放，服务 screen 不宣称与 UI 完全一致。
 
+P03 SSH2 候选见 [ADR-002](decisions/ADR-002.md)（PROPOSED）：russh 回环协议已验证，真实端点、完整认证/算法矩阵及服务整合尚未完成。
+
 ## 分层
 
 ```text
