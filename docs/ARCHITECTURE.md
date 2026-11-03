@@ -12,7 +12,7 @@ P05 串口候选见 [ADR-006](decisions/ADR-006.md)（PROPOSED）：原生枚举
 
 P06 mock SDK/stdio 见 [ADR-004](decisions/ADR-004.md)：rmcp 3.8.0 与实际 Codex CLI 客户端互通通过；Named Pipe、配对、统一服务和真实会话仍未实现。
 
-P07.1 已建立协议中立领域/内存配对身份与 [IPC v1](../contracts/ipc/README.md)，P07.2 已验证原生 ACL/独立服务与跨进程共享状态，见 [ADR-007](decisions/ADR-007.md)；P07.3 桌面生命周期尚待完成。真实传输仍未接入服务。
+P07.1 已建立协议中立领域/内存配对身份与 [IPC v1](../contracts/ipc/README.md)，P07.2 已验证原生 ACL/独立服务与跨进程共享状态，P07.3 已验证桌面持有服务、页面暂停/重载及正常/异常退出，见 [ADR-007](decisions/ADR-007.md)。真实传输仍未接入服务。
 
 ## 分层
 

@@ -17,11 +17,11 @@
     "lint": "npm run lint --workspace apps/desktop",
     "test": "node --test tests/terminal-writer.test.mjs",
     "test:screen": "node scripts/Compare-Screens.mjs",
-    "test:desktop": "node scripts/Smoke-Desktop.mjs --terminal",
+    "test:desktop": "node scripts/Test-Desktop-Service.mjs",
     "test:mcp": "node scripts/Test-Mcp.mjs",
     "test:codex-mcp": "node scripts/Test-Codex-Mcp.mjs",
-    "desktop": "npm run tauri --workspace apps/desktop -- dev",
-    "desktop:build": "npm run tauri --workspace apps/desktop -- build --debug --no-bundle"
+    "desktop": "cargo build -p session-service --locked && npm run tauri --workspace apps/desktop -- dev",
+    "desktop:build": "cargo build -p session-service --locked && npm run tauri --workspace apps/desktop -- build --debug --no-bundle"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.4",

@@ -3983,8 +3983,15 @@ dependencies = [
 name = "shared-terminal-desktop"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "session-core",
+ "session-protocol",
+ "session-service",
  "tauri",
  "tauri-build",
+ "tokio",
+ "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

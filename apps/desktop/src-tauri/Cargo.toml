@@ -10,3 +10,10 @@ tauri-build = { version = "=2.7.4", features = [] }
 
 [dependencies]
 tauri = { version = "=2.12.5", features = [] }
+session-core = { path = "../../../crates/session-core" }
+session-protocol = { path = "../../../crates/session-protocol" }
+session-service = { path = "../../../crates/session-service" }
+tokio = { version = "=1.54.1", features = ["process", "sync", "time", "io-util"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+uuid = { version = "=1.29.0", features = ["v4", "serde"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }

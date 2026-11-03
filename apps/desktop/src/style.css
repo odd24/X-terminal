@@ -5,7 +5,8 @@ main { max-width: 1400px; padding: 24px 32px; margin: auto; }
 h1 { font-size: 26px; font-weight: 600; margin: 12px 0; }
 p { color: #a9b8c9; line-height: 1.5; margin: 12px 0; }
 nav { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 20px 0; }
-button, input { background: #203044; border: 1px solid #425670; color: #e7edf5; border-radius: 6px; padding: 8px 12px; font: inherit; }
+button, input, select { background: #203044; border: 1px solid #425670; color: #e7edf5; border-radius: 6px; padding: 8px 12px; font: inherit; }
+button:disabled { opacity: .5; cursor: default; }
 button { cursor: pointer; }
 button:hover { background: #30465e; }
 button:focus-visible, input:focus-visible { outline: 2px solid #84d9ca; }

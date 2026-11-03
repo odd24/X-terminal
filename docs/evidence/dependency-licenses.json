@@ -3816,6 +3816,13 @@
   },
   {
     "ecosystem": "npm",
+    "name": "@tauri-apps/api",
+    "version": "2.12.4",
+    "license": "Apache-2.0 OR MIT",
+    "source": "https://registry.npmjs.org/@tauri-apps/api/-/api-2.12.4.tgz"
+  },
+  {
+    "ecosystem": "npm",
     "name": "@tauri-apps/cli-win32-x64-msvc",
     "version": "2.12.4",
     "license": "Apache-2.0 OR MIT",

@@ -2,7 +2,7 @@
 
 面向 SSH/串口调试、延续 Xshell 使用习惯、支持 Codex 通过 MCP 协作的 Windows 桌面终端。
 
-当前状态：**P02 合成终端渲染原型**。原生桌面已构建启动，支持合成回放和本地键盘验证；尚无 SSH、串口和 Codex 会话功能。验证与完成状态见执行台账。
+当前状态：**P07 桌面/独立会话服务整合**。原生桌面通过受限 Named Pipe 共享合成会话，重载保留输出，服务故障明确反馈；尚无生产 SSH、串口和 Codex 会话功能。验证与完成状态见执行台账。
 
 ## 执行入口
 
@@ -56,4 +56,6 @@ P05 可用 `cargo run -p transport-serial --example enumerate` 只读列举端�
 
 P06 已有只读 mock MCP 原型与真实 Codex CLI app-server 客户端互通测试，使用隔离配置、无模型推理，不修改全局设置。它不访问实际会话，见 [P06](docs/records/P06.md)。
 
-P07.1/P07.2 已增加协议中立状态机、有界原始输出、内存只读票据与 [IPC v1](contracts/ipc/README.md)，以及受限 Windows Named Pipe 服务。可运行 `cargo test -p session-core -p session-protocol -p session-service --locked`；原生 ACL/跨进程测试已通过，桌面整合仍待 P07.3，不代表实际设备会话已接入。
+P07 已增加协议中立状态机、有界原始输出、内存只读票据与 [IPC v1](contracts/ipc/README.md)，以及受限 Windows Named Pipe 服务。可运行 `cargo test -p session-core -p session-protocol -p session-service --locked`；桌面启动、原生 ACL/跨进程、页面暂停/重载、退出/崩溃已验证，不代表实际设备会话已接入。
+
+`npm run desktop:build` 同时构建相邻的 session-service.exe。直接运行 `target/debug/shared-terminal-desktop.exe` 默认不启用合成接口；追加 `--test-fixture` 可手动新建合成会话。键盘合成回显和高输出均通过同一服务，页面重载从保留游标重新呈现；输出覆盖会明确报缺口。退出桌面会停止服务，当前没有后台保留选项（P12 后续实现）。服务不可用时不自动重连/重放，退出后重新启动会得到全新服务；不能把重载当作重连。启动失败请检查相邻服务文件与普通用户权限，当前不提供安装包。
