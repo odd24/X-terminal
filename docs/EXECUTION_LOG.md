@@ -1,6 +1,6 @@
 # 执行台账
 
-更新：2026-11-03（Asia/Shanghai）。当前阶段：P01/P02 完成，P03 回环 SSH2 协议通过、真实端点项阻塞；尚无用户可用的真实连接功能。下一步：P04/P05/P06。
+更新：2026-11-03（Asia/Shanghai）。当前阶段：P01/P02 完成；P03 回环 SSH2 协议通过、P04 SSH1 banner 探针通过，相关完整验收阻塞；尚无用户可用的真实连接功能。下一步：P05/P06。
 
 DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变更管理](CHANGE_CONTROL.md)。Pxx 记录在开始该步骤时创建，不预填产品测试结果。
 
@@ -11,7 +11,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
-| P04 | SSH1 兼容试验 | TODO | 待创建 | — |
+| P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
 | P05 | 串口底层试验 | TODO | 待创建 | — |
 | P06 | Codex MCP 最小贯通 | TODO | 待创建 | — |
 | P07 | 会话服务与 IPC | TODO | 待创建 | — |
@@ -46,4 +46,4 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 
 ## 当前问题
 
-真实设备/服务器参数、SSH1 样本、UNIX 范围和 Codex 客户端策略待实施阶段核对。它们不阻塞 P01 本地环境调查，但会阻塞相关实机验收。
+真实设备/服务器参数、SSH1 样本、UNIX 范围和 Codex 客户端策略待核对。P03 真实端点测试未执行；P04 还缺少可传递 resize/安全凭据的完整 Windows SSH1 适配器，原版 Plink 管道不能满足。继续 P05/P06，不能跨越 G0。

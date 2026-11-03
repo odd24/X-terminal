@@ -6,6 +6,8 @@ P02 渲染/增量解码与候选屏幕范围见 [ADR-005](decisions/ADR-005.md)�
 
 P03 SSH2 候选见 [ADR-002](decisions/ADR-002.md)（PROPOSED）：russh 回环协议已验证，真实端点、完整认证/算法矩阵及服务整合尚未完成。
 
+P04 SSH1 见 [ADR-003](decisions/ADR-003.md)（PROPOSED）：Plink 0.85 仅通过启动/banner/无自动切换探针；Windows 原版缺少 resize 路径，独立 helper 和真实握手仍待完成。
+
 ## 分层
 
 ```text
