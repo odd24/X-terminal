@@ -2,7 +2,7 @@
 
 面向 SSH/串口调试、延续 Xshell 使用习惯、支持 Codex 通过 MCP 协作的 Windows 桌面终端。
 
-当前状态：**P01 桌面骨架已构建启动**。已建立 React/Tauri/Rust workspace；尚无 SSH、串口和 Codex 会话功能。验证与完成状态见执行台账。
+当前状态：**P02 合成终端渲染原型**。原生桌面已构建启动，支持合成回放和本地键盘验证；尚无 SSH、串口和 Codex 会话功能。验证与完成状态见执行台账。
 
 ## 执行入口
 
@@ -32,12 +32,15 @@ Node 24.14.0 / npm 11.9.0；Rust 1.99.1 MSVC（rust-toolchain.toml）；MSVC 与
 npm ci --ignore-scripts
 npm run lint
 npm run build
+npm test
+npm run test:screen
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 npm run desktop
 # 生成本地调试版桌面可执行文件，不打安装包
 npm run desktop:build
+npm run test:desktop
 ```
 
 仓库本地 Rust 存放在被忽略的 .tools 目录，其他开发机可以使用已安装的 rustup；Enter-Toolchain 仅在本地工具存在时切换。安装依赖后可用 `node scripts/Dependency-Licenses.mjs --cargo` 更新依赖许可元数据。产品代码许可尚未确定，当前 workspace 标为 LicenseRef-Proprietary；不暗示获得第三方分发权。安装发布留待 P25。

@@ -2,6 +2,8 @@
 
 状态：P01 桌面与构建版本见 [ADR-001](decisions/ADR-001.md)；传输/渲染/IPC/SDK 仍须经过 P02–P06 试验。不要把候选库写成已验证实现。
 
+P02 渲染/增量解码与候选屏幕范围见 [ADR-005](decisions/ADR-005.md)：合成样本通过，vt100 resize/reflow 差异仍开放，服务 screen 不宣称与 UI 完全一致。
+
 ## 分层
 
 ```text

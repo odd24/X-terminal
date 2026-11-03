@@ -65,10 +65,13 @@ P01 建立的实际命令如下（执行结果见步骤记录，不以命令存�
 npm ci --ignore-scripts
 npm run lint
 npm run build
+npm test
+npm run test:screen
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 npm run desktop:build
+npm run test:desktop
 ```
 
 `npm run lint` 当前为 TypeScript 严格类型检查。P01 无业务单元用例，不以零用例测试宣称功能通过。`npm run desktop` 启动开发窗口。代码变更执行受影响的格式/静态/单元/集成检查；协议、调度、权限和迁移必须有实质测试。仅文档变更做文档检查，不为文字修改编写镜像测试。

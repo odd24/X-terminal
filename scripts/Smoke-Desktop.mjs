@@ -18,6 +18,7 @@ const app = spawn(path.resolve('target/debug/shared-terminal-desktop.exe'), [], 
 let startupError;
 app.on('error', error => { startupError = error; });
 let socket;
+const terminalMode = process.argv.includes('--terminal');
 try {
   let target;
   const deadline = Date.now() + 20_000;
@@ -60,10 +61,60 @@ try {
   }
   assert.match(text, /你的连接，同一个会话/);
   assert.match(text, /尚无活动连接/);
+  if (terminalMode) {
+    const evaluate = async expression => {
+      const result = await command('Runtime.evaluate', { expression, returnByValue: true });
+      if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+      return result.result.value;
+    };
+    const click = label => evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === ${JSON.stringify(label)}).click()`);
+    const waitFor = async expression => {
+      for (let attempt = 0; attempt < 300; attempt++) {
+        if (await evaluate(expression)) return;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      console.error(await evaluate('document.body.innerText'));
+      const failureImage = await command('Page.captureScreenshot', { format: 'png' });
+      await mkdir('artifacts', { recursive: true });
+      await writeFile('artifacts/P02-failure.png', Buffer.from(failureImage.data, 'base64'));
+      throw new Error(`UI condition timeout: ${expression}`);
+    };
+    await waitFor(`document.querySelector('[role=status]').textContent === '合成回放完成'`);
+    await click('逐字节回放');
+    await waitFor(`document.querySelector('[role=status]').textContent === '逐字节合成回放中'`);
+    await waitFor(`document.querySelector('[role=status]').textContent === '合成回放完成'`);
+    await click('屏幕快照');
+    await waitFor(`document.querySelector('pre')?.textContent.includes('中文宽字')`);
+    assert.equal(await evaluate(`document.querySelector('pre').textContent.includes('替代屏幕')`), false, 'alternate screen must restore');
+    await click('高输出回放');
+    await waitFor(`document.querySelector('[role=status]').textContent === '高输出合成回放中'`);
+    await evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
+    const latency = [];
+    let duringOutput = 0;
+    for (let index = 0; index < 20; index++) {
+      const key = index % 2 ? 'b' : 'a';
+      if (await evaluate(`document.querySelector('[role=status]').textContent.includes('回放中')`)) duringOutput++;
+      const start = performance.now();
+      await command('Input.dispatchKeyEvent', { type: 'keyDown', key, text: key, windowsVirtualKeyCode: key.toUpperCase().charCodeAt(0) });
+      await command('Input.dispatchKeyEvent', { type: 'keyUp', key, windowsVirtualKeyCode: key.toUpperCase().charCodeAt(0) });
+      await waitFor(`document.querySelector('.input-status output').textContent === ${JSON.stringify(JSON.stringify(key))}`);
+      latency.push(performance.now() - start);
+    }
+    assert.ok(duringOutput > 0, 'keyboard must be exercised while output is active');
+    await click('停止');
+    await waitFor(`document.querySelector('[role=status]').textContent.includes('已停止')`);
+    await evaluate(`const size = document.querySelector('input[aria-label="字号"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(size, '18'); size.dispatchEvent(new Event('input', { bubbles: true }));`);
+    await waitFor(`document.querySelector('input[aria-label="字号"]').value === '18'`);
+    latency.sort((a, b) => a - b);
+    await mkdir('artifacts', { recursive: true });
+    await writeFile('artifacts/P02-ui-result.json', JSON.stringify({ result: 'PASS', keyboardEvents: 20, duringOutput, localInputP95Ms: latency[18], note: 'single synthetic desktop; not P22 performance acceptance' }, null, 2));
+    console.log(`PASS: bytewise replay, alternate screen restore, keyboard during output (${duringOutput}/20), stop and font control; observed P95 ${latency[18].toFixed(1)} ms`);
+  }
   const screenshot = await command('Page.captureScreenshot', { format: 'png' });
   await mkdir('artifacts', { recursive: true });
-  await writeFile('artifacts/P01-desktop.png', Buffer.from(screenshot.data, 'base64'));
-  console.log('PASS: native desktop WebView loaded Chinese React content; screenshot artifacts/P01-desktop.png');
+  const screenshotPath = terminalMode ? 'artifacts/P02-desktop.png' : 'artifacts/P01-desktop.png';
+  await writeFile(screenshotPath, Buffer.from(screenshot.data, 'base64'));
+  console.log(`PASS: native desktop WebView loaded Chinese React content; screenshot ${screenshotPath}`);
 } finally {
   socket?.close();
   app.kill();

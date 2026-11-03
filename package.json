@@ -4,14 +4,25 @@
   "version": "0.1.0",
   "type": "module",
   "packageManager": "npm@11.9.0",
-  "engines": { "node": "24.14.0", "npm": "11.9.0" },
-  "workspaces": ["apps/desktop"],
+  "engines": {
+    "node": "24.14.0",
+    "npm": "11.9.0"
+  },
+  "workspaces": [
+    "apps/desktop"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace apps/desktop",
     "build": "npm run build --workspace apps/desktop",
     "lint": "npm run lint --workspace apps/desktop",
+    "test": "node --test tests/terminal-writer.test.mjs",
+    "test:screen": "node scripts/Compare-Screens.mjs",
+    "test:desktop": "node scripts/Smoke-Desktop.mjs --terminal",
     "desktop": "npm run tauri --workspace apps/desktop -- dev",
     "desktop:build": "npm run tauri --workspace apps/desktop -- build --debug --no-bundle"
   },
-  "devDependencies": { "@tauri-apps/cli": "2.12.4" }
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
+    "@xterm/headless": "6.0.0"
+  }
 }

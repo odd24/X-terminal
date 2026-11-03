@@ -1,0 +1,8 @@
+[
+  { "name": "utf8-ansi-bytewise", "cols": 40, "rows": 8, "text": "Hello\r\n中文宽字\r\n\u001b[31mRED\u001b[0m\r\n", "chunkSizes": [1], "contains": "中文宽字" },
+  { "name": "cursor-erase", "cols": 40, "rows": 8, "text": "abcdef\rXY\u001b[K\r\nsecond\u001b[2;1HSECOND", "chunkSizes": [2, 1, 3], "contains": "SECOND" },
+  { "name": "alternate-active", "cols": 40, "rows": 8, "text": "normal\u001b[?1049h\u001b[2J\u001b[Halternate中文", "chunkSizes": [1, 4, 2], "contains": "alternate中文" },
+  { "name": "alternate-restored", "cols": 40, "rows": 8, "text": "normal\u001b[?1049h\u001b[2J\u001b[Htemporary\u001b[?1049l", "chunkSizes": [1], "contains": "normal" },
+  { "name": "wrapping-scroll", "cols": 12, "rows": 4, "text": "12345678901234\r\n中文ABCD\r\nthird\r\nfourth\r\nfifth", "chunkSizes": [3, 2, 1], "contains": "fifth" },
+  { "name": "resize-reflow-gap", "cols": 12, "rows": 4, "text": "abcdefghijklmnop\r\nnext", "chunkSizes": [1], "contains": "abcdef", "resize": { "rows": 4, "cols": 6 }, "expectDifference": true }
+]

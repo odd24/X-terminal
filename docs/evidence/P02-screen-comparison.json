@@ -1,0 +1,128 @@
+[
+  {
+    "xterm": {
+      "name": "utf8-ansi-bytewise",
+      "contents": "Hello\n中文宽字\nRED",
+      "cursor": [
+        3,
+        0
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "Hello\n中文宽字\nRED",
+      "cursor": [
+        3,
+        0
+      ],
+      "name": "utf8-ansi-bytewise"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "cursor-erase",
+      "contents": "XY\nSECOND",
+      "cursor": [
+        1,
+        6
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "XY\nSECOND",
+      "cursor": [
+        1,
+        6
+      ],
+      "name": "cursor-erase"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "alternate-active",
+      "contents": "alternate中文",
+      "cursor": [
+        0,
+        13
+      ],
+      "alternate": true
+    },
+    "vt100": {
+      "alternate": true,
+      "contents": "alternate中文",
+      "cursor": [
+        0,
+        13
+      ],
+      "name": "alternate-active"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "alternate-restored",
+      "contents": "normal",
+      "cursor": [
+        0,
+        6
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "normal",
+      "cursor": [
+        0,
+        6
+      ],
+      "name": "alternate-restored"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "wrapping-scroll",
+      "contents": "中文ABCD\nthird\nfourth\nfifth",
+      "cursor": [
+        3,
+        5
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "中文ABCD\nthird\nfourth\nfifth",
+      "cursor": [
+        3,
+        5
+      ],
+      "name": "wrapping-scroll"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "resize-reflow-gap",
+      "contents": "abcdef\nghijkl\nmnop\nnext",
+      "cursor": [
+        3,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nnext",
+      "cursor": [
+        2,
+        4
+      ],
+      "name": "resize-reflow-gap"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  }
+]

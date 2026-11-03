@@ -43,6 +43,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "arrayvec",
+    "version": "0.7.8",
+    "license": "MIT OR Apache-2.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "atk-sys",
     "version": "0.18.2",
     "license": "MIT",
@@ -270,6 +277,13 @@
     "name": "cookie",
     "version": "0.18.2",
     "license": "MIT OR Apache-2.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "core_detect",
+    "version": "1.0.0",
+    "license": "MIT/Apache-2.0",
     "source": "registry+https://github.com/rust-lang/crates.io-index"
   },
   {
@@ -529,6 +543,13 @@
     "name": "embed-resource",
     "version": "3.0.12",
     "license": "MIT",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "encoding_rs",
+    "version": "0.8.44",
+    "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
     "source": "registry+https://github.com/rust-lang/crates.io-index"
   },
   {
@@ -1254,6 +1275,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "multiversion_no_op",
+    "version": "1.0.0",
+    "license": "Apache-2.0 OR MIT",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "ndk-context",
     "version": "0.1.1",
     "license": "MIT OR Apache-2.0",
@@ -1919,6 +1947,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "simdutf8",
+    "version": "0.1.5",
+    "license": "MIT OR Apache-2.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "siphasher",
     "version": "1.0.4",
     "license": "MIT OR Apache-2.0",
@@ -2360,6 +2395,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "unicode-width",
+    "version": "0.2.3",
+    "license": "MIT OR Apache-2.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "url",
     "version": "2.5.8",
     "license": "MIT OR Apache-2.0",
@@ -2419,6 +2461,20 @@
     "name": "vswhom",
     "version": "0.1.0",
     "license": "MIT",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "vt100",
+    "version": "0.18.1",
+    "license": "MIT",
+    "source": "registry+https://github.com/rust-lang/crates.io-index"
+  },
+  {
+    "ecosystem": "cargo",
+    "name": "vte",
+    "version": "0.15.0",
+    "license": "Apache-2.0 OR MIT",
     "source": "registry+https://github.com/rust-lang/crates.io-index"
   },
   {
@@ -2917,6 +2973,27 @@
     "version": "6.2.1",
     "license": "MIT",
     "source": "https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-6.2.1.tgz"
+  },
+  {
+    "ecosystem": "npm",
+    "name": "@xterm/addon-fit",
+    "version": "0.11.0",
+    "license": "MIT",
+    "source": "https://registry.npmjs.org/@xterm/addon-fit/-/addon-fit-0.11.0.tgz"
+  },
+  {
+    "ecosystem": "npm",
+    "name": "@xterm/headless",
+    "version": "6.0.0",
+    "license": "MIT",
+    "source": "https://registry.npmjs.org/@xterm/headless/-/headless-6.0.0.tgz"
+  },
+  {
+    "ecosystem": "npm",
+    "name": "@xterm/xterm",
+    "version": "6.0.0",
+    "license": "MIT",
+    "source": "https://registry.npmjs.org/@xterm/xterm/-/xterm-6.0.0.tgz"
   },
   {
     "ecosystem": "npm",

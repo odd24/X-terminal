@@ -1,9 +1,18 @@
 :root { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #e7edf5; background: #101720; font-synthesis: none; }
 body { margin: 0; }
-main { max-width: 840px; padding: 72px 48px; margin: auto; }
-.eyebrow { color: #84d9ca; font-size: 14px; letter-spacing: 2px; }
-h1 { font-size: 38px; font-weight: 600; margin: 24px 0; }
-p { color: #a9b8c9; line-height: 1.8; }
-section { border: 1px solid #314054; border-radius: 12px; padding: 28px; margin: 48px 0; background: #17222e; }
-h2 { font-size: 19px; margin-top: 0; }
-footer { color: #8294a9; font-size: 13px; }
+main { max-width: 1400px; padding: 24px 32px; margin: auto; }
+.eyebrow { color: #84d9ca; font-size: 13px; letter-spacing: 2px; }
+h1 { font-size: 26px; font-weight: 600; margin: 12px 0; }
+p { color: #a9b8c9; line-height: 1.5; margin: 12px 0; }
+nav { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 20px 0; }
+button, input { background: #203044; border: 1px solid #425670; color: #e7edf5; border-radius: 6px; padding: 8px 12px; font: inherit; }
+button { cursor: pointer; }
+button:hover { background: #30465e; }
+button:focus-visible, input:focus-visible { outline: 2px solid #84d9ca; }
+input { width: 50px; }
+label { color: #a9b8c9; font-size: 14px; }
+.terminal { box-sizing: border-box; overflow: hidden; height: 390px; border: 1px solid #314054; padding: 12px; border-radius: 8px; }
+.terminal > .xterm { height: 100%; }
+.status { margin: 12px 0 6px; color: #84d9ca; }
+.input-status, footer { color: #8294a9; font-size: 13px; margin: 8px 0; }
+pre { max-height: 220px; overflow: auto; white-space: pre-wrap; background: #17222e; padding: 16px; }

@@ -1,6 +1,6 @@
 # 执行台账
 
-更新：2026-11-03（Asia/Shanghai）。当前阶段：P01 桌面骨架与工具链完成，尚无真实连接能力。下一步：P02。
+更新：2026-11-03（Asia/Shanghai）。当前阶段：P01/P02 桌面骨架与合成渲染验证完成，尚无真实连接能力。下一步：P03。
 
 DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变更管理](CHANGE_CONTROL.md)。Pxx 记录在开始该步骤时创建，不预填产品测试结果。
 
@@ -9,7 +9,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | D01 | 需求/架构/25 步计划 | DONE | [D01](records/D01.md) | cd395c3 / Step-ID: D01 |
 | D02 | AGENTS/治理/台账/模板/文档校验 | DONE | [D02](records/D02.md) | Step-ID: D02 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
-| P02 | 终端渲染与输出原型 | TODO | 待创建 | — |
+| P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | TODO | 待创建 | — |
 | P04 | SSH1 兼容试验 | TODO | 待创建 | — |
 | P05 | 串口底层试验 | TODO | 待创建 | — |

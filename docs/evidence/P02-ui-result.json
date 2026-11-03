@@ -1,0 +1,7 @@
+{
+  "result": "PASS",
+  "keyboardEvents": 20,
+  "duringOutput": 20,
+  "localInputP95Ms": 4.796000000000049,
+  "note": "single synthetic desktop; not P22 performance acceptance"
+}
