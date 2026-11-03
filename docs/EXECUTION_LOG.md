@@ -1,6 +1,6 @@
 # 执行台账
 
-更新：2026-11-04（Asia/Shanghai）。P01/P02/P06 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。P07.1–P07.3 子步骤完成，父步骤待汇总提交；下一步：P08 配置与凭据。
+更新：2026-11-04（Asia/Shanghai）。P01/P02/P06/P07 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。下一步：P08 配置与凭据。
 
 DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变更管理](CHANGE_CONTROL.md)。Pxx 记录在开始该步骤时创建，不预填产品测试结果。
 
@@ -15,7 +15,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
 | P05 | 串口底层试验 | BLOCKED | [P05](records/P05.md) | Step-ID: P05 |
 | P06 | Codex MCP 最小贯通 | DONE | [P06](records/P06.md) | Step-ID: P06 |
-| P07 | 会话服务与 IPC | IN_PROGRESS | 待子步骤完成后汇总 | — |
+| P07 | 会话服务与 IPC | DONE | [P07](records/P07.md) | Step-ID: P07 |
 | P07.1 | 会话领域与 IPC 契约 | DONE | [P07.1](records/P07.1.md) | Step-ID: P07.1 |
 | P07.2 | Windows 受限服务与 Named Pipe | DONE | [P07.2](records/P07.2.md) | Step-ID: P07.2 |
 | P07.3 | 桌面共享服务生命周期 | DONE | [P07.3](records/P07.3.md) | Step-ID: P07.3 |
@@ -50,4 +50,4 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 
 ## 当前问题
 
-真实设备/服务器参数、SSH1 样本、UNIX 范围和 Codex 客户端策略待核对。P03 真实端点测试未执行；P04 还缺少可传递 resize/安全凭据的完整 Windows SSH1 适配器，原版 Plink 管道不能满足。P05/P06 已有记录；按 CR-001 继续 P07 独立软件实现，G0 完整验收仍未通过。
+真实设备/服务器参数、SSH1 样本、UNIX 范围和 Codex 客户端策略待核对。P03 真实端点测试未执行；P04 还缺少可传递 resize/安全凭据的完整 Windows SSH1 适配器，原版 Plink 管道不能满足。P07 的协议中立服务/桌面合成会话已验证，真实传输、后台选择、持久配置、完整 Agent 授权仍留后续步骤。按 CR-001 继续 P08 独立软件实现，G0 完整验收仍未通过。
