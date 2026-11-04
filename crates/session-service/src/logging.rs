@@ -392,12 +392,18 @@ impl Manager {
                     false,
                 )?)))
             }
-            Request::List { connection } => {
+            request @ (Request::List { .. } | Request::CaptureList {}) => {
+                let connection = match request {
+                    Request::List { connection } => Some(connection),
+                    _ => None,
+                };
                 let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
                 let mut logs = inner
                     .entries
                     .values()
-                    .filter(|entry| entry.metadata.connection == connection)
+                    .filter(|entry| {
+                        connection.is_none_or(|target| entry.metadata.connection == target)
+                    })
                     .map(|entry| {
                         let id = entry.logger.status().log_id;
                         self.info(

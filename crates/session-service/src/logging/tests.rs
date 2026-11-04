@@ -112,6 +112,48 @@ async fn failed_without_directory(
     id
 }
 #[tokio::test]
+async fn capture_inventory_finds_directoryless_failures_after_reconnect_and_connection_removal() {
+    let temp = Temp::new();
+    let blocked = temp.0.join("合成失败根");
+    std::fs::write(&blocked, b"keep").unwrap();
+    let config = crate::config::ConfigWorker::start(Some(temp.0.clone())).unwrap();
+    let store = Store::test_store();
+    let manager = Manager::new(store.clone(), config.access()).unwrap();
+    let original = connection(&store);
+    let id = failed_without_directory(&manager, &blocked, original, Uuid::new_v4()).await;
+    {
+        let mut store = store.lock().unwrap();
+        store.sessions.transition(original, State::Failed).unwrap();
+        let next = store.sessions.begin_connect(original).unwrap().reference();
+        store.sessions.transition(next, State::Connected).unwrap();
+        store.sessions.transition(next, State::Failed).unwrap();
+        store.sessions.remove(next).unwrap();
+    }
+    let Reply::List { logs } = manager.handle(Request::CaptureList {}).await.unwrap() else {
+        panic!()
+    };
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].log_id, id);
+    assert_eq!(logs[0].connection, original);
+    assert!(!logs[0].active);
+    assert!(matches!(logs[0].phase, wire::Phase::Failed));
+    manager
+        .handle(Request::ReleaseFailed {
+            connection: logs[0].connection,
+            log_id: id,
+        })
+        .await
+        .unwrap();
+    let Reply::List { logs } = manager.handle(Request::CaptureList {}).await.unwrap() else {
+        panic!()
+    };
+    assert!(matches!(logs[0].phase, wire::Phase::Released));
+    assert!(!blocked.join(id.to_string()).exists());
+    assert_eq!(std::fs::read(blocked).unwrap(), b"keep");
+    manager.close().await.unwrap();
+    config.close().await.unwrap();
+}
+#[tokio::test]
 async fn release_failed_without_a_directory_preserves_failure_and_never_detaches_a_new_capture() {
     let temp = Temp::new();
     let blocked = temp.0.join("合成不可用目录");

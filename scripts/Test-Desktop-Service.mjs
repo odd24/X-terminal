@@ -77,6 +77,7 @@ async function launch(fixture, killDesktop = false) {
     }
     if (!fixture) {
       assert.equal(await evaluate(`window.__TAURI_INTERNALS__.invoke('fixture_create').then(() => false, () => true)`), true);
+      for(const action of ['reconnect','close','remove']) assert.equal(await evaluate(`window.__TAURI_INTERNALS__.invoke('fixture_lifecycle',{connection:{connection_id:'11111111-1111-4111-8111-111111111111',generation:1},action:${JSON.stringify(action)}}).then(()=>false,error=>error==='FIXTURE_DISABLED')`),true);
       assert.equal(await evaluate(`document.body.innerText.includes('新建合成会话')`), false);
       // Actual native window close exercises RunEvent::Exit and orderly shutdown.
       await evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.textContent === '退出桌面').click()`);

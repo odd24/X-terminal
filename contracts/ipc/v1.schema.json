@@ -1082,6 +1082,19 @@
           {
             "additionalProperties": false,
             "properties": {
+              "op": {
+                "const": "capture_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },

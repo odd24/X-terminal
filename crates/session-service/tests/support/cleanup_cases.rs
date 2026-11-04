@@ -18,6 +18,58 @@ fn cleanup_temp() -> ConfigTemp {
     ConfigTemp(path)
 }
 #[tokio::test]
+async fn capture_inventory_survives_connection_reconnect_and_removal_but_not_service_restart() {
+    let temp = cleanup_temp();
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let connection = reference(ok(client.request(Request::CreateFixture {}).await.unwrap()));
+    let captured = capture(&mut client, connection, Uuid::new_v4()).await;
+    let next = reference(ok(client
+        .request(Request::ReconnectFixture { connection })
+        .await
+        .unwrap()));
+    ok(client
+        .request(Request::CloseFixture { connection: next })
+        .await
+        .unwrap());
+    ok(client
+        .request(Request::RemoveFixture { connection: next })
+        .await
+        .unwrap());
+    let log::Reply::List { logs } = call(&mut client, L::CaptureList {}).await else {
+        panic!()
+    };
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].log_id, captured.log_id);
+    assert_eq!(logs[0].connection, connection);
+    assert!(!logs[0].active);
+    let expected = std::fs::read(
+        temp.0
+            .join("terminal-logs")
+            .join(captured.log_id.to_string())
+            .join("completion.json"),
+    )
+    .unwrap();
+    fixture.stop(&mut client).await;
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let log::Reply::List { logs } = call(&mut client, L::CaptureList {}).await else {
+        panic!()
+    };
+    assert!(logs.is_empty());
+    assert_eq!(
+        std::fs::read(
+            temp.0
+                .join("terminal-logs")
+                .join(captured.log_id.to_string())
+                .join("completion.json")
+        )
+        .unwrap(),
+        expected
+    );
+    fixture.stop(&mut client).await;
+}
+#[tokio::test]
 async fn release_failed_is_desktop_scoped_metadata_only_and_does_not_detach_a_new_capture() {
     let temp = cleanup_temp();
     let mut fixture = temp.start().await;
@@ -62,6 +114,17 @@ async fn release_failed_is_desktop_scoped_metadata_only_and_does_not_detach_a_ne
         .await
         .unwrap()
         .0;
+    assert_eq!(
+        error(
+            observer
+                .request(Request::Logging {
+                    request: L::CaptureList {}
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
     assert_eq!(
         error(
             observer

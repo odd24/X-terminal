@@ -108,7 +108,7 @@ P11.4历史界面新增 npm run test:desktop:history（前置桌面构建），�
 
 P11.4清理界面新增 npm run test:desktop:cleanup（前置桌面构建），完整回归包含。只清理自建中文前缀临时目录；验证独立目标、占用拒绝、显式勾选/取消、真实租期、应答丢失后仅查询及关闭迟到释放。APPLIED不等于完整成功，核对实际删除计数/目录/失败；不可撤销已删除前缀，重载不恢复确认。
 
-P11.4失败关联维护使用release_failed与RELEASED，仅已结束FAILED，按ConnectionRef/log_id幂等解除，未删除任何文件。不要把它当作REMOVED、失败前缀恢复或物理容量已释放；旧Start仍去重/退休，不因回收而重放。npm run test:desktop:logging覆盖实际维护入口与丢应答轮询；无目录失败的确定性服务组合测试与已有目录失败的IPC/GUI证据分开记录。
+P11.4失败关联维护使用release_failed与RELEASED，仅已结束FAILED，按ConnectionRef/log_id幂等解除，未删除任何文件。capture_list提供本次最多64项跨连接/旧代次清单，独立维护不跟随活动连接；重启不重建回执。不要把它当作REMOVED、失败前缀恢复或物理容量已释放；旧Start仍去重/退休，不因回收而重放。npm run test:desktop:logging覆盖实际维护入口与丢应答后原目标查询、重连/移除后无活动连接维护；无目录失败的确定性服务组合测试与已有目录失败的IPC/GUI证据分开记录。新增合成生命周期命令只在--test-fixture下有效，普通桌面专项必须逐项拒绝，不提供通用RPC。
 
 P11.4受管理导出任务扩展test:desktop:logging：验证专用Tauri通道的export_start/status/cancel和真实暂存产物，不代表用户保存按钮/自选位置已完成。导出队列8/回执64，磁盘尝试8/每份256MiB；失败partial保留，不自动清理或覆盖。涉及格式/文件策略继续运行terminal-log测试及严格clippy，任务权限/去重须有真实Windows IPC证据。
 

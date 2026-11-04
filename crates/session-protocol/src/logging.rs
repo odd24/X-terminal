@@ -28,6 +28,7 @@ pub enum Request {
     List {
         connection: ConnectionRef,
     },
+    CaptureList {},
     Status {
         connection: ConnectionRef,
         log_id: Uuid,
@@ -102,6 +103,7 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         let connection = match self {
+            Self::CaptureList {} => return true,
             Self::CleanupList { .. } => return true,
             Self::CleanupPreview { id, preview_id, .. }
             | Self::CleanupStatus { id, preview_id, .. }
@@ -361,6 +363,42 @@ pub enum Reply {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn capture_inventory_is_strict_and_full_registry_with_maximum_counters_fits_ipc() {
+        assert!(Request::CaptureList {}.validate());
+        for key in ["connection", "path", "role", "limit"] {
+            let mut v = serde_json::json!({"op":"capture_list"});
+            v[key] = true.into();
+            assert!(serde_json::from_value::<Request>(v).is_err());
+        }
+        let mut v = serde_json::json!({"log_id":Uuid::new_v4(),"connection":{"connection_id":Uuid::new_v4(),"generation":u64::MAX},"protocol":"SSH2","encoding":"gb18030","phase":"FAILED","failure":"WORKER_PANICKED","active":false,"durable":false,"worker_finished":true,"natural_end":false,"limits":{"segment_bytes":104857600,"segments":16}});
+        for key in [
+            "started_at_ms",
+            "source_cursor",
+            "text_cursor",
+            "accepted_records",
+            "written_records",
+            "accepted_raw_bytes",
+            "written_raw_bytes",
+            "rejected_records",
+            "rejected_raw_bytes",
+            "source_gap_bytes",
+            "first_retained_segment",
+            "last_segment",
+            "retired_segments",
+        ] {
+            v[key] = u64::MAX.into();
+        }
+        let info: Info = serde_json::from_value(v).unwrap();
+        assert!(
+            serde_json::to_vec(&Reply::List {
+                logs: vec![info; 64]
+            })
+            .unwrap()
+            .len()
+                < crate::MAX_FRAME / 2
+        );
+    }
     #[test]
     fn release_failed_requires_exact_capture_scope_and_cannot_take_file_options() {
         let value = serde_json::json!({"op":"release_failed","connection":{"connection_id":Uuid::new_v4(),"generation":3},"log_id":Uuid::new_v4()});

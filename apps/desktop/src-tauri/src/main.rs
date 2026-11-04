@@ -234,6 +234,36 @@ async fn fixture_append(
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FixtureAction {
+    Reconnect,
+    Close,
+    Remove,
+}
+#[tauri::command]
+async fn fixture_lifecycle(
+    state: State<'_, Desktop>,
+    connection: ConnectionRef,
+    action: FixtureAction,
+) -> Result<Option<ConnectionInfo>, String> {
+    let mut state = state.0.lock().await;
+    let service = state.as_mut().map_err(|e| e.clone())?;
+    if !service.fixture {
+        return Err("FIXTURE_DISABLED".into());
+    }
+    let request = match action {
+        FixtureAction::Reconnect => Request::ReconnectFixture { connection },
+        FixtureAction::Close => Request::CloseFixture { connection },
+        FixtureAction::Remove => Request::RemoveFixture { connection },
+    };
+    match service.request(request).await? {
+        Reply::Connection(connection) => Ok(Some(connection)),
+        Reply::Ok => Ok(None),
+        _ => Err("INVALID_REPLY".into()),
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let fixture = args.iter().any(|arg| arg == "--test-fixture");
@@ -299,6 +329,7 @@ fn main() {
             serial_request,
             fixture_create,
             fixture_append,
+            fixture_lifecycle,
             config_request,
             logging_request,
             config_directory
