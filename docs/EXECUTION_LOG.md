@@ -10,6 +10,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | D02 | AGENTS/治理/台账/模板/文档校验 | DONE | [D02](records/D02.md) | Step-ID: D02 |
 | D03 | 实机后验收与独立开发准入 CR-001 | DONE | [D03](records/D03.md) | Step-ID: D03 |
 | D04 | 现代简洁界面与全局样式/字体统一规则 CR-002 | DONE | [D04](records/D04.md) | Step-ID: D04 |
+| D04.1 | 常用 Xshell 界面操作参考与验收细化 | DONE | [D04.1](records/D04.1.md) | Step-ID: D04.1 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
