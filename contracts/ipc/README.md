@@ -35,3 +35,9 @@ P09 开发增量加入 ssh 请求：Start(profile_id/request_id/cols/rows)、Sta
 P09 输入增量：ssh/write、resize、input_status 都要求 connection_id/generation/request_id，仅 Desktop；Write 的 bytes 是最多 65536 项非空字节数组，Debug 脱敏。相同 request_id/相同内容返回已有回执，不再次发送；内容或动作冲突拒绝；队列满 CapacityExceeded 且不登记已接受。Input 回复的 request_id/state/pipeline_bytes/failure 不带输入内容。
 
 状态包括 PENDING、DISPATCHING、PIPELINE_QUEUED、UNKNOWN、CANCELLED_BEFORE_DISPATCH。PIPELINE_QUEUED 只表示 SSH pipeline 接收了调用，绝不表示远端执行；resize 的 pipeline_bytes 为 null。UNKNOWN 可能已有部分字节发送，关闭/超时不重放；尚未调用底层的队列项为 CANCELLED_BEFORE_DISPATCH。可在关闭后查询既有回执；旧代次拒绝。每代最多 1024 回执且不淘汰，长期策略留 P14/P22，详见 [ADR-015](../../docs/decisions/ADR-015.md)。
+
+P09 exec 增量：exec、exec_status、exec_read、exec_cancel。启动输入 connection_id/generation/request_id、敏感 command、timeout_ms(1–86400000)、max_output_bytes(1–1048576)，命令至多 64 KiB、非空/无 NUL；相同 ID/参数返回同 task_id，动作/参数冲突拒绝。全部仅 active Desktop，现有 Observer shell 票据不授权任务输出。
+
+任务为 QUEUED/RUNNING/CANCELLING/FINISHED；状态和输出回复均带明确连接/task_id。exec_read 从 cursor=1 开始，每次 4096–65536 bytes，上限 64 KiB/128 事件的独立 stdout/stderr 缓冲覆盖时 truncated=true 并给 available_from，不混入交互 shell 输出。摘要单独保存 exit_status/exit_signal/request_accepted（可能 null）、总输出字节和结束原因；非零 code=7 也可为 COMPLETED，缺码/超时/取消/断线不伪造 code=0。CANCELLED_BEFORE_DISPATCH 才表示未派发，其余取消不承诺远端动作撤销。exec 不继承交互 shell cwd/环境。
+
+启动走相同服务 FIFO，派发后独立运行。活动上限每连接 4/全局 16，保留结果每连接 16/全局 64，不淘汰去重证据；满额 CapacityExceeded。长期清理/容量及 Agent 权限/任务体验仍待后续，详见 [ADR-016](../../docs/decisions/ADR-016.md)。

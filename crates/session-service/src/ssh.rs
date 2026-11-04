@@ -1,4 +1,5 @@
 //! Service-owned SSH2 actors. Public control messages never carry private key bytes.
+mod exec;
 use crate::{
     config::{Access, Internal, Value},
     server::Store,
@@ -31,6 +32,7 @@ struct Start {
     rows: u32,
 }
 struct Entry {
+    exec: exec::Tasks,
     writable: watch::Sender<bool>,
     commands: Option<mpsc::Sender<QueuedInput>>,
     receipts: Receipts,
@@ -44,12 +46,14 @@ struct Entry {
     task: Option<JoinHandle<()>>,
 }
 enum Input {
+    Exec(exec::Queued),
     Write(session_protocol::SensitiveBytes),
     Resize { cols: u32, rows: u32 },
 }
 impl Input {
     fn fingerprint(&self) -> Fingerprint {
         match self {
+            Self::Exec(queued) => queued.fingerprint(),
             Self::Write(bytes) => Fingerprint::write(bytes.expose()),
             Self::Resize { cols, rows } => Fingerprint::resize(*cols, *rows),
         }
@@ -98,6 +102,33 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Exec {
+                connection,
+                request_id,
+                command,
+                timeout_ms,
+                max_output_bytes,
+            } => self.start_exec(
+                connection,
+                request_id,
+                command,
+                timeout_ms,
+                max_output_bytes,
+            ),
+            ssh::Request::ExecStatus {
+                connection,
+                task_id,
+            } => self.exec_status(connection, task_id, false),
+            ssh::Request::ExecCancel {
+                connection,
+                task_id,
+            } => self.exec_status(connection, task_id, true),
+            ssh::Request::ExecRead {
+                connection,
+                task_id,
+                cursor,
+                max_bytes,
+            } => self.exec_read(connection, task_id, cursor, max_bytes),
             ssh::Request::Write {
                 connection,
                 request_id,
@@ -170,6 +201,7 @@ impl Manager {
                 inner.entries.insert(
                     connection.connection_id,
                     Entry {
+                        exec: exec::Tasks::default(),
                         writable: watch::channel(false).0,
                         commands: None,
                         receipts: Receipts::default(),
@@ -234,6 +266,7 @@ impl Manager {
                     .get_mut(&connection.connection_id)
                     .ok_or(ErrorCode::NotFound)?;
                 entry.cancel.cancel();
+                entry.exec.finish_all(true);
                 entry.commands = None;
                 entry.receipts.connection_lost(InputFailure::Cancelled);
                 entry.answer = None;
@@ -287,6 +320,9 @@ impl Manager {
             .get_mut(&connection.connection_id)
             .ok_or(ErrorCode::NotFound)?;
         let fingerprint = input.fingerprint();
+        if entry.exec.contains(id) {
+            return Err(ErrorCode::InvalidArgument);
+        }
         if let Some(receipt) = entry.receipts.lookup(id, fingerprint)? {
             return Ok(ssh::Reply::Input(receipt));
         }
@@ -678,13 +714,14 @@ impl Actor {
         }
         tokio::select! {
             result=self.read_shell(&mut receiver,&endpoint,&mut shell.reader)=>result,
-            result=self.write_shell(commands,shell.writer)=>result,
+            result=self.write_shell(commands,shell.writer,Arc::new(session))=>result,
         }
     }
     async fn write_shell(
         &self,
         mut commands: mpsc::Receiver<QueuedInput>,
         writer: transport::ShellWriter,
+        session: Arc<Ssh2Session>,
     ) -> Result<(), Failure> {
         let mut ready = {
             self.inner
@@ -696,8 +733,9 @@ impl Actor {
                 .writable
                 .subscribe()
         };
+        let mut jobs = tokio::task::JoinSet::new();
         loop {
-            let command = tokio::select! {biased;_=self.cancel.cancelled()=>return Err(Failure::Cancelled),value=commands.recv()=>value.ok_or(Failure::Transport)?};
+            let command = tokio::select! {biased;_=self.cancel.cancelled()=>return Err(Failure::Cancelled),Some(result)=jobs.join_next(),if !jobs.is_empty()=>{result.map_err(|_|Failure::Transport)?;continue;},value=commands.recv()=>value.ok_or(Failure::Transport)?};
             loop {
                 tokio::select! {biased;_=self.cancel.cancelled()=>return Err(Failure::Cancelled),value=ready.wait_for(|value|*value)=>{value.map_err(|_|Failure::Transport)?;}}
                 let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
@@ -711,12 +749,23 @@ impl Actor {
                 if !*entry.writable.borrow() {
                     continue;
                 }
-                if !entry.receipts.dispatch(command.id) {
+                if !matches!(&command.input, Input::Exec(_)) && !entry.receipts.dispatch(command.id)
+                {
                     return Err(Failure::Transport);
                 }
                 break;
             }
             let result = match command.input {
+                Input::Exec(queued) => {
+                    exec::launch(
+                        &mut jobs,
+                        queued,
+                        self.inner.clone(),
+                        self.reference,
+                        session.clone(),
+                    )?;
+                    continue;
+                }
                 Input::Write(bytes) => writer.write(bytes.expose()).await.map(Some),
                 Input::Resize { cols, rows } => writer.resize(cols, rows).await.map(|()| None),
             };
@@ -793,6 +842,7 @@ impl Actor {
         entry.challenge = None;
         entry.answer = None;
         entry.commands = None;
+        entry.exec.finish_all(entry.cancel.is_cancelled());
         entry
             .receipts
             .connection_lost(if entry.cancel.is_cancelled() {
@@ -811,6 +861,7 @@ impl Actor {
                 .sessions
                 .transition(self.reference, State::Failed);
         }
+        entry.cancel.cancel();
     }
 }
 fn map_error(error: transport::Error) -> Failure {

@@ -1,0 +1,608 @@
+use super::*;
+use ssh::{ExecEnd as E, Request as S, TaskPhase};
+async fn start(
+    client: &mut Client,
+    connection: ConnectionRef,
+    id: Uuid,
+    command: &str,
+    timeout_ms: u64,
+    max_output_bytes: usize,
+) -> ssh::TaskStatus {
+    let ssh::Reply::Exec(status) = ssh_call(
+        client,
+        S::Exec {
+            connection,
+            request_id: id,
+            command: Sensitive::new(command.into()),
+            timeout_ms,
+            max_output_bytes,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    status
+}
+async fn finished(client: &mut Client, connection: ConnectionRef, id: Uuid) -> ssh::TaskStatus {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let ssh::Reply::Exec(status) = ssh_call(
+                client,
+                S::ExecStatus {
+                    connection,
+                    task_id: id,
+                },
+            )
+            .await
+            else {
+                panic!()
+            };
+            if status.phase == TaskPhase::Finished {
+                return status;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+async fn output(
+    client: &mut Client,
+    connection: ConnectionRef,
+    id: Uuid,
+) -> session_core::task_output::Page {
+    let ssh::Reply::ExecOutput {
+        connection: actual,
+        task_id,
+        output,
+    } = ssh_call(
+        client,
+        S::ExecRead {
+            connection,
+            task_id: id,
+            cursor: 1,
+            max_bytes: 65536,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(actual, connection);
+    assert_eq!(task_id, id);
+    output
+}
+#[tokio::test]
+async fn deduplicated_tasks_are_scoped_and_separate_from_the_shared_shell() {
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let request_id = Uuid::new_v4();
+    let task = start(&mut client, connection, request_id, "fail", 2000, 1048576).await;
+    assert_eq!(
+        start(&mut client, connection, request_id, "fail", 2000, 1048576)
+            .await
+            .task_id,
+        task.task_id
+    );
+    let summary = finished(&mut client, connection, task.task_id)
+        .await
+        .summary
+        .unwrap();
+    assert_eq!(summary.end, E::Completed);
+    assert_eq!(summary.exit_status, Some(7));
+    assert_eq!(summary.request_accepted, Some(true));
+    let page = output(&mut client, connection, task.task_id).await;
+    assert!(page.completed);
+    assert!(!page.truncated);
+    assert_eq!(
+        page.events
+            .iter()
+            .filter(|event| !event.stderr)
+            .flat_map(|event| event.bytes.iter())
+            .copied()
+            .collect::<Vec<_>>(),
+        b"early|"
+    );
+    assert_eq!(
+        page.events
+            .iter()
+            .filter(|event| event.stderr)
+            .flat_map(|event| event.bytes.iter())
+            .copied()
+            .collect::<Vec<_>>(),
+        b"err|failure"
+    );
+    assert_eq!(*remote.exec_calls.lock().unwrap(), [b"fail".to_vec()]);
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::Exec {
+                    connection,
+                    request_id,
+                    command: Sensitive::new("different".into()),
+                    timeout_ms: 2000,
+                    max_output_bytes: 1048576
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidArgument,
+            ..
+        }
+    ));
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: input_write(connection, request_id, b"conflicting action")
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidArgument,
+            ..
+        }
+    ));
+    let written = Uuid::new_v4();
+    ssh_call(
+        &mut client,
+        input_write(connection, written, b"interactive-shell-input"),
+    )
+    .await;
+    input_status(&mut client, connection, written, |receipt| {
+        receipt.state == session_core::input::InputState::PipelineQueued
+    })
+    .await;
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::Exec {
+                    connection,
+                    request_id: written,
+                    command: Sensitive::new("different".into()),
+                    timeout_ms: 2000,
+                    max_output_bytes: 1048576
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidArgument,
+            ..
+        }
+    ));
+    let token = match ok(client
+        .request(Request::IssueRead {
+            scopes: vec![connection],
+            lifetime_ms: 10000,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::ReadTicket { token, .. } => token,
+        _ => panic!(),
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    for request in [
+        S::ExecStatus {
+            connection,
+            task_id: task.task_id,
+        },
+        S::ExecRead {
+            connection,
+            task_id: task.task_id,
+            cursor: 1,
+            max_bytes: 4096,
+        },
+        S::ExecCancel {
+            connection,
+            task_id: task.task_id,
+        },
+        S::Exec {
+            connection,
+            request_id: Uuid::new_v4(),
+            command: Sensitive::new("not permitted".into()),
+            timeout_ms: 2000,
+            max_output_bytes: 1024,
+        },
+    ] {
+        assert!(matches!(
+            observer.request(Request::Ssh { request }).await.unwrap(),
+            Response::Error {
+                code: ErrorCode::PermissionDenied,
+                ..
+            }
+        ));
+    }
+    let mut stale = connection;
+    stale.generation += 1;
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::ExecRead {
+                    connection: stale,
+                    task_id: task.task_id,
+                    cursor: 1,
+                    max_bytes: 4096
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::StaleGeneration,
+            ..
+        }
+    ));
+    let task = start(
+        &mut client,
+        connection,
+        Uuid::new_v4(),
+        "synthetic-default-command",
+        2000,
+        1048576,
+    )
+    .await;
+    assert_eq!(
+        finished(&mut client, connection, task.task_id)
+            .await
+            .summary
+            .unwrap()
+            .exit_status,
+        Some(0)
+    );
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let Reply::Output(shell) = ok(client
+                .request(Request::Read {
+                    connection,
+                    cursor: 1,
+                    max_bytes: 65536,
+                })
+                .await
+                .unwrap())
+            else {
+                panic!()
+            };
+            let bytes = shell
+                .events
+                .into_iter()
+                .flat_map(|event| event.bytes)
+                .collect::<Vec<_>>();
+            assert!(
+                !bytes
+                    .windows(18)
+                    .any(|window| window == b"fresh-exec-channel")
+            );
+            if bytes.ends_with(b"interactive-shell-input") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    service.stop(&mut client).await;
+}
+#[tokio::test]
+async fn incremental_timeout_cancel_and_output_limit_preserve_explicit_results() {
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let task = start(
+        &mut client,
+        connection,
+        Uuid::new_v4(),
+        "no-ack",
+        1500,
+        1048576,
+    )
+    .await;
+    timeout(Duration::from_secs(1), async {
+        while output(&mut client, connection, task.task_id)
+            .await
+            .events
+            .is_empty()
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let ssh::Reply::Exec(running) = ssh_call(
+        &mut client,
+        S::ExecStatus {
+            connection,
+            task_id: task.task_id,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_ne!(running.phase, TaskPhase::Finished);
+    let summary = finished(&mut client, connection, task.task_id)
+        .await
+        .summary
+        .unwrap();
+    assert_eq!(summary.end, E::Timeout);
+    assert_eq!(summary.request_accepted, Some(false));
+    assert!(summary.exit_status.is_none());
+    let task = start(
+        &mut client,
+        connection,
+        Uuid::new_v4(),
+        "stall",
+        5000,
+        1048576,
+    )
+    .await;
+    timeout(Duration::from_secs(1), async {
+        while output(&mut client, connection, task.task_id)
+            .await
+            .events
+            .is_empty()
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    ssh_call(
+        &mut client,
+        S::ExecCancel {
+            connection,
+            task_id: task.task_id,
+        },
+    )
+    .await;
+    let summary = finished(&mut client, connection, task.task_id)
+        .await
+        .summary
+        .unwrap();
+    assert_eq!(summary.end, E::Cancelled);
+    assert!(summary.stdout_bytes > 0);
+    assert!(summary.exit_status.is_none());
+    for (command, end, code) in [
+        ("signal", E::RemoteSignal, None),
+        ("no-status", E::MissingExitStatus, None),
+        ("reject", E::Rejected, None),
+        ("big", E::Completed, Some(0)),
+    ] {
+        let task = start(
+            &mut client,
+            connection,
+            Uuid::new_v4(),
+            command,
+            2000,
+            1048576,
+        )
+        .await;
+        let summary = finished(&mut client, connection, task.task_id)
+            .await
+            .summary
+            .unwrap();
+        assert_eq!(summary.end, end, "{command}");
+        assert_eq!(summary.exit_status, code);
+        if command == "signal" {
+            assert_eq!(summary.exit_signal.as_deref(), Some("TERM"));
+        }
+        if command == "big" {
+            let page = output(&mut client, connection, task.task_id).await;
+            assert!(page.truncated);
+            assert!(page.available_from > 1);
+            assert_eq!(summary.stdout_bytes, 131078);
+            assert!(!summary.output_truncated);
+        }
+    }
+    let task = start(
+        &mut client,
+        connection,
+        Uuid::new_v4(),
+        "overflow",
+        2000,
+        64,
+    )
+    .await;
+    let summary = finished(&mut client, connection, task.task_id)
+        .await
+        .summary
+        .unwrap();
+    assert_eq!(summary.end, E::OutputLimit);
+    assert!(summary.output_truncated);
+    assert_eq!(summary.stdout_bytes + summary.stderr_bytes, 64);
+    ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Connected
+    })
+    .await;
+    service.stop(&mut client).await;
+}
+#[tokio::test]
+async fn queued_cancellation_and_concurrency_limit_never_start_extra_commands() {
+    let remote = ssh_fixture::Fixture::options(true).await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let written = Uuid::new_v4();
+    ssh_call(
+        &mut client,
+        input_write(connection, written, &vec![b'x'; 65536]),
+    )
+    .await;
+    input_status(&mut client, connection, written, |receipt| {
+        receipt.state == session_core::input::InputState::Dispatching
+    })
+    .await;
+    let task = start(
+        &mut client,
+        connection,
+        Uuid::new_v4(),
+        "never-dispatch",
+        2000,
+        1048576,
+    )
+    .await;
+    assert_eq!(task.phase, TaskPhase::Queued);
+    ssh_call(
+        &mut client,
+        S::ExecCancel {
+            connection,
+            task_id: task.task_id,
+        },
+    )
+    .await;
+    assert_eq!(
+        finished(&mut client, connection, task.task_id)
+            .await
+            .summary
+            .unwrap()
+            .end,
+        E::CancelledBeforeDispatch
+    );
+    assert!(remote.exec_calls.lock().unwrap().is_empty());
+    service.stop(&mut client).await;
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let mut tasks = Vec::new();
+    for _ in 0..4 {
+        tasks.push(
+            start(
+                &mut client,
+                connection,
+                Uuid::new_v4(),
+                "stall",
+                10000,
+                1048576,
+            )
+            .await
+            .task_id,
+        );
+    }
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::Exec {
+                    connection,
+                    request_id: Uuid::new_v4(),
+                    command: Sensitive::new("one too many".into()),
+                    timeout_ms: 10000,
+                    max_output_bytes: 1048576
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::CapacityExceeded,
+            ..
+        }
+    ));
+    for id in &tasks {
+        timeout(Duration::from_secs(2), async {
+            while output(&mut client, connection, *id).await.events.is_empty() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    assert_eq!(remote.exec_calls.lock().unwrap().len(), 4);
+    ssh_call(&mut client, S::Close { connection }).await;
+    for id in tasks {
+        let summary = finished(&mut client, connection, id).await.summary.unwrap();
+        assert_eq!(summary.end, E::Cancelled);
+        assert!(summary.exit_status.is_none());
+    }
+    service.stop(&mut client).await;
+}
+
+#[tokio::test]
+async fn remote_disconnect_keeps_task_result_unknown_without_a_fabricated_exit_code() {
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let task = start(
+        &mut client,
+        connection,
+        Uuid::new_v4(),
+        "disconnect",
+        2000,
+        1048576,
+    )
+    .await;
+    let summary = finished(&mut client, connection, task.task_id)
+        .await
+        .summary
+        .unwrap();
+    assert_eq!(summary.end, E::TransportLost);
+    assert!(summary.exit_status.is_none());
+    assert!(summary.exit_signal.is_none());
+    ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Failed
+    })
+    .await;
+    assert_eq!(*remote.exec_calls.lock().unwrap(), [b"disconnect".to_vec()]);
+    service.stop(&mut client).await;
+}
+#[tokio::test]
+async fn global_concurrency_limit_includes_tasks_on_other_connections() {
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let mut remotes = Vec::new();
+    let mut connections = Vec::new();
+    for _ in 0..5 {
+        let remote = ssh_fixture::Fixture::start().await;
+        connections.push(ssh_connected_fixture(&mut client, &remote).await);
+        remotes.push(remote);
+    }
+    for connection in &connections[..4] {
+        for _ in 0..4 {
+            start(
+                &mut client,
+                *connection,
+                Uuid::new_v4(),
+                "stall",
+                20000,
+                1048576,
+            )
+            .await;
+        }
+    }
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::Exec {
+                    connection: connections[4],
+                    request_id: Uuid::new_v4(),
+                    command: Sensitive::new("global overflow".into()),
+                    timeout_ms: 20000,
+                    max_output_bytes: 1048576
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::CapacityExceeded,
+            ..
+        }
+    ));
+    assert!(remotes[4].exec_calls.lock().unwrap().is_empty());
+    for connection in connections {
+        ssh_call(&mut client, S::Close { connection }).await;
+    }
+    service.stop(&mut client).await;
+}

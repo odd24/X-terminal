@@ -3014,3 +3014,6 @@ async fn ssh2_input_timeout_keeps_a_partial_send_unknown_and_stops_following_com
     assert_eq!(remote.received.lock().unwrap().concat(), vec![b't'; 32768]);
     service.stop(&mut client).await;
 }
+
+#[path = "support/exec_cases.rs"]
+mod exec_cases;

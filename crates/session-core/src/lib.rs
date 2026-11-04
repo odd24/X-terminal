@@ -4,6 +4,7 @@ pub mod input;
 pub mod pairing;
 pub mod screen;
 pub mod session;
+pub mod task_output;
 
 /// Wire version reserved for the first session service contract.
 pub const PROTOCOL_VERSION: u32 = 1;

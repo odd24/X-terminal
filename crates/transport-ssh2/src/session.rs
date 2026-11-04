@@ -884,3 +884,123 @@ impl Ssh2Session {
         Ok(result)
     }
 }
+
+/// Incremental exec data is bounded by the configured output limit and the supplied channel.
+#[derive(Debug)]
+pub struct ExecChunk {
+    pub stderr: bool,
+    pub bytes: Vec<u8>,
+}
+impl Ssh2Session {
+    /// Incremental variant used by service tasks. Output can precede the server's request acknowledgement.
+    pub async fn exec_streaming(
+        &self,
+        command: &str,
+        options: ExecOptions,
+        cancel: &Cancellation,
+        output: mpsc::Sender<ExecChunk>,
+    ) -> Result<ExecOutcome> {
+        if command.len() > 65536
+            || options.timeout.is_zero()
+            || options.timeout > Duration::from_secs(86400)
+            || !(1..=16 * 1024 * 1024).contains(&options.max_output_bytes)
+            || output.max_capacity() > 8
+        {
+            return Err(Error::Invalid);
+        }
+        if !self.authenticated {
+            return Err(Error::AuthenticationRequired);
+        }
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let mut channel = bounded(&self.cancel, self.limits.control, async {
+            self.handle
+                .channel_open_session()
+                .await
+                .map_err(Error::from)
+        })
+        .await?;
+        let mut result = ExecOutcome {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            exit_status: None,
+            exit_signal: None,
+            request_accepted: false,
+            output_truncated: false,
+            end: ExecEnd::ProtocolFailure,
+        };
+        let completed = {
+            let work = async {
+                if cancel.is_cancelled() {
+                    return Err(Error::Cancelled);
+                }
+                channel.exec(true, command).await?;
+                loop {
+                    let value = match channel.wait().await {
+                        Some(ChannelMsg::Success) if !result.request_accepted => {
+                            result.request_accepted = true;
+                            continue;
+                        }
+                        Some(ChannelMsg::Failure) => return Ok(ExecEnd::Rejected),
+                        Some(message) => event(message)?,
+                        None => Some(ShellEvent::Closed {
+                            remote_close: false,
+                        }),
+                    };
+                    if let Some(value) = value {
+                        let remaining = options
+                            .max_output_bytes
+                            .saturating_sub(result.stdout.len() + result.stderr.len());
+                        let chunk = match &value {
+                            ShellEvent::Stdout(bytes) => Some(ExecChunk {
+                                stderr: false,
+                                bytes: bytes[..bytes.len().min(remaining)].to_vec(),
+                            }),
+                            ShellEvent::Stderr(bytes) => Some(ExecChunk {
+                                stderr: true,
+                                bytes: bytes[..bytes.len().min(remaining)].to_vec(),
+                            }),
+                            _ => None,
+                        };
+                        let end = result.consume(value, options.max_output_bytes);
+                        if let Some(chunk) = chunk
+                            && !chunk.bytes.is_empty()
+                        {
+                            output.send(chunk).await.map_err(|_| Error::Invalid)?;
+                        }
+                        if let Some(end) = end {
+                            return Ok(
+                                if matches!(
+                                    end,
+                                    ExecEnd::Completed
+                                        | ExecEnd::RemoteSignal
+                                        | ExecEnd::MissingExitStatus
+                                ) && !result.request_accepted
+                                {
+                                    ExecEnd::ProtocolFailure
+                                } else {
+                                    end
+                                },
+                            );
+                        }
+                    }
+                }
+            };
+            tokio::select! {biased;_=self.cancel.cancelled()=>Err(Error::Cancelled),_=cancel.cancelled()=>Err(Error::Cancelled),value=timeout(options.timeout,work)=>value.map_err(|_|Error::Timeout).and_then(|value|value)}
+        };
+        result.end = match completed {
+            Ok(end) => end,
+            Err(Error::Timeout) => ExecEnd::Timeout,
+            Err(Error::Cancelled) => ExecEnd::Cancelled,
+            Err(Error::Limit) => {
+                result.output_truncated = true;
+                ExecEnd::OutputLimit
+            }
+            Err(Error::Transport | Error::Closed) => ExecEnd::TransportLost,
+            _ => ExecEnd::ProtocolFailure,
+        };
+        let _ = timeout(Duration::from_millis(100), channel.close()).await;
+        Ok(result)
+    }
+}

@@ -8,6 +8,27 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Exec {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        command: Sensitive,
+        timeout_ms: u64,
+        max_output_bytes: usize,
+    },
+    ExecStatus {
+        connection: ConnectionRef,
+        task_id: Uuid,
+    },
+    ExecRead {
+        connection: ConnectionRef,
+        task_id: Uuid,
+        cursor: u64,
+        max_bytes: usize,
+    },
+    ExecCancel {
+        connection: ConnectionRef,
+        task_id: Uuid,
+    },
     Write {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -55,6 +76,40 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         match self {
+            Self::Exec {
+                connection,
+                request_id,
+                command,
+                timeout_ms,
+                max_output_bytes,
+            } => {
+                valid(*connection)
+                    && !request_id.is_nil()
+                    && !command.expose().is_empty()
+                    && command.expose().len() <= 65536
+                    && !command.expose().contains('\0')
+                    && (1..=86400000).contains(timeout_ms)
+                    && (1..=1048576).contains(max_output_bytes)
+            }
+            Self::ExecStatus {
+                connection,
+                task_id,
+            }
+            | Self::ExecCancel {
+                connection,
+                task_id,
+            } => valid(*connection) && !task_id.is_nil(),
+            Self::ExecRead {
+                connection,
+                task_id,
+                cursor,
+                max_bytes,
+            } => {
+                valid(*connection)
+                    && !task_id.is_nil()
+                    && *cursor > 0
+                    && (4096..=65536).contains(max_bytes)
+            }
             Self::Write {
                 connection,
                 request_id,
@@ -194,15 +249,131 @@ pub struct Status {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    Exec(TaskStatus),
+    ExecOutput {
+        connection: ConnectionRef,
+        task_id: Uuid,
+        output: session_core::task_output::Page,
+    },
     Input(session_core::input::Receipt),
-    Started { connection: ConnectionInfo },
+    Started {
+        connection: ConnectionInfo,
+    },
     Status(Box<Status>),
     Accepted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TaskPhase {
+    Queued,
+    Running,
+    Cancelling,
+    Finished,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ExecEnd {
+    Completed,
+    RemoteSignal,
+    MissingExitStatus,
+    TransportLost,
+    Rejected,
+    Timeout,
+    Cancelled,
+    OutputLimit,
+    ProtocolFailure,
+    CancelledBeforeDispatch,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExecSummary {
+    pub end: ExecEnd,
+    pub exit_status: Option<u32>,
+    pub exit_signal: Option<String>,
+    pub request_accepted: Option<bool>,
+    pub output_truncated: bool,
+    pub stdout_bytes: usize,
+    pub stderr_bytes: usize,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TaskStatus {
+    pub task_id: Uuid,
+    pub connection: ConnectionRef,
+    pub phase: TaskPhase,
+    pub summary: Option<ExecSummary>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exec_contract_bounds_commands_and_task_reads_and_redacts_command_debug() {
+        let connection = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let id = Uuid::new_v4();
+        let request = Request::Exec {
+            connection,
+            request_id: id,
+            command: Sensitive::new("synthetic sensitive command".into()),
+            timeout_ms: 600000,
+            max_output_bytes: 1048576,
+        };
+        assert!(request.validate());
+        assert!(!format!("{request:?}").contains("synthetic sensitive command"));
+        for command in [String::new(), "x".repeat(65537), "bad\0command".into()] {
+            assert!(
+                !Request::Exec {
+                    connection,
+                    request_id: id,
+                    command: Sensitive::new(command),
+                    timeout_ms: 1,
+                    max_output_bytes: 1
+                }
+                .validate()
+            );
+        }
+        for (timeout_ms, max_output_bytes) in [(0, 1), (86400001, 1), (1, 0), (1, 1048577)] {
+            assert!(
+                !Request::Exec {
+                    connection,
+                    request_id: id,
+                    command: Sensitive::new("command".into()),
+                    timeout_ms,
+                    max_output_bytes
+                }
+                .validate()
+            );
+        }
+        assert!(
+            !Request::ExecRead {
+                connection,
+                task_id: id,
+                cursor: 0,
+                max_bytes: 4096
+            }
+            .validate()
+        );
+        assert!(
+            !Request::ExecRead {
+                connection,
+                task_id: id,
+                cursor: 1,
+                max_bytes: 65537
+            }
+            .validate()
+        );
+        assert!(
+            !Request::ExecCancel {
+                connection,
+                task_id: Uuid::nil()
+            }
+            .validate()
+        );
+    }
     #[test]
     fn input_contract_requires_bounded_payloads_scopes_and_request_ids_and_redacts_debug() {
         let connection = ConnectionRef {

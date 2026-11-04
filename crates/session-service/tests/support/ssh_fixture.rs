@@ -15,6 +15,7 @@ use std::{
 };
 #[derive(Clone)]
 struct Server {
+    exec_calls: Arc<Mutex<Vec<Vec<u8>>>>,
     observations: Arc<Mutex<Vec<Observation>>>,
     received: Arc<Mutex<Vec<Vec<u8>>>>,
     sizes: Arc<Mutex<Vec<(u32, u32)>>>,
@@ -153,8 +154,55 @@ impl server::Handler for Server {
             .push(Observation::Resize(cols, rows));
         Ok(())
     }
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        command: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.exec_calls.lock().unwrap().push(command.to_vec());
+        if command == b"reject" {
+            session.channel_failure(channel)?;
+            return Ok(());
+        }
+        session.data(channel, b"early|".to_vec())?;
+        session.extended_data(channel, 1, b"err|".to_vec())?;
+        if command == b"no-ack" {
+            return Ok(());
+        }
+        session.channel_success(channel)?;
+        match command {
+            b"stall" => return Ok(()),
+            b"disconnect" => return Err(russh::Error::Disconnect),
+            b"signal" => {
+                session.exit_signal_request(channel, russh::Sig::TERM, false, "", "")?;
+            }
+            b"no-status" => {}
+            b"fail" => {
+                session.extended_data(channel, 1, b"failure".to_vec())?;
+                session.exit_status_request(channel, 7)?;
+            }
+            _ => {
+                session.data(
+                    channel,
+                    if command == b"big" {
+                        vec![b'x'; 131072]
+                    } else if command == b"overflow" {
+                        vec![b'x'; 1048577]
+                    } else {
+                        b"fresh-exec-channel".to_vec()
+                    },
+                )?;
+                session.exit_status_request(channel, 0)?;
+            }
+        }
+        session.eof(channel)?;
+        session.close(channel)?;
+        Ok(())
+    }
 }
 pub struct Fixture {
+    pub exec_calls: Arc<Mutex<Vec<Vec<u8>>>>,
     pub observations: Arc<Mutex<Vec<Observation>>>,
     pub received: Arc<Mutex<Vec<Vec<u8>>>>,
     pub sizes: Arc<Mutex<Vec<(u32, u32)>>>,
@@ -188,7 +236,9 @@ impl Fixture {
         let received = Arc::new(Mutex::new(Vec::new()));
         let sizes = Arc::new(Mutex::new(Vec::new()));
         let observations = Arc::new(Mutex::new(Vec::new()));
+        let exec_calls = Arc::new(Mutex::new(Vec::new()));
         let mut server = Server {
+            exec_calls: exec_calls.clone(),
             observations: observations.clone(),
             received: received.clone(),
             sizes: sizes.clone(),
@@ -218,6 +268,7 @@ impl Fixture {
         });
         let shutdown = rx.await.unwrap();
         Self {
+            exec_calls,
             observations,
             received,
             sizes,

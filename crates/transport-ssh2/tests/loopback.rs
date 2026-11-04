@@ -774,3 +774,84 @@ async fn production_owner_drop_and_pre_key_timeout_close_real_sockets() {
     ));
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn streaming_exec_delivers_before_request_acknowledgement_and_cancel_preserves_partial_result()
+ {
+    let fixture = Fixture::options(false, true).await;
+    let (mut session, _rx, _cancel) = production(&fixture).await;
+    session
+        .authenticate("probe", Authentication::Password(secret(&fixture.token)))
+        .await
+        .unwrap();
+    let (tx, mut rx) = mpsc::channel(1);
+    let cancel = Cancellation::default();
+    let copy = cancel.clone();
+    let task = tokio::spawn(async move {
+        let result = session
+            .exec_streaming("no-ack", ExecOptions::default(), &copy, tx)
+            .await;
+        (session, result)
+    });
+    let first = timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!first.stderr);
+    assert_eq!(first.bytes, b"before-exec|");
+    let second = timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(second.stderr);
+    assert_eq!(second.bytes, b"before-error|");
+    assert!(!task.is_finished());
+    cancel.cancel();
+    let (session, result) = task.await.unwrap();
+    let result = result.unwrap();
+    assert_eq!(result.end, ExecEnd::Cancelled);
+    assert!(!result.request_accepted);
+    assert_eq!(result.stdout, first.bytes);
+    assert_eq!(result.stderr, second.bytes);
+    assert_eq!(
+        session
+            .exec("separate", ExecOptions::default(), &Cancellation::default())
+            .await
+            .unwrap()
+            .exit_status,
+        Some(0)
+    );
+}
+
+#[tokio::test]
+async fn streaming_exec_backpressure_cancel_keeps_captured_tail_in_bounded_outcome() {
+    let fixture = Fixture::options(false, true).await;
+    let (mut session, _rx, _cancel) = production(&fixture).await;
+    session
+        .authenticate("probe", Authentication::Password(secret(&fixture.token)))
+        .await
+        .unwrap();
+    let (tx, rx) = mpsc::channel(1);
+    let cancel = Cancellation::default();
+    let copy = cancel.clone();
+    let task = tokio::spawn(async move {
+        session
+            .exec_streaming("no-ack", ExecOptions::default(), &copy, tx)
+            .await
+            .unwrap()
+    });
+    timeout(Duration::from_secs(2), async {
+        while rx.len() != 1 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    })
+    .await
+    .unwrap();
+    cancel.cancel();
+    let result = task.await.unwrap();
+    assert_eq!(result.end, ExecEnd::Cancelled);
+    assert_eq!(result.stdout, b"before-exec|");
+    assert_eq!(result.stderr, b"before-error|");
+    assert_eq!(rx.len(), 1);
+}

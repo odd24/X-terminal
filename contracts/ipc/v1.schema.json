@@ -888,6 +888,122 @@
           {
             "additionalProperties": false,
             "properties": {
+              "command": {
+                "$ref": "#/$defs/Sensitive"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "max_output_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "exec",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "timeout_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "command",
+              "timeout_ms",
+              "max_output_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "exec_status",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "task_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "exec_read",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "task_id",
+              "cursor",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "exec_cancel",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "task_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "bytes": {
                 "$ref": "#/$defs/SensitiveBytes"
               },
@@ -1902,6 +2018,97 @@
         ],
         "type": "string"
       },
+      "Event": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stderr": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "seq",
+          "stderr",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "ExecEnd": {
+        "enum": [
+          "COMPLETED",
+          "REMOTE_SIGNAL",
+          "MISSING_EXIT_STATUS",
+          "TRANSPORT_LOST",
+          "REJECTED",
+          "TIMEOUT",
+          "CANCELLED",
+          "OUTPUT_LIMIT",
+          "PROTOCOL_FAILURE",
+          "CANCELLED_BEFORE_DISPATCH"
+        ],
+        "type": "string"
+      },
+      "ExecSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "$ref": "#/$defs/ExecEnd"
+          },
+          "exit_signal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exit_status": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "output_truncated": {
+            "type": "boolean"
+          },
+          "request_accepted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "stderr_bytes": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stdout_bytes": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "end",
+          "output_truncated",
+          "stdout_bytes",
+          "stderr_bytes"
+        ],
+        "type": "object"
+      },
       "Failure": {
         "enum": [
           "CONFIGURATION",
@@ -2118,6 +2325,41 @@
           "available_from",
           "truncated",
           "disconnected"
+        ],
+        "type": "object"
+      },
+      "Page": {
+        "additionalProperties": false,
+        "properties": {
+          "available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/$defs/Event"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "events",
+          "next_cursor",
+          "available_from",
+          "truncated",
+          "completed"
         ],
         "type": "object"
       },
@@ -2383,6 +2625,68 @@
       },
       "Reply2": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "phase": {
+                "$ref": "#/$defs/TaskPhase"
+              },
+              "result": {
+                "const": "exec",
+                "type": "string"
+              },
+              "summary": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ExecSummary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "task_id",
+              "connection",
+              "phase"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "output": {
+                "$ref": "#/$defs/Page"
+              },
+              "result": {
+                "const": "exec_output",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "connection",
+              "task_id",
+              "output"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -2657,6 +2961,15 @@
           "CONNECTED",
           "CLOSING",
           "FAILED"
+        ],
+        "type": "string"
+      },
+      "TaskPhase": {
+        "enum": [
+          "QUEUED",
+          "RUNNING",
+          "CANCELLING",
+          "FINISHED"
         ],
         "type": "string"
       },

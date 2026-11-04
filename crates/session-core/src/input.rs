@@ -9,6 +9,14 @@ pub const MAX_RECEIPTS: usize = 1024;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Fingerprint([u8; 32]);
 impl Fingerprint {
+    pub fn exec(command: &str, timeout_ms: u64, max_output_bytes: usize) -> Self {
+        let mut digest = Sha256::new();
+        digest.update(b"terminal-input/exec/v1\0");
+        digest.update(timeout_ms.to_le_bytes());
+        digest.update((max_output_bytes as u64).to_le_bytes());
+        digest.update(command.as_bytes());
+        Self(digest.finalize().into())
+    }
     pub fn write(bytes: &[u8]) -> Self {
         let mut digest = Sha256::new();
         digest.update(b"terminal-input/write/v1\0");
