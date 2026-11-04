@@ -49,3 +49,7 @@ P09 reconnect 增量仅从 DISCONNECTED/FAILED 接受当前 connection_id/genera
 后续容量增量以 [ADR-020](../../docs/decisions/ADR-020.md)/[ADR-021](../../docs/decisions/ADR-021.md)/[ADR-022](../../docs/decisions/ADR-022.md) 为准：输入/结束任务/结束建连回执的有序退休水位替代满额后的永久拒绝，旧不透明 ID 仍不可回收，RequestExpired 不表示动作从未执行，不自动换 ID 重发。
 
 Desktop 专用 ssh.forget 只接收完整 ConnectionRef 并返回 accepted，仅 DISCONNECTED/FAILED 当前代次可移除，丢弃其保留输出/输入/任务，保留配置/凭据与独立 Start/Reconnect 去重。移除后 status/read 返回 NotFound；保留中的建连重复仍返回原 Started（不是新建），回执退休后旧 Start/Reconnect 返回 RequestExpired。连接最多 64、建连回执最多 1024，活动当前代次回执及 opaque 回执不回收。移除与重连竞争只允许一个在原代次成功，不支持 force 或隐式当前连接。
+
+P10 增加 serial 请求，见 [ADR-025](../../docs/decisions/ADR-025.md)：active Desktop 的 inventory/start/status/write/control/input_status/close/forget；观察者仍用公共 list/read。start 只接受 Profile/request_id/枚举 revision+device_id，不接受原生路径。串口写入/控制明确 ConnectionRef/request_id，回执分 PENDING（可能已派发）、DRIVER_ACCEPTED、CONTROL_APPLIED、UNKNOWN、CANCELLED_BEFORE_DISPATCH；成功驱动调用的字节计数是下界，不是设备执行/退出码。关闭排空并 join 后才发布终态，之后才能移除/再次手动打开；当前再次打开使用不同 connection_id，不继承旧权限。
+
+OutputEvent 可选 gap_bytes 表示接收端已丢失字节，该事件 bytes 为空且有独立 seq/时间戳；普通字节事件省略字段。truncated 仍表示消费者落后导致保留历史覆盖，不能替代源头接收缺口。客户端必须显示/传递 gap_bytes，不得无声拼接；本开发增量随服务/客户端一同构建，不声明旧严格客户端跨版本兼容。

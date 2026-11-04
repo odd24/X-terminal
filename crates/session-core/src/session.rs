@@ -83,6 +83,8 @@ pub struct OutputEvent {
     pub seq: u64,
     pub timestamp_ms: u64,
     pub bytes: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gap_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -136,10 +138,32 @@ impl OutputBuffer {
                 seq: self.next_seq,
                 timestamp_ms,
                 bytes: bytes.to_vec(),
+                gap_bytes: None,
             });
             self.next_seq += 1;
             self.bytes += bytes.len();
         }
+        Ok(())
+    }
+    pub fn mark_gap(&mut self, lost: u64, timestamp_ms: u64) -> Result<(), ErrorCode> {
+        if lost == 0 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let next = self
+            .next_seq
+            .checked_add(1)
+            .ok_or(ErrorCode::CapacityExceeded)?;
+        while self.events.len() >= self.max_events {
+            let old = self.events.pop_front().unwrap();
+            self.bytes -= old.bytes.len();
+        }
+        self.events.push_back(OutputEvent {
+            seq: self.next_seq,
+            timestamp_ms,
+            bytes: vec![],
+            gap_bytes: Some(lost),
+        });
+        self.next_seq = next;
         Ok(())
     }
     pub fn read(
@@ -308,11 +332,92 @@ impl Sessions {
         self.connections.remove(&reference.connection_id);
         Ok(())
     }
+    /// Transport-only drain path: bytes captured before close still belong to this
+    /// exact generation. Public fixture/input paths retain their Connected checks.
+    pub fn append_draining(
+        &mut self,
+        reference: ConnectionRef,
+        raw: &[u8],
+        timestamp_ms: u64,
+    ) -> Result<(), ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        if !matches!(connection.info.state, State::Connected | State::Closing) {
+            return Err(ErrorCode::NotConnected);
+        }
+        connection.output.append(raw, timestamp_ms)
+    }
+    pub fn mark_gap(
+        &mut self,
+        reference: ConnectionRef,
+        lost: u64,
+        timestamp_ms: u64,
+    ) -> Result<(), ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        if !matches!(connection.info.state, State::Connected | State::Closing) {
+            return Err(ErrorCode::NotConnected);
+        }
+        connection.output.mark_gap(lost, timestamp_ms)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_transport_gaps_are_ordered_bounded_and_independent_of_consumers() {
+        let reference = ConnectionRef {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let mut buffer = OutputBuffer::new(EVENT_BYTES, 3).unwrap();
+        buffer.append(b"before", 1).unwrap();
+        buffer.mark_gap(9000, 2).unwrap();
+        buffer.append(b"after", 3).unwrap();
+        let first = buffer.read(reference, 1, EVENT_BYTES, false).unwrap();
+        let second = buffer.read(reference, 1, EVENT_BYTES, false).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.events[1].gap_bytes, Some(9000));
+        assert!(first.events[1].bytes.is_empty());
+        assert_eq!(first.events[2].bytes, b"after");
+        for index in 0..20 {
+            buffer.mark_gap(index + 1, index).unwrap();
+        }
+        let page = buffer.read(reference, 1, EVENT_BYTES, true).unwrap();
+        assert!(page.truncated && page.disconnected);
+        assert_eq!(page.events.len(), 3);
+        assert_eq!(buffer.allocated_bytes(), 0);
+        assert_eq!(buffer.mark_gap(0, 0), Err(ErrorCode::InvalidArgument));
+        buffer.next_seq = u64::MAX;
+        assert_eq!(buffer.mark_gap(1, 0), Err(ErrorCode::CapacityExceeded));
+    }
+    #[test]
+    fn close_drain_preserves_generation_but_does_not_make_closed_sessions_writable() {
+        let mut sessions = Sessions::default();
+        let initial = sessions.create(Protocol::Serial).unwrap();
+        let reference = sessions
+            .begin_connect(initial.reference())
+            .unwrap()
+            .reference();
+        sessions.transition(reference, State::Connected).unwrap();
+        sessions.transition(reference, State::Closing).unwrap();
+        assert_eq!(
+            sessions.append(reference, b"no", 0),
+            Err(ErrorCode::NotConnected)
+        );
+        sessions.append_draining(reference, b"captured", 1).unwrap();
+        sessions.mark_gap(reference, 3, 2).unwrap();
+        sessions.transition(reference, State::Disconnected).unwrap();
+        assert_eq!(
+            sessions.append_draining(reference, b"no", 3),
+            Err(ErrorCode::NotConnected)
+        );
+        let new = sessions.begin_connect(reference).unwrap().reference();
+        assert_eq!(
+            sessions.mark_gap(reference, 1, 4),
+            Err(ErrorCode::StaleGeneration)
+        );
+        assert_eq!(sessions.mark_gap(new, 1, 4), Err(ErrorCode::NotConnected));
+    }
     #[test]
     fn ssh_requires_auth_and_reconnect_expires_old_generation_and_output() {
         let mut sessions = Sessions::default();

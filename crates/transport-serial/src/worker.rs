@@ -133,7 +133,9 @@ pub struct Worker {
     stop: Arc<AtomicBool>,
     task: Option<JoinHandle<()>>,
 }
-trait Port: Send {
+/// In-process transport adapter, never an IPC surface. Production service uses
+/// SerialConnection; test factories are gated by the test-backend Cargo feature.
+pub trait Port: Send {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<ReadOutcome>;
     fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize>;
     fn control(&mut self, command: &Command) -> io::Result<()>;
@@ -156,6 +158,10 @@ impl Port for SerialConnection {
 }
 
 impl Worker {
+    #[cfg(feature = "test-backend")]
+    pub fn test_backend<P: Port + 'static>(port: P) -> io::Result<Self> {
+        Self::start(move || Ok(port))
+    }
     pub fn spawn(config: Config, selected: Device) -> io::Result<Self> {
         config.validate()?;
         Self::start(move || SerialConnection::open_selected(&config, &selected))

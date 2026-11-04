@@ -605,6 +605,14 @@
         ],
         "type": "string"
       },
+      "Line": {
+        "enum": [
+          "DTR",
+          "RTS",
+          "BREAK"
+        ],
+        "type": "string"
+      },
       "Parity": {
         "enum": [
           "none",
@@ -648,11 +656,28 @@
             "additionalProperties": false,
             "properties": {
               "op": {
-                "const": "ssh",
+                "const": "serial",
                 "type": "string"
               },
               "request": {
                 "$ref": "#/$defs/Request2"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "ssh",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/$defs/Request3"
               }
             },
             "required": [
@@ -884,6 +909,185 @@
         ]
       },
       "Request2": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "inventory",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "device_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "start",
+                "type": "string"
+              },
+              "profile_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "profile_id",
+              "request_id",
+              "revision",
+              "device_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "bytes": {
+                "$ref": "#/$defs/SensitiveBytes"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "write",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "asserted": {
+                "type": "boolean"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "line": {
+                "$ref": "#/$defs/Line"
+              },
+              "op": {
+                "const": "control",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "line",
+              "asserted"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "input_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "close",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "forget",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Request3": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -2046,6 +2250,27 @@
         ],
         "type": "object"
       },
+      "DeviceSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "port": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "port",
+          "instance_id"
+        ],
+        "type": "object"
+      },
       "Encoding": {
         "enum": [
           "utf8",
@@ -2162,6 +2387,18 @@
         "type": "object"
       },
       "Failure": {
+        "enum": [
+          "DEVICE_UNAVAILABLE",
+          "ACCESS_OR_BUSY",
+          "INVALID_PARAMETERS",
+          "IO",
+          "CANCELLED",
+          "WORKER_FAILED",
+          "COUNTER_EXHAUSTED"
+        ],
+        "type": "string"
+      },
+      "Failure2": {
         "enum": [
           "CONFIGURATION",
           "HOST_KEY_REJECTED",
@@ -2304,6 +2541,16 @@
       "InputState": {
         "enum": [
           "PENDING",
+          "DRIVER_ACCEPTED",
+          "CONTROL_APPLIED",
+          "CANCELLED_BEFORE_DISPATCH",
+          "UNKNOWN"
+        ],
+        "type": "string"
+      },
+      "InputState2": {
+        "enum": [
+          "PENDING",
           "DISPATCHING",
           "PIPELINE_QUEUED",
           "UNKNOWN",
@@ -2322,6 +2569,14 @@
               "type": "integer"
             },
             "type": "array"
+          },
+          "gap_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "seq": {
             "format": "uint64",
@@ -2490,6 +2745,23 @@
             "properties": {
               "data": {
                 "$ref": "#/$defs/Reply2"
+              },
+              "type": {
+                "const": "serial",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/Reply3"
               },
               "type": {
                 "const": "ssh",
@@ -2680,6 +2952,181 @@
           {
             "additionalProperties": false,
             "properties": {
+              "devices": {
+                "items": {
+                  "$ref": "#/$defs/DeviceSummary"
+                },
+                "type": "array"
+              },
+              "metadata_failures": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "inventory",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "unidentified_ports": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "result",
+              "revision",
+              "devices",
+              "unidentified_ports",
+              "metadata_failures"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionInfo"
+              },
+              "result": {
+                "const": "started",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "break_cleanup_failure": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Failure"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cleanup_pending": {
+                "type": "boolean"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionInfo"
+              },
+              "dropped_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "failure": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Failure"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "port": {
+                "type": "string"
+              },
+              "profile_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "read_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "connection",
+              "profile_id",
+              "port",
+              "cleanup_pending",
+              "read_bytes",
+              "dropped_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "driver_accepted": {
+                "format": "uint",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "failure": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Failure"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "input",
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/$defs/InputState",
+                "description": "Pending may already be executing; it is not proof of non-dispatch."
+              }
+            },
+            "required": [
+              "result",
+              "request_id",
+              "state"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "result": {
+                "const": "accepted",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Reply3": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
@@ -2769,7 +3216,7 @@
                 "type": "string"
               },
               "state": {
-                "$ref": "#/$defs/InputState"
+                "$ref": "#/$defs/InputState2"
               }
             },
             "required": [
@@ -2815,7 +3262,7 @@
               "failure": {
                 "anyOf": [
                   {
-                    "$ref": "#/$defs/Failure"
+                    "$ref": "#/$defs/Failure2"
                   },
                   {
                     "type": "null"

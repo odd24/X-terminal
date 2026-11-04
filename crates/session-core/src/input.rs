@@ -41,6 +41,12 @@ impl RequestWindow {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Fingerprint([u8; 32]);
 impl Fingerprint {
+    pub fn control(line: u8, asserted: bool) -> Self {
+        let mut digest = Sha256::new();
+        digest.update(b"terminal-input/control/v1\0");
+        digest.update([line, u8::from(asserted)]);
+        Self(digest.finalize().into())
+    }
     pub fn exec(command: &str, timeout_ms: u64, max_output_bytes: usize) -> Self {
         let mut digest = Sha256::new();
         digest.update(b"terminal-input/exec/v1\0");

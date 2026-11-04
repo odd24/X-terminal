@@ -17,7 +17,7 @@ import './style.css';
 type Connection = { connection_id: string; generation: number; protocol: string; state: string };
 type Ref = Pick<Connection, 'connection_id' | 'generation'>;
 type Status = { service_id: string; pid: number; fixture: boolean; exit_policy: string };
-type Page = { connection: Ref; events: { seq: number; bytes: number[] }[]; next_cursor: number; available_from: number; truncated: boolean; disconnected: boolean };
+type Page = { connection: Ref; events: { seq: number; bytes: number[]; gap_bytes?: number }[]; next_cursor: number; available_from: number; truncated: boolean; disconnected: boolean };
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
 
 function App() {
@@ -163,6 +163,7 @@ function App() {
           if (disposed) return;
           if (page.truncated) { gap = true; setStatus(`输出缺口：起始游标 ${page.available_from}，历史输出已覆盖`); }
           for (const event of page.events) {
+            if (event.gap_bytes) { gap = true; setStatus(`设备接收输出缺口：丢失 ${event.gap_bytes} 字节`); continue; }
             if (!current.writer.enqueue(new Uint8Array(event.bytes))) { gap = true; setStatus('渲染队列输出缺口；请重载后读取保留输出'); }
           }
           cursor = page.next_cursor;

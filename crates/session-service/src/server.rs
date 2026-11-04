@@ -22,9 +22,19 @@ pub(crate) struct Store {
     pub(crate) sessions: Sessions,
     pairing: Pairing,
 }
+#[cfg(test)]
+impl Store {
+    pub(crate) fn test_store() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self {
+            sessions: Sessions::default(),
+            pairing: Pairing::new(&SecretToken::generate()),
+        }))
+    }
+}
 struct Runtime {
     config: crate::config::ConfigWorker,
     ssh: crate::ssh::Manager,
+    serial: crate::serial::Manager,
     store: Arc<Mutex<Store>>,
     service_id: Uuid,
     started: Instant,
@@ -32,6 +42,18 @@ struct Runtime {
     shutdown: watch::Sender<bool>,
 }
 impl Runtime {
+    async fn handle_serial(
+        &self,
+        identity: &Identity,
+        request: serial::Request,
+    ) -> Result<Reply, ErrorCode> {
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            store.pairing.require_active(identity, self.now())?;
+            store.pairing.require_desktop(identity, self.now())?;
+        }
+        self.serial.handle(request).await.map(Reply::Serial)
+    }
     async fn handle_ssh(
         &self,
         identity: &Identity,
@@ -237,6 +259,7 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
             frame = timeout(Duration::from_secs(30), read_frame(&mut pipe)) => match frame.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "idle client timeout"))?? { Some(value) => value, None => return Ok(()) }
         };
         let result = match request.request {
+            Request::Serial { request } => runtime.handle_serial(&identity, request).await,
             Request::Ssh { request } => runtime.handle_ssh(&identity, request).await,
             Request::Config { request } => runtime.handle_config(&identity, request).await,
             request => runtime.handle(&identity, request),
@@ -276,9 +299,11 @@ pub async fn serve_with_config(
         pairing: Pairing::new(&bootstrap),
     }));
     let ssh = crate::ssh::Manager::new(store.clone(), config.access());
+    let serial = crate::serial::Manager::new(store.clone(), config.access());
     let runtime = Arc::new(Runtime {
         config,
         ssh,
+        serial,
         store,
         service_id: Uuid::new_v4(),
         started: Instant::now(),
@@ -288,11 +313,14 @@ pub async fn serve_with_config(
     drop(bootstrap);
     let permits = Arc::new(Semaphore::new(32));
     let mut tasks = JoinSet::new();
+    let mut serial_tick = tokio::time::interval(Duration::from_millis(10));
+    serial_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     eprintln!("session-service ready; fixture={fixture}; no device opened");
     loop {
         // Completed tasks retain JoinSet entries until reaped; bound those too.
         while tasks.try_join_next().is_some() {}
         tokio::select! {
+            _ = serial_tick.tick() => runtime.serial.tick(),
             _ = stopping.changed() => break,
             _ = tokio::signal::ctrl_c() => break,
             Some(_) = tasks.join_next(), if !tasks.is_empty() => {},
@@ -318,6 +346,8 @@ pub async fn serve_with_config(
     let runtime = Arc::try_unwrap(runtime)
         .map_err(|_| io::Error::other("session tasks still own runtime"))?;
     runtime.ssh.close().await;
+    let serial_result = runtime.serial.close().await;
     runtime.config.close().await?;
+    serial_result?;
     Ok(())
 }

@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 config-store = { path = "../config-store" }
 transport-ssh2 = { path = "../transport-ssh2" }
+transport-serial = { path = "../transport-serial" }
+serialport = { version = "=4.10.1", default-features = false }
 credential-vault = { path = "../credential-vault" }
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
 zeroize = "=1.9.1"
@@ -22,6 +24,7 @@ uuid = { version = "=1.29.0", features = ["v4"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Pipes", "Win32_System_WindowsProgramming"] }
 
 [dev-dependencies]
+transport-serial = { path = "../transport-serial", features = ["test-backend"] }
 tokio = { version = "=1.54.1", features = ["process"] }
 russh = { version = "=0.65.0", default-features = false, features = ["ring", "rsa", "flate2"] }
 rand = "=0.10.3"

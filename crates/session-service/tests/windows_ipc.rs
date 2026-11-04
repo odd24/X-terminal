@@ -3034,3 +3034,118 @@ mod reconnect_cases;
 
 #[path = "support/history_cases.rs"]
 mod history_cases;
+
+#[tokio::test]
+async fn serial_catalogue_and_mutations_are_desktop_only_and_invalid_selections_never_open() {
+    use session_protocol::serial::Request as S;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let Reply::Connection(info) = ok(desktop.request(Request::CreateFixture {}).await.unwrap())
+    else {
+        panic!()
+    };
+    let connection = info.reference();
+    let Reply::ReadTicket { token, .. } = ok(desktop
+        .request(Request::IssueRead {
+            scopes: vec![connection],
+            lifetime_ms: 60000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    for request in [
+        S::Inventory {},
+        S::Status { connection },
+        S::Write {
+            connection,
+            request_id: Uuid::new_v4(),
+            bytes: SensitiveBytes::new(b"never-send".to_vec()),
+        },
+        S::Control {
+            connection,
+            request_id: Uuid::new_v4(),
+            line: session_protocol::serial::Line::Break,
+            asserted: true,
+        },
+        S::Close { connection },
+        S::Forget { connection },
+    ] {
+        assert!(matches!(
+            observer.request(Request::Serial { request }).await.unwrap(),
+            Response::Error {
+                code: ErrorCode::PermissionDenied,
+                ..
+            }
+        ));
+    }
+    let Reply::Serial(session_protocol::serial::Reply::Inventory {
+        revision, devices, ..
+    }) = ok(desktop
+        .request(Request::Serial {
+            request: S::Inventory {},
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    assert!(!revision.is_nil());
+    assert!(devices.len() <= 256);
+    let mut profile = portable();
+    profile.settings = config_store::Settings::Serial {
+        port: "COM7".into(),
+        baud_rate: 115200,
+        data_bits: 8,
+        stop_bits: 1,
+        parity: config_store::Parity::None,
+        flow: config_store::Flow::None,
+        dtr_on_open: false,
+        rts_on_open: Some(false),
+        encoding: config_store::Encoding::Utf8,
+    };
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    for (revision, expected) in [
+        (Uuid::new_v4(), ErrorCode::InvalidState),
+        (revision, ErrorCode::NotFound),
+    ] {
+        assert!(
+            matches!(desktop.request(Request::Serial {request:S::Start {profile_id:profile.id,request_id:Uuid::new_v4(),revision,device_id:Uuid::new_v4()}}).await.unwrap(),Response::Error {code,..} if code==expected)
+        );
+    }
+    assert!(matches!(
+        desktop
+            .request(Request::Serial {
+                request: S::Write {
+                    connection,
+                    request_id: Uuid::new_v4(),
+                    bytes: SensitiveBytes::new(b"never-send".to_vec())
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::NotFound,
+            ..
+        }
+    ));
+    let Reply::Sessions(list) = ok(desktop.request(Request::List {}).await.unwrap()) else {
+        panic!()
+    };
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].protocol, Protocol::Fixture);
+    service.stop(&mut desktop).await;
+}

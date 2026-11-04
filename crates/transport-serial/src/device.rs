@@ -14,6 +14,14 @@ pub struct Device {
     interface_path: String,
 }
 impl Device {
+    #[cfg(feature = "test-backend")]
+    pub fn synthetic() -> Self {
+        Self {
+            port_name: "COM7".into(),
+            instance_id: "SYNTHETIC-TEST-INSTANCE".into(),
+            interface_path: r"\\?\synthetic-test-interface".into(),
+        }
+    }
     pub fn port_name(&self) -> &str {
         &self.port_name
     }
