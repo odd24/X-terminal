@@ -107,3 +107,5 @@ P11.4启停阶段新增 npm run test:desktop:logging，前置桌面构建，已�
 P11.4历史界面新增 npm run test:desktop:history（前置桌面构建），完整回归包含。只用合成日志，验证跨记录全文计数/显示限额、独立目标、取消/关闭回收及坏尾行；控制字符/HTML只能作为文本，不写入当前终端。时间Asia/Shanghai；T22/T23全局矩阵及导出/恢复不得从专项推断通过。
 
 P11.4受管理导出任务扩展test:desktop:logging：验证专用Tauri通道的export_start/status/cancel和真实暂存产物，不代表用户保存按钮/自选位置已完成。导出队列8/回执64，磁盘尝试8/每份256MiB；失败partial保留，不自动清理或覆盖。涉及格式/文件策略继续运行terminal-log测试及严格clippy，任务权限/去重须有真实Windows IPC证据。
+
+P11.4桌面导出新增npm run test:desktop:export（前置桌面构建），已纳入完整回归；受管理保存路径不等同自选另存位置/打开目录。应答故障/延迟注入在测试Harness的真实IPC fetch响应处执行并核对命中数，禁止靠重写不可写的Tauri invoke制造未生效的通过证据。只用合成临时日志，保留任务精确目标和应答不明语义。

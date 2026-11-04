@@ -62,6 +62,35 @@ export async function launchDesktop(directory, {fixture = false} = {}) {
       const shot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
       await writeFile(path.join('artifacts', name), Buffer.from(shot.data, 'base64'));
     };
-    return { app, invoke, evaluate, command, waitFor, click, fill, screenshot, close: cleanup };
+    // Tauri invoke is immutable. Intercept its real custom-protocol fetch
+    // response instead; never replace service data with a fabricated success.
+    // Assert interception counts in callers so an inactive hook cannot pass.
+    const interceptIpc = async ({ op, mode = 'delay', delayMs = 200 }) => {
+      assert.ok(['delay', 'error'].includes(mode));
+      await evaluate(`(() => {
+        if(window.__desktopIpcResponseTest)throw new Error('IPC hook already installed');
+        const original=window.fetch;
+        const hook={original,count:0};window.__desktopIpcResponseTest=hook;
+        window.fetch=async function(input,init){
+          const response=await original.call(this,input,init);
+          let operation;try{operation=JSON.parse(init?.body).request?.op;}catch{}
+          if(new URL(String(input)).pathname==='/logging_request'&&operation===${JSON.stringify(op)}){
+            hook.count++;
+            if(${JSON.stringify(mode)}==='error'){
+              const headers=new Headers(response.headers);headers.set('Tauri-Response','error');headers.set('content-type','application/json');headers.delete('content-length');
+              return new Response(JSON.stringify('synthetic lost IPC reply after service response'),{status:response.status,headers});
+            }
+            await new Promise(resolve=>setTimeout(resolve,${JSON.stringify(delayMs)}));
+          }
+          return response;
+        };
+        if(window.fetch===original)throw new Error('IPC response hook is not writable');
+      })()`);
+      return {
+        count: () => evaluate('window.__desktopIpcResponseTest?.count'),
+        restore: () => evaluate('window.fetch=window.__desktopIpcResponseTest.original;delete window.__desktopIpcResponseTest'),
+      };
+    };
+    return { app, invoke, evaluate, command, waitFor, click, fill, screenshot, interceptIpc, close: cleanup };
   } catch (error) { await cleanup(); throw error; }
 }

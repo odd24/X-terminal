@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { logging, type ArchiveInfo, type HistoryEntry, type HistoryPage, type HistoryRecord } from './logging-api';
 import { LiteralLogSearch, visibleControls, type LogMatch } from './log-search';
 import { requestId } from './request-id';
+import { LogExportPanel } from './log-export-panel';
 type Handle = { info: ArchiveInfo; read_id: string; cursor: number };
 const states: Record<HistoryEntry['state'], string> = { HEADER_CHECKED: '头部已核对，内容待读取验证', UNFINISHED: '尚无可读完成标志', INVALID: '文件或格式无效', UNAVAILABLE: '文件被占用或不可访问' };
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error); }
@@ -127,7 +128,7 @@ export function LogHistoryPanel() {
       if (mounted.current) setBusy(false);
     }
   }
-  return <details aria-label="历史日志工具"><summary>历史日志与搜索</summary>
+  return <details aria-label="历史日志工具"><summary>历史日志、搜索与导出</summary>
     <div className="config-actions"><button disabled={busy} onClick={() => void refresh()}>刷新历史目录</button></div>
     <label>历史日志<select aria-label="历史日志选择" value={selected} disabled={busy || !entries.length} onChange={event => void choose(event.target.value)}>{!entries.length && <option value="">尚未加载目录</option>}{entries.map(item => <option key={item.log_id} value={item.log_id}>{item.info && `${logTime(item.info.started_at_ms)} · ${item.info.protocol} · `}{item.log_id.slice(0, 8)} · {states[item.state]}</option>)}</select></label>
     {entry && <p aria-label="历史日志目标">日志 {entry.log_id} · {states[entry.state]}{shownInfo && ` · ${shownInfo.protocol} · ${shownInfo.connection.connection_id} / ${shownInfo.connection.generation} · ${shownInfo.encoding} · 初始文本 ${shownInfo.text_cursor} / 保留起点 ${shownInfo.available_from} · 保留分段 ${shownInfo.first_retained_segment}–${shownInfo.last_segment} · 声明源缺口 ${shownInfo.source_gap_bytes ?? '未知'} 字节`}</p>}
@@ -141,6 +142,6 @@ export function LogHistoryPanel() {
     <div className="config-actions"><button disabled={busy || !entry?.info || !needle.length || needle.length > 256} onClick={() => void search()}>搜索保留文本</button><button disabled={!busy || !job.current} onClick={() => { if (job.current) job.current.cancelled = true; }}>停止历史搜索</button></div>
     <p role="status" aria-label="历史搜索状态">{searchStatus}</p>
     {matches.length > 0 && <pre aria-label="历史搜索结果">{matches.map((match, index) => `${index + 1}. 文本 ${match.firstSeq}–${match.lastSeq}: ${visibleControls(match.excerpt)}`).join('\n')}</pre>}
-    <small>导出入口仍在接入。</small>
+    <LogExportPanel selected={entry?.info ?? undefined} disabled={busy} />
   </details>;
 }

@@ -76,12 +76,12 @@ try {
   assert.equal((await ui.evaluate(`document.querySelector('[aria-label="历史搜索结果"]').textContent`)).split('\n').length,100);
   // Delay real read responses to exercise cancellation while IPC is in flight;
   // every returned page still comes from the actual service and real files.
-  await ui.evaluate(`window.__historyOriginalInvoke=window.__TAURI_INTERNALS__.invoke;window.__TAURI_INTERNALS__.invoke=async (...args)=>{const result=await window.__historyOriginalInvoke(...args);if(args[0]==='logging_request'&&args[1]?.request?.op==='history_read')await new Promise(resolve=>setTimeout(resolve,200));return result;}`);
+  const delayedRead=await ui.interceptIpc({op:'history_read',delayMs:200});
   await ui.fill('历史搜索内容','not-present');await ui.click('搜索保留文本');
   await ui.waitFor(`!Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='停止历史搜索').disabled`);
   await ui.click('停止历史搜索');
   await ui.waitFor(`document.querySelector('[aria-label="历史搜索状态"]').textContent.includes('搜索已停止')`);
-  await ui.evaluate(`window.__TAURI_INTERNALS__.invoke=window.__historyOriginalInvoke;delete window.__historyOriginalInvoke`);
+  assert.ok(await delayedRead.count()>0,'a real historical page response must have been delayed');await delayedRead.restore();
   await assertReleased(textPath(second.log_id));
   await ui.click('打开历史日志');await ui.waitFor(`!!document.querySelector('[aria-label="历史日志内容"]')`);
   await ui.waitFor(`document.querySelector('[aria-label="历史分页范围"]').textContent.includes(${JSON.stringify(`${second.text_cursor}–${second.text_cursor+3}`)})`);

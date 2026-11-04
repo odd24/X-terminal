@@ -54,3 +54,5 @@ source_completion为原文件声明，退休历史无法全检，不以其总量
 ExportStore提供文件库层的受管理暂存：可信服务数据目录/terminal-log-exports，Windows独占exports.lock；最多8个UUID尝试目录，含失败不自动删除，未知项/目录reparse拒绝。单份实际JSON编码上限256MiB，超限返回FileTooLarge而非截断成功。固定export.partial使用create_new独占写；全检/flush/sync_all与取消检查后，以MoveFileW不覆盖发布export.jsonl。ExportArtifact仅含ID、字节数及实际保留统计；原始日志不修改。失败/取消/已有目标时不发布、不自动重试；partial即使有verified也不等同成功产物。尚无IPC/用户保存入口/任务回执和显式清理，不能从文件名推断授权。
 
 服务现已新增Desktop专用export_start/status/cancel任务，参见[IPC说明](../ipc/README.md)。独立文件线程1在途/8队列、64本次服务回执，状态/取消不等待文件I/O；成功发布与取消冲突以发布成功为准，不编造撤销。此入口只在受管理目录准备产物，不接收任意路径、不代表用户已保存到自选位置；桌面按钮/保存与显式容量整理继续。
+
+桌面历史工具现有导出按钮、状态/取消和受管理文件完整路径（可选中复制），固定任务目标独立于活动连接/历史选择。成功路径只在精确作用域及终态计数校验后显示；请求错误保持原ID，仅查询而不自动Start。sessionStorage单槽只存作用域，重载后主动查询；NotFound明确本次服务无回执，可显式新建新ID，不覆盖旧目录。关闭面板只请求停止未完成导出，可能已发布，不撤销文件；终端捕获不停止。自选另存位置/打开目录和显式容量整理尚未实施。
