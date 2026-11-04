@@ -130,7 +130,7 @@ fn source_gap_overflow_fails_before_acceptance_or_completion() {
 
 #[test]
 fn archive_rejects_incomplete_extra_oversize_and_incorrect_completion() {
-    for case in 0..10 {
+    for case in 0..11 {
         let temp = Temp::new();
         let (root, meta, mut logger) = start(&temp);
         assert!(logger.submit(data(&meta, 1, b"actual")));
@@ -167,6 +167,15 @@ fn archive_rejects_incomplete_extra_oversize_and_incorrect_completion() {
                     .unwrap()
                     .set_len(128 * 1024)
                     .unwrap();
+            }
+            10 => {
+                fs::remove_file(directory.join("0000000000000001.rawlog")).unwrap();
+                assert_eq!(
+                    ArchiveReader::inspect(&root, status.log_id)
+                        .unwrap_err()
+                        .kind(),
+                    io::ErrorKind::InvalidData
+                );
             }
             _ => unreachable!(),
         }

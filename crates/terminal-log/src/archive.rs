@@ -44,6 +44,15 @@ pub struct ArchivePage {
 fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid completed journal")
 }
+fn required_segment(error: io::Error) -> io::Error {
+    // A completion marker naming absent segment files is damaged, rather than
+    // an unfinished capture whose marker has not yet been published.
+    if error.kind() == io::ErrorKind::NotFound {
+        invalid()
+    } else {
+        error
+    }
+}
 fn read_file(path: &Path, limit: u64) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
@@ -100,6 +109,21 @@ impl ArchiveReader {
         if id.is_nil() || connection.connection_id.0.is_nil() || connection.generation == 0 {
             return Err(invalid());
         }
+        Self::open_inner(root, id, Some(connection))
+    }
+    /// Bounded metadata inspection for a trusted local catalogue. This does not
+    /// scan record contents or prove the completion declaration is accurate.
+    pub fn inspect(root: &ManagedRoot, id: Uuid) -> io::Result<ArchiveInfo> {
+        Ok(Self::open_inner(root, id, None)?.info.clone())
+    }
+    fn open_inner(
+        root: &ManagedRoot,
+        id: Uuid,
+        expected: Option<ConnectionRef>,
+    ) -> io::Result<Self> {
+        if id.is_nil() {
+            return Err(invalid());
+        }
         let mut guards = crate::storage::guards(root.path())?;
         let directory = root.path().join(id.to_string());
         guards.push(crate::storage::pin(&directory)?);
@@ -117,7 +141,7 @@ impl ArchiveReader {
             .ok_or_else(invalid)?;
         if completion.format_version != 1
             || completion.log_id != id
-            || completion.connection != connection
+            || expected.is_some_and(|connection| completion.connection != connection)
             || completion.first_retained_segment == 0
             || count > 16
             || (completion.written_records == 0
@@ -130,8 +154,10 @@ impl ArchiveReader {
         for number in completion.first_retained_segment..=completion.last_segment {
             let raw_name = format!("{number:016}.rawlog");
             let text_name = format!("{number:016}.text.jsonl");
-            let raw = read_file(&directory.join(&raw_name), 100 * 1024 * 1024)?;
-            let text = read_file(&directory.join(&text_name), 100 * 1024 * 1024)?;
+            let raw = read_file(&directory.join(&raw_name), 100 * 1024 * 1024)
+                .map_err(required_segment)?;
+            let text = read_file(&directory.join(&text_name), 100 * 1024 * 1024)
+                .map_err(required_segment)?;
             let size = raw
                 .metadata()?
                 .len()
@@ -141,7 +167,7 @@ impl ArchiveReader {
             let header = pair.header();
             if header.log_id != id
                 || header.segment != number
-                || header.metadata.connection != connection
+                || header.metadata.connection != completion.connection
                 || count > u64::from(header.limits.segments)
                 || size > header.limits.segment_bytes
             {

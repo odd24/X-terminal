@@ -51,7 +51,7 @@ async fn canonical_gap_and_failed_connection_flush_are_recorded_without_an_exit_
     let temp = Temp::new();
     let config = crate::config::ConfigWorker::start(Some(temp.0.clone())).unwrap();
     let store = Store::test_store();
-    let manager = Manager::new(store.clone(), config.access());
+    let manager = Manager::new(store.clone(), config.access()).unwrap();
     let connection = connection(&store);
     let Reply::Info(info) = manager
         .handle(Request::Start {
@@ -120,7 +120,7 @@ async fn preexisting_log_directories_bound_new_capture_without_clearing_history(
     let temp = Temp::new();
     let config = crate::config::ConfigWorker::start(Some(temp.0.clone())).unwrap();
     let store = Store::test_store();
-    let manager = Manager::new(store.clone(), config.access());
+    let manager = Manager::new(store.clone(), config.access()).unwrap();
     let connection = connection(&store);
     let root = terminal_log::ManagedRoot::open(&temp.0).unwrap();
     for _ in 0..64 {

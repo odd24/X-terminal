@@ -76,7 +76,7 @@ impl ConfigWorker {
                     Ok(_) => State::open(directory.clone()),
                     Err(error) => Err(*error),
                 };
-                let archives = crate::archives::Archives::new(directory);
+                let archives = crate::archives::Archives::new(directory.clone());
                 while let Some(message) = receiver.blocking_recv() {
                     let message = match message {
                         Message::Public(message) => message,
@@ -84,9 +84,18 @@ impl ConfigWorker {
                             if reply.is_closed() {
                                 continue;
                             }
-                            let result = match &mut state {
-                                Ok(state) => state.internal(request),
-                                Err(error) => Err(*error),
+                            let result = if matches!(request, Internal::LoggingDirectory) {
+                                // Logs remain recoverable when SQLite is corrupt or too
+                                // new, provided this worker still owns the data directory.
+                                owner
+                                    .as_ref()
+                                    .map(|_| Value::LoggingDirectory(directory.clone()))
+                                    .map_err(|error| *error)
+                            } else {
+                                match &mut state {
+                                    Ok(state) => state.internal(request),
+                                    Err(error) => Err(*error),
+                                }
                             };
                             let _ = reply.send(result);
                             continue;

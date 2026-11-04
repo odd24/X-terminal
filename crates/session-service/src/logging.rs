@@ -20,6 +20,7 @@ struct Start {
     limits: wire::Limits,
 }
 
+mod history;
 #[cfg(test)]
 mod tests;
 struct Entry {
@@ -49,19 +50,21 @@ impl OutputCapture for Sink {
     }
 }
 pub(crate) struct Manager {
+    history: history::Worker,
     inner: Mutex<Inner>,
     gate: tokio::sync::Mutex<()>,
     store: Arc<Mutex<Store>>,
     config: Access,
 }
 impl Manager {
-    pub(crate) fn new(store: Arc<Mutex<Store>>, config: Access) -> Self {
-        Self {
+    pub(crate) fn new(store: Arc<Mutex<Store>>, config: Access) -> io::Result<Self> {
+        Ok(Self {
+            history: history::Worker::start()?,
             inner: Mutex::new(Inner::default()),
             gate: tokio::sync::Mutex::new(()),
             store,
             config,
-        }
+        })
     }
     fn info(&self, entry: &Entry) -> Result<wire::Info, ErrorCode> {
         let status = entry.logger.status();
@@ -132,6 +135,28 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            request @ (Request::HistoryList {}
+            | Request::HistoryOpen { .. }
+            | Request::HistoryRead { .. }
+            | Request::HistoryClose { .. }) => {
+                let directory = if matches!(
+                    request,
+                    Request::HistoryList {} | Request::HistoryOpen { .. }
+                ) {
+                    let Value::LoggingDirectory(directory) = self
+                        .config
+                        .request(Internal::LoggingDirectory)
+                        .await
+                        .map_err(|_| ErrorCode::InvalidState)?
+                    else {
+                        return Err(ErrorCode::InvalidState);
+                    };
+                    Some(directory)
+                } else {
+                    None
+                };
+                self.history.request(directory, request).await
+            }
             Request::Start {
                 connection,
                 request_id,
@@ -254,6 +279,7 @@ impl Manager {
         }
     }
     pub(crate) async fn close(self) -> io::Result<()> {
+        self.history.close().await?;
         let inner = self
             .inner
             .into_inner()

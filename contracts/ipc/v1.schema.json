@@ -1115,6 +1115,118 @@
               "log_id"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "history_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "history_open",
+                "type": "string"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "read_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "max_bytes": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_records": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "history_read",
+                "type": "string"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "read_id",
+              "cursor",
+              "max_records",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "history_close",
+                "type": "string"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "read_id"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -1920,6 +2032,101 @@
       "ArchiveInfo": {
         "additionalProperties": false,
         "properties": {
+          "available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "first_retained_segment": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_segment": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limits": {
+            "$ref": "#/$defs/Limits"
+          },
+          "log_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "natural_end": {
+            "type": "boolean"
+          },
+          "protocol": {
+            "$ref": "#/$defs/Protocol"
+          },
+          "source_available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_gap_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "started_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "written_raw_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "written_records": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "log_id",
+          "connection",
+          "protocol",
+          "encoding",
+          "started_at_ms",
+          "source_cursor",
+          "text_cursor",
+          "limits",
+          "available_from",
+          "source_available_from",
+          "first_retained_segment",
+          "last_segment",
+          "written_records",
+          "written_raw_bytes",
+          "natural_end"
+        ],
+        "type": "object"
+      },
+      "ArchiveInfo2": {
+        "additionalProperties": false,
+        "properties": {
           "bytes": {
             "format": "uint64",
             "minimum": 0,
@@ -1962,6 +2169,15 @@
           "password",
           "public_key",
           "keyboard_interactive"
+        ],
+        "type": "string"
+      },
+      "CatalogueState": {
+        "enum": [
+          "HEADER_CHECKED",
+          "UNFINISHED",
+          "INVALID",
+          "UNAVAILABLE"
         ],
         "type": "string"
       },
@@ -2147,7 +2363,7 @@
             "properties": {
               "entries": {
                 "items": {
-                  "$ref": "#/$defs/ArchiveInfo"
+                  "$ref": "#/$defs/ArchiveInfo2"
                 },
                 "type": "array"
               },
@@ -2166,7 +2382,7 @@
             "additionalProperties": false,
             "properties": {
               "artifact": {
-                "$ref": "#/$defs/ArchiveInfo"
+                "$ref": "#/$defs/ArchiveInfo2"
               },
               "result": {
                 "const": "artifact",
@@ -2256,7 +2472,7 @@
                 "type": "string"
               },
               "safety_backup": {
-                "$ref": "#/$defs/ArchiveInfo"
+                "$ref": "#/$defs/ArchiveInfo2"
               }
             },
             "required": [
@@ -2701,6 +2917,55 @@
         "required": [
           "id",
           "name"
+        ],
+        "type": "object"
+      },
+      "HistoryEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "info": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ArchiveInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "log_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/$defs/CatalogueState"
+          }
+        },
+        "required": [
+          "log_id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "HistoryRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "raw": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/OutputEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "$ref": "#/$defs/TextEvent"
+          }
+        },
+        "required": [
+          "text"
         ],
         "type": "object"
       },
@@ -3585,6 +3850,128 @@
             "required": [
               "result",
               "logs"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "logs": {
+                "items": {
+                  "$ref": "#/$defs/HistoryEntry"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "history_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "logs"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "info": {
+                "$ref": "#/$defs/ArchiveInfo"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "history_opened",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "read_id",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "available_from": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "finished": {
+                "type": "boolean"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "next_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "records": {
+                "items": {
+                  "$ref": "#/$defs/HistoryRecord"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "history_page",
+                "type": "string"
+              },
+              "source_available_from": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "result",
+              "connection",
+              "log_id",
+              "read_id",
+              "cursor",
+              "next_cursor",
+              "available_from",
+              "source_available_from",
+              "finished",
+              "records"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "history_closed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "read_id"
             ],
             "type": "object"
           }

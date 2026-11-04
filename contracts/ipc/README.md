@@ -63,3 +63,9 @@ screen返回编码、parser、resize_reflow、尺寸/光标/替代屏幕、sourc
 P11.4启停阶段增加logging族，全部active Desktop专用：start(connection/request_id/limits)、list(connection)、status/stop(connection/log_id)。limits.segment_bytes为128KiB–100MiB（每对raw/text总和），segments为1–16；无路径/编码/角色字段。Start仅当前CONNECTED代次，相同ID/参数返回原log_id及现状态，冲突拒绝；旧Start不会在重连后新建。Stop幂等、核对日志自身ConnectionRef，不能解除别的capture_id。List当前只枚举本次服务注册的该精确代次日志，不冒充持久历史扫描。
 
 Info包含元数据、限额、OPENING/RECORDING/STOPPING/STOPPED/FAILED、active捕获标志、accepted/written/rejected计数、已接受source_gap_bytes、最后成功的分段范围/退休数、natural_end、durable和worker_finished。停止响应不等于同步完成；natural_end指最终解码flush，包括FAILED收尾，不是退出成功。目录/Start回执/日志注册分别限64，满额拒绝新增；持久历史、读取/导出和容量整理继续后续阶段。见[ADR-030](../../docs/decisions/ADR-030.md)。
+
+P11.4新增logging/history_list、history_open、history_read、history_close，服务器全族仅active Desktop；Observer的当前会话read票据不授权持久日志。history_list为受管理根最多64个UUID目录的可信本地目录展示，无调用者路径；HEADER_CHECKED只保证文件政策/元数据头，UNFINISHED/INVALID/UNAVAILABLE不带推测身份。完成标志引用缺失文件归INVALID。history_open绑定精确ConnectionRef/log_id/read_id，返回声明范围/保留起点，未验证全部内容。
+
+history_read显式同一范围和cursor，1–128条、32–64KiB逻辑负载并额外检查真实编码帧；返回原始事件/TextEvent配对，next_cursor仅越过交付记录，只有finished=true表示保留范围全检通过。一个reader保留最近页，相同cursor及限额重试返回同页，改变参数InvalidArgument，旧于缓存RequestExpired，超前InvalidArgument。history_close立即释放句柄和页缓存，重复关闭保留回执时幂等；关闭/120秒闲置/损坏后的read_id不可重开。8个reader、16队列、128回执，UUIDv7已关闭回执按水位退休；不透明ID固定保留，满额CapacityExceeded。阻塞文件系统期间不保证准时到期。旧代次历史读取不隐式连接/发送/重放任何命令。
+
+目录路径由配置线程持有数据目录所有权时提供，SQLite损坏不屏蔽已完成日志，目录被另一服务占用仍拒绝；服务退出释放全部句柄。当前桌面只具日志启停UI，历史浏览/搜索/导出UI继续P11.4，不以IPC存在推断界面或整日志恢复完成。

@@ -136,6 +136,25 @@ async fn logging_is_desktop_only_deduplicated_and_bound_to_exact_output_windows(
         .unwrap();
     for request in [
         L::List { connection },
+        L::HistoryList {},
+        L::HistoryOpen {
+            connection,
+            log_id: first.log_id,
+            read_id: Uuid::new_v4(),
+        },
+        L::HistoryRead {
+            connection,
+            log_id: first.log_id,
+            read_id: Uuid::new_v4(),
+            cursor: 1,
+            max_records: 1,
+            max_bytes: 32768,
+        },
+        L::HistoryClose {
+            connection,
+            log_id: first.log_id,
+            read_id: Uuid::new_v4(),
+        },
         L::Status {
             connection,
             log_id: first.log_id,
@@ -440,4 +459,440 @@ async fn ssh_shell_logging_captures_actual_transport_bytes_and_closes_with_servi
             .join("completion.json")
             .exists()
     );
+}
+
+async fn captured_fixture(client: &mut Client) -> (ConnectionRef, log::Info) {
+    let connection = reference(ok(client.request(Request::CreateFixture {}).await.unwrap()));
+    let started = info(
+        call(
+            client,
+            L::Start {
+                connection,
+                request_id: Uuid::new_v4(),
+                limits: limits(),
+            },
+        )
+        .await,
+    );
+    for bytes in [vec![0, 255, 13, 10], b"second".to_vec(), b"third".to_vec()] {
+        ok(client
+            .request(Request::AppendFixture { connection, bytes })
+            .await
+            .unwrap());
+    }
+    call(
+        client,
+        L::Stop {
+            connection,
+            log_id: started.log_id,
+        },
+    )
+    .await;
+    let done = settled(client, connection, started.log_id, |i| i.worker_finished).await;
+    assert!(done.durable);
+    (connection, done)
+}
+async fn historical_page(
+    client: &mut Client,
+    connection: ConnectionRef,
+    log_id: Uuid,
+    read_id: Uuid,
+    cursor: u64,
+) -> log::HistoryPage {
+    match call(
+        client,
+        L::HistoryRead {
+            connection,
+            log_id,
+            read_id,
+            cursor,
+            max_records: 1,
+            max_bytes: 32768,
+        },
+    )
+    .await
+    {
+        log::Reply::HistoryPage(page) => *page,
+        _ => panic!(),
+    }
+}
+#[tokio::test]
+async fn history_survives_process_restart_and_corrupt_configuration_without_replay() {
+    let temp = ConfigTemp::new();
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let (connection, done) = captured_fixture(&mut client).await;
+    fixture.stop(&mut client).await;
+    let log_id = done.log_id;
+    let unfinished = Uuid::new_v4();
+    std::fs::create_dir(temp.0.join("terminal-logs").join(unfinished.to_string())).unwrap();
+    let invalid = Uuid::new_v4();
+    let invalid_dir = temp.0.join("terminal-logs").join(invalid.to_string());
+    std::fs::create_dir(&invalid_dir).unwrap();
+    std::fs::write(
+        invalid_dir.join("completion.json"),
+        b"invalid-synthetic-marker",
+    )
+    .unwrap();
+    let mut restarted = temp.start().await;
+    let mut desktop = restarted.connect().await;
+    match call(&mut desktop, L::HistoryList {}).await {
+        log::Reply::HistoryList { logs } => {
+            assert_eq!(logs.len(), 3);
+            let complete = logs.iter().find(|e| e.log_id == log_id).unwrap();
+            assert!(matches!(complete.state, log::CatalogueState::HeaderChecked));
+            assert_eq!(complete.info.as_ref().unwrap().connection, connection);
+            assert!(matches!(
+                logs.iter().find(|e| e.log_id == unfinished).unwrap().state,
+                log::CatalogueState::Unfinished
+            ));
+            assert!(matches!(
+                logs.iter().find(|e| e.log_id == invalid).unwrap().state,
+                log::CatalogueState::Invalid
+            ));
+        }
+        _ => panic!(),
+    }
+    let read_id = Uuid::new_v4();
+    for _ in 0..2 {
+        match call(
+            &mut desktop,
+            L::HistoryOpen {
+                connection,
+                log_id,
+                read_id,
+            },
+        )
+        .await
+        {
+            log::Reply::HistoryOpened { info, .. } => {
+                assert_eq!(info.available_from, 1);
+                assert_eq!(info.written_records, 3);
+            }
+            _ => panic!(),
+        }
+    }
+    let first = historical_page(&mut desktop, connection, log_id, read_id, 1).await;
+    let duplicate = historical_page(&mut desktop, connection, log_id, read_id, 1).await;
+    assert_eq!(
+        serde_json::to_value(&first).unwrap(),
+        serde_json::to_value(duplicate).unwrap()
+    );
+    assert_eq!(
+        first.records[0].raw.as_ref().unwrap().bytes,
+        [0, 255, 13, 10]
+    );
+    assert_eq!(first.records[0].text.text, "\0�\r\n");
+    assert!(!first.finished);
+    for cursor in 2..=3 {
+        assert_eq!(
+            historical_page(&mut desktop, connection, log_id, read_id, cursor)
+                .await
+                .records[0]
+                .text
+                .seq,
+            cursor
+        );
+    }
+    let end = historical_page(&mut desktop, connection, log_id, read_id, 4).await;
+    assert!(end.finished && end.records.is_empty());
+    assert_eq!(end.next_cursor, 4);
+    let wrong = ConnectionRef {
+        generation: connection.generation + 1,
+        ..connection
+    };
+    assert_eq!(
+        error(
+            desktop
+                .request(Request::Logging {
+                    request: L::HistoryClose {
+                        connection: wrong,
+                        log_id,
+                        read_id
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidArgument
+    );
+    assert_eq!(
+        error(
+            desktop
+                .request(Request::Logging {
+                    request: L::HistoryRead {
+                        connection,
+                        log_id,
+                        read_id,
+                        cursor: 1,
+                        max_records: 1,
+                        max_bytes: 32768
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::RequestExpired
+    );
+    for _ in 0..2 {
+        call(
+            &mut desktop,
+            L::HistoryClose {
+                connection,
+                log_id,
+                read_id,
+            },
+        )
+        .await;
+    }
+    assert_eq!(
+        error(
+            desktop
+                .request(Request::Logging {
+                    request: L::HistoryOpen {
+                        connection,
+                        log_id,
+                        read_id
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::RequestExpired
+    );
+    restarted.stop(&mut desktop).await;
+    let corrupt_path = temp.0.join("config.sqlite");
+    std::fs::write(&corrupt_path, b"synthetic-corrupt-config").unwrap();
+    let mut recovering = temp.start().await;
+    let mut desktop = recovering.connect().await;
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            config::ConfigRequest::Page {
+                offset: 0,
+                revision: None,
+                folders: false
+            }
+        )
+        .await,
+        config::ConfigReply::Error {
+            code: config::ConfigError::Corrupt
+        }
+    ));
+    assert!(matches!(
+        call(&mut desktop, L::HistoryList {}).await,
+        log::Reply::HistoryList { .. }
+    ));
+    let fresh = Uuid::new_v4();
+    call(
+        &mut desktop,
+        L::HistoryOpen {
+            connection,
+            log_id,
+            read_id: fresh,
+        },
+    )
+    .await;
+    assert_eq!(
+        historical_page(&mut desktop, connection, log_id, fresh, 1)
+            .await
+            .records[0]
+            .raw
+            .as_ref()
+            .unwrap()
+            .bytes,
+        [0, 255, 13, 10]
+    );
+    recovering.stop(&mut desktop).await;
+    assert_eq!(
+        std::fs::read(corrupt_path).unwrap(),
+        b"synthetic-corrupt-config"
+    );
+}
+
+#[tokio::test]
+async fn history_handles_are_bounded_and_released_at_explicit_close_or_service_exit() {
+    let temp = ConfigTemp::new();
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let (connection, done) = captured_fixture(&mut client).await;
+    let log_id = done.log_id;
+    let mut second = temp.start().await;
+    let mut other = second.connect().await;
+    assert_eq!(
+        error(
+            other
+                .request(Request::Logging {
+                    request: L::HistoryList {}
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    assert_eq!(
+        error(
+            other
+                .request(Request::Logging {
+                    request: L::HistoryOpen {
+                        connection,
+                        log_id,
+                        read_id: Uuid::new_v4()
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    second.stop(&mut other).await;
+    let ids: Vec<_> = (0..9).map(|_| Uuid::new_v4()).collect();
+    for key in &ids[..8] {
+        call(
+            &mut client,
+            L::HistoryOpen {
+                connection,
+                log_id,
+                read_id: *key,
+            },
+        )
+        .await;
+    }
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::HistoryOpen {
+                        connection,
+                        log_id,
+                        read_id: ids[8]
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::CapacityExceeded
+    );
+    call(
+        &mut client,
+        L::HistoryOpen {
+            connection,
+            log_id,
+            read_id: ids[0],
+        },
+    )
+    .await;
+    let file = temp
+        .0
+        .join("terminal-logs")
+        .join(log_id.to_string())
+        .join("0000000000000001.rawlog");
+    assert!(std::fs::OpenOptions::new().write(true).open(&file).is_err());
+    call(
+        &mut client,
+        L::HistoryClose {
+            connection,
+            log_id,
+            read_id: ids[0],
+        },
+    )
+    .await;
+    call(
+        &mut client,
+        L::HistoryOpen {
+            connection,
+            log_id,
+            read_id: ids[8],
+        },
+    )
+    .await;
+    ok(client
+        .request(Request::AppendFixture {
+            connection,
+            bytes: b"input-and-terminal-continue".to_vec(),
+        })
+        .await
+        .unwrap());
+    fixture.stop(&mut client).await;
+    assert!(std::fs::OpenOptions::new().write(true).open(file).is_ok());
+}
+
+#[tokio::test]
+async fn history_header_only_catalogue_does_not_hide_later_record_corruption() {
+    let temp = ConfigTemp::new();
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let (connection, done) = captured_fixture(&mut client).await;
+    let log_id = done.log_id;
+    let text = temp
+        .0
+        .join("terminal-logs")
+        .join(log_id.to_string())
+        .join("0000000000000001.text.jsonl");
+    let mut bytes = std::fs::read(&text).unwrap();
+    bytes.pop();
+    std::fs::write(text, bytes).unwrap();
+    match call(&mut client, L::HistoryList {}).await {
+        log::Reply::HistoryList { logs } => {
+            assert!(matches!(logs[0].state, log::CatalogueState::HeaderChecked))
+        }
+        _ => panic!(),
+    }
+    let read_id = Uuid::new_v4();
+    call(
+        &mut client,
+        L::HistoryOpen {
+            connection,
+            log_id,
+            read_id,
+        },
+    )
+    .await;
+    for cursor in 1..=2 {
+        historical_page(&mut client, connection, log_id, read_id, cursor).await;
+    }
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::HistoryRead {
+                        connection,
+                        log_id,
+                        read_id,
+                        cursor: 3,
+                        max_records: 1,
+                        max_bytes: 32768
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::HistoryRead {
+                        connection,
+                        log_id,
+                        read_id,
+                        cursor: 3,
+                        max_records: 1,
+                        max_bytes: 32768
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::RequestExpired
+    );
+    ok(client
+        .request(Request::AppendFixture {
+            connection,
+            bytes: b"terminal-still-live".to_vec(),
+        })
+        .await
+        .unwrap());
+    fixture.stop(&mut client).await;
 }

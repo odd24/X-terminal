@@ -82,6 +82,27 @@ try {
   assert.equal(previous, 74);
   const completed = JSON.parse(await readFile(path.join(logDirectory, 'completion.json')));
   assert.equal(completed.written_records, 73);
+  const catalogue = await request({ op: 'history_list' });
+  const archived = catalogue.logs.find(log => log.log_id === first.log_id);
+  assert.equal(archived.state, 'HEADER_CHECKED');assert.deepEqual(archived.info.connection, target);
+  const readId = crypto.randomUUID();
+  const opened = await request({ op: 'history_open', connection: target, log_id: first.log_id, read_id: readId });
+  assert.ok(opened.info.available_from > opened.info.text_cursor, 'retired prefix is explicit');
+  let cursor = opened.info.available_from;let lastRead = cursor - 1;let firstPage = true;
+  for (;;) {
+    const pageRequest = { op: 'history_read', connection: target, log_id: first.log_id, read_id: readId, cursor, max_records: 8, max_bytes: 32768 };
+    const page = await request(pageRequest);
+    if (firstPage) { assert.deepEqual(await request(pageRequest), page, 'retry returns the same page without advancement');firstPage = false; }
+    for (const record of page.records) {
+      assert.equal(record.text.seq, lastRead + 1);lastRead = record.text.seq;
+      assert.deepEqual(Buffer.from(record.raw.bytes), Buffer.alloc(4096, 65 + (record.raw.seq - 5) % 26));
+    }
+    cursor = page.next_cursor;assert.equal(cursor, lastRead + 1);
+    if (page.finished) break;
+    assert.ok(page.records.length > 0);
+  }
+  assert.equal(lastRead, 74);
+  await request({ op: 'history_close', connection: target, log_id: first.log_id, read_id: readId });
   const info = await request({ op: 'start', connection: target, request_id: crypto.randomUUID(), limits: { segment_bytes: 131072, segments: 2 } });
   assert.notEqual(info.log_id, first.log_id);
   await request({ op: 'stop', connection: target, log_id: first.log_id });
@@ -97,7 +118,7 @@ try {
   await ui.invoke('fixture_append', { connection: target, bytes: [...Buffer.from('\r\nCONNECTION_STILL_ALIVE')] });
   await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('CONNECTION_STILL_ALIVE'))`);
   await ui.screenshot('desktop-logging-synthetic.png');
-  console.log('PASS logging native WebView: explicit scope/start/stop, no history backfill, panel close/reload keep capture, exact bounded raw/text rotation, stop old log cannot stop new log, visible file failure while terminal continues; synthetic only');
+  console.log('PASS logging native WebView: explicit scope/start/stop, no history backfill, panel close/reload keep capture, exact bounded raw/text rotation, historical catalogue and paged exact bytes/retry/final verification/close, stop old log cannot stop new log, visible file failure while terminal continues; synthetic only');
 } finally {
   await ui?.close();
   const target = path.resolve(directory);assert.equal(path.dirname(target), path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-logging-ui-'));
