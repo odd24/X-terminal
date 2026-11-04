@@ -1,0 +1,201 @@
+use super::*;
+use std::io::Write;
+
+fn capture(temp: &Temp, count: u64) -> (ManagedRoot, Metadata, Status) {
+    let root = ManagedRoot::open(&temp.0).unwrap();
+    let meta = metadata();
+    let mut logger = Logger::start(
+        root.path().to_path_buf(),
+        meta.clone(),
+        Limits {
+            segment_bytes: 128 * 1024,
+            segments: 2,
+        },
+    )
+    .unwrap();
+    for seq in 1..=count {
+        let mut record = data(&meta, seq, &vec![seq as u8; EVENT_BYTES]);
+        record.text.text = "中文\0\u{1b}[31m<script>\r\n😀".into();
+        assert!(logger.submit(record));
+        wait(|| logger.status().written_records == seq);
+    }
+    let mut gap = data(&meta, count + 1, &[]);
+    gap.raw.as_mut().unwrap().gap_bytes = Some(17);
+    gap.text.gap_bytes = Some(17);
+    assert!(logger.submit(gap));
+    assert!(logger.submit(eof(&meta, count + 2)));
+    let status = logger.join();
+    assert!(status.durable);
+    (root, meta, status)
+}
+fn lines(bytes: &[u8]) -> Vec<serde_json::Value> {
+    std::str::from_utf8(bytes)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn portable_export_preserves_rotated_scope_raw_text_gap_and_flush() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 70);
+    assert!(status.retired_segments > 0);
+    let mut output = Vec::new();
+    let summary =
+        export_jsonl(&root, status.log_id, meta.connection, &mut output, || false).unwrap();
+    let rows = lines(&output);
+    let header = &rows[0];
+    assert_eq!(header["format"], "shared-terminal-export");
+    assert_eq!(header["metadata"], serde_json::to_value(&meta).unwrap());
+    assert_eq!(header["source_completion"]["written_records"], 72);
+    let first = header["available_from"].as_u64().unwrap();
+    assert!(first > 1);
+    assert_eq!(summary.retained_records, 73 - first);
+    assert_eq!(
+        summary.retained_raw_bytes,
+        (71 - first) * EVENT_BYTES as u64
+    );
+    assert_eq!(summary.retained_gap_bytes, 17);
+    assert_eq!(summary.next_cursor, 73);
+    for (index, row) in rows[1..rows.len() - 1].iter().enumerate() {
+        let seq = first + index as u64;
+        assert_eq!(row["text"]["seq"], seq);
+        if seq <= 70 {
+            let bytes: Vec<u8> = serde_json::from_value(row["raw"]["bytes"].clone()).unwrap();
+            assert_eq!(bytes, vec![seq as u8; EVENT_BYTES]);
+            assert_eq!(row["text"]["text"], "中文\0\u{1b}[31m<script>\r\n😀");
+        } else if seq == 71 {
+            assert_eq!(row["raw"]["gap_bytes"], 17);
+            assert_eq!(row["text"]["gap_bytes"], 17);
+        } else {
+            assert!(row["raw"].is_null());
+            assert_eq!(row["text"]["decode_error"], true);
+        }
+    }
+    assert_eq!(rows.last().unwrap()["type"], "verified");
+    assert_eq!(
+        rows.last().unwrap()["retained"],
+        serde_json::to_value(summary).unwrap()
+    );
+    // Export holds no lingering source handles after return.
+    let marker = root
+        .path()
+        .join(status.log_id.to_string())
+        .join("completion.json");
+    let original = fs::read(&marker).unwrap();
+    fs::write(&marker, original).unwrap();
+}
+
+#[test]
+fn export_rejects_wrong_scope_and_cancellation_without_success_trailer() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 3);
+    let mut bytes = Vec::new();
+    assert!(
+        export_jsonl(
+            &root,
+            status.log_id,
+            ConnectionRef {
+                generation: 2,
+                ..meta.connection
+            },
+            &mut bytes,
+            || false
+        )
+        .is_err()
+    );
+    assert!(bytes.is_empty());
+    let mut calls = 0;
+    let error = export_jsonl(&root, status.log_id, meta.connection, &mut bytes, || {
+        calls += 1;
+        calls >= 4
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    let rows = lines(&bytes);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row["type"] != "verified"));
+}
+
+#[test]
+fn export_damaged_final_counters_leaves_only_unverified_prefix() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 20);
+    let marker = root
+        .path()
+        .join(status.log_id.to_string())
+        .join("completion.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    value["written_raw_bytes"] = 1.into();
+    fs::write(&marker, serde_json::to_vec(&value).unwrap()).unwrap();
+    let mut bytes = Vec::new();
+    assert!(export_jsonl(&root, status.log_id, meta.connection, &mut bytes, || false).is_err());
+    let rows = lines(&bytes);
+    assert!(rows.len() > 1); // Real streamed prefix existed before final validation failed.
+    assert!(rows.iter().all(|row| row["type"] != "verified"));
+}
+
+#[test]
+fn export_empty_manual_stop_and_legacy_unknown_gap_total() {
+    let temp = Temp::new();
+    let root = ManagedRoot::open(&temp.0).unwrap();
+    let meta = metadata();
+    let mut logger =
+        Logger::start(root.path().to_path_buf(), meta.clone(), Limits::default()).unwrap();
+    let status = logger.join();
+    assert!(status.durable);
+    let marker = root
+        .path()
+        .join(status.log_id.to_string())
+        .join("completion.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    value.as_object_mut().unwrap().remove("source_gap_bytes");
+    fs::write(&marker, serde_json::to_vec(&value).unwrap()).unwrap();
+    let mut bytes = Vec::new();
+    let summary =
+        export_jsonl(&root, status.log_id, meta.connection, &mut bytes, || false).unwrap();
+    assert_eq!(summary.retained_records, 0);
+    let rows = lines(&bytes);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["source_completion"]["natural_end"], false);
+    assert!(
+        rows[0]["source_completion"]
+            .get("source_gap_bytes")
+            .is_none()
+    );
+}
+
+#[test]
+fn export_propagates_partial_write_and_final_flush_failures() {
+    struct Sink {
+        budget: usize,
+        flush_error: bool,
+    }
+    impl Write for Sink {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.budget == 0 {
+                return Err(io::Error::from(io::ErrorKind::StorageFull));
+            }
+            let count = bytes.len().min(self.budget);
+            self.budget -= count;
+            Ok(count)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            if self.flush_error {
+                Err(io::Error::other("synthetic flush failure"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 2);
+    for (budget, flush_error) in [(11, false), (usize::MAX, true)] {
+        let mut sink = Sink {
+            budget,
+            flush_error,
+        };
+        assert!(export_jsonl(&root, status.log_id, meta.connection, &mut sink, || false).is_err());
+    }
+}

@@ -10,6 +10,7 @@ use std::{
 };
 
 mod archive;
+mod export;
 
 struct Temp(PathBuf);
 impl Temp {

@@ -1,11 +1,13 @@
 //! Opt-in bounded journals. Callers must authorize and route an exact generation.
 mod archive;
 mod directory;
+mod export;
 mod format;
 mod paired;
 mod storage;
 pub use archive::{ArchiveInfo, ArchivePage, ArchiveReader, Completion};
 pub use directory::ManagedRoot;
+pub use export::{ExportSummary, export_jsonl};
 pub use format::{RawFrame, RawReader, SegmentHeader};
 pub use paired::PairReader;
 use serde::{Deserialize, Serialize};

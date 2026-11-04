@@ -44,3 +44,9 @@ ArchiveReader仅从ManagedRoot中的随机log_id子目录按精确ConnectionRef�
 P11.4已将目录/受限读取接入Desktop专用IPC，默认不读取/导出；actor配额、页重试/过期、目录状态和配置损坏读取策略见[IPC说明](../ipc/README.md)及ADR-030。仍缺历史浏览/搜索/导出UI、未完成文件恢复与持久容量整理。
 
 P11.4桌面已可显式刷新/选择历史日志，分页浏览原始HEX和转义派生文本，按保留范围流式字面搜索。时间显示北京时间，不改持久字段。列表最多100条摘录，但继续全文扫描/统计，源缺口隔断匹配，取消/错误保持未全检。历史目标不跟随活动连接；导出、损坏前缀恢复与容量整理仍在实施。
+
+## 可移植JSONL导出流v1（文件库阶段）
+
+export_jsonl新开精确作用域的ArchiveReader，逐32KiB逻辑页完整扫描保留范围，不采用调用方已前进的分页游标。每行独立JSON，LF分隔；头type=header，format=shared-terminal-export、format_version=1，含metadata、source_completion、limits、available_from和source_available_from。中间type=record，raw为完整OutputEvent（bytes为0–255整数数组）或flush时null，text为独立TextEvent；控制内容仅JSON数据，不执行。末行type=verified，retained含retained_records/retained_raw_bytes/retained_gap_bytes/next_cursor，仅在所有段和最终声明校验后写入。
+
+source_completion为原文件声明，退休历史无法全检，不以其总量冒充导出保留量。旧source_gap_bytes缺失仍缺失；时间保留epoch毫秒，source gap不补造字节。无签名/防篡改承诺。此库API没有路径/IPC/保存入口，接收调用者Write；调用者须在阻塞线程执行、授权精确目标、使用私有新暂存，只有Ok并sync后才不覆盖发布。取消、源损坏、写/flush失败均不得发布；flush失败可能已经写出尾行，不能仅靠尾行声称持久保存。后续服务/桌面保存、失败恢复和容量整理继续。
