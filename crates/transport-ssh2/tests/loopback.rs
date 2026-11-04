@@ -16,6 +16,8 @@ struct FixtureServer {
     client_key: PublicKey,
     sizes: Arc<Mutex<Vec<(u32, u32)>>>,
     excessive_prompts: bool,
+    early_output: bool,
+    auth_attempts: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl server::Server for FixtureServer {
@@ -35,6 +37,8 @@ impl server::Handler for FixtureServer {
         user: &str,
         password: &str,
     ) -> Result<server::Auth, Self::Error> {
+        self.auth_attempts
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(if user == "probe" && password == self.token.as_str() {
             server::Auth::Accept
         } else {
@@ -105,6 +109,9 @@ impl server::Handler for FixtureServer {
     ) -> Result<(), Self::Error> {
         assert_eq!(term, "xterm-256color");
         self.sizes.lock().unwrap().push((cols, rows));
+        if self.early_output {
+            session.data(channel, b"before-pty|".to_vec())?;
+        }
         session.channel_success(channel)?;
         Ok(())
     }
@@ -114,6 +121,10 @@ impl server::Handler for FixtureServer {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        if self.early_output {
+            session.xon_xoff_request(channel, true)?;
+            session.data(channel, b"before-shell|".to_vec())?;
+        }
         session.channel_success(channel)?;
         session.data(channel, b"fixture-shell\r\n".to_vec())?;
         Ok(())
@@ -155,12 +166,33 @@ impl server::Handler for FixtureServer {
             session.channel_failure(channel)?;
             return Ok(());
         }
+        if self.early_output {
+            session.data(channel, b"before-exec|".to_vec())?;
+            session.extended_data(channel, 1, b"before-error|".to_vec())?;
+        }
+        if command == b"no-ack" {
+            return Ok(());
+        }
         session.channel_success(channel)?;
         if command == b"stall" {
             return Ok(());
         }
         if command == b"overflow" {
             session.data(channel, vec![b'x'; 1024 * 1024 + 1])?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
+        if command == b"disconnect" {
+            return Err(russh::Error::Disconnect);
+        }
+        if command == b"signal" {
+            session.exit_signal_request(channel, russh::Sig::TERM, false, "", "")?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
+        if command == b"no-status" {
             session.eof(channel)?;
             session.close(channel)?;
             return Ok(());
@@ -184,12 +216,16 @@ struct Fixture {
     token: Arc<String>,
     key: PrivateKey,
     sizes: Arc<Mutex<Vec<(u32, u32)>>>,
+    auth_attempts: Arc<std::sync::atomic::AtomicUsize>,
     shutdown: server::RunningServerHandle,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl Fixture {
     async fn start(excessive_prompts: bool) -> Self {
+        Self::options(excessive_prompts, false).await
+    }
+    async fn options(excessive_prompts: bool, early_output: bool) -> Self {
         let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let pin = host_key
@@ -198,11 +234,14 @@ impl Fixture {
             .to_string();
         let token = Arc::new(rand::random::<u128>().to_string());
         let sizes = Arc::new(Mutex::new(vec![]));
+        let auth_attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut handler = FixtureServer {
             token: token.clone(),
             client_key: key.public_key().clone(),
             sizes: sizes.clone(),
             excessive_prompts,
+            early_output,
+            auth_attempts: auth_attempts.clone(),
         };
         let config = Arc::new(server::Config {
             keys: vec![host_key],
@@ -226,6 +265,7 @@ impl Fixture {
             token,
             key,
             sizes,
+            auth_attempts,
             shutdown,
             task,
         }
@@ -376,4 +416,361 @@ async fn rejected_requests_limits_and_stalled_exec_fail_closed() {
     // A failed isolated exec must leave the transport usable, with no replay.
     assert_eq!(client.exec("separate").await.unwrap().exit_status, Some(0));
     client.disconnect().await.unwrap();
+}
+
+use tokio::sync::mpsc;
+use transport_ssh2::session::{
+    AuthState, Authentication, Cancellation, Challenge, Error, ExecEnd, ExecOptions, Limits,
+    SecretText, ShellEvent, Ssh2Session,
+};
+fn secret(value: &str) -> SecretText {
+    SecretText::new(value.to_owned()).unwrap()
+}
+async fn production(fixture: &Fixture) -> (Ssh2Session, mpsc::Receiver<Challenge>, Cancellation) {
+    let (tx, mut rx) = mpsc::channel(1);
+    let cancel = Cancellation::default();
+    let token = cancel.clone();
+    let port = fixture.addr.port();
+    let task = tokio::spawn(async move {
+        Ssh2Session::connect(
+            "127.0.0.1",
+            port,
+            tx,
+            token,
+            Limits {
+                keepalive: Duration::from_millis(50),
+                ..Limits::default()
+            },
+        )
+        .await
+    });
+    let Challenge::HostKey { key, answer } = timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .unwrap()
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(key.fingerprint, fixture.pin);
+    assert_eq!(key.algorithm, "ssh-ed25519");
+    assert!(!key.bytes.is_empty());
+    answer.send(true).unwrap();
+    (task.await.unwrap().unwrap(), rx, cancel)
+}
+#[tokio::test]
+async fn production_host_decision_precedes_credentials_and_cancellation_closes_pending_handshake() {
+    let fixture = Fixture::start(false).await;
+    for approve in [false, true] {
+        let (tx, mut rx) = mpsc::channel(1);
+        let cancel = Cancellation::default();
+        let token = cancel.clone();
+        let port = fixture.addr.port();
+        let task = tokio::spawn(async move {
+            Ssh2Session::connect("127.0.0.1", port, tx, token, Limits::default()).await
+        });
+        let Challenge::HostKey { mut answer, .. } = rx.recv().await.unwrap() else {
+            panic!()
+        };
+        assert!(!task.is_finished());
+        assert_eq!(
+            fixture
+                .auth_attempts
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        if approve {
+            cancel.cancel();
+            assert!(matches!(task.await.unwrap(), Err(Error::Cancelled)));
+            timeout(Duration::from_secs(3), answer.closed())
+                .await
+                .unwrap();
+            assert!(answer.send(true).is_err());
+        } else {
+            answer.send(false).unwrap();
+            assert!(matches!(task.await.unwrap(), Err(Error::HostKeyRejected)));
+        }
+    }
+    let (tx, mut rx) = mpsc::channel(1);
+    let port = fixture.addr.port();
+    let task = tokio::spawn(async move {
+        Ssh2Session::connect(
+            "127.0.0.1",
+            port,
+            tx,
+            Cancellation::default(),
+            Limits {
+                decision: Duration::from_millis(40),
+                ..Limits::default()
+            },
+        )
+        .await
+    });
+    let challenge = rx.recv().await.unwrap();
+    assert!(matches!(task.await.unwrap(), Err(Error::Timeout)));
+    drop(challenge);
+    assert_eq!(
+        fixture
+            .auth_attempts
+            .load(std::sync::atomic::Ordering::SeqCst),
+        0
+    );
+}
+#[tokio::test]
+async fn production_preserves_early_output_and_shares_shell_and_exec_transport() {
+    let fixture = Fixture::options(false, true).await;
+    let (mut session, _rx, cancel) = production(&fixture).await;
+    assert!(matches!(
+        session.shell(80, 24).await,
+        Err(Error::AuthenticationRequired)
+    ));
+    assert_eq!(
+        session
+            .authenticate(
+                "probe",
+                Authentication::Password(secret("wrong synthetic password"))
+            )
+            .await
+            .unwrap(),
+        AuthState::Rejected
+    );
+    assert_eq!(
+        session
+            .authenticate("probe", Authentication::Password(secret(&fixture.token)))
+            .await
+            .unwrap(),
+        AuthState::Authenticated
+    );
+    let mut shell = session.shell(80, 24).await.unwrap();
+    let mut bytes = Vec::new();
+    for _ in 0..3 {
+        let Some(ShellEvent::Stdout(data)) = shell.reader.next().await.unwrap() else {
+            panic!()
+        };
+        bytes.extend(data);
+    }
+    assert_eq!(bytes, b"before-pty|before-shell|fixture-shell\r\n");
+    shell.writer.resize(101, 31).await.unwrap();
+    assert_eq!(shell.writer.write(b"same-channel-input").await.unwrap(), 18);
+    assert!(
+        matches!(shell.reader.next().await.unwrap(),Some(ShellEvent::Stdout(v)) if v==b"same-channel-input")
+    );
+    let result = session
+        .exec("fail", ExecOptions::default(), &Cancellation::default())
+        .await
+        .unwrap();
+    assert_eq!(result.end, ExecEnd::Completed);
+    assert_eq!(result.exit_status, Some(7));
+    assert_eq!(result.stdout, b"before-exec|");
+    assert_eq!(result.stderr, b"before-error|fixture-error");
+    assert!(result.request_accepted);
+    tokio::time::sleep(Duration::from_millis(220)).await;
+    shell.writer.write(b"after-exec").await.unwrap();
+    assert!(
+        matches!(shell.reader.next().await.unwrap(),Some(ShellEvent::Stdout(v)) if v==b"after-exec")
+    );
+    assert_eq!(*fixture.sizes.lock().unwrap(), [(80, 24), (101, 31)]);
+    cancel.cancel();
+    assert!(matches!(
+        shell.writer.write(b"never-queue-after-cancel").await,
+        Err(Error::Cancelled)
+    ));
+    assert!(matches!(shell.reader.next().await, Err(Error::Cancelled)));
+}
+#[tokio::test]
+async fn production_encrypted_key_and_async_interactive_auth_have_no_secret_debug_output() {
+    let fixture = Fixture::start(false).await;
+    let key = fixture
+        .key
+        .encrypt(&mut rand::rng(), fixture.token.as_bytes())
+        .unwrap()
+        .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+        .unwrap();
+    let auth = Authentication::PublicKey {
+        pem: secret(&key),
+        passphrase: Some(secret(&fixture.token)),
+    };
+    assert!(!format!("{auth:?}").contains(fixture.token.as_str()));
+    assert!(!format!("{auth:?}").contains("PRIVATE KEY"));
+    let (mut session, _rx, _cancel) = production(&fixture).await;
+    assert_eq!(
+        session.authenticate("probe", auth).await.unwrap(),
+        AuthState::Authenticated
+    );
+    session.disconnect().await.unwrap();
+    let (mut session, _rx, _cancel) = production(&fixture).await;
+    assert_eq!(
+        session
+            .authenticate(
+                "probe",
+                Authentication::PublicKey {
+                    pem: secret(&key),
+                    passphrase: Some(secret("wrong fixture passphrase"))
+                }
+            )
+            .await,
+        Err(Error::InvalidKey)
+    );
+    let (mut session, mut rx, _cancel) = production(&fixture).await;
+    let auth = tokio::spawn(async move {
+        let state = session
+            .authenticate("probe", Authentication::KeyboardInteractive)
+            .await;
+        (session, state)
+    });
+    let Challenge::Authentication { challenge, answer } = rx.recv().await.unwrap() else {
+        panic!()
+    };
+    assert_eq!(challenge.prompts.len(), 1);
+    assert!(!challenge.prompts[0].echo);
+    assert_eq!(challenge.prompts[0].text, "Token: ");
+    answer.send(vec![secret(&fixture.token)]).unwrap();
+    let (session, result) = auth.await.unwrap();
+    assert_eq!(result.unwrap(), AuthState::Authenticated);
+    session.disconnect().await.unwrap();
+    let excessive = Fixture::start(true).await;
+    let (mut session, mut rx, _cancel) = production(&excessive).await;
+    assert_eq!(
+        session
+            .authenticate("probe", Authentication::KeyboardInteractive)
+            .await,
+        Err(Error::Limit)
+    );
+    assert!(rx.try_recv().is_err());
+}
+#[tokio::test]
+async fn production_exec_reports_partial_timeout_cancel_limits_signal_and_absent_exit_status() {
+    let fixture = Fixture::options(false, true).await;
+    let (mut session, _rx, _cancel) = production(&fixture).await;
+    session
+        .authenticate("probe", Authentication::Password(secret(&fixture.token)))
+        .await
+        .unwrap();
+    let options = ExecOptions {
+        timeout: Duration::from_millis(80),
+        ..ExecOptions::default()
+    };
+    for (command, end, accepted) in [
+        ("stall", ExecEnd::Timeout, true),
+        ("no-ack", ExecEnd::Timeout, false),
+        ("reject", ExecEnd::Rejected, false),
+        ("no-status", ExecEnd::MissingExitStatus, true),
+        ("signal", ExecEnd::RemoteSignal, true),
+    ] {
+        let result = session
+            .exec(command, options, &Cancellation::default())
+            .await
+            .unwrap();
+        assert_eq!(result.end, end, "{command}");
+        assert_eq!(result.request_accepted, accepted);
+        assert_eq!(result.exit_status, None);
+        if command != "reject" {
+            assert_eq!(result.stdout, b"before-exec|");
+            assert_eq!(result.stderr, b"before-error|");
+        }
+        if command == "signal" {
+            assert_eq!(result.exit_signal.unwrap().name, "TERM");
+        }
+    }
+    let result = session
+        .exec(
+            "overflow",
+            ExecOptions {
+                max_output_bytes: 64,
+                ..ExecOptions::default()
+            },
+            &Cancellation::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.end, ExecEnd::OutputLimit);
+    assert!(result.output_truncated);
+    assert_eq!(result.stdout.len() + result.stderr.len(), 64);
+    let token = Cancellation::default();
+    let copy = token.clone();
+    let cancel_task = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        copy.cancel();
+    });
+    let result = session
+        .exec("stall", ExecOptions::default(), &token)
+        .await
+        .unwrap();
+    cancel_task.await.unwrap();
+    assert_eq!(result.end, ExecEnd::Cancelled);
+    assert!(result.request_accepted);
+    assert_eq!(result.stdout, b"before-exec|");
+    assert_eq!(
+        session
+            .exec("separate", ExecOptions::default(), &Cancellation::default())
+            .await
+            .unwrap()
+            .exit_status,
+        Some(0)
+    );
+    let result = session
+        .exec(
+            "disconnect",
+            ExecOptions::default(),
+            &Cancellation::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.end, ExecEnd::TransportLost);
+    assert_eq!(result.exit_status, None);
+}
+#[tokio::test]
+async fn production_owner_drop_and_pre_key_timeout_close_real_sockets() {
+    let fixture = Fixture::start(false).await;
+    let (mut session, _rx, _cancel) = production(&fixture).await;
+    session
+        .authenticate("probe", Authentication::Password(secret(&fixture.token)))
+        .await
+        .unwrap();
+    let mut shell = session.shell(80, 24).await.unwrap();
+    assert!(matches!(
+        shell.reader.next().await.unwrap(),
+        Some(ShellEvent::Stdout(_))
+    ));
+    drop(session);
+    timeout(Duration::from_secs(3), async {
+        loop {
+            if matches!(
+                shell.reader.next().await.unwrap(),
+                Some(ShellEvent::Closed { .. }) | None
+            ) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = Vec::new();
+        timeout(Duration::from_secs(2), socket.read_to_end(&mut bytes))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(bytes.starts_with(b"SSH-2.0"));
+    });
+    let (tx, _rx) = mpsc::channel(1);
+    assert!(matches!(
+        Ssh2Session::connect(
+            "127.0.0.1",
+            port,
+            tx,
+            Cancellation::default(),
+            Limits {
+                connect: Duration::from_millis(30),
+                decision: Duration::from_millis(30),
+                ..Limits::default()
+            }
+        )
+        .await,
+        Err(Error::Timeout)
+    ));
+    server.await.unwrap();
 }

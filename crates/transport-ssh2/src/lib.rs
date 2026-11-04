@@ -1,4 +1,6 @@
-//! P03 isolated SSH2 backend experiment; not yet connected to the UI or service.
+//! SSH2 transport. The P03 probe remains for regression; production primitives live in `session`.
+mod key_cost;
+pub mod session;
 use anyhow::{Result, bail, ensure};
 use russh::client::{self, KeyboardInteractiveAuthResponse};
 use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate};

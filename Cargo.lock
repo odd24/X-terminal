@@ -5010,9 +5010,14 @@ name = "transport-ssh2"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
+ "pkcs5",
+ "pkcs8",
  "rand",
  "russh",
+ "thiserror 2.0.21",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
