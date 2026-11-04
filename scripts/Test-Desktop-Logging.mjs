@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
-const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-logging-ui-'));
+const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-logging-ui-中文-'));
 let ui;
 const ref = connection => ({ connection_id: connection.connection_id, generation: connection.generation });
 try {
@@ -127,7 +127,8 @@ try {
   for (const record of exportRecords) assert.deepEqual(Buffer.from(record.raw.bytes), Buffer.alloc(4096, 65 + (record.raw.seq - 5) % 26));
   assert.equal((await request({ op: 'export_cancel', ...exportScope })).phase, 'COMPLETED');
   assert.deepEqual(await readFile(exportPath), exportBytes, 'late cancellation cannot undo a published artifact');
-  const info = await request({ op: 'start', connection: target, request_id: crypto.randomUUID(), limits: { segment_bytes: 131072, segments: 2 } });
+  const failedStart = { op: 'start', connection: target, request_id: crypto.randomUUID(), limits: { segment_bytes: 131072, segments: 2 } };
+  const info = await request(failedStart);
   assert.notEqual(info.log_id, first.log_id);
   await request({ op: 'stop', connection: target, log_id: first.log_id });
   assert.equal((await status(info.log_id)).active, true, 'stopping an old log cannot detach the new capture');
@@ -139,12 +140,28 @@ try {
   const failed = await waitStatus(info.log_id, value => value.worker_finished);
   assert.equal(failed.phase, 'FAILED');assert.equal(failed.failure, 'STORAGE');assert.equal(failed.durable, false);
   await ui.waitFor(`document.querySelector('[aria-label="日志状态"]')?.textContent.includes('文件存储故障')`);
+  const failedDirectory=path.join(directory,'terminal-logs',info.log_id);
+  const retained=new Map();for(const name of await readdir(failedDirectory))retained.set(name,await readFile(path.join(failedDirectory,name)));
+  const lostRelease=await ui.interceptIpc({op:'release_failed',mode:'error'});
+  await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='解除失败记录关联（不删除文件）').focus()`);
+  await ui.click('解除失败记录关联（不删除文件）');
+  await ui.waitFor(`document.querySelector('[aria-label="日志详情"]')?.textContent.includes('失败记录关联已解除')`);
+  assert.equal(await lostRelease.count(),1);await lostRelease.restore();
+  assert.equal(await ui.evaluate(`document.activeElement===document.querySelector('[aria-label="日志记录"]')`),true,'removed maintenance control returns focus to the capture selector');
+  assert.equal((await request(failedStart)).phase,'RELEASED','the old start receipt is retained, not executed again');
+  assert.deepEqual((await readdir(failedDirectory)).sort(),[...retained.keys()].sort());for(const [name,bytes]of retained)assert.deepEqual(await readFile(path.join(failedDirectory,name)),bytes);
+  assert.equal(await ui.evaluate(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='解除失败记录关联（不删除文件）')`),false);
+  await ui.screenshot('desktop-logging-released-synthetic.png');
+  await ui.click('开始记录终端');
+  await ui.waitFor(`document.querySelector('[aria-label="日志状态"]')?.textContent.includes('正在记录')`);
+  await request({op:'release_failed',connection:target,log_id:info.log_id});
+  const active=(await request({op:'list',connection:target})).logs.find(log=>log.active);assert.ok(active&&active.log_id!==info.log_id,'repeating release of old failure leaves the new recording attached');
   await ui.invoke('fixture_append', { connection: target, bytes: [...Buffer.from('\r\nCONNECTION_STILL_ALIVE')] });
   await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('CONNECTION_STILL_ALIVE'))`);
   await ui.screenshot('desktop-logging-synthetic.png');
-  console.log('PASS logging native WebView: explicit scope/start/stop, no history backfill, panel close/reload keep capture, exact bounded raw/text rotation, historical catalogue/pages, deduplicated managed export with exact retained bytes and late cancellation, stop old log cannot stop new log, visible file failure while terminal continues; synthetic only');
+  console.log('PASS logging native WebView: explicit scope/start/stop, no history backfill, panel close/reload keep capture, exact bounded raw/text rotation, historical catalogue/pages, deduplicated managed export with exact retained bytes and late cancellation, old stop/release cannot detach new capture, failed receipt release with lost real response preserves every file and never replays Start; terminal continues; synthetic only');
 } finally {
   await ui?.close();
-  const target = path.resolve(directory);assert.equal(path.dirname(target), path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-logging-ui-'));
+  const target = path.resolve(directory);assert.equal(path.dirname(target), path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-logging-ui-中文-'));
   await rm(target, { recursive: true, force: true });
 }

@@ -1126,6 +1126,28 @@
           {
             "additionalProperties": false,
             "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "release_failed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "op": {
                 "const": "history_list",
                 "type": "string"
@@ -3684,6 +3706,7 @@
       "Phase": {
         "enum": [
           "REMOVED",
+          "RELEASED",
           "OPENING",
           "RECORDING",
           "STOPPING",

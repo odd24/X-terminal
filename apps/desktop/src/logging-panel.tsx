@@ -3,7 +3,7 @@ import { logging, type LogInfo } from './logging-api';
 import { reference, type Connection } from './ssh-api';
 import { requestId } from './request-id';
 import { LogHistoryPanel } from './log-history-panel';
-const phases: Record<LogInfo['phase'], string> = { OPENING: '正在打开文件', RECORDING: '正在记录', STOPPING: '正在排空并同步', STOPPED: '记录已停止', FAILED: '记录失败', REMOVED: '文件已整理，计数为捕获历史' };
+const phases: Record<LogInfo['phase'], string> = { OPENING: '正在打开文件', RECORDING: '正在记录', STOPPING: '正在排空并同步', STOPPED: '记录已停止', FAILED: '记录失败', REMOVED: '文件已整理，计数为捕获历史', RELEASED: '失败记录关联已解除，文件未删除' };
 const failures: Record<string, string> = { QUEUE_FULL: '写盘队列已满', DISK_FULL: '磁盘空间不足', STORAGE: '文件存储故障', INVALID_RECORD: '输出序号或代次异常', COUNTER_EXHAUSTED: '计数容量已耗尽', WORKER_PANICKED: '文件线程异常' };
 export function LoggingPanel({ connection, open, close }: { connection?: Connection; open: boolean; close: () => void }) {
   const [logs, setLogs] = useState<LogInfo[]>([]);
@@ -16,6 +16,10 @@ export function LoggingPanel({ connection, open, close }: { connection?: Connect
   const current = useRef(connection);
   current.current = connection;
   const mounted = useRef(true);
+  const releaseButton = useRef<HTMLButtonElement>(null);
+  const logSelect = useRef<HTMLSelectElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => { if (!busy && restoreFocus.current) { restoreFocus.current = false; logSelect.current?.focus(); } }, [busy]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     let disposed = false; let timer = 0;
@@ -37,16 +41,20 @@ export function LoggingPanel({ connection, open, close }: { connection?: Connect
   const latest = visibleLogs.find(log => log.active) ?? visibleLogs[0];
   const shown = visibleLogs.find(log => log.log_id === selected) ?? latest;
   const targetText = connection ? `${connection.protocol} · ${connection.connection_id} / ${connection.generation}` : '尚无连接';
-  async function act(action: 'start' | 'stop') {
+  async function act(action: 'start' | 'stop' | 'release_failed') {
     const target = current.current;
     if (!target || busy) return;
     const frozen = reference(target);
+    const logId = shown?.log_id;
+    if (action !== 'start' && !logId) return;
+    restoreFocus.current = action === 'release_failed' && document.activeElement === releaseButton.current;
     setBusy(true); setMessage('');
     try {
-      const reply = await logging(action === 'start' ? { op: 'start', connection: frozen, request_id: requestId(), limits: { segment_bytes: Math.round(size * 1024 * 1024), segments } } : { op: 'stop', connection: frozen, log_id: shown!.log_id });
+      const reply = await logging(action === 'start' ? { op: 'start', connection: frozen, request_id: requestId(), limits: { segment_bytes: Math.round(size * 1024 * 1024), segments } } : { op: action, connection: frozen, log_id: logId! });
+      if (reply.result !== 'info' || reply.connection.connection_id !== frozen.connection_id || reply.connection.generation !== frozen.generation || (action !== 'start' && reply.log_id !== logId) || (action === 'release_failed' && !['RELEASED', 'REMOVED'].includes(reply.phase))) throw new Error('日志响应目标或状态不匹配；请查询原目标，未自动重试。');
       if (mounted.current && current.current?.connection_id === frozen.connection_id && current.current.generation === frozen.generation && reply.result === 'info') {
         setSelected(reply.log_id); setLogs(old => [reply, ...old.filter(log => log.log_id !== reply.log_id)]);
-        setMessage(action === 'start' ? '已接受记录请求；打开、写盘和同步结果见状态。' : '已停止接收新输出；停止前已提交的内容不会撤回，最终结果见日志状态。');
+        setMessage(action === 'start' ? '已接受记录请求；打开、写盘和同步结果见状态。' : action === 'release_failed' ? '失败记录关联已解除；计数保留为历史，文件未删除，旧启动请求不会重新执行。' : '已停止接收新输出；停止前已提交的内容不会撤回，最终结果见日志状态。');
       }
     } catch (error) { if (mounted.current && current.current?.connection_id === frozen.connection_id && current.current.generation === frozen.generation) setMessage(String(error)); }
     finally { if (mounted.current) setBusy(false); }
@@ -60,9 +68,10 @@ export function LoggingPanel({ connection, open, close }: { connection?: Connect
       {!connection && <p>先选择或建立连接，再开始记录。</p>}
       <details><summary>下次启动的轮转限额</summary><div className="form-grid"><label>每段合计 MiB<input aria-label="日志每段MiB" type="number" min="0.125" max="100" step="0.125" value={size} onChange={event => setSize(Number(event.target.value))} /></label><label>保留段数<input aria-label="日志保留段数" type="number" min="1" max="16" value={segments} onChange={event => setSegments(Number(event.target.value))} /></label></div><small>不修改正在运行的记录。达到限额会覆盖该份日志最早的分段；两文件合计最多 {size * segments} MiB。失败不会自动扩容或重新记录。</small></details>
       <div className="config-actions"><button disabled={busy || connection?.state !== 'CONNECTED' || visibleLogs.some(log => log.active) || !Number.isFinite(size) || size < 0.125 || size > 100 || !Number.isInteger(segments) || segments < 1 || segments > 16} onClick={() => void act('start')}>开始记录终端</button><button disabled={busy || !shown?.active} onClick={() => void act('stop')}>停止记录终端</button></div>
-      {visibleLogs.length > 0 && <label>本次服务日志<select aria-label="日志记录" value={shown?.log_id ?? ''} onChange={event => setSelected(event.target.value)}>{visibleLogs.map(log => <option key={log.log_id} value={log.log_id}>{log.log_id.slice(0, 8)} · {phases[log.phase]}</option>)}</select></label>}
+      {visibleLogs.length > 0 && <label>本次服务日志<select ref={logSelect} aria-label="日志记录" disabled={busy} value={shown?.log_id ?? ''} onChange={event => setSelected(event.target.value)}>{visibleLogs.map(log => <option key={log.log_id} value={log.log_id}>{log.log_id.slice(0, 8)} · {phases[log.phase]}</option>)}</select></label>}
       {shown && <p aria-label="日志详情">{shown.log_id} · {phases[shown.phase]} · 编码 {shown.encoding} · 限额 {shown.limits.segment_bytes / 1024 / 1024} MiB × {shown.limits.segments} · 原始起点 {shown.source_cursor} / 文本起点 {shown.text_cursor} · 已接受 {shown.accepted_records} 条 / 成对写入 {shown.written_records} 条 · 最后成功写入的分段 {shown.first_retained_segment}–{shown.last_segment} / 退休 {shown.retired_segments} 段 · {shown.worker_finished ? '文件线程已结束' : '文件线程尚未结束'}{shown.durable ? ' · 保留窗口已同步' : ' · 尚无同步完成保证'}{shown.source_gap_bytes > 0 && ` · 接收源缺口 ${shown.source_gap_bytes} 字节，不能视为完整数据`}{shown.failure && ` · ${failures[shown.failure] ?? shown.failure}`}</p>}
       <small>本次服务记录与持久历史分开显示。文件保留在应用数据目录的 terminal-logs。</small>
+      {shown?.phase === 'FAILED' && <div className="config-actions"><button ref={releaseButton} disabled={busy || !shown.worker_finished} onClick={() => void act('release_failed')}>解除失败记录关联（不删除文件）</button><small>只解除所选失败记录的接收关联，允许回收本次服务回执容量；已落盘文件需另行预览清理，未创建目录也可解除。不会重新记录或影响另一份记录。</small></div>}
       <LogHistoryPanel />
       {message && <p role="status">{message}</p>}
     </section>}

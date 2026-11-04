@@ -18,6 +18,210 @@ fn cleanup_temp() -> ConfigTemp {
     ConfigTemp(path)
 }
 #[tokio::test]
+async fn release_failed_is_desktop_scoped_metadata_only_and_does_not_detach_a_new_capture() {
+    let temp = cleanup_temp();
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let connection = reference(ok(client.request(Request::CreateFixture {}).await.unwrap()));
+    let request_id = Uuid::new_v4();
+    let started = loginfo(
+        call(
+            &mut client,
+            L::Start {
+                connection,
+                request_id,
+                limits: limits(),
+            },
+        )
+        .await,
+    );
+    let release = || L::ReleaseFailed {
+        connection,
+        log_id: started.log_id,
+    };
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging { request: release() })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    let Reply::ReadTicket { token, .. } = ok(client
+        .request(Request::IssueRead {
+            scopes: vec![connection],
+            lifetime_ms: 60000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let mut observer = Client::connect(&fixture.instance, token.expose(), fixture.pid)
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(
+        error(
+            observer
+                .request(Request::Logging { request: release() })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    let directory = temp
+        .0
+        .join("terminal-logs")
+        .join(started.log_id.to_string());
+    timeout(Duration::from_secs(5), async {
+        while !directory.join("0000000000000001.rawlog").exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    std::fs::write(
+        directory.join("0000000000000002.rawlog"),
+        b"synthetic rotation collision",
+    )
+    .unwrap();
+    for _ in 0..24 {
+        ok(client
+            .request(Request::AppendFixture {
+                connection,
+                bytes: vec![b'x'; 4096],
+            })
+            .await
+            .unwrap());
+    }
+    let failed = timeout(Duration::from_secs(5), async {
+        loop {
+            let info = loginfo(
+                call(
+                    &mut client,
+                    L::Status {
+                        connection,
+                        log_id: started.log_id,
+                    },
+                )
+                .await,
+            );
+            if info.worker_finished {
+                break info;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(matches!(failed.phase, log::Phase::Failed));
+    assert!(failed.active);
+    let files = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (path.clone(), std::fs::read(path).unwrap())
+        })
+        .collect::<Vec<_>>();
+    let wrong = ConnectionRef {
+        generation: connection.generation + 1,
+        ..connection
+    };
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::ReleaseFailed {
+                        connection: wrong,
+                        log_id: started.log_id
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::NotFound
+    );
+    let released = loginfo(call(&mut client, release()).await);
+    assert!(matches!(released.phase, log::Phase::Released));
+    assert!(!released.active && !released.durable);
+    assert_eq!(released.written_records, failed.written_records);
+    assert_eq!(released.written_raw_bytes, failed.written_raw_bytes);
+    assert!(released.failure.is_some());
+    assert!(matches!(
+        loginfo(
+            call(
+                &mut client,
+                L::Start {
+                    connection,
+                    request_id,
+                    limits: limits()
+                }
+            )
+            .await
+        )
+        .phase,
+        log::Phase::Released
+    ));
+    for (path, bytes) in &files {
+        assert_eq!(std::fs::read(path).unwrap(), *bytes);
+    }
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), files.len());
+    let live = loginfo(
+        call(
+            &mut client,
+            L::Start {
+                connection,
+                request_id: Uuid::new_v4(),
+                limits: limits(),
+            },
+        )
+        .await,
+    );
+    call(&mut client, release()).await;
+    assert!(
+        loginfo(
+            call(
+                &mut client,
+                L::Status {
+                    connection,
+                    log_id: live.log_id
+                }
+            )
+            .await
+        )
+        .active
+    );
+    // File cleanup remains separately authorized and can supersede RELEASED.
+    let snapshot = preview(&mut client, KIND, started.log_id).await;
+    assert!(
+        commit(&mut client, &snapshot)
+            .await
+            .report
+            .unwrap()
+            .directory_removed
+    );
+    assert!(matches!(
+        loginfo(call(&mut client, release()).await).phase,
+        log::Phase::Removed
+    ));
+    assert!(
+        loginfo(
+            call(
+                &mut client,
+                L::Status {
+                    connection,
+                    log_id: live.log_id
+                }
+            )
+            .await
+        )
+        .active
+    );
+    fixture.stop(&mut client).await;
+}
+#[tokio::test]
 async fn cleanup_detaches_only_a_finished_failed_capture_and_allows_recording_again() {
     let temp = cleanup_temp();
     let mut fixture = temp.start().await;

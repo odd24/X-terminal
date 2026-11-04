@@ -2,8 +2,10 @@ use super::*;
 struct Temp(std::path::PathBuf);
 impl Temp {
     fn new() -> Self {
-        let p =
-            std::env::temp_dir().join(format!("shared-terminal-log-service-{}", Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!(
+            "shared-terminal-log-service-中文-{}",
+            Uuid::new_v4()
+        ));
         std::fs::create_dir(&p).unwrap();
         Self(p)
     }
@@ -45,6 +47,223 @@ fn limits() -> wire::Limits {
         segment_bytes: 131072,
         segments: 2,
     }
+}
+async fn failed_without_directory(
+    manager: &Manager,
+    path: &std::path::Path,
+    connection: ConnectionRef,
+    request_id: Uuid,
+) -> Uuid {
+    let metadata = Metadata {
+        connection,
+        protocol: Protocol::Serial,
+        encoding: "gbk".into(),
+        started_at_ms: 1,
+        source_cursor: 1,
+        text_cursor: 1,
+    };
+    let logger = Arc::new(
+        Logger::start(
+            path.to_path_buf(),
+            metadata.clone(),
+            terminal_log::Limits {
+                segment_bytes: limits().segment_bytes,
+                segments: limits().segments,
+            },
+        )
+        .unwrap(),
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !logger.status().worker_finished {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(logger.status().phase, terminal_log::Phase::Failed);
+    let id = logger.status().log_id;
+    assert!(!path.join(id.to_string()).exists());
+    let mut inner = manager.inner.lock().unwrap();
+    inner.entries.insert(
+        id,
+        Entry {
+            logger: logger.clone(),
+            metadata,
+            limits: limits(),
+        },
+    );
+    inner.starts.insert(
+        request_id,
+        (
+            Start {
+                connection,
+                limits: limits(),
+            },
+            id,
+        ),
+    );
+    manager
+        .store
+        .lock()
+        .unwrap()
+        .sessions
+        .attach_capture(connection, id, Arc::new(Sink { logger, connection }))
+        .unwrap();
+    id
+}
+#[tokio::test]
+async fn release_failed_without_a_directory_preserves_failure_and_never_detaches_a_new_capture() {
+    let temp = Temp::new();
+    let blocked = temp.0.join("合成不可用目录");
+    std::fs::write(&blocked, b"synthetic sentinel").unwrap();
+    let config = crate::config::ConfigWorker::start(Some(temp.0.clone())).unwrap();
+    let store = Store::test_store();
+    let manager = Manager::new(store.clone(), config.access()).unwrap();
+    let connection = connection(&store);
+    let request_id = Uuid::new_v4();
+    let log_id = failed_without_directory(&manager, &blocked, connection, request_id).await;
+    let wrong = ConnectionRef {
+        generation: connection.generation + 1,
+        ..connection
+    };
+    assert_eq!(
+        manager
+            .handle(Request::ReleaseFailed {
+                connection: wrong,
+                log_id
+            })
+            .await
+            .unwrap_err(),
+        ErrorCode::NotFound
+    );
+    let Reply::Info(released) = manager
+        .handle(Request::ReleaseFailed { connection, log_id })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(matches!(released.phase, wire::Phase::Released));
+    assert!(!released.active && !released.durable);
+    assert!(released.failure.is_some());
+    let Reply::Info(duplicate) = manager
+        .handle(Request::Start {
+            connection,
+            request_id,
+            limits: limits(),
+        })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(duplicate.log_id, log_id);
+    assert!(matches!(duplicate.phase, wire::Phase::Released));
+    let Reply::Info(live) = manager
+        .handle(Request::Start {
+            connection,
+            request_id: Uuid::new_v4(),
+            limits: limits(),
+        })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(
+        manager
+            .handle(Request::ReleaseFailed {
+                connection,
+                log_id: live.log_id
+            })
+            .await
+            .unwrap_err(),
+        ErrorCode::InvalidState
+    );
+    manager
+        .handle(Request::ReleaseFailed { connection, log_id })
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .lock()
+            .unwrap()
+            .sessions
+            .capture_id(connection)
+            .unwrap(),
+        Some(live.log_id)
+    );
+    assert_eq!(std::fs::read(&blocked).unwrap(), b"synthetic sentinel");
+    manager.close().await.unwrap();
+    config.close().await.unwrap();
+}
+#[tokio::test]
+async fn released_failed_receipts_retire_only_ordered_ids_without_inventing_file_deletion() {
+    let temp = Temp::new();
+    let blocked = temp.0.join("合成失败根");
+    std::fs::write(&blocked, b"keep").unwrap();
+    let config = crate::config::ConfigWorker::start(Some(temp.0.clone())).unwrap();
+    let store = Store::test_store();
+    let manager = Manager::new(store.clone(), config.access()).unwrap();
+    let connection = connection(&store);
+    let opaque = Uuid::new_v4();
+    let mut first = None;
+    for n in 0..64u128 {
+        let id = if n == 0 {
+            opaque
+        } else {
+            Uuid::from_u128((n << 80) | 0x7000_8000_0000_0000_0000)
+        };
+        let log_id = failed_without_directory(&manager, &blocked, connection, id).await;
+        manager
+            .handle(Request::ReleaseFailed { connection, log_id })
+            .await
+            .unwrap();
+        if n == 1 {
+            first = Some(id);
+        }
+    }
+    let next = Uuid::from_u128((100u128 << 80) | 0x7000_8000_0000_0000_0000);
+    manager
+        .handle(Request::Start {
+            connection,
+            request_id: next,
+            limits: limits(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        manager
+            .handle(Request::Start {
+                connection,
+                request_id: first.unwrap(),
+                limits: limits()
+            })
+            .await
+            .unwrap_err(),
+        ErrorCode::RequestExpired
+    );
+    let Reply::Info(old) = manager
+        .handle(Request::Start {
+            connection,
+            request_id: opaque,
+            limits: limits(),
+        })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(matches!(old.phase, wire::Phase::Released));
+    {
+        let inner = manager.inner.lock().unwrap();
+        assert_eq!(inner.starts.len(), 64);
+        assert_eq!(inner.entries.len(), 64);
+        assert!(inner.removed.is_empty());
+    }
+    assert_eq!(std::fs::read(&blocked).unwrap(), b"keep");
+    manager.close().await.unwrap();
+    config.close().await.unwrap();
 }
 #[tokio::test]
 async fn canonical_gap_and_failed_connection_flush_are_recorded_without_an_exit_code() {

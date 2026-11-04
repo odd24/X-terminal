@@ -36,6 +36,7 @@ struct Inner {
     entries: HashMap<Uuid, Entry>,
     starts: HashMap<Uuid, (Start, Uuid)>,
     removed: HashSet<Uuid>,
+    released: HashSet<Uuid>,
     window: RequestWindow,
 }
 impl Inner {
@@ -45,13 +46,14 @@ impl Inner {
             let (old, log, stamp) = self
                 .starts
                 .iter()
-                .filter(|(_, (_, log))| self.removed.contains(log))
+                .filter(|(_, (_, log))| self.removed.contains(log) || self.released.contains(log))
                 .filter_map(|(id, (_, log))| ordered_timestamp(*id).map(|stamp| (*id, *log, stamp)))
                 .min_by_key(|(_, _, stamp)| *stamp)
                 .ok_or(ErrorCode::CapacityExceeded)?;
             self.starts.remove(&old);
             self.entries.remove(&log);
             self.removed.remove(&log);
+            self.released.remove(&log);
             self.window.retire(stamp);
             self.window.check(id)?;
         }
@@ -98,7 +100,7 @@ impl Manager {
             config,
         })
     }
-    fn info(&self, entry: &Entry, removed: bool) -> Result<wire::Info, ErrorCode> {
+    fn info(&self, entry: &Entry, removed: bool, released: bool) -> Result<wire::Info, ErrorCode> {
         let status = entry.logger.status();
         let active = self
             .store
@@ -134,9 +136,15 @@ impl Manager {
             source_cursor: entry.metadata.source_cursor,
             text_cursor: entry.metadata.text_cursor,
             limits: entry.limits,
-            phase: if removed { wire::Phase::Removed } else { phase },
+            phase: if removed {
+                wire::Phase::Removed
+            } else if released {
+                wire::Phase::Released
+            } else {
+                phase
+            },
             failure,
-            active: active && !removed,
+            active: active && !removed && !released,
             accepted_records: status.accepted_records,
             written_records: status.written_records,
             accepted_raw_bytes: status.accepted_raw_bytes,
@@ -148,7 +156,7 @@ impl Manager {
             last_segment: status.last_segment,
             retired_segments: status.retired_segments,
             natural_end: status.natural_end,
-            durable: status.durable && !removed,
+            durable: status.durable && !removed && !released,
             worker_finished: status.worker_finished,
         })
     }
@@ -158,6 +166,7 @@ impl Manager {
             Some((old, log)) if *old == start => Ok(Some(self.info(
                 inner.entries.get(log).ok_or(ErrorCode::InvalidState)?,
                 inner.removed.contains(log),
+                inner.released.contains(log),
             )?)),
             Some(_) => Err(ErrorCode::InvalidArgument),
             None => {
@@ -319,7 +328,7 @@ impl Manager {
                     inner
                         .entries
                         .keys()
-                        .filter(|id| !inner.removed.contains(id))
+                        .filter(|id| !inner.removed.contains(id) && !inner.released.contains(id))
                         .copied(),
                 );
                 if ids.len() >= 64 || inner.entries.len() >= 64 {
@@ -377,9 +386,11 @@ impl Manager {
                 );
                 inner.starts.insert(request_id, (start, id));
                 drop(store);
-                Ok(Reply::Info(Box::new(
-                    self.info(&inner.entries[&id], false)?,
-                )))
+                Ok(Reply::Info(Box::new(self.info(
+                    &inner.entries[&id],
+                    false,
+                    false,
+                )?)))
             }
             Request::List { connection } => {
                 let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
@@ -388,7 +399,12 @@ impl Manager {
                     .values()
                     .filter(|entry| entry.metadata.connection == connection)
                     .map(|entry| {
-                        self.info(entry, inner.removed.contains(&entry.logger.status().log_id))
+                        let id = entry.logger.status().log_id;
+                        self.info(
+                            entry,
+                            inner.removed.contains(&id),
+                            inner.released.contains(&id),
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 logs.sort_by_key(|info| (std::cmp::Reverse(info.started_at_ms), info.log_id));
@@ -410,9 +426,39 @@ impl Manager {
                     }
                     entry.logger.stop();
                 }
-                Ok(Reply::Info(Box::new(
-                    self.info(entry, inner.removed.contains(&log_id))?,
-                )))
+                Ok(Reply::Info(Box::new(self.info(
+                    entry,
+                    inner.removed.contains(&log_id),
+                    inner.released.contains(&log_id),
+                )?)))
+            }
+            Request::ReleaseFailed { connection, log_id } => {
+                // Metadata-only maintenance: no directory reads/deletes and no
+                // claim that a failed attempt ever created a file. This also
+                // works when its data directory is currently unavailable.
+                let _gate = self.gate.lock().await;
+                let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                let entry = inner
+                    .entries
+                    .get(&log_id)
+                    .filter(|entry| entry.metadata.connection == connection)
+                    .ok_or(ErrorCode::NotFound)?;
+                let status = entry.logger.status();
+                if status.phase != terminal_log::Phase::Failed || !status.worker_finished {
+                    return Err(ErrorCode::InvalidState);
+                }
+                if !inner.removed.contains(&log_id) {
+                    let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    if store.sessions.capture_id(connection).ok().flatten() == Some(log_id) {
+                        store.sessions.detach_capture(connection, log_id)?;
+                    }
+                    inner.released.insert(log_id);
+                }
+                Ok(Reply::Info(Box::new(self.info(
+                    &inner.entries[&log_id],
+                    inner.removed.contains(&log_id),
+                    inner.released.contains(&log_id),
+                )?)))
             }
         }
     }

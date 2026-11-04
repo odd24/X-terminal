@@ -36,6 +36,10 @@ pub enum Request {
         connection: ConnectionRef,
         log_id: Uuid,
     },
+    ReleaseFailed {
+        connection: ConnectionRef,
+        log_id: Uuid,
+    },
     HistoryList {},
     CleanupList {
         kind: CleanupKind,
@@ -175,7 +179,9 @@ impl Request {
                 connection
             }
             Self::List { connection } => connection,
-            Self::Status { connection, log_id } | Self::Stop { connection, log_id } => {
+            Self::Status { connection, log_id }
+            | Self::Stop { connection, log_id }
+            | Self::ReleaseFailed { connection, log_id } => {
                 if log_id.is_nil() {
                     return false;
                 }
@@ -248,6 +254,7 @@ pub struct HistoryPage {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Phase {
     Removed,
+    Released,
     Opening,
     Recording,
     Stopping,
@@ -354,6 +361,33 @@ pub enum Reply {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn release_failed_requires_exact_capture_scope_and_cannot_take_file_options() {
+        let value = serde_json::json!({"op":"release_failed","connection":{"connection_id":Uuid::new_v4(),"generation":3},"log_id":Uuid::new_v4()});
+        assert!(
+            serde_json::from_value::<super::Request>(value.clone())
+                .unwrap()
+                .validate()
+        );
+        for field in ["path", "files", "recursive", "role", "request_id"] {
+            let mut bad = value.clone();
+            bad[field] = true.into();
+            assert!(serde_json::from_value::<super::Request>(bad).is_err());
+        }
+        for field in ["log_id", "connection_id"] {
+            let mut bad = value.clone();
+            if field == "log_id" {
+                bad[field] = Uuid::nil().to_string().into();
+            } else {
+                bad["connection"][field] = Uuid::nil().to_string().into();
+            }
+            assert!(
+                !serde_json::from_value::<super::Request>(bad)
+                    .unwrap()
+                    .validate()
+            );
+        }
+    }
     use super::*;
     #[test]
     fn export_contract_requires_exact_scope_and_never_accepts_paths_or_roles() {
