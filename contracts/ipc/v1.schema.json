@@ -888,6 +888,40 @@
           {
             "additionalProperties": false,
             "properties": {
+              "cols": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "reconnect",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "rows": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "cols",
+              "rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "command": {
                 "$ref": "#/$defs/Sensitive"
               },

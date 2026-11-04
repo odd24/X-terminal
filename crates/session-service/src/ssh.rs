@@ -1,5 +1,6 @@
 //! Service-owned SSH2 actors. Public control messages never carry private key bytes.
 mod exec;
+mod reconnect;
 use crate::{
     config::{Access, Internal, Value},
     server::Store,
@@ -27,11 +28,14 @@ use transport_ssh2::session::{
 use uuid::Uuid;
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Start {
+    previous: Option<ConnectionRef>,
     profile_id: Uuid,
     cols: u32,
     rows: u32,
 }
 struct Entry {
+    reference: ConnectionRef,
+    restart_gate: Arc<tokio::sync::Mutex<()>>,
     exec: exec::Tasks,
     writable: watch::Sender<bool>,
     commands: Option<mpsc::Sender<QueuedInput>>,
@@ -102,6 +106,12 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Reconnect {
+                connection,
+                request_id,
+                cols,
+                rows,
+            } => self.reconnect(connection, request_id, cols, rows).await,
             ssh::Request::Exec {
                 connection,
                 request_id,
@@ -163,6 +173,7 @@ impl Manager {
                 rows,
             } => {
                 let start = Start {
+                    previous: None,
                     profile_id,
                     cols,
                     rows,
@@ -201,6 +212,8 @@ impl Manager {
                 inner.entries.insert(
                     connection.connection_id,
                     Entry {
+                        reference: connection.reference(),
+                        restart_gate: Arc::new(tokio::sync::Mutex::new(())),
                         exec: exec::Tasks::default(),
                         writable: watch::channel(false).0,
                         commands: None,
@@ -423,6 +436,7 @@ impl Actor {
         let entry = inner
             .entries
             .get(&self.reference.connection_id)
+            .filter(|entry| entry.reference == self.reference)
             .ok_or(Failure::Transport)?;
         if entry.cancel.is_cancelled() {
             return Err(Failure::Cancelled);
@@ -443,6 +457,7 @@ impl Actor {
             let entry = inner
                 .entries
                 .get_mut(&self.reference.connection_id)
+                .filter(|entry| entry.reference == self.reference)
                 .ok_or(Failure::Transport)?;
             if entry.cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
@@ -452,7 +467,10 @@ impl Actor {
         }
         let result = tokio::select! {biased;_=self.cancel.cancelled()=>Err(Failure::Cancelled),reply=timeout(Duration::from_secs(110),receiver)=>reply.map_err(|_|Failure::ApprovalTimeout)?.map_err(|_|Failure::Cancelled)};
         if let Ok(mut inner) = self.inner.lock()
-            && let Some(entry) = inner.entries.get_mut(&self.reference.connection_id)
+            && let Some(entry) = inner
+                .entries
+                .get_mut(&self.reference.connection_id)
+                .filter(|entry| entry.reference == self.reference)
             && entry
                 .challenge
                 .as_ref()
@@ -469,7 +487,10 @@ impl Actor {
         endpoint: &HostEndpoint,
     ) -> Result<bool, Failure> {
         if let Ok(inner) = self.inner.lock()
-            && let Some(entry) = inner.entries.get(&self.reference.connection_id)
+            && let Some(entry) = inner
+                .entries
+                .get(&self.reference.connection_id)
+                .filter(|entry| entry.reference == self.reference)
         {
             entry.writable.send_replace(false);
         }
@@ -483,7 +504,10 @@ impl Actor {
         };
         if review.status == HostKeyStatus::Known {
             if let Ok(inner) = self.inner.lock()
-                && let Some(entry) = inner.entries.get(&self.reference.connection_id)
+                && let Some(entry) = inner
+                    .entries
+                    .get(&self.reference.connection_id)
+                    .filter(|entry| entry.reference == self.reference)
             {
                 entry.writable.send_replace(true);
             }
@@ -509,7 +533,10 @@ impl Actor {
         })
         .await?;
         if let Ok(inner) = self.inner.lock()
-            && let Some(entry) = inner.entries.get(&self.reference.connection_id)
+            && let Some(entry) = inner
+                .entries
+                .get(&self.reference.connection_id)
+                .filter(|entry| entry.reference == self.reference)
         {
             entry.writable.send_replace(true);
         }
@@ -686,7 +713,10 @@ impl Actor {
                 break;
             }
             if let Ok(mut inner) = self.inner.lock()
-                && let Some(entry) = inner.entries.get_mut(&self.reference.connection_id)
+                && let Some(entry) = inner
+                    .entries
+                    .get_mut(&self.reference.connection_id)
+                    .filter(|entry| entry.reference == self.reference)
             {
                 entry.failure = Some(Failure::AuthenticationRejected);
             }
@@ -703,12 +733,16 @@ impl Actor {
             let entry = inner
                 .entries
                 .get_mut(&self.reference.connection_id)
+                .filter(|entry| entry.reference == self.reference)
                 .ok_or(Failure::Transport)?;
             entry.commands = Some(sender);
         }
         self.transition(State::Connected)?;
         if let Ok(mut inner) = self.inner.lock()
-            && let Some(entry) = inner.entries.get_mut(&self.reference.connection_id)
+            && let Some(entry) = inner
+                .entries
+                .get_mut(&self.reference.connection_id)
+                .filter(|entry| entry.reference == self.reference)
         {
             entry.failure = None;
         }
@@ -729,6 +763,7 @@ impl Actor {
                 .map_err(|_| Failure::Transport)?
                 .entries
                 .get(&self.reference.connection_id)
+                .filter(|entry| entry.reference == self.reference)
                 .ok_or(Failure::Transport)?
                 .writable
                 .subscribe()
@@ -742,6 +777,7 @@ impl Actor {
                 let entry = inner
                     .entries
                     .get_mut(&self.reference.connection_id)
+                    .filter(|entry| entry.reference == self.reference)
                     .ok_or(Failure::Transport)?;
                 if entry.cancel.is_cancelled() {
                     return Err(Failure::Cancelled);
@@ -771,7 +807,11 @@ impl Actor {
             };
             {
                 let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
-                if let Some(entry) = inner.entries.get_mut(&self.reference.connection_id) {
+                if let Some(entry) = inner
+                    .entries
+                    .get_mut(&self.reference.connection_id)
+                    .filter(|entry| entry.reference == self.reference)
+                {
                     entry.receipts.complete(
                         command.id,
                         result.map_err(|error| match error {
@@ -810,7 +850,10 @@ impl Actor {
                 }
                 Some(ShellEvent::ExitStatus(code)) => {
                     if let Ok(mut inner) = self.inner.lock()
-                        && let Some(entry) = inner.entries.get_mut(&self.reference.connection_id)
+                        && let Some(entry) = inner
+                            .entries
+                            .get_mut(&self.reference.connection_id)
+                            .filter(|entry| entry.reference == self.reference)
                     {
                         entry.exit = Some(code);
                     }
@@ -825,7 +868,10 @@ impl Actor {
                 }
                 Some(ShellEvent::ExitSignal { signal, .. }) => {
                     if let Ok(mut inner) = self.inner.lock()
-                        && let Some(entry) = inner.entries.get_mut(&self.reference.connection_id)
+                        && let Some(entry) = inner
+                            .entries
+                            .get_mut(&self.reference.connection_id)
+                            .filter(|entry| entry.reference == self.reference)
                     {
                         entry.signal = Some(signal);
                     }
@@ -836,7 +882,11 @@ impl Actor {
     }
     fn finish(&self, result: Result<(), Failure>) {
         let mut inner = self.inner.lock().unwrap();
-        let Some(entry) = inner.entries.get_mut(&self.reference.connection_id) else {
+        let Some(entry) = inner
+            .entries
+            .get_mut(&self.reference.connection_id)
+            .filter(|entry| entry.reference == self.reference)
+        else {
             return;
         };
         entry.challenge = None;

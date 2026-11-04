@@ -3017,3 +3017,6 @@ async fn ssh2_input_timeout_keeps_a_partial_send_unknown_and_stops_following_com
 
 #[path = "support/exec_cases.rs"]
 mod exec_cases;
+
+#[path = "support/reconnect_cases.rs"]
+mod reconnect_cases;

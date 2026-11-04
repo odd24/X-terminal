@@ -41,3 +41,7 @@ P09 exec 增量：exec、exec_status、exec_read、exec_cancel。启动输入 co
 任务为 QUEUED/RUNNING/CANCELLING/FINISHED；状态和输出回复均带明确连接/task_id。exec_read 从 cursor=1 开始，每次 4096–65536 bytes，上限 64 KiB/128 事件的独立 stdout/stderr 缓冲覆盖时 truncated=true 并给 available_from，不混入交互 shell 输出。摘要单独保存 exit_status/exit_signal/request_accepted（可能 null）、总输出字节和结束原因；非零 code=7 也可为 COMPLETED，缺码/超时/取消/断线不伪造 code=0。CANCELLED_BEFORE_DISPATCH 才表示未派发，其余取消不承诺远端动作撤销。exec 不继承交互 shell cwd/环境。
 
 启动走相同服务 FIFO，派发后独立运行。活动上限每连接 4/全局 16，保留结果每连接 16/全局 64，不淘汰去重证据；满额 CapacityExceeded。长期清理/容量及 Agent 权限/任务体验仍待后续，详见 [ADR-016](../../docs/decisions/ADR-016.md)。
+
+P09 reconnect 增量仅从 DISCONNECTED/FAILED 接受当前 connection_id/generation/request_id/尺寸；活动连接先显式 Close。保持 connection_id，generation+1，并重建输出/挑战/输入/任务，不重放。读取当时的最新 Profile 快照，新端点或变化主机需重新确认，认证须新回答；旧票据不自动获得新代次。
+
+相同 Reconnect 来源和参数/request_id 返回原 Started 结果，并发只迁移一次；参数/动作冲突拒绝。同源不同 request_id 竞争只能一个成功，另一方 StaleGeneration。重复响应中的 state 是原始响应而非当前状态，应另查 Status。Profile 已删除或改为其他协议则拒绝，不递增代次；当前表不迁移旧任务/输出历史，旧代次查询明确拒绝。详见 [ADR-017](../../docs/decisions/ADR-017.md)，GUI/审计/长期容量仍待后续。

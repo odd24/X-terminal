@@ -2,6 +2,8 @@
 
 ## 0.1.0 开发中 — 2026-11-04
 
+- P09 显式重连：同 ID 递增 generation、新 Profile/主机/认证流程、并发去重、旧挑战/任务/读取授权隔离和部分/排队输入不重放；GUI、历史/长期容量及实机验收继续。
+
 - P09 exec 任务：当前 SSH2 transport 独立 channel、启动去重、有界增量 stdout/stderr 与缺口、状态/取消/限额及明确非零退出/缺码/超时/断线结果；桌面、重连、长期容量和 Agent 权限仍未完成。
 
 - P09 输入阶段：有界 FIFO 写入/resize、代次与 request_id 去重、明确排队/管线/部分 Unknown 回执和背压关闭保护。仅 Desktop，长期容量、任务/GUI/Agent 接管继续；实机未验收。

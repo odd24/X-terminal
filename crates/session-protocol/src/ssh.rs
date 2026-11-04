@@ -8,6 +8,12 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Reconnect {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+    },
     Exec {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -76,6 +82,17 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         match self {
+            Self::Reconnect {
+                connection,
+                request_id,
+                cols,
+                rows,
+            } => {
+                valid(*connection)
+                    && !request_id.is_nil()
+                    && (2..=500).contains(cols)
+                    && (1..=200).contains(rows)
+            }
             Self::Exec {
                 connection,
                 request_id,
@@ -308,6 +325,51 @@ pub struct TaskStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reconnect_contract_requires_source_generation_request_id_and_valid_size() {
+        let connection = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let request_id = Uuid::new_v4();
+        assert!(
+            Request::Reconnect {
+                connection,
+                request_id,
+                cols: 80,
+                rows: 24
+            }
+            .validate()
+        );
+        for (generation, id, cols, rows) in [
+            (0, request_id, 80, 24),
+            (1, Uuid::nil(), 80, 24),
+            (1, request_id, 501, 24),
+            (1, request_id, 80, 0),
+        ] {
+            assert!(
+                !Request::Reconnect {
+                    connection: ConnectionRef {
+                        generation,
+                        ..connection
+                    },
+                    request_id: id,
+                    cols,
+                    rows
+                }
+                .validate()
+            );
+        }
+        let mut value = serde_json::to_value(Request::Reconnect {
+            connection,
+            request_id,
+            cols: 80,
+            rows: 24,
+        })
+        .unwrap();
+        value["replay_pending"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<Request>(value).is_err());
+    }
     #[test]
     fn exec_contract_bounds_commands_and_task_reads_and_redacts_command_debug() {
         let connection = ConnectionRef {
