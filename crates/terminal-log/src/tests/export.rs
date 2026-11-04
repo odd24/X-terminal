@@ -199,3 +199,204 @@ fn export_propagates_partial_write_and_final_flush_failures() {
         assert!(export_jsonl(&root, status.log_id, meta.connection, &mut sink, || false).is_err());
     }
 }
+
+#[test]
+fn managed_export_syncs_and_publishes_once_without_overwriting_or_touching_source() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 3);
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    #[cfg(windows)]
+    assert!(ExportStore::open(&temp.0).is_err());
+    let id = Uuid::new_v4();
+    let artifact = store
+        .create(&root, status.log_id, meta.connection, id, || false)
+        .unwrap();
+    let directory = store.path().join(id.to_string());
+    let ready = directory.join("export.jsonl");
+    let bytes = fs::read(&ready).unwrap();
+    assert_eq!(artifact.export_id, id);
+    assert_eq!(artifact.bytes, bytes.len() as u64);
+    assert_eq!(artifact.summary.retained_records, 5);
+    assert_eq!(lines(&bytes).last().unwrap()["type"], "verified");
+    assert!(!directory.join("export.partial").exists());
+    assert!(
+        store
+            .create(&root, status.log_id, meta.connection, id, || false)
+            .is_err()
+    );
+    assert_eq!(fs::read(&ready).unwrap(), bytes);
+    assert_eq!(root.ids().unwrap(), [status.log_id]);
+    drop(store);
+    let _reopened = ExportStore::open(&temp.0).unwrap();
+}
+
+#[test]
+fn managed_export_cancel_corrupt_source_and_publish_collision_never_publish_success() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 20);
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    let id = Uuid::new_v4();
+    let ready = store.path().join(id.to_string()).join("export.jsonl");
+    let partial = ready.with_file_name("export.partial");
+    assert!(
+        store
+            .create(&root, status.log_id, meta.connection, id, || partial
+                .exists())
+            .is_err()
+    );
+    assert!(partial.exists());
+    assert!(!ready.exists());
+
+    let collision_id = Uuid::new_v4();
+    let collision_ready = store
+        .path()
+        .join(collision_id.to_string())
+        .join("export.jsonl");
+    let collision_partial = collision_ready.with_file_name("export.partial");
+    assert!(
+        store
+            .create(&root, status.log_id, meta.connection, collision_id, || {
+                if collision_partial.exists() && !collision_ready.exists() {
+                    fs::write(&collision_ready, b"synthetic sentinel").unwrap();
+                }
+                false
+            })
+            .is_err()
+    );
+    assert_eq!(fs::read(&collision_ready).unwrap(), b"synthetic sentinel");
+    assert!(collision_partial.exists());
+
+    let marker = root
+        .path()
+        .join(status.log_id.to_string())
+        .join("completion.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    value["written_raw_bytes"] = 1.into();
+    fs::write(&marker, serde_json::to_vec(&value).unwrap()).unwrap();
+    let corrupt_id = Uuid::new_v4();
+    assert!(
+        store
+            .create(&root, status.log_id, meta.connection, corrupt_id, || false)
+            .is_err()
+    );
+    let corrupt = store.path().join(corrupt_id.to_string());
+    assert!(!corrupt.join("export.jsonl").exists());
+    assert!(corrupt.join("export.partial").exists());
+    assert!(
+        lines(&fs::read(corrupt.join("export.partial")).unwrap())
+            .iter()
+            .all(|row| row["type"] != "verified")
+    );
+}
+
+#[test]
+fn managed_export_caps_catalogue_including_failed_attempts_and_rejects_unknown_entries() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 1);
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    fs::write(store.path().join("unknown"), b"preserve").unwrap();
+    let id = Uuid::new_v4();
+    assert!(
+        store
+            .create(&root, status.log_id, meta.connection, id, || false)
+            .is_err()
+    );
+    assert!(!store.path().join(id.to_string()).exists());
+    assert_eq!(fs::read(store.path().join("unknown")).unwrap(), b"preserve");
+    fs::remove_file(store.path().join("unknown")).unwrap();
+    for _ in 0..8 {
+        let id = Uuid::new_v4();
+        let partial = store.path().join(id.to_string()).join("export.partial");
+        assert!(
+            store
+                .create(&root, status.log_id, meta.connection, id, || partial
+                    .exists())
+                .is_err()
+        );
+    }
+    assert_eq!(
+        store
+            .create(
+                &root,
+                status.log_id,
+                meta.connection,
+                Uuid::new_v4(),
+                || false
+            )
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::StorageFull
+    );
+    // Eight failed directories remain; no implicit evidence deletion to free quota.
+    assert_eq!(fs::read_dir(store.path()).unwrap().count(), 9);
+}
+
+#[test]
+fn managed_export_cancel_after_sync_preserves_partial_even_with_verified_trailer() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 0); // gap + final flush, a single page
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    let id = Uuid::new_v4();
+    let mut checks = 0;
+    let error = store
+        .create(&root, status.log_id, meta.connection, id, || {
+            checks += 1;
+            // setup, reader, page, 2 records, trailer, flush, then store sync.
+            checks == 8
+        })
+        .unwrap_err();
+    assert_eq!(checks, 8);
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    let directory = store.path().join(id.to_string());
+    assert!(!directory.join("export.jsonl").exists());
+    assert_eq!(
+        lines(&fs::read(directory.join("export.partial")).unwrap())
+            .last()
+            .unwrap()["type"],
+        "verified"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn managed_export_refuses_root_and_catalogue_junctions_without_modifying_target() {
+    fn junction(temp: &Temp, link: &std::path::Path, target: &std::path::Path) {
+        assert!(link.starts_with(&temp.0) && target.starts_with(&temp.0));
+        let result = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "isolated junction fixture must be created"
+        );
+    }
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 1);
+    let target = temp.0.join("isolated-target");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("sentinel"), b"preserve").unwrap();
+    let link = temp.0.join("terminal-log-exports");
+    junction(&temp, &link, &target);
+    assert!(ExportStore::open(&temp.0).is_err());
+    fs::remove_dir(&link).unwrap(); // remove only the self-created junction
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    let child = store.path().join(Uuid::new_v4().to_string());
+    junction(&temp, &child, &target);
+    assert!(
+        store
+            .create(
+                &root,
+                status.log_id,
+                meta.connection,
+                Uuid::new_v4(),
+                || false
+            )
+            .is_err()
+    );
+    fs::remove_dir(&child).unwrap();
+    assert_eq!(fs::read(target.join("sentinel")).unwrap(), b"preserve");
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 1);
+}

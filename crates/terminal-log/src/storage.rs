@@ -21,7 +21,7 @@ pub(crate) struct FileJournal {
     bytes: u64,
     source_cursor: u64,
 }
-fn file(path: &Path) -> io::Result<File> {
+pub(crate) fn file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(windows)]
@@ -31,7 +31,7 @@ fn file(path: &Path) -> io::Result<File> {
     }
     options.open(path)
 }
-fn publish(source: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn publish(source: &Path, target: &Path) -> io::Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;

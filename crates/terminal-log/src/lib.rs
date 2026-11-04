@@ -2,12 +2,14 @@
 mod archive;
 mod directory;
 mod export;
+mod export_store;
 mod format;
 mod paired;
 mod storage;
 pub use archive::{ArchiveInfo, ArchivePage, ArchiveReader, Completion};
 pub use directory::ManagedRoot;
 pub use export::{ExportSummary, export_jsonl};
+pub use export_store::{ExportArtifact, ExportStore, MAX_EXPORT_BYTES};
 pub use format::{RawFrame, RawReader, SegmentHeader};
 pub use paired::PairReader;
 use serde::{Deserialize, Serialize};
