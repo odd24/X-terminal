@@ -25,3 +25,9 @@ read 的 connection 必须明确 connection_id/generation；cursor 为下一事�
 P08.3 桌面增量加入 Desktop 专用 save_profile_key_file：输入 Profile、绝对本地私钥文件路径和可选敏感口令；服务限额读取普通文件/PEM 头后保护，回复只给配置引用。设备/UNC/ADS/保留名/超限拒绝。它不返回文件内容，不向 Observer 开放；Tauri 通用保存拒绝 renderer 直接提交私钥材料。真实 SSH 私钥解析/认证由 P09 验证，当前契约不把保存当作认证成功。
 
 host_keys_page/forget_host_key 也仅限 active Desktop。每页最多 64 项，返回公开摘要而非私钥；删除携带 endpoint/algorithm/expected_fingerprint，旧指纹 Conflict，不自动重试。renderer 不提供任意批准信任记录的命令，实际握手确认由 P09/P13 处理。
+
+P09 开发增量加入 ssh 请求：Start(profile_id/request_id/cols/rows)、Status、AnswerHost、Authenticate、AnswerInteractive、Close。全部仅 active Desktop 可用；Observer 对该命令族拒绝，仍可凭既有只读票据读实际 SSH2 OutputPage。Start 同 request_id/参数返回同一原始 connection，参数冲突拒绝，服务结束后不恢复请求或票据。
+
+其余 SSH 操作明确 connection_id/generation；回答还须当前 challenge_id，回执消耗一次，错误类型/重复/关闭后/旧代次均拒绝。HostKey 挑战只携带当前公开 review，服务保存实际握手 candidate 和信任 revision；客户端不能提交任意待批准密钥。Authenticate 选择 use_saved 或临时 password，禁止两者并存或原始 key 字段；公钥使用启动 Profile 的受保护引用，启动后配置变化拒绝取用。KeyboardInteractive 返回 name/instructions/prompts 与 echo，不将远端文字解释为权限或工具指令。
+
+当前服务阶段仅建立/认证/读取 shell 与关闭；写入、尺寸更新、exec 任务、重连及 GUI 尚未接入。Status 保留失败类别、待确认挑战和可选 shell_exit_status/shell_exit_signal，缺退出码不编造成功；TransportTimeout 和 ApprovalTimeout 区分协议操作与用户等待。该开发契约扩展不代表 R01 或 v1.0 验收完成。详见 [P09](../../docs/records/P09.md)。

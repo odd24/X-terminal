@@ -1855,3 +1855,726 @@ async fn credential_inventory_pages_are_bounded_and_revision_consistent() {
     ));
     service.stop(&mut client).await;
 }
+
+#[path = "support/ssh_fixture.rs"]
+mod ssh_fixture;
+async fn ssh_call(client: &mut Client, request: ssh::Request) -> ssh::Reply {
+    match ok(client.request(Request::Ssh { request }).await.unwrap()) {
+        Reply::Ssh(reply) => reply,
+        _ => panic!("SSH response required"),
+    }
+}
+async fn ssh_status(
+    client: &mut Client,
+    connection: ConnectionRef,
+    test: impl Fn(&ssh::Status) -> bool,
+) -> ssh::Status {
+    timeout(Duration::from_secs(6), async {
+        loop {
+            let ssh::Reply::Status(status) =
+                ssh_call(client, ssh::Request::Status { connection }).await
+            else {
+                panic!()
+            };
+            if test(&status) {
+                return *status;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+fn ssh_profile(
+    fixture: &ssh_fixture::Fixture,
+    auth: config_store::Auth,
+) -> config_store::PortableProfile {
+    let mut profile = portable();
+    profile.settings = config_store::Settings::Ssh2 {
+        host: "127.0.0.1".into(),
+        port: fixture.port,
+        username: "synthetic".into(),
+        auth,
+        encoding: config_store::Encoding::Utf8,
+    };
+    profile
+}
+async fn ssh_start(client: &mut Client, id: Uuid, request_id: Uuid) -> ConnectionInfo {
+    let ssh::Reply::Started { connection } = ssh_call(
+        client,
+        ssh::Request::Start {
+            profile_id: id,
+            request_id,
+            cols: 80,
+            rows: 24,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    connection
+}
+#[tokio::test]
+async fn ssh2_service_shares_real_transport_output_and_protects_host_and_credential_challenges() {
+    use ssh::{Challenge as H, Failure, Request as S};
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let profile = ssh_profile(&remote, config_store::Auth::Password);
+    config_call(
+        &mut client,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: replace_password(&remote.password),
+        },
+    )
+    .await;
+    let request_id = Uuid::new_v4();
+    let connection = ssh_start(&mut client, profile.id, request_id).await;
+    let reference = connection.reference();
+    assert_eq!(
+        ssh_start(&mut client, profile.id, request_id).await,
+        connection
+    );
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::Start {
+                    profile_id: profile.id,
+                    request_id,
+                    cols: 90,
+                    rows: 24
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidArgument,
+            ..
+        }
+    ));
+    let pending = ssh_status(&mut client, reference, |status| {
+        matches!(status.challenge, Some(H::HostKey { .. }))
+    })
+    .await;
+    let Some(H::HostKey { id, review }) = pending.challenge else {
+        panic!()
+    };
+    assert_eq!(review.status, config_store::HostKeyStatus::Unknown);
+    assert_eq!(review.candidate.fingerprint, remote.pin);
+    assert_eq!(remote.attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::Authenticate {
+                    connection: reference,
+                    challenge_id: id,
+                    use_saved: true,
+                    password: None
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidArgument,
+            ..
+        }
+    ));
+    let token = match ok(client
+        .request(Request::IssueRead {
+            scopes: vec![reference],
+            lifetime_ms: 10000,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::ReadTicket { token, .. } => token,
+        _ => panic!(),
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    for request in [
+        S::Status {
+            connection: reference,
+        },
+        S::AnswerHost {
+            connection: reference,
+            challenge_id: id,
+            approve: true,
+        },
+        S::Start {
+            profile_id: profile.id,
+            request_id: Uuid::new_v4(),
+            cols: 80,
+            rows: 24,
+        },
+        S::Close {
+            connection: reference,
+        },
+        S::Authenticate {
+            connection: reference,
+            challenge_id: id,
+            use_saved: true,
+            password: None,
+        },
+        S::AnswerInteractive {
+            connection: reference,
+            challenge_id: id,
+            answers: vec![],
+        },
+    ] {
+        assert!(matches!(
+            observer.request(Request::Ssh { request }).await.unwrap(),
+            Response::Error {
+                code: ErrorCode::PermissionDenied,
+                ..
+            }
+        ));
+    }
+    ssh_call(
+        &mut client,
+        S::AnswerHost {
+            connection: reference,
+            challenge_id: id,
+            approve: true,
+        },
+    )
+    .await;
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::AnswerHost {
+                    connection: reference,
+                    challenge_id: id,
+                    approve: true
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidState,
+            ..
+        }
+    ));
+    let pending = ssh_status(&mut client, reference, |status| {
+        matches!(status.challenge, Some(H::Credentials { .. }))
+    })
+    .await;
+    let Some(H::Credentials {
+        id,
+        stored_available,
+        ..
+    }) = pending.challenge
+    else {
+        panic!()
+    };
+    assert!(stored_available);
+    ssh_call(
+        &mut client,
+        S::Authenticate {
+            connection: reference,
+            challenge_id: id,
+            use_saved: true,
+            password: None,
+        },
+    )
+    .await;
+    let status = ssh_status(&mut client, reference, |status| {
+        status.connection.state == State::Connected
+    })
+    .await;
+    assert!(status.failure.is_none());
+    assert_eq!(remote.attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let read = |connection| Request::Read {
+        connection,
+        cursor: 1,
+        max_bytes: 65536,
+    };
+    let mut first = None;
+    for _ in 0..100 {
+        let Reply::Output(output) = ok(client.request(read(reference)).await.unwrap()) else {
+            panic!()
+        };
+        if output
+            .events
+            .iter()
+            .flat_map(|event| event.bytes.iter())
+            .copied()
+            .collect::<Vec<_>>()
+            == b"before-pty|before-shell|service-shared-shell\r\n"
+        {
+            first = Some(output);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let first = first.unwrap();
+    let Reply::Output(other) = ok(observer.request(read(reference)).await.unwrap()) else {
+        panic!()
+    };
+    assert_eq!(first, other);
+    remote.push(b"new remote bytes").await;
+    assert!(matches!(
+        client
+            .request(Request::RemoveFixture {
+                connection: reference
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::Unsupported,
+            ..
+        }
+    ));
+    assert!(matches!(
+        client
+            .request(Request::CloseFixture {
+                connection: reference
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::Unsupported,
+            ..
+        }
+    ));
+    remote.end(7).await;
+    let status = ssh_status(&mut client, reference, |status| {
+        status.connection.state == State::Disconnected
+    })
+    .await;
+    assert_eq!(status.shell_exit_status, Some(7));
+    let config::ConfigReply::HostKeysPage { keys, .. } = config_call(
+        &mut client,
+        config::ConfigRequest::HostKeysPage {
+            revision: None,
+            offset: 0,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].fingerprint, remote.pin);
+    let next = ssh_start(&mut client, profile.id, Uuid::new_v4())
+        .await
+        .reference();
+    let pending = ssh_status(&mut client, next, |status| {
+        matches!(status.challenge, Some(H::Credentials { .. }))
+    })
+    .await;
+    let Some(H::Credentials { id, .. }) = pending.challenge else {
+        panic!()
+    };
+    ssh_call(
+        &mut client,
+        S::Authenticate {
+            connection: next,
+            challenge_id: id,
+            use_saved: false,
+            password: Some(Sensitive::new("wrong synthetic service password".into())),
+        },
+    )
+    .await;
+    let pending = ssh_status(&mut client, next, |status| {
+        status.failure == Some(Failure::AuthenticationRejected)
+            && matches!(status.challenge, Some(H::Credentials { .. }))
+    })
+    .await;
+    let Some(H::Credentials { id, .. }) = pending.challenge else {
+        panic!()
+    };
+    ssh_call(
+        &mut client,
+        S::Authenticate {
+            connection: next,
+            challenge_id: id,
+            use_saved: true,
+            password: None,
+        },
+    )
+    .await;
+    ssh_status(&mut client, next, |status| {
+        status.connection.state == State::Connected && status.failure.is_none()
+    })
+    .await;
+    ssh_call(&mut client, S::Close { connection: next }).await;
+    ssh_status(&mut client, next, |status| {
+        status.connection.state == State::Disconnected
+    })
+    .await;
+    service.stop(&mut client).await;
+}
+#[tokio::test]
+async fn ssh2_service_changed_host_keys_stale_approval_and_closed_challenges_never_authenticate() {
+    use ssh::{Challenge as H, Failure, Request as S};
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut store = config_store::Store::open(&temp.0.join("config.sqlite")).unwrap();
+    let key = config_store::HostKey {
+        endpoint: config_store::HostEndpoint {
+            protocol: config_store::HostProtocol::Ssh2,
+            host: "127.0.0.1".into(),
+            port: remote.port,
+        },
+        algorithm: "ssh-ed25519".into(),
+        key: b"synthetic previous public key".to_vec(),
+    };
+    let review = store.review_host_key(&key).unwrap();
+    store.approve_host_key(key, &review.revision).unwrap();
+    drop(store);
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let profile = ssh_profile(&remote, config_store::Auth::Password);
+    config_call(
+        &mut client,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: replace_password(&remote.password),
+        },
+    )
+    .await;
+    for approve in [false, true] {
+        let connection = ssh_start(&mut client, profile.id, Uuid::new_v4())
+            .await
+            .reference();
+        let pending = ssh_status(&mut client, connection, |status| {
+            matches!(status.challenge, Some(H::HostKey { .. }))
+        })
+        .await;
+        let Some(H::HostKey { id, review }) = pending.challenge else {
+            panic!()
+        };
+        assert_eq!(review.status, config_store::HostKeyStatus::Changed);
+        assert_eq!(review.known.len(), 1);
+        if approve {
+            let conn = rusqlite::Connection::open(temp.0.join("config.sqlite")).unwrap();
+            conn.execute(
+                "UPDATE host_keys SET key=?1",
+                [b"other synthetic key".as_slice()],
+            )
+            .unwrap();
+        }
+        ssh_call(
+            &mut client,
+            S::AnswerHost {
+                connection,
+                challenge_id: id,
+                approve,
+            },
+        )
+        .await;
+        let failed = ssh_status(&mut client, connection, |status| {
+            status.connection.state == State::Failed
+        })
+        .await;
+        assert_eq!(
+            failed.failure,
+            Some(if approve {
+                Failure::HostKeyConflict
+            } else {
+                Failure::HostKeyRejected
+            })
+        );
+    }
+    let connection = ssh_start(&mut client, profile.id, Uuid::new_v4())
+        .await
+        .reference();
+    let pending = ssh_status(&mut client, connection, |status| {
+        matches!(status.challenge, Some(H::HostKey { .. }))
+    })
+    .await;
+    let id = pending.challenge.unwrap().id();
+    ssh_call(&mut client, S::Close { connection }).await;
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::AnswerHost {
+                    connection,
+                    challenge_id: id,
+                    approve: true
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidState,
+            ..
+        }
+    ));
+    assert_eq!(remote.attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+    let conn = rusqlite::Connection::open(temp.0.join("config.sqlite")).unwrap();
+    let saved: Vec<u8> = conn
+        .query_row("SELECT key FROM host_keys", [], |row| row.get(0))
+        .unwrap();
+    assert_ne!(saved, remote.key);
+    drop(conn);
+    service.stop(&mut client).await;
+}
+#[tokio::test]
+async fn ssh2_service_interactive_challenges_are_connection_scoped_and_sensitive() {
+    use ssh::{Challenge as H, Request as S};
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let profile = ssh_profile(&remote, config_store::Auth::KeyboardInteractive);
+    config_call(
+        &mut client,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    let connection = ssh_start(&mut client, profile.id, Uuid::new_v4())
+        .await
+        .reference();
+    let pending = ssh_status(&mut client, connection, |status| {
+        matches!(status.challenge, Some(H::HostKey { .. }))
+    })
+    .await;
+    ssh_call(
+        &mut client,
+        S::AnswerHost {
+            connection,
+            challenge_id: pending.challenge.unwrap().id(),
+            approve: true,
+        },
+    )
+    .await;
+    let pending = ssh_status(&mut client, connection, |status| {
+        matches!(status.challenge, Some(H::Interactive { .. }))
+    })
+    .await;
+    let Some(H::Interactive { id, prompts, .. }) = pending.challenge else {
+        panic!()
+    };
+    assert_eq!(prompts.len(), 1);
+    assert!(!prompts[0].echo);
+    let mut stale = connection;
+    stale.generation += 1;
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::AnswerInteractive {
+                    connection: stale,
+                    challenge_id: id,
+                    answers: vec![Sensitive::new(remote.password.to_string())]
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::StaleGeneration,
+            ..
+        }
+    ));
+    ssh_call(
+        &mut client,
+        S::AnswerInteractive {
+            connection,
+            challenge_id: id,
+            answers: vec![Sensitive::new(remote.password.to_string())],
+        },
+    )
+    .await;
+    let status = ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Connected
+    })
+    .await;
+    assert!(
+        !serde_json::to_string(&status)
+            .unwrap()
+            .contains(remote.password.as_str())
+    );
+    remote.signal().await;
+    let status = ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Disconnected
+    })
+    .await;
+    assert_eq!(status.shell_exit_signal.as_deref(), Some("TERM"));
+    assert!(status.shell_exit_status.is_none());
+    assert!(status.failure.is_none());
+    service.stop(&mut client).await;
+}
+
+#[tokio::test]
+async fn ssh2_service_resolves_encrypted_key_internally_and_rejects_changed_profile_snapshot() {
+    use ssh::{Challenge as H, Failure, Request as S};
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service =
+        Fixture::on_instance_with_data(Uuid::new_v4().to_string(), false, Some(&temp.0)).await;
+    let mut client = service.connect().await;
+    let profile = ssh_profile(&remote, config_store::Auth::PublicKey);
+    let encrypted = remote
+        .client_key
+        .encrypt(&mut rand::rng(), remote.password.as_bytes())
+        .unwrap()
+        .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+        .unwrap();
+    let path = temp.0.join("synthetic-import-only.key");
+    std::fs::write(&path, encrypted.as_bytes()).unwrap();
+    let saved = config_call(
+        &mut client,
+        config::ConfigRequest::SaveProfileKeyFile {
+            profile: profile.clone(),
+            key_path: path.to_string_lossy().into_owned(),
+            passphrase: Some(Sensitive::new(remote.password.to_string())),
+        },
+    )
+    .await;
+    assert!(matches!(saved, config::ConfigReply::SavedProfile { .. }));
+    let connection = ssh_start(&mut client, profile.id, Uuid::new_v4())
+        .await
+        .reference();
+    let pending = ssh_status(&mut client, connection, |status| {
+        matches!(status.challenge, Some(H::HostKey { .. }))
+    })
+    .await;
+    ssh_call(
+        &mut client,
+        S::AnswerHost {
+            connection,
+            challenge_id: pending.challenge.unwrap().id(),
+            approve: true,
+        },
+    )
+    .await;
+    let pending = ssh_status(&mut client, connection, |status| {
+        matches!(status.challenge, Some(H::Credentials { .. }))
+    })
+    .await;
+    ssh_call(
+        &mut client,
+        S::Authenticate {
+            connection,
+            challenge_id: pending.challenge.unwrap().id(),
+            use_saved: true,
+            password: None,
+        },
+    )
+    .await;
+    ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Connected
+    })
+    .await;
+    ssh_call(&mut client, S::Close { connection }).await;
+    // Begin another connection, then edit the profile after its snapshot was taken.
+    let connection = ssh_start(&mut client, profile.id, Uuid::new_v4())
+        .await
+        .reference();
+    let pending = ssh_status(&mut client, connection, |status| {
+        matches!(status.challenge, Some(H::Credentials { .. }))
+    })
+    .await;
+    let attempts = remote.attempts.load(std::sync::atomic::Ordering::SeqCst);
+    let mut edited = profile;
+    edited.name = "Changed after SSH start".into();
+    config_call(
+        &mut client,
+        config::ConfigRequest::SaveProfile {
+            profile: edited,
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    ssh_call(
+        &mut client,
+        S::Authenticate {
+            connection,
+            challenge_id: pending.challenge.unwrap().id(),
+            use_saved: true,
+            password: None,
+        },
+    )
+    .await;
+    let status = ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Failed
+    })
+    .await;
+    assert_eq!(status.failure, Some(Failure::CredentialUnavailable));
+    assert_eq!(
+        remote.attempts.load(std::sync::atomic::Ordering::SeqCst),
+        attempts
+    );
+    service.stop(&mut client).await;
+}
+
+#[tokio::test]
+async fn ssh2_service_remote_disconnect_fails_without_an_invented_exit_code() {
+    use ssh::{Challenge as H, Failure, Request as S};
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let profile = ssh_profile(&remote, config_store::Auth::Password);
+    config_call(
+        &mut client,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: replace_password(&remote.password),
+        },
+    )
+    .await;
+    let connection = ssh_start(&mut client, profile.id, Uuid::new_v4())
+        .await
+        .reference();
+    let status = ssh_status(&mut client, connection, |status| {
+        matches!(status.challenge, Some(H::HostKey { .. }))
+    })
+    .await;
+    ssh_call(
+        &mut client,
+        S::AnswerHost {
+            connection,
+            challenge_id: status.challenge.unwrap().id(),
+            approve: true,
+        },
+    )
+    .await;
+    let status = ssh_status(&mut client, connection, |status| {
+        matches!(status.challenge, Some(H::Credentials { .. }))
+    })
+    .await;
+    ssh_call(
+        &mut client,
+        S::Authenticate {
+            connection,
+            challenge_id: status.challenge.unwrap().id(),
+            use_saved: true,
+            password: None,
+        },
+    )
+    .await;
+    ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Connected
+    })
+    .await;
+    remote.disconnect().await;
+    let status = ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Failed
+    })
+    .await;
+    assert_eq!(status.failure, Some(Failure::Transport));
+    assert!(status.shell_exit_status.is_none());
+    let Reply::Output(output) = ok(client
+        .request(Request::Read {
+            connection,
+            cursor: 1,
+            max_bytes: 65536,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    assert!(output.disconnected);
+    service.stop(&mut client).await;
+}

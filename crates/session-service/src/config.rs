@@ -11,9 +11,47 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-struct Message {
+struct PublicMessage {
     request: ConfigRequest,
     reply: oneshot::Sender<ConfigReply>,
+}
+enum Message {
+    Public(PublicMessage),
+    Internal {
+        request: Internal,
+        reply: oneshot::Sender<Result<Value, ConfigError>>,
+    },
+}
+pub(crate) enum Internal {
+    Profile(Uuid),
+    Credential(Profile),
+    Review(config_store::HostKey),
+    Approve {
+        key: config_store::HostKey,
+        revision: String,
+        cancel: transport_ssh2::session::Cancellation,
+    },
+}
+pub(crate) enum Value {
+    Profile(Profile),
+    Credential(CredentialBundle),
+    Review(config_store::HostKeyReview),
+    Approved,
+}
+#[derive(Clone)]
+pub(crate) struct Access {
+    sender: Option<mpsc::Sender<Message>>,
+}
+impl Access {
+    pub(crate) async fn request(&self, request: Internal) -> Result<Value, ConfigError> {
+        let (reply, receiver) = oneshot::channel();
+        self.sender
+            .as_ref()
+            .ok_or(ConfigError::Storage)?
+            .try_send(Message::Internal { request, reply })
+            .map_err(|_| ConfigError::Capacity)?;
+        receiver.await.map_err(|_| ConfigError::Storage)?
+    }
 }
 pub struct ConfigWorker {
     sender: Option<mpsc::Sender<Message>>,
@@ -38,6 +76,20 @@ impl ConfigWorker {
                 };
                 let archives = crate::archives::Archives::new(directory);
                 while let Some(message) = receiver.blocking_recv() {
+                    let message = match message {
+                        Message::Public(message) => message,
+                        Message::Internal { request, reply } => {
+                            if reply.is_closed() {
+                                continue;
+                            }
+                            let result = match &mut state {
+                                Ok(state) => state.internal(request),
+                                Err(error) => Err(*error),
+                            };
+                            let _ = reply.send(result);
+                            continue;
+                        }
+                    };
                     // Skip work if its server response future was already cancelled.
                     // Network loss alone is not proof of cancellation; running writes may commit.
                     if message.reply.is_closed() {
@@ -65,12 +117,17 @@ impl ConfigWorker {
         let sender = self.sender.as_ref().ok_or(ErrorCode::Unsupported)?;
         let (reply, receiver) = oneshot::channel();
         sender
-            .try_send(Message { request, reply })
+            .try_send(Message::Public(PublicMessage { request, reply }))
             .map_err(|e| match e {
                 mpsc::error::TrySendError::Full(_) => ErrorCode::CapacityExceeded,
                 _ => ErrorCode::InvalidState,
             })?;
         receiver.await.map_err(|_| ErrorCode::InvalidState)
+    }
+    pub(crate) fn access(&self) -> Access {
+        Access {
+            sender: self.sender.clone(),
+        }
     }
     pub async fn close(self) -> io::Result<()> {
         drop(self.sender);
@@ -110,6 +167,55 @@ pub(super) struct State {
     pub(super) revision: Uuid,
 }
 impl State {
+    fn internal(&mut self, request: Internal) -> Result<Value, ConfigError> {
+        match request {
+            Internal::Profile(id) => Ok(Value::Profile(
+                self.store
+                    .profile(id)
+                    .map_err(config_error)?
+                    .ok_or(ConfigError::NotFound)?,
+            )),
+            Internal::Credential(profile) => {
+                if self
+                    .store
+                    .profile(profile.id)
+                    .map_err(config_error)?
+                    .as_ref()
+                    != Some(&profile)
+                {
+                    return Err(ConfigError::Conflict);
+                }
+                let id = profile
+                    .credential_ref
+                    .ok_or(ConfigError::CredentialUnavailable)?;
+                let secret = self.vault.get(id).map_err(vault_error)?;
+                let value: CredentialBundle = serde_json::from_slice(secret.expose())
+                    .map_err(|_| ConfigError::CredentialUnavailable)?;
+                validate_credential(&profile.settings, &value)?;
+                Ok(Value::Credential(value))
+            }
+            Internal::Review(key) => Ok(Value::Review(
+                self.store.review_host_key(&key).map_err(config_error)?,
+            )),
+            Internal::Approve {
+                key,
+                revision,
+                cancel,
+            } => {
+                if cancel.is_cancelled() {
+                    return Err(ConfigError::Conflict);
+                }
+                if self
+                    .store
+                    .approve_host_key(key, &revision)
+                    .map_err(config_error)?
+                {
+                    self.changed();
+                }
+                Ok(Value::Approved)
+            }
+        }
+    }
     fn open(directory: PathBuf) -> Result<Self, ConfigError> {
         let store = Store::open(&directory.join("config.sqlite")).map_err(|error| {
             match config_error(error) {

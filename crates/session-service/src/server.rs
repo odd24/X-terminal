@@ -18,19 +18,32 @@ use tokio::{
 };
 use uuid::Uuid;
 
-struct Store {
-    sessions: Sessions,
+pub(crate) struct Store {
+    pub(crate) sessions: Sessions,
     pairing: Pairing,
 }
 struct Runtime {
     config: crate::config::ConfigWorker,
-    store: Mutex<Store>,
+    ssh: crate::ssh::Manager,
+    store: Arc<Mutex<Store>>,
     service_id: Uuid,
     started: Instant,
     fixture: bool,
     shutdown: watch::Sender<bool>,
 }
 impl Runtime {
+    async fn handle_ssh(
+        &self,
+        identity: &Identity,
+        request: ssh::Request,
+    ) -> Result<Reply, ErrorCode> {
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            store.pairing.require_active(identity, self.now())?;
+            store.pairing.require_desktop(identity, self.now())?;
+        }
+        self.ssh.handle(request).await.map(Reply::Ssh)
+    }
     async fn handle_config(
         &self,
         identity: &Identity,
@@ -145,12 +158,18 @@ impl Runtime {
                             ))
                         }
                         Request::CloseFixture { connection } => {
+                            if store.sessions.info(connection)?.protocol != Protocol::Fixture {
+                                return Err(ErrorCode::Unsupported);
+                            }
                             store.sessions.transition(connection, State::Closing)?;
                             Ok(Reply::Connection(
                                 store.sessions.transition(connection, State::Disconnected)?,
                             ))
                         }
                         Request::RemoveFixture { connection } => {
+                            if store.sessions.info(connection)?.protocol != Protocol::Fixture {
+                                return Err(ErrorCode::Unsupported);
+                            }
                             store.sessions.remove(connection)?;
                             Ok(Reply::Ok)
                         }
@@ -218,6 +237,7 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
             frame = timeout(Duration::from_secs(30), read_frame(&mut pipe)) => match frame.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "idle client timeout"))?? { Some(value) => value, None => return Ok(()) }
         };
         let result = match request.request {
+            Request::Ssh { request } => runtime.handle_ssh(&identity, request).await,
             Request::Config { request } => runtime.handle_config(&identity, request).await,
             request => runtime.handle(&identity, request),
         };
@@ -250,12 +270,16 @@ pub async fn serve_with_config(
     // No endpoint gap: create the next listener before handing this connection off.
     let mut listener = security.create(&name, true)?;
     let (shutdown, mut stopping) = watch::channel(false);
+    let config = crate::config::ConfigWorker::start(directory)?;
+    let store = Arc::new(Mutex::new(Store {
+        sessions: Sessions::default(),
+        pairing: Pairing::new(&bootstrap),
+    }));
+    let ssh = crate::ssh::Manager::new(store.clone(), config.access());
     let runtime = Arc::new(Runtime {
-        config: crate::config::ConfigWorker::start(directory)?,
-        store: Mutex::new(Store {
-            sessions: Sessions::default(),
-            pairing: Pairing::new(&bootstrap),
-        }),
+        config,
+        ssh,
+        store,
         service_id: Uuid::new_v4(),
         started: Instant::now(),
         fixture,
@@ -293,6 +317,7 @@ pub async fn serve_with_config(
     while tasks.join_next().await.is_some() {}
     let runtime = Arc::try_unwrap(runtime)
         .map_err(|_| io::Error::other("session tasks still own runtime"))?;
+    runtime.ssh.close().await;
     runtime.config.close().await?;
     Ok(())
 }
