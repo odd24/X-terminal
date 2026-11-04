@@ -115,3 +115,5 @@ Named Pipe ACL 限定当前用户，拒绝远程客户端；通过启动/配对�
 - [Xshell 7 标签组](https://netsarang.atlassian.net/wiki/spaces/EN7/pages/419956992/Tab%2BGroup)：交互参考。
 
 P11.2已将增量派生文本和screen放入统一Sessions输出入口，GUI不在也持续维护；ReadText/Screen沿用只读范围校验。来源游标、独立文本窗口、帧限额、缺口/EOF与vt100替换字补丁见[ADR-028](decisions/ADR-028.md)。保留历史覆盖不等于服务源头丢字节；BUG-001 resize/reflow和持久日志仍开放。
+
+P11.3独立terminal-log引擎采用每日志有界文件线程、原始二进制/文本JSONL成对轮转和同步后不覆盖发布完成标志；Windows目录pin拒绝reparse/改名，失败锁定且不阻塞设备。见[ADR-029](decisions/ADR-029.md)及[格式](../contracts/logging/README.md)。当前尚未挂接Sessions，P11.4继续权限、显式启停和服务/桌面故障提示，默认不记录。

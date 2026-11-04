@@ -2990,6 +2990,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "terminal-log",
+    "version": "0.1.0",
+    "license": "LicenseRef-Proprietary",
+    "source": "workspace"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "thiserror-impl",
     "version": "1.0.69",
     "license": "MIT OR Apache-2.0",

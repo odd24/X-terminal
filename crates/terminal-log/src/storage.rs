@@ -1,0 +1,256 @@
+use crate::{Journal, Limits, Metadata, Record, SegmentHeader, Status, format};
+use serde::Serialize;
+use std::{
+    collections::VecDeque,
+    fs::{self, File, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+};
+use uuid::Uuid;
+
+pub(crate) struct FileJournal {
+    // Retain non-delete-sharing Windows directory handles to prevent junction/rename
+    // substitution during all file creation, rotation and completion operations.
+    _guards: Vec<File>,
+    directory: PathBuf,
+    id: Uuid,
+    metadata: Metadata,
+    limits: Limits,
+    segments: VecDeque<u64>,
+    raw: Option<File>,
+    text: Option<File>,
+    bytes: u64,
+    source_cursor: u64,
+}
+fn file(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(0).custom_flags(0x00200000); // OPEN_REPARSE_POINT
+    }
+    options.open(path)
+}
+fn publish(source: &Path, target: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+        let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        // MoveFileW, unlike replace-style rename, refuses an existing destination.
+        if unsafe {
+            windows_sys::Win32::Storage::FileSystem::MoveFileW(source.as_ptr(), target.as_ptr())
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        fs::hard_link(source, target)?;
+        fs::remove_file(source)
+    }
+}
+fn pin(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::{fs::MetadataExt, fs::OpenOptionsExt};
+        // Directory handles: permit read/write but deny delete/rename sharing.
+        options.share_mode(3).custom_flags(0x02000000 | 0x00200000);
+        let guard = options.open(path)?;
+        let meta = guard.metadata()?;
+        if !meta.is_dir() || meta.file_attributes() & 0x400 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "journal directory is not a plain directory",
+            ));
+        }
+        Ok(guard)
+    }
+    #[cfg(not(windows))]
+    {
+        let meta = fs::symlink_metadata(path)?;
+        if !meta.is_dir() || meta.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "journal directory is not plain",
+            ));
+        }
+        options.open(path)
+    }
+}
+impl FileJournal {
+    pub(crate) fn open(
+        root: PathBuf,
+        id: Uuid,
+        metadata: Metadata,
+        limits: Limits,
+    ) -> io::Result<Self> {
+        if root
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "journal root contains traversal",
+            ));
+        }
+        #[cfg(windows)]
+        {
+            use std::path::{Component, Prefix};
+            if !matches!(root.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_)))
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "journal root must be a local drive",
+                ));
+            }
+        }
+        let mut guards = Vec::new();
+        for path in root.ancestors().collect::<Vec<_>>().into_iter().rev() {
+            guards.push(pin(path)?);
+        }
+        let directory = root.join(id.to_string());
+        fs::create_dir(&directory)?; // Never append to or clear an existing log.
+        guards.push(pin(&directory)?);
+        let source = metadata.source_cursor;
+        let text = metadata.text_cursor;
+        let mut result = Self {
+            _guards: guards,
+            directory,
+            id,
+            metadata,
+            limits,
+            segments: VecDeque::new(),
+            raw: None,
+            text: None,
+            bytes: 0,
+            source_cursor: source,
+        };
+        result.segment(1, source, text)?;
+        Ok(result)
+    }
+    fn paths(&self, segment: u64) -> (PathBuf, PathBuf) {
+        (
+            self.directory.join(format!("{segment:016}.rawlog")),
+            self.directory.join(format!("{segment:016}.text.jsonl")),
+        )
+    }
+    fn sync(&mut self) -> io::Result<()> {
+        self.raw.as_mut().unwrap().sync_all()?;
+        self.text.as_mut().unwrap().sync_all()
+    }
+    fn segment(&mut self, number: u64, source_cursor: u64, text_cursor: u64) -> io::Result<()> {
+        if self.raw.is_some() {
+            self.sync()?;
+        }
+        self.raw.take();
+        self.text.take();
+        // Retire before reserving another pair; a subsequent failure is explicit
+        // and cannot silently grow the configured disk quota.
+        if self.segments.len() >= self.limits.segments as usize {
+            let old = *self.segments.front().unwrap();
+            let (raw, text) = self.paths(old);
+            fs::remove_file(raw)?;
+            fs::remove_file(text)?;
+            self.segments.pop_front();
+        }
+        let (raw_path, text_path) = self.paths(number);
+        let mut raw = file(&raw_path)?;
+        let mut text = file(&text_path)?;
+        let header = SegmentHeader {
+            format_version: 1,
+            log_id: self.id,
+            segment: number,
+            metadata: self.metadata.clone(),
+            limits: self.limits,
+            source_cursor,
+            text_cursor,
+        };
+        let body = serde_json::to_vec(&header)?;
+        let mut text_body =
+            serde_json::to_vec(&serde_json::json!({"type":"header", "header": header}))?;
+        text_body.push(b'\n');
+        raw.write_all(format::MAGIC)?;
+        raw.write_all(&(body.len() as u32).to_le_bytes())?;
+        raw.write_all(&body)?;
+        text.write_all(&text_body)?;
+        self.bytes = 12 + body.len() as u64 + text_body.len() as u64;
+        self.raw = Some(raw);
+        self.text = Some(text);
+        self.segments.push_back(number);
+        Ok(())
+    }
+}
+impl Journal for FileJournal {
+    fn append(&mut self, record: &Record) -> io::Result<(u64, u64)> {
+        let raw = format::raw_frame(record);
+        let mut text =
+            serde_json::to_vec(&serde_json::json!({"type":"output", "event": record.text}))?;
+        text.push(b'\n');
+        let size = (raw.len() + text.len()) as u64;
+        if size + self.bytes > self.limits.segment_bytes {
+            let number = self
+                .segments
+                .back()
+                .unwrap()
+                .checked_add(1)
+                .ok_or_else(|| io::Error::other("segment counter exhausted"))?;
+            let source = record
+                .raw
+                .as_ref()
+                .map_or(self.source_cursor, |raw| raw.seq);
+            self.segment(number, source, record.text.seq)?;
+        }
+        if size + self.bytes > self.limits.segment_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "record exceeds segment budget",
+            ));
+        }
+        self.raw.as_mut().unwrap().write_all(&raw)?;
+        self.text.as_mut().unwrap().write_all(&text)?;
+        self.bytes += size;
+        if let Some(raw) = &record.raw {
+            self.source_cursor = raw.seq + 1;
+        }
+        Ok((
+            *self.segments.front().unwrap(),
+            *self.segments.back().unwrap(),
+        ))
+    }
+    fn finish(&mut self, status: &Status) -> io::Result<()> {
+        self.sync()?;
+        #[derive(Serialize)]
+        struct Completion {
+            format_version: u32,
+            log_id: Uuid,
+            connection: session_core::session::ConnectionRef,
+            written_records: u64,
+            written_raw_bytes: u64,
+            first_retained_segment: u64,
+            last_segment: u64,
+            natural_end: bool,
+        }
+        let completion = Completion {
+            format_version: 1,
+            log_id: self.id,
+            connection: self.metadata.connection,
+            written_records: status.written_records,
+            written_raw_bytes: status.written_raw_bytes,
+            first_retained_segment: *self.segments.front().unwrap(),
+            last_segment: *self.segments.back().unwrap(),
+            natural_end: status.natural_end,
+        };
+        let partial = self.directory.join("completion.partial");
+        let mut marker = file(&partial)?;
+        marker.write_all(&serde_json::to_vec(&completion)?)?;
+        marker.sync_all()?;
+        drop(marker);
+        publish(&partial, &self.directory.join("completion.json"))
+    }
+}
