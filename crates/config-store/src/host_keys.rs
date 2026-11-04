@@ -22,7 +22,7 @@ fn summary(key: &HostKey) -> HostKeySummary {
         fingerprint: fingerprint(&key.key),
     }
 }
-fn read(connection: &Connection) -> Result<Vec<HostKey>> {
+pub(super) fn read(connection: &Connection) -> Result<Vec<HostKey>> {
     let mut stmt=connection.prepare("SELECT protocol,host,port,algorithm,length(key),key FROM host_keys ORDER BY protocol,host,port,algorithm LIMIT 1025")?;
     let mut rows = stmt.query([])?;
     let mut result = Vec::new();

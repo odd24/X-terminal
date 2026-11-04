@@ -1,5 +1,7 @@
 //! Structured configuration only. Credential material has no column or model field.
 mod host_keys;
+mod snapshot;
+pub use snapshot::ConfigImage;
 mod model;
 pub use model::*;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
@@ -37,6 +39,12 @@ pub struct Store {
     connection: Connection,
     path: PathBuf,
     pub migration_backup: Option<PathBuf>,
+}
+fn open_database(path: &Path, flags: OpenFlags) -> Result<Connection> {
+    let connection = Connection::open_with_flags(path, flags)?;
+    connection.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH, 65536)?;
+    connection.busy_timeout(Duration::from_secs(2))?;
+    Ok(connection)
 }
 
 fn metadata(connection: &Connection) -> Result<(i64, i64)> {
@@ -79,7 +87,7 @@ impl Store {
         };
         // Existing unknown/corrupt files are inspected read-only before any write.
         if !new {
-            let source = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let source = open_database(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
             check(&source)?;
             Self {
                 connection: source,
@@ -88,7 +96,7 @@ impl Store {
             }
             .validate_content()?;
         }
-        let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        let mut connection = open_database(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         connection.busy_timeout(Duration::from_secs(2))?;
         connection.pragma_update(None, "foreign_keys", true)?;
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -105,7 +113,7 @@ impl Store {
                     "config-before-v{version}-{}.sqlite",
                     Uuid::new_v4()
                 ));
-                let source = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+                let source = open_database(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
                 drop(
                     std::fs::OpenOptions::new()
                         .write(true)
@@ -171,13 +179,15 @@ impl Store {
         let mut result = Vec::new();
         for row in rows {
             let (id, folder, name, credential, settings) = row?;
-            result.push(Profile {
+            let profile = Profile {
                 id: parse_id(&id)?,
                 folder_id: folder.map(|v| parse_id(&v)).transpose()?,
                 name,
                 credential_ref: credential.map(|v| parse_id(&v)).transpose()?,
                 settings: serde_json::from_str(&settings)?,
-            });
+            };
+            profile.validate().map_err(|_| Error::Corrupt)?;
+            result.push(profile);
         }
         if result.len() > 10000 {
             return Err(Error::Invalid("profile limit"));
@@ -300,7 +310,7 @@ impl Store {
     }
     /// Restore into a new path only. The source is validated read-only and unchanged.
     pub fn restore_to_new(source: &Path, target: &Path) -> Result<Self> {
-        let connection = Connection::open_with_flags(source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let connection = open_database(source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         let source_store = Self {
             connection,
             path: source.to_owned(),

@@ -485,3 +485,166 @@ fn concurrent_host_key_approvals_cannot_both_use_the_same_confirmation() {
     );
     assert_eq!(Store::open(&path).unwrap().host_keys().unwrap().len(), 1);
 }
+
+#[test]
+fn checked_image_restore_preserves_a_safety_copy_and_restores_refs_and_trust() {
+    let temp = Temp::new();
+    let path = temp.path("config");
+    let mut store = Store::open(&path).unwrap();
+    let root = Folder {
+        id: Uuid::new_v4(),
+        parent_id: None,
+        name: "Z parent".into(),
+    };
+    let child = Folder {
+        id: Uuid::new_v4(),
+        parent_id: Some(root.id),
+        name: "A child".into(),
+    };
+    store.put_folder(root.clone()).unwrap();
+    store.put_folder(child.clone()).unwrap();
+    let mut p = profile();
+    p.folder_id = Some(child.id);
+    store.put_profile(p.clone()).unwrap();
+    let key = HostKey {
+        endpoint: HostEndpoint {
+            protocol: HostProtocol::Ssh2,
+            host: "backup.invalid".into(),
+            port: 22,
+        },
+        algorithm: "ssh-ed25519".into(),
+        key: b"backup public key".to_vec(),
+    };
+    let review = store.review_host_key(&key).unwrap();
+    store
+        .approve_host_key(key.clone(), &review.revision)
+        .unwrap();
+    let backup = temp.path("backup");
+    store.backup(&backup).unwrap();
+    let image = Store::read_backup(&backup).unwrap();
+    let digest = image.digest().unwrap();
+    p.name = "current after backup".into();
+    store.put_profile(p.clone()).unwrap();
+    let current_digest = store.image().unwrap().digest().unwrap();
+    assert!(matches!(
+        store.restore_image(&image, "stale", &temp.path("not-created")),
+        Err(Error::Conflict)
+    ));
+    assert!(!temp.path("not-created").exists());
+    assert_eq!(store.image().unwrap().digest().unwrap(), current_digest);
+    let safety = temp.path("safety");
+    store.restore_image(&image, &digest, &safety).unwrap();
+    assert_eq!(
+        Store::read_backup(&safety).unwrap().digest().unwrap(),
+        current_digest
+    );
+    assert_eq!(store.image().unwrap().digest().unwrap(), digest);
+    assert_eq!(
+        store.profiles().unwrap()[0].credential_ref,
+        p.credential_ref
+    );
+    assert_eq!(store.host_keys().unwrap().len(), 1);
+    assert!(
+        store.restore_image(&image, &digest, &safety).is_err(),
+        "safety copies must never overwrite"
+    );
+    assert_eq!(store.image().unwrap().digest().unwrap(), digest);
+    let source_before = std::fs::read(&backup).unwrap();
+    drop(store);
+    assert_eq!(
+        Store::open(&path)
+            .unwrap()
+            .image()
+            .unwrap()
+            .digest()
+            .unwrap(),
+        digest
+    );
+    assert_eq!(std::fs::read(&backup).unwrap(), source_before);
+}
+
+#[test]
+fn image_restore_rolls_back_after_mid_transaction_failure_and_rejects_bad_sources() {
+    let temp = Temp::new();
+    let path = temp.path("config");
+    let mut store = Store::open(&path).unwrap();
+    let p = profile();
+    store.put_profile(p.clone()).unwrap();
+    let current = store.image().unwrap();
+    let before = current.digest().unwrap();
+    let mut replacement = current.clone();
+    replacement.profiles[0].name = "force failure".into();
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_new_profile BEFORE INSERT ON profiles BEGIN SELECT RAISE(ABORT,'synthetic injected failure'); END;").unwrap();
+    drop(conn);
+    let safety = temp.path("safety");
+    assert!(
+        store
+            .restore_image(&replacement, &replacement.digest().unwrap(), &safety)
+            .is_err()
+    );
+    assert_eq!(store.image().unwrap().digest().unwrap(), before);
+    assert_eq!(
+        Store::read_backup(&safety).unwrap().digest().unwrap(),
+        before
+    );
+    let newer = temp.path("newer");
+    store.backup(&newer).unwrap();
+    let conn = Connection::open(&newer).unwrap();
+    conn.execute_batch("PRAGMA user_version=99").unwrap();
+    drop(conn);
+    let newer_before = std::fs::read(&newer).unwrap();
+    assert!(matches!(Store::read_backup(&newer), Err(Error::Schema)));
+    assert_eq!(std::fs::read(&newer).unwrap(), newer_before);
+    let bad = temp.path("bad");
+    std::fs::write(&bad, b"synthetic corrupt backup").unwrap();
+    assert!(Store::read_backup(&bad).is_err());
+    assert_eq!(std::fs::read(&bad).unwrap(), b"synthetic corrupt backup");
+    let mut invalid = current;
+    invalid.profiles[0].folder_id = Some(Uuid::new_v4());
+    assert!(
+        store
+            .restore_image(
+                &invalid,
+                &invalid.digest().unwrap(),
+                &temp.path("not-created")
+            )
+            .is_err()
+    );
+    assert!(!temp.path("not-created").exists());
+}
+
+#[test]
+fn changed_backup_preview_and_live_newer_schema_cannot_be_restored_over() {
+    let temp = Temp::new();
+    let path = temp.path("config");
+    let mut store = Store::open(&path).unwrap();
+    let p = profile();
+    store.put_profile(p.clone()).unwrap();
+    let backup = temp.path("backup");
+    store.backup(&backup).unwrap();
+    let approved = Store::read_backup(&backup).unwrap();
+    let expected = approved.digest().unwrap();
+    let mut changed = Store::open(&backup).unwrap();
+    let mut replacement = p;
+    replacement.name = "changed since preview".into();
+    changed.put_profile(replacement).unwrap();
+    drop(changed);
+    let fresh = Store::read_backup(&backup).unwrap();
+    assert_ne!(fresh.digest().unwrap(), expected);
+    assert!(matches!(
+        store.restore_image(&fresh, &expected, &temp.path("not-created")),
+        Err(Error::Conflict)
+    ));
+    assert!(!temp.path("not-created").exists());
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch("PRAGMA user_version=99").unwrap();
+    drop(conn);
+    let before = std::fs::read(&path).unwrap();
+    assert!(matches!(
+        store.restore_image(&approved, &expected, &temp.path("also-not-created")),
+        Err(Error::Schema)
+    ));
+    assert!(!temp.path("also-not-created").exists());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
