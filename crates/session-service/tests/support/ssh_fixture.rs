@@ -278,6 +278,9 @@ impl Fixture {
         Self::options(false).await
     }
     pub async fn options(stall: bool) -> Self {
+        Self::with_rekey(stall, false).await
+    }
+    pub async fn with_rekey(stall: bool, rekey: bool) -> Self {
         let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let client_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let pin = key.public_key().fingerprint(HashAlg::Sha256).to_string();
@@ -303,6 +306,11 @@ impl Fixture {
             shell: shell.clone(),
         };
         let config = Arc::new(server::Config {
+            limits: if rekey {
+                russh::Limits::new(16384, 16384, Duration::from_secs(60))
+            } else {
+                russh::Limits::default()
+            },
             window_size: 32768,
             maximum_packet_size: 32768,
             keys: vec![key],

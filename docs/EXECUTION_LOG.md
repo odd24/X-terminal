@@ -23,7 +23,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P08.1 | 配置模型与 SQLite 迁移 | DONE | [P08.1](records/P08.1.md) | Step-ID: P08.1 |
 | P08.2 | Windows 保护凭据 | DONE | [P08.2](records/P08.2.md) | Step-ID: P08.2 |
 | P08.3 | 配置服务/编辑器/主机密钥/备份恢复/凭据整理 | DONE | [P08.3](records/P08.3.md) | Step-ID: P08.3 |
-| P09 | SSH2 正式接入（服务/连接/终端/任务 GUI；容量与故障继续） | IN_PROGRESS | [P09](records/P09.md) | Step-ID: P09 |
+| P09 | SSH2 正式接入（服务/连接/终端/任务 GUI；补 rekey 信任检查，容量继续） | IN_PROGRESS | [P09](records/P09.md) | Step-ID: P09 |
 | P10 | 串口正式接入 | TODO | 待创建 | — |
 | P11 | 编码/日志/终端行为 | TODO | 待创建 | — |
 | P12 | 基础桌面体验 | TODO | 待创建 | — |

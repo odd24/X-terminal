@@ -226,6 +226,9 @@ impl Fixture {
         Self::options(excessive_prompts, false).await
     }
     async fn options(excessive_prompts: bool, early_output: bool) -> Self {
+        Self::with_rekey(excessive_prompts, early_output, false).await
+    }
+    async fn with_rekey(excessive_prompts: bool, early_output: bool, rekey: bool) -> Self {
         let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let pin = host_key
@@ -244,6 +247,11 @@ impl Fixture {
             auth_attempts: auth_attempts.clone(),
         };
         let config = Arc::new(server::Config {
+            limits: if rekey {
+                russh::Limits::new(16384, 16384, Duration::from_secs(60))
+            } else {
+                russh::Limits::default()
+            },
             keys: vec![host_key],
             auth_rejection_time: Duration::from_millis(1),
             auth_rejection_time_initial: Some(Duration::ZERO),
@@ -456,6 +464,144 @@ async fn production(fixture: &Fixture) -> (Ssh2Session, mpsc::Receiver<Challenge
     assert!(!key.bytes.is_empty());
     answer.send(true).unwrap();
     (task.await.unwrap().unwrap(), rx, cancel)
+}
+#[tokio::test]
+async fn production_rekey_rechecks_trust_while_shell_resize_and_exec_share_transport() {
+    let fixture = Fixture::with_rekey(false, false, true).await;
+    let (mut session, mut challenges, cancel) = production(&fixture).await;
+    assert_eq!(
+        session
+            .authenticate("probe", Authentication::Password(secret(&fixture.token)))
+            .await
+            .unwrap(),
+        AuthState::Authenticated
+    );
+    let mut shell = session.shell(80, 24).await.unwrap();
+    assert_eq!(
+        shell.reader.next().await.unwrap(),
+        Some(ShellEvent::Stdout(b"fixture-shell\r\n".to_vec()))
+    );
+    let decisions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = decisions.clone();
+    let pin = fixture.pin.clone();
+    let stop = cancel.clone();
+    let approve = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = stop.cancelled() => break,
+                challenge = challenges.recv() => {
+                    let Some(Challenge::HostKey { key, answer }) = challenge else { panic!("unexpected challenge") };
+                    assert_eq!(key.fingerprint, pin);
+                    count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    answer.send(true).unwrap();
+                }
+            }
+        }
+    });
+    let expected: Vec<u8> = (0..512 * 1024).map(|i| (i % 251) as u8).collect();
+    timeout(Duration::from_secs(15), async {
+        let write = async {
+            for (index, bytes) in expected.chunks(32768).enumerate() {
+                shell.writer.write(bytes).await.unwrap();
+                shell.writer.resize(100 + index as u32, 30).await.unwrap();
+            }
+        };
+        let read = async {
+            let mut actual = Vec::new();
+            while actual.len() < expected.len() {
+                match shell.reader.next().await.unwrap() {
+                    Some(ShellEvent::Stdout(bytes)) => actual.extend(bytes),
+                    event => panic!("unexpected shell event: {event:?}"),
+                }
+            }
+            assert_eq!(actual, expected);
+        };
+        let exec = async {
+            for _ in 0..4 {
+                let result = session
+                    .exec("fail", ExecOptions::default(), &cancel)
+                    .await
+                    .unwrap();
+                assert_eq!(result.end, ExecEnd::Completed);
+                assert_eq!(result.exit_status, Some(7));
+                assert_eq!(result.stderr, b"fixture-error");
+                assert!(result.stdout.is_empty());
+            }
+        };
+        tokio::join!(write, read, exec);
+        while fixture.sizes.lock().unwrap().len() < 17 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        decisions.load(std::sync::atomic::Ordering::SeqCst) >= 3,
+        "rekey must actually enter the trust gate repeatedly"
+    );
+    assert_eq!(
+        fixture
+            .auth_attempts
+            .load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+    assert_eq!(
+        *fixture.sizes.lock().unwrap(),
+        std::iter::once((80, 24))
+            .chain((100..116).map(|cols| (cols, 30)))
+            .collect::<Vec<_>>()
+    );
+    cancel.cancel();
+    approve.await.unwrap();
+}
+
+#[tokio::test]
+async fn production_rekey_rejection_closes_transport_without_fabricating_exit_status() {
+    let fixture = Fixture::with_rekey(false, false, true).await;
+    let (mut session, mut challenges, cancel) = production(&fixture).await;
+    assert_eq!(
+        session
+            .authenticate("probe", Authentication::Password(secret(&fixture.token)))
+            .await
+            .unwrap(),
+        AuthState::Authenticated
+    );
+    let mut shell = session.shell(80, 24).await.unwrap();
+    shell.reader.next().await.unwrap();
+    shell.writer.write(&vec![b'r'; 32768]).await.unwrap();
+    let Challenge::HostKey { key, answer } = timeout(Duration::from_secs(3), challenges.recv())
+        .await
+        .expect("rekey must not bypass trust")
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(key.fingerprint, fixture.pin);
+    answer.send(false).unwrap();
+    timeout(Duration::from_secs(3), async {
+        while !session.is_closed() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    loop {
+        match shell.reader.next().await {
+            Ok(Some(ShellEvent::Stdout(_))) => {}
+            Ok(Some(ShellEvent::Closed {
+                remote_close: false,
+            }))
+            | Err(Error::Transport) => break,
+            event => panic!("unexpected rekey rejection outcome: {event:?}"),
+        }
+    }
+    assert_eq!(
+        fixture
+            .auth_attempts
+            .load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+    cancel.cancel();
 }
 #[tokio::test]
 async fn production_host_decision_precedes_credentials_and_cancellation_closes_pending_handshake() {

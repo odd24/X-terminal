@@ -1,0 +1,30 @@
+diff --git a/src/client/mod.rs b/src/client/mod.rs
+index 5998944..74c7f6c 100644
+--- a/src/client/mod.rs
++++ b/src/client/mod.rs
+@@ -2041,0 +2042,13 @@ async fn reply<H: Handler>(
++                    // Local P09 patch: apply the application's trust policy to every
++                    // exchange before installing keys or draining pending channel data.
++                    // A certificate replaces the bare key check, including on rekey.
++                    if let Some(certificate) = server_host_certificate {
++                        if !handler.check_server_key(&certificate.into()).await? {
++                            return Err(crate::Error::UnknownKey.into());
++                        }
++                    } else if let Some(server_host_key) = server_host_key {
++                        if !handler.check_server_key(&server_host_key.into()).await? {
++                            return Err(crate::Error::UnknownKey.into());
++                        }
++                    }
++
+@@ -2069,11 +2081,0 @@ async fn reply<H: Handler>(
+-                        if let Some(certificate) = server_host_certificate {
+-                            if !handler.check_server_key(&certificate.into()).await? {
+-                                return Err(crate::Error::UnknownKey.into());
+-                            }
+-                        } else if let Some(server_host_key) = server_host_key {
+-                            let check = handler.check_server_key(&server_host_key.into()).await?;
+-                            if !check {
+-                                return Err(crate::Error::UnknownKey.into());
+-                            }
+-                        }
+-

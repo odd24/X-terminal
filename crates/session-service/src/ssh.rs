@@ -396,7 +396,6 @@ impl Manager {
             .ok_or(ErrorCode::InvalidState)?
             .send(answer)
             .map_err(|_| ErrorCode::InvalidState)?;
-        entry.challenge = None;
         Ok(ssh::Reply::Accepted)
     }
     pub(crate) async fn close(self) {
@@ -451,6 +450,7 @@ impl Actor {
     }
     async fn ask(&self, challenge: Challenge) -> Result<Answer, Failure> {
         let id = challenge.id();
+        let host_decision = matches!(&challenge, Challenge::HostKey { .. });
         let (answer, receiver) = oneshot::channel();
         {
             let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
@@ -466,7 +466,8 @@ impl Actor {
             entry.answer = Some(answer);
         }
         let result = tokio::select! {biased;_=self.cancel.cancelled()=>Err(Failure::Cancelled),reply=timeout(Duration::from_secs(110),receiver)=>reply.map_err(|_|Failure::ApprovalTimeout)?.map_err(|_|Failure::Cancelled)};
-        if let Ok(mut inner) = self.inner.lock()
+        if !host_decision
+            && let Ok(mut inner) = self.inner.lock()
             && let Some(entry) = inner
                 .entries
                 .get_mut(&self.reference.connection_id)
@@ -532,12 +533,13 @@ impl Actor {
             cancel: self.cancel.clone(),
         })
         .await?;
-        if let Ok(inner) = self.inner.lock()
+        if let Ok(mut inner) = self.inner.lock()
             && let Some(entry) = inner
                 .entries
-                .get(&self.reference.connection_id)
+                .get_mut(&self.reference.connection_id)
                 .filter(|entry| entry.reference == self.reference)
         {
+            entry.challenge = None;
             entry.writable.send_replace(true);
         }
         Ok(true)

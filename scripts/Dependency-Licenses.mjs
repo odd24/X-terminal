@@ -16,8 +16,9 @@ for (const [location, entry] of Object.entries(lock.packages)) {
 if (process.argv.includes('--cargo')) {
   const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--locked', '--format-version', '1'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }));
   for (const pkg of metadata.packages) {
+    const localPath = path.relative(metadata.workspace_root, path.dirname(pkg.manifest_path)).replaceAll('\\', '/');
     rows.push({ ecosystem: 'cargo', name: pkg.name, version: pkg.version,
-      license: pkg.license ?? 'UNKNOWN', source: pkg.source ?? 'workspace' });
+      license: pkg.license ?? 'UNKNOWN', source: pkg.source ?? (localPath.startsWith('vendor/') ? `vendored:${localPath}` : 'workspace') });
   }
 }
 rows.sort((a, b) => `${a.ecosystem}/${a.name}/${a.version}`.localeCompare(`${b.ecosystem}/${b.name}/${b.version}`));
