@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+base64 = "=0.23.1"
+sha2 = "=0.11.1"
 config-model = { path = "../config-model" }
 rusqlite = { version = "=0.41.1", features = ["bundled", "backup"] }
 serde = { version = "=1.0.229", features = ["derive"] }

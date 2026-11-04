@@ -23,3 +23,5 @@ read 的 connection 必须明确 connection_id/generation；cursor 为下一事�
 原生入口为 `session_service::client::Client`，根据当前用户 SID 和受限 instance 名确定本机端点，必须提供预期服务 PID，发送票据前检查。服务 bootstrap 经父进程匿名 stdin 帧传递，禁止 argv/env/明文配置文件。默认禁止所有 fixture 操作；仅 `--test-fixture` 启用合成生命周期，不是实际终端会话。测试命令 `cargo test -p session-service --locked` 会启动临时子进程并在结束时清理。
 
 P08.3 桌面增量加入 Desktop 专用 save_profile_key_file：输入 Profile、绝对本地私钥文件路径和可选敏感口令；服务限额读取普通文件/PEM 头后保护，回复只给配置引用。设备/UNC/ADS/保留名/超限拒绝。它不返回文件内容，不向 Observer 开放；Tauri 通用保存拒绝 renderer 直接提交私钥材料。真实 SSH 私钥解析/认证由 P09 验证，当前契约不把保存当作认证成功。
+
+host_keys_page/forget_host_key 也仅限 active Desktop。每页最多 64 项，返回公开摘要而非私钥；删除携带 endpoint/algorithm/expected_fingerprint，旧指纹 Conflict，不自动重试。renderer 不提供任意批准信任记录的命令，实际握手确认由 P09/P13 处理。

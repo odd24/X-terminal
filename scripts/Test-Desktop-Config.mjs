@@ -62,7 +62,20 @@ try {
   assert.equal((await page()).profiles.find(p => p.id === original.id).folder_id, null);
   await close();
 
+  const trustDb=new DatabaseSync(path.join(directory,'config.sqlite'));
+  trustDb.prepare("INSERT INTO host_keys(protocol,host,port,algorithm,key) VALUES('ssh2','trust.invalid',22,'ssh-ed25519',?)").run(Buffer.from('abc'));trustDb.close();
   await open(); data = await page(); assert.equal(data.profiles.length, 4);
+  await ui.waitFor(`document.querySelector('[aria-label="主机密钥状态"]').textContent.includes('已加载')`);
+  assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='移除选中主机密钥').disabled`),true);
+  assert.equal(await ui.evaluate(`document.querySelector('.fingerprint').textContent`),'SHA256:ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0');
+  const changedDb=new DatabaseSync(path.join(directory,'config.sqlite'));changedDb.prepare("UPDATE host_keys SET key=?").run(Buffer.from('changed synthetic public key'));changedDb.close();
+  await ui.evaluate(`document.querySelector('[aria-label="确认移除主机密钥"]').click()`);await ui.click('移除选中主机密钥');
+  await ui.waitFor(`document.querySelector('[aria-label="主机密钥状态"]').textContent.includes('配置已变化')`);
+  assert.equal((await ui.invoke('config_request',{request:{op:'host_keys_page',revision:null,offset:0}})).keys.length,1);
+  await ui.click('刷新主机密钥');await ui.waitFor(`document.querySelector('[aria-label="主机密钥状态"]').textContent.includes('已加载')`);
+  await ui.evaluate(`document.querySelector('[aria-label="确认移除主机密钥"]').click()`);await ui.click('移除选中主机密钥');
+  await ui.waitFor(`document.querySelector('[aria-label="主机密钥状态"]').textContent.includes('记录已移除')`);
+  assert.equal((await ui.invoke('config_request',{request:{op:'host_keys_page',revision:null,offset:0}})).keys.length,0);
   assert.equal(data.profiles.find(p => p.id === original.id).credential_ref, original.credential_ref);
   await pick('SSH2 已更新');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="凭据操作"]').value`), 'keep');

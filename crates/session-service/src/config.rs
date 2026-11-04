@@ -125,6 +125,33 @@ impl State {
             return Err(ConfigError::Invalid);
         }
         match request {
+            ConfigRequest::HostKeysPage { revision, offset } => {
+                if revision.is_some_and(|revision| revision != self.revision) {
+                    return Err(ConfigError::Conflict);
+                }
+                let keys = self.store.host_keys().map_err(config_error)?;
+                let total = keys.len();
+                if offset as usize > total {
+                    return Err(ConfigError::Invalid);
+                }
+                Ok(ConfigReply::HostKeysPage {
+                    revision: self.revision,
+                    keys: keys.into_iter().skip(offset as usize).take(64).collect(),
+                    next_offset: ((offset as usize) + 64 < total).then_some(offset + 64),
+                })
+            }
+            ConfigRequest::ForgetHostKey {
+                endpoint,
+                algorithm,
+                expected_fingerprint,
+            } => {
+                self.store
+                    .forget_host_key(&endpoint, &algorithm, &expected_fingerprint)
+                    .map_err(config_error)?;
+                Ok(ConfigReply::Updated {
+                    revision: self.changed(),
+                })
+            }
             ConfigRequest::SaveProfileKeyFile {
                 profile,
                 key_path,
@@ -358,6 +385,7 @@ fn validate_credential(settings: &Settings, value: &CredentialBundle) -> Result<
 }
 fn config_error(error: config_store::Error) -> ConfigError {
     match error {
+        config_store::Error::Conflict => ConfigError::Conflict,
         config_store::Error::Invalid(_)
         | config_store::Error::Validation(_)
         | config_store::Error::Json(_) => ConfigError::Invalid,

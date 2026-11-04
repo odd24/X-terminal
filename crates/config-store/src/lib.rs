@@ -1,4 +1,5 @@
 //! Structured configuration only. Credential material has no column or model field.
+mod host_keys;
 mod model;
 pub use model::*;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
@@ -13,6 +14,8 @@ pub const SCHEMA_VERSION: i64 = 2;
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("configuration changed before confirmation")]
+    Conflict,
     #[error(transparent)]
     Validation(#[from] config_model::ValidationError),
     #[error("configuration database operation failed")]
@@ -188,6 +191,9 @@ impl Store {
         }
         for profile in self.profiles()? {
             profile.validate()?;
+        }
+        if metadata(&self.connection)?.1 >= 2 {
+            self.host_keys()?;
         }
         Ok(())
     }

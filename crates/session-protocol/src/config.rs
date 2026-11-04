@@ -21,6 +21,15 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    HostKeysPage {
+        revision: Option<Uuid>,
+        offset: u32,
+    },
+    ForgetHostKey {
+        endpoint: config_model::HostEndpoint,
+        algorithm: String,
+        expected_fingerprint: String,
+    },
     Page {
         revision: Option<Uuid>,
         offset: u32,
@@ -48,6 +57,24 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::HostKeysPage { revision, offset } => {
+                *offset <= 1024 && (*offset == 0 || revision.is_some())
+            }
+            Self::ForgetHostKey {
+                endpoint,
+                algorithm,
+                expected_fingerprint,
+            } => {
+                endpoint.canonical().is_ok()
+                    && !algorithm.is_empty()
+                    && algorithm.len() <= 128
+                    && !algorithm.chars().any(char::is_control)
+                    && expected_fingerprint.len() == 50
+                    && expected_fingerprint.starts_with("SHA256:")
+                    && expected_fingerprint[7..]
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"+/".contains(&b))
+            }
             Self::SaveProfileKeyFile {
                 profile,
                 key_path,
@@ -112,6 +139,11 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    HostKeysPage {
+        revision: Uuid,
+        keys: Vec<config_model::HostKeySummary>,
+        next_offset: Option<u32>,
+    },
     Page {
         revision: Uuid,
         folders: Vec<Folder>,

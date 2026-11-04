@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { HostKeysPanel } from './host-keys-panel';
 import { config, readConfiguration, type Auth, type CredentialEdit, type Encoding, type Folder, type Profile, type Settings } from './config-api';
 
 type Draft = {
@@ -123,6 +124,7 @@ export function ConfigPanel({ close }: { close(): void }) {
         </fieldset>
       </form>
     </div>
+    <HostKeysPanel />
     <p className="data-location">数据目录：{location || '读取失败时请重新启动检查启动目录'}</p>
   </section>;
 }

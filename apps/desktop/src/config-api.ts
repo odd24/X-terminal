@@ -8,14 +8,18 @@ export type Settings =
 export type Folder = { id: string; parent_id: string | null; name: string };
 export type PortableProfile = { id: string; folder_id: string | null; name: string; settings: Settings };
 export type Profile = PortableProfile & { credential_ref: string | null };
+export type HostEndpoint = { protocol: 'ssh1' | 'ssh2'; host: string; port: number };
+export type HostKeySummary = { endpoint: HostEndpoint; algorithm: string; fingerprint: string };
 export type CredentialEdit = { action: 'keep' | 'clear' } | { action: 'replace'; value: { password: string | null; private_key: string | null; passphrase: string | null } };
 export type ConfigRequest = { op: 'page'; revision: string | null; offset: number; folders: boolean }
+  | { op: 'host_keys_page'; revision: string | null; offset: number }
+  | { op: 'forget_host_key'; endpoint: HostEndpoint; algorithm: string; expected_fingerprint: string }
   | { op: 'save_folder'; folder: Folder } | { op: 'delete_folder' | 'delete_profile'; id: string }
   | { op: 'save_profile'; profile: PortableProfile; credential: CredentialEdit }
   | { op: 'save_profile_key_file'; profile: PortableProfile; key_path: string; passphrase: string | null };
 // File import is Desktop-only; file bytes are read inside the service.
 type Page = { result: 'page'; revision: string; folders: Folder[]; profiles: Profile[]; next_offset: number | null };
-export type Reply = Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string };
+export type Reply = Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null };
 export const messages: Record<string, string> = {
   INVALID: '配置无效，或目录仍被引用。请检查参数和目录关系。',
   NOT_FOUND: '配置已不存在，请刷新。', CONFLICT: '配置已变化，请刷新后重试。',

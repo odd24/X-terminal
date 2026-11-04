@@ -1146,3 +1146,112 @@ async fn private_key_file_import_is_bounded_and_does_not_return_key_bytes() {
     ));
     service.stop(&mut client).await;
 }
+
+#[tokio::test]
+async fn host_key_configuration_requires_desktop_and_exact_fingerprint() {
+    use config::{ConfigReply as C, ConfigRequest as Q};
+    let temp = ConfigTemp::new();
+    let mut store = config_store::Store::open(&temp.0.join("config.sqlite")).unwrap();
+    let key = config_store::HostKey {
+        endpoint: config_store::HostEndpoint {
+            protocol: config_store::HostProtocol::Ssh2,
+            host: "trust.invalid".into(),
+            port: 22,
+        },
+        algorithm: "ssh-ed25519".into(),
+        key: b"abc".to_vec(),
+    };
+    let review = store.review_host_key(&key).unwrap();
+    store.approve_host_key(key, &review.revision).unwrap();
+    drop(store);
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let C::HostKeysPage {
+        keys, next_offset, ..
+    } = config_call(
+        &mut desktop,
+        Q::HostKeysPage {
+            revision: None,
+            offset: 0,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(keys.len(), 1);
+    assert!(next_offset.is_none());
+    let fixture = match ok(desktop.request(Request::CreateFixture {}).await.unwrap()) {
+        Reply::Connection(info) => info.reference(),
+        _ => panic!(),
+    };
+    let token = match ok(desktop
+        .request(Request::IssueRead {
+            scopes: vec![fixture],
+            lifetime_ms: 10000,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::ReadTicket { token, .. } => token,
+        _ => panic!(),
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    for request in [
+        Q::HostKeysPage {
+            revision: None,
+            offset: 0,
+        },
+        Q::ForgetHostKey {
+            endpoint: keys[0].endpoint.clone(),
+            algorithm: keys[0].algorithm.clone(),
+            expected_fingerprint: keys[0].fingerprint.clone(),
+        },
+    ] {
+        assert!(matches!(
+            observer.request(Request::Config { request }).await.unwrap(),
+            Response::Error {
+                code: ErrorCode::PermissionDenied,
+                ..
+            }
+        ));
+    }
+    let wrong = format!("SHA256:{}", "A".repeat(43));
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            Q::ForgetHostKey {
+                endpoint: keys[0].endpoint.clone(),
+                algorithm: keys[0].algorithm.clone(),
+                expected_fingerprint: wrong
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Conflict
+        }
+    ));
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            Q::ForgetHostKey {
+                endpoint: keys[0].endpoint.clone(),
+                algorithm: keys[0].algorithm.clone(),
+                expected_fingerprint: keys[0].fingerprint.clone()
+            }
+        )
+        .await,
+        C::Updated { .. }
+    ));
+    service.stop(&mut desktop).await;
+    assert!(
+        config_store::Store::open(&temp.0.join("config.sqlite"))
+            .unwrap()
+            .host_keys()
+            .unwrap()
+            .is_empty()
+    );
+}

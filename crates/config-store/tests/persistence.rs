@@ -295,3 +295,193 @@ fn backup_restore_is_consistent_and_refuses_overwrite() {
     assert!(Store::restore_to_new(&backup, &target).is_err());
     assert_eq!(std::fs::read(&backup).unwrap(), bytes);
 }
+
+#[test]
+fn host_key_assessment_is_persistent_scoped_and_requires_current_approval_revision() {
+    let temp = Temp::new();
+    let path = temp.path("config");
+    let mut store = Store::open(&path).unwrap();
+    let endpoint = HostEndpoint {
+        protocol: HostProtocol::Ssh2,
+        host: "Example.INVALID".into(),
+        port: 22,
+    };
+    let first = HostKey {
+        endpoint: endpoint.clone(),
+        algorithm: "ssh-ed25519".into(),
+        key: b"abc".to_vec(),
+    };
+    let review = store.review_host_key(&first).unwrap();
+    assert_eq!(review.status, HostKeyStatus::Unknown);
+    assert_eq!(
+        review.candidate.fingerprint,
+        "SHA256:ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0"
+    );
+    assert!(
+        store.host_keys().unwrap().is_empty(),
+        "review must not silently trust a key"
+    );
+    assert!(matches!(
+        store.approve_host_key(first.clone(), "stale"),
+        Err(Error::Conflict)
+    ));
+    assert!(store.host_keys().unwrap().is_empty());
+    assert!(
+        store
+            .approve_host_key(first.clone(), &review.revision)
+            .unwrap()
+    );
+    drop(store);
+    let mut store = Store::open(&path).unwrap();
+    let known = store.review_host_key(&first).unwrap();
+    assert_eq!(known.status, HostKeyStatus::Known);
+    assert!(
+        !store
+            .approve_host_key(first.clone(), &known.revision)
+            .unwrap()
+    );
+    let changed = HostKey {
+        key: b"different-key".to_vec(),
+        ..first.clone()
+    };
+    let pending = store.review_host_key(&changed).unwrap();
+    assert_eq!(pending.status, HostKeyStatus::Changed);
+    assert_eq!(
+        store.review_host_key(&first).unwrap().status,
+        HostKeyStatus::Known,
+        "change assessment cannot replace trust"
+    );
+    let extra = HostKey {
+        algorithm: "ssh-rsa".into(),
+        key: b"other-algorithm".to_vec(),
+        ..first.clone()
+    };
+    let other = store.review_host_key(&extra).unwrap();
+    assert_eq!(other.status, HostKeyStatus::Changed);
+    store.approve_host_key(extra, &other.revision).unwrap();
+    assert!(
+        matches!(
+            store.approve_host_key(changed.clone(), &pending.revision),
+            Err(Error::Conflict)
+        ),
+        "another approved algorithm invalidates previous confirmation"
+    );
+    let fresh = store.review_host_key(&changed).unwrap();
+    store
+        .approve_host_key(changed.clone(), &fresh.revision)
+        .unwrap();
+    assert_eq!(
+        store.review_host_key(&first).unwrap().status,
+        HostKeyStatus::Changed
+    );
+    assert!(
+        matches!(
+            store.forget_host_key(&endpoint, "ssh-ed25519", &known.candidate.fingerprint),
+            Err(Error::Conflict)
+        ),
+        "stale UI delete cannot remove changed key"
+    );
+    let current = store.review_host_key(&changed).unwrap();
+    store
+        .forget_host_key(&endpoint, "ssh-ed25519", &current.candidate.fingerprint)
+        .unwrap();
+    assert_eq!(store.host_keys().unwrap().len(), 1);
+    let mut other_scope = first.clone();
+    other_scope.endpoint.port = 2222;
+    assert_eq!(
+        store.review_host_key(&other_scope).unwrap().status,
+        HostKeyStatus::Unknown
+    );
+    other_scope.endpoint.port = 22;
+    other_scope.endpoint.protocol = HostProtocol::Ssh1;
+    assert_eq!(
+        store.review_host_key(&other_scope).unwrap().status,
+        HostKeyStatus::Unknown
+    );
+}
+
+#[test]
+fn malformed_and_oversized_host_keys_are_rejected_without_config_writes() {
+    let temp = Temp::new();
+    let path = temp.path("config");
+    let mut store = Store::open(&path).unwrap();
+    for (host, algorithm, key) in [
+        ("example.invalid", "ssh-ed25519", vec![]),
+        ("bad host", "ssh-ed25519", vec![1]),
+        ("example.invalid", "ssh\nkey", vec![1]),
+        ("example.invalid", "ssh-ed25519", vec![1; 16385]),
+    ] {
+        let candidate = HostKey {
+            endpoint: HostEndpoint {
+                protocol: HostProtocol::Ssh2,
+                host: host.into(),
+                port: 22,
+            },
+            algorithm: algorithm.into(),
+            key,
+        };
+        assert!(store.review_host_key(&candidate).is_err());
+        assert!(store.approve_host_key(candidate, "any").is_err());
+    }
+    assert!(store.host_keys().unwrap().is_empty());
+    drop(store);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute(
+        "INSERT INTO host_keys VALUES('ssh2','example.invalid',22,'ssh-ed25519',zeroblob(16385))",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let before = std::fs::read(&path).unwrap();
+    assert!(matches!(Store::open(&path), Err(Error::Corrupt)));
+    assert_eq!(std::fs::read(path).unwrap(), before);
+}
+
+#[test]
+fn concurrent_host_key_approvals_cannot_both_use_the_same_confirmation() {
+    let temp = Temp::new();
+    let path = temp.path("config");
+    drop(Store::open(&path).unwrap());
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+    let mut workers = Vec::new();
+    for marker in [1u8, 2u8] {
+        let path = path.clone();
+        let barrier = barrier.clone();
+        workers.push(std::thread::spawn(move || {
+            let mut store = Store::open(&path).unwrap();
+            let candidate = HostKey {
+                endpoint: HostEndpoint {
+                    protocol: HostProtocol::Ssh2,
+                    host: "race.invalid".into(),
+                    port: 22,
+                },
+                algorithm: "ssh-ed25519".into(),
+                key: vec![marker],
+            };
+            let review = store.review_host_key(&candidate).unwrap();
+            assert_eq!(review.status, HostKeyStatus::Unknown);
+            barrier.wait();
+            store.approve_host_key(candidate, &review.revision)
+        }));
+    }
+    barrier.wait();
+    let results = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|value| matches!(value, Ok(true)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        results
+            .iter()
+            .filter(|value| matches!(value, Err(Error::Conflict)))
+            .count(),
+        1
+    );
+    assert_eq!(Store::open(&path).unwrap().host_keys().unwrap().len(), 1);
+}

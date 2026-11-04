@@ -43,6 +43,57 @@
           {
             "additionalProperties": false,
             "properties": {
+              "offset": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "host_keys_page",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "offset"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "algorithm": {
+                "type": "string"
+              },
+              "endpoint": {
+                "$ref": "#/$defs/HostEndpoint"
+              },
+              "expected_fingerprint": {
+                "type": "string"
+              },
+              "op": {
+                "const": "forget_host_key",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "endpoint",
+              "algorithm",
+              "expected_fingerprint"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "folders": {
                 "type": "boolean"
               },
@@ -321,6 +372,36 @@
           "name"
         ],
         "type": "object"
+      },
+      "HostEndpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "protocol": {
+            "$ref": "#/$defs/HostProtocol"
+          }
+        },
+        "required": [
+          "protocol",
+          "host",
+          "port"
+        ],
+        "type": "object"
+      },
+      "HostProtocol": {
+        "enum": [
+          "ssh1",
+          "ssh2"
+        ],
+        "type": "string"
       },
       "Parity": {
         "enum": [
@@ -776,6 +857,39 @@
           {
             "additionalProperties": false,
             "properties": {
+              "keys": {
+                "items": {
+                  "$ref": "#/$defs/HostKeySummary"
+                },
+                "type": "array"
+              },
+              "next_offset": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "result": {
+                "const": "host_keys_page",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "revision",
+              "keys"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "folders": {
                 "items": {
                   "$ref": "#/$defs/Folder"
@@ -974,6 +1088,56 @@
           "name"
         ],
         "type": "object"
+      },
+      "HostEndpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "protocol": {
+            "$ref": "#/$defs/HostProtocol"
+          }
+        },
+        "required": [
+          "protocol",
+          "host",
+          "port"
+        ],
+        "type": "object"
+      },
+      "HostKeySummary": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "endpoint": {
+            "$ref": "#/$defs/HostEndpoint"
+          },
+          "fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint",
+          "algorithm",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
+      "HostProtocol": {
+        "enum": [
+          "ssh1",
+          "ssh2"
+        ],
+        "type": "string"
       },
       "OutputEvent": {
         "additionalProperties": false,
