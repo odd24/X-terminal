@@ -15,7 +15,7 @@
     "dev": "npm run dev --workspace apps/desktop",
     "build": "npm run build --workspace apps/desktop",
     "lint": "npm run lint --workspace apps/desktop",
-    "test": "node --test tests/terminal-writer.test.mjs tests/input-queue.test.mjs",
+    "test": "node --test tests/terminal-writer.test.mjs tests/input-queue.test.mjs tests/request-id.test.mjs",
     "test:screen": "node scripts/Compare-Screens.mjs",
     "test:desktop": "node scripts/Test-Desktop-Service.mjs && node scripts/Test-Desktop-Config.mjs && node scripts/Test-Desktop-Archives.mjs && node scripts/Test-Desktop-Credentials.mjs && npm run test:desktop:ssh",
     "test:desktop:archives": "node scripts/Test-Desktop-Archives.mjs",

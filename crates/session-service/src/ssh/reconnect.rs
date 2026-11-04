@@ -43,7 +43,8 @@ impl Manager {
                 .entries
                 .get(&connection.connection_id)
                 .ok_or(ErrorCode::NotFound)?;
-            if entry.receipts.get(id).is_ok() || entry.exec.contains(id) {
+            entry.receipts.check_available(id)?;
+            if entry.exec.contains(id) {
                 return Err(ErrorCode::InvalidArgument);
             }
             entry.restart_gate.clone()

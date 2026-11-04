@@ -59,9 +59,6 @@ impl Manager {
             .entries
             .get_mut(&connection.connection_id)
             .ok_or(ErrorCode::NotFound)?;
-        if entry.receipts.get(request_id).is_ok() {
-            return Err(ErrorCode::InvalidArgument);
-        }
         if let Some((old, id)) = entry.exec.requests.get(&request_id) {
             return if *old == fingerprint {
                 Ok(ssh::Reply::Exec(entry.exec.items[id].status.clone()))
@@ -69,6 +66,7 @@ impl Manager {
                 Err(ErrorCode::InvalidArgument)
             };
         }
+        entry.receipts.check_available(request_id)?;
         if info.state != State::Connected {
             return Err(ErrorCode::NotConnected);
         }

@@ -3021,5 +3021,8 @@ mod exec_cases;
 #[path = "support/rekey_cases.rs"]
 mod rekey_cases;
 
+#[path = "support/capacity_cases.rs"]
+mod capacity_cases;
+
 #[path = "support/reconnect_cases.rs"]
 mod reconnect_cases;

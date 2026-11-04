@@ -50,6 +50,24 @@ try {
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="SSH2 临时密码"]') === null`),true);
   let connection = (await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
   assert.equal(connection.generation,2);
+  // Fill and cross the receipt cap through the real Desktop adapter, then use real keyboard input.
+  // Historical timestamps keep the new GUI request above the retired watermark after the loop.
+  const orderedInputId = index => `00000000-${index.toString(16).padStart(4,'0')}-7000-8000-000000000001`;
+  const capacityConnection = {connection_id:connection.connection_id,generation:connection.generation};
+  for (let index=1;index<=1100;index++) {
+    const request_id=orderedInputId(index);
+    let receipt=await ui.invoke('ssh_request',{request:{op:'resize',connection:capacityConnection,request_id,cols:80,rows:24}});
+    assert.equal(receipt.result,'input');
+    const deadline=Date.now()+5000;
+    while(receipt.state==='PENDING'||receipt.state==='DISPATCHING') {
+      assert.ok(Date.now()<deadline,'capacity fixture input must finish');
+      await delay(1);
+      receipt=await ui.invoke('ssh_request',{request:{op:'input_status',connection:capacityConnection,request_id}});
+    }
+    assert.equal(receipt.state,'PIPELINE_QUEUED');
+  }
+  const expired = await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('ssh_request',${JSON.stringify({request:{op:'resize',connection:capacityConnection,request_id:orderedInputId(1),cols:80,rows:24}})}).then(()=>null,error=>String(error))`);
+  assert.equal(expired,'RequestExpired');
   await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
   await ui.command('Input.insertText',{text:'first'});
   await ui.command('Input.insertText',{text:'second'});

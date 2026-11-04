@@ -9,6 +9,7 @@ import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { ExecPanel } from './exec-panel';
 import { InputQueue } from './input-queue';
+import { requestId } from './request-id';
 import { ssh, dimensions, type Receipt } from './ssh-api';
 import '@xterm/xterm/css/xterm.css';
 import './style.css';
@@ -56,7 +57,7 @@ function App() {
     function submit(action: { bytes: number[] } | { cols: number; rows: number }) {
       const target = current.connection;
       if (!target || current.protocol !== 'SSH2' || !current.writable || selectedRef.current !== target.connection_id) return;
-      const id = crypto.randomUUID();
+      const id = requestId();
       const accepted = queue.enqueue(async () => {
         // A selection change drops unsent input rather than retargeting it.
         if (disposed || current.connection?.connection_id !== target.connection_id || current.connection.generation !== target.generation || selectedRef.current !== target.connection_id) return;

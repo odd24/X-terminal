@@ -4,8 +4,40 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use uuid::Uuid;
+use uuid::{Uuid, Variant};
 pub const MAX_RECEIPTS: usize = 1024;
+
+/// UUIDv7 timestamps order retention buckets; they are not used as trusted wall-clock times.
+/// UUIDs without this ordering retain the original fail-closed, non-evicting behavior.
+pub fn ordered_timestamp(id: Uuid) -> Option<u64> {
+    if id.get_version_num() != 7 || id.get_variant() != Variant::RFC4122 {
+        return None;
+    }
+    let bytes = id.as_bytes();
+    Some(u64::from_be_bytes([
+        0, 0, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+    ]))
+}
+#[derive(Default)]
+pub struct RequestWindow {
+    retired_through: Option<u64>,
+}
+impl RequestWindow {
+    pub fn check(&self, id: Uuid) -> Result<(), ErrorCode> {
+        if let Some(timestamp) = ordered_timestamp(id)
+            && self.retired_through.is_some_and(|floor| timestamp <= floor)
+        {
+            return Err(ErrorCode::RequestExpired);
+        }
+        Ok(())
+    }
+    pub fn retire(&mut self, timestamp: u64) {
+        self.retired_through = Some(
+            self.retired_through
+                .map_or(timestamp, |old| old.max(timestamp)),
+        );
+    }
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Fingerprint([u8; 32]);
 impl Fingerprint {
@@ -62,20 +94,32 @@ struct Record {
 #[derive(Default)]
 pub struct Receipts {
     records: HashMap<Uuid, Record>,
+    window: RequestWindow,
 }
 impl Receipts {
     pub fn lookup(&self, id: Uuid, fingerprint: Fingerprint) -> Result<Option<Receipt>, ErrorCode> {
         match self.records.get(&id) {
             Some(record) if record.fingerprint == fingerprint => Ok(Some(record.receipt.clone())),
             Some(_) => Err(ErrorCode::InvalidArgument),
-            None => Ok(None),
+            None => {
+                self.window.check(id)?;
+                Ok(None)
+            }
         }
     }
     pub fn get(&self, id: Uuid) -> Result<Receipt, ErrorCode> {
-        self.records
-            .get(&id)
-            .map(|record| record.receipt.clone())
-            .ok_or(ErrorCode::NotFound)
+        if let Some(record) = self.records.get(&id) {
+            return Ok(record.receipt.clone());
+        }
+        self.window.check(id)?;
+        Err(ErrorCode::NotFound)
+    }
+    /// Other actions must also reject a retired input ID instead of accepting it as a new request.
+    pub fn check_available(&self, id: Uuid) -> Result<(), ErrorCode> {
+        if self.records.contains_key(&id) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        self.window.check(id)
     }
     pub fn remember(&mut self, id: Uuid, fingerprint: Fingerprint) -> Result<Receipt, ErrorCode> {
         if id.is_nil() {
@@ -85,7 +129,27 @@ impl Receipts {
             return Ok(receipt);
         }
         if self.records.len() >= MAX_RECEIPTS {
-            return Err(ErrorCode::CapacityExceeded);
+            let oldest = self
+                .records
+                .iter()
+                .filter_map(|(id, record)| {
+                    if matches!(
+                        record.receipt.state,
+                        InputState::Pending | InputState::Dispatching
+                    ) {
+                        None
+                    } else {
+                        ordered_timestamp(*id).map(|timestamp| (*id, timestamp))
+                    }
+                })
+                .min_by_key(|(_, timestamp)| *timestamp);
+            let Some((old_id, timestamp)) = oldest else {
+                return Err(ErrorCode::CapacityExceeded);
+            };
+            self.window.retire(timestamp);
+            self.records.remove(&old_id);
+            // A new ID in the same or an older millisecond must not be admitted after retirement.
+            self.window.check(id)?;
         }
         let receipt = Receipt {
             request_id: id,
@@ -147,6 +211,112 @@ impl Receipts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn ordered(stamp: u64, nonce: u64) -> Uuid {
+        Uuid::from_u128(((stamp as u128) << 80) | 0x7000_8000_0000_0000_0000 | nonce as u128)
+    }
+    #[test]
+    fn long_session_reclaims_only_terminal_ordered_receipts_and_never_readmits_retired_ids() {
+        let mut receipts = Receipts::default();
+        let fingerprint = Fingerprint::write(b"once");
+        for stamp in 1..=10000 {
+            let id = ordered(stamp, 1);
+            receipts.remember(id, fingerprint).unwrap();
+            assert!(receipts.dispatch(id));
+            receipts.complete(id, Ok(Some(4)));
+            assert_eq!(
+                receipts.lookup(id, fingerprint).unwrap().unwrap().state,
+                InputState::PipelineQueued
+            );
+            assert!(!receipts.dispatch(id));
+            assert!(receipts.records.len() <= MAX_RECEIPTS);
+        }
+        for id in [ordered(1, 1), ordered(1, 2), ordered(5000, 1)] {
+            assert_eq!(receipts.get(id), Err(ErrorCode::RequestExpired));
+            assert_eq!(
+                receipts.remember(id, fingerprint),
+                Err(ErrorCode::RequestExpired)
+            );
+            assert_eq!(
+                receipts.remember(id, Fingerprint::resize(90, 30)),
+                Err(ErrorCode::RequestExpired)
+            );
+            assert_eq!(receipts.check_available(id), Err(ErrorCode::RequestExpired));
+        }
+    }
+    #[test]
+    fn active_receipts_and_opaque_ids_survive_retirement_of_newer_completed_requests() {
+        let mut receipts = Receipts::default();
+        let fingerprint = Fingerprint::write(b"once");
+        let pending = ordered(1, 1);
+        let in_flight = ordered(1, 2);
+        let opaque = Uuid::new_v4();
+        for id in [pending, in_flight, opaque] {
+            receipts.remember(id, fingerprint).unwrap();
+        }
+        receipts.dispatch(in_flight);
+        receipts.dispatch(opaque);
+        receipts.complete(opaque, Ok(Some(4)));
+        for stamp in 2..2000 {
+            let id = ordered(stamp, 1);
+            receipts.remember(id, fingerprint).unwrap();
+            receipts.dispatch(id);
+            receipts.complete(id, Ok(Some(4)));
+        }
+        assert_eq!(
+            receipts.remember(pending, fingerprint).unwrap().state,
+            InputState::Pending
+        );
+        assert_eq!(
+            receipts.remember(in_flight, fingerprint).unwrap().state,
+            InputState::Dispatching
+        );
+        assert_eq!(
+            receipts.remember(opaque, fingerprint).unwrap().state,
+            InputState::PipelineQueued
+        );
+        assert_eq!(
+            receipts.remember(pending, Fingerprint::write(b"other")),
+            Err(ErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            receipts.remember(ordered(1, 3), fingerprint),
+            Err(ErrorCode::RequestExpired)
+        );
+        receipts.complete(in_flight, Err(InputFailure::Timeout));
+        receipts.connection_lost(InputFailure::Cancelled);
+        assert_eq!(receipts.get(in_flight).unwrap().state, InputState::Unknown);
+        assert_eq!(
+            receipts.get(pending).unwrap().state,
+            InputState::CancelledBeforeDispatch
+        );
+    }
+    #[test]
+    fn a_full_millisecond_is_retired_as_a_bucket_and_pending_work_cannot_be_evicted() {
+        let mut receipts = Receipts::default();
+        let fingerprint = Fingerprint::resize(80, 24);
+        for nonce in 1..=MAX_RECEIPTS as u64 {
+            receipts.remember(ordered(10, nonce), fingerprint).unwrap();
+        }
+        assert_eq!(
+            receipts.remember(ordered(11, 1), fingerprint),
+            Err(ErrorCode::CapacityExceeded)
+        );
+        receipts.dispatch(ordered(10, 1));
+        receipts.complete(ordered(10, 1), Ok(None));
+        assert_eq!(
+            receipts.remember(ordered(10, MAX_RECEIPTS as u64 + 1), fingerprint),
+            Err(ErrorCode::RequestExpired)
+        );
+        assert_eq!(receipts.get(ordered(10, 1)), Err(ErrorCode::RequestExpired));
+        assert!(receipts.remember(ordered(11, 1), fingerprint).is_ok());
+        assert_eq!(
+            receipts.get(ordered(10, 2)).unwrap().state,
+            InputState::Pending
+        );
+        let mut malformed = *ordered(1, 1).as_bytes();
+        malformed[8] = 0; // A version nibble alone does not opt an opaque ID into ordered reclamation.
+        assert_eq!(ordered_timestamp(Uuid::from_bytes(malformed)), None);
+    }
     #[test]
     fn duplicate_request_never_dispatches_again_and_conflicting_payload_is_rejected() {
         let mut receipts = Receipts::default();

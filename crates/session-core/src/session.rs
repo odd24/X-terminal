@@ -48,6 +48,7 @@ pub enum ErrorCode {
     NotConnected,
     PermissionDenied,
     CapacityExceeded,
+    RequestExpired,
     Unsupported,
     VersionMismatch,
     AuthRequired,

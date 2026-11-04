@@ -53,7 +53,9 @@ enabled = true
 
 长任务以 task_id + tasks_get 轮询，不占住单次 MCP 调用。轮询有间隔和退避，避免忙循环。stdout 只输出 MCP 协议，诊断写 stderr；不得输出秘密。
 
-统一错误类别：INVALID_ARGUMENT、PERMISSION_DENIED、AUTH_REQUIRED、NOT_CONNECTED、STALE_GENERATION、INPUT_BUSY、TIMEOUT、CURSOR_EXPIRED、BUFFER_GAP、UNSUPPORTED、IO_ERROR、UNKNOWN_DELIVERY。区分工具失败与远程命令非零退出码。
+统一错误类别：INVALID_ARGUMENT、PERMISSION_DENIED、AUTH_REQUIRED、NOT_CONNECTED、STALE_GENERATION、INPUT_BUSY、TIMEOUT、CURSOR_EXPIRED、BUFFER_GAP、REQUEST_EXPIRED、UNSUPPORTED、IO_ERROR、UNKNOWN_DELIVERY。区分工具失败与远程命令非零退出码。
+
+P09 已建立输入回执的 UUIDv7 退休窗口，见 [ADR-020](decisions/ADR-020.md)。未来真实写工具应沿用同一 request_id 到查询/重试，遇 REQUEST_EXPIRED 必须告知结果保留窗口已过、不得自动换 ID 再发。时间戳是排序桶，不能当作授权期限；旧不透明 UUID 保持有限、非淘汰去重，不能无限期发送。当前 MCP 仍为 P06 只读 mock，实际有权限的写入接入在 P14/P15，不以此设计说明冒充已实现。
 
 ## 输入与上下文规则
 

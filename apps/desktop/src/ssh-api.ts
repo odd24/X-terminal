@@ -31,6 +31,7 @@ export async function ssh(request: Request): Promise<SshReply> {
     const code = String(error);
     const messages: Record<string, string> = {
       CapacityExceeded: '队列或去重记录已满；本次请求未接受。',
+      RequestExpired: '请求已超出回执保留窗口；原结果可能无法再查询，未重新发送。系统时间回退也可能导致此错误。',
       StaleGeneration: '连接代次已变化；本次操作未转发到新连接。',
       InvalidState: '当前连接状态不允许此操作。',
       NotConnected: '连接不可写，未发送输入。',
