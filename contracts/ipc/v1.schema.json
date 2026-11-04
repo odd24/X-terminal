@@ -621,6 +621,26 @@
         ],
         "type": "string"
       },
+      "Limits": {
+        "additionalProperties": false,
+        "properties": {
+          "segment_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "segments": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "segment_bytes",
+          "segments"
+        ],
+        "type": "object"
+      },
       "Line": {
         "enum": [
           "DTR",
@@ -692,7 +712,7 @@
             "additionalProperties": false,
             "properties": {
               "op": {
-                "const": "serial",
+                "const": "logging",
                 "type": "string"
               },
               "request": {
@@ -709,11 +729,28 @@
             "additionalProperties": false,
             "properties": {
               "op": {
-                "const": "ssh",
+                "const": "serial",
                 "type": "string"
               },
               "request": {
                 "$ref": "#/$defs/Request3"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "ssh",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/$defs/Request4"
               }
             },
             "required": [
@@ -998,6 +1035,97 @@
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
+              "limits": {
+                "$ref": "#/$defs/Limits"
+              },
+              "op": {
+                "const": "start",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "limits"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "stop",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Request3": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
               "content": {
                 "$ref": "#/$defs/Sensitive"
               },
@@ -1207,7 +1335,7 @@
           }
         ]
       },
-      "Request3": {
+      "Request4": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -2508,6 +2636,17 @@
       },
       "Failure": {
         "enum": [
+          "QUEUE_FULL",
+          "INVALID_RECORD",
+          "COUNTER_EXHAUSTED",
+          "DISK_FULL",
+          "STORAGE",
+          "WORKER_PANICKED"
+        ],
+        "type": "string"
+      },
+      "Failure2": {
+        "enum": [
           "DEVICE_UNAVAILABLE",
           "ACCESS_OR_BUSY",
           "INVALID_PARAMETERS",
@@ -2518,7 +2657,7 @@
         ],
         "type": "string"
       },
-      "Failure2": {
+      "Failure3": {
         "enum": [
           "CONFIGURATION",
           "HOST_KEY_REJECTED",
@@ -2650,6 +2789,143 @@
         ],
         "type": "string"
       },
+      "Info": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_raw_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "accepted_records": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "durable": {
+            "type": "boolean"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Failure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "first_retained_segment": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_segment": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limits": {
+            "$ref": "#/$defs/Limits"
+          },
+          "log_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "natural_end": {
+            "type": "boolean"
+          },
+          "phase": {
+            "$ref": "#/$defs/Phase"
+          },
+          "protocol": {
+            "$ref": "#/$defs/Protocol"
+          },
+          "rejected_raw_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rejected_records": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retired_segments": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_gap_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "started_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "worker_finished": {
+            "type": "boolean"
+          },
+          "written_raw_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "written_records": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "log_id",
+          "connection",
+          "protocol",
+          "encoding",
+          "started_at_ms",
+          "source_cursor",
+          "text_cursor",
+          "limits",
+          "phase",
+          "active",
+          "accepted_records",
+          "written_records",
+          "accepted_raw_bytes",
+          "written_raw_bytes",
+          "rejected_records",
+          "rejected_raw_bytes",
+          "source_gap_bytes",
+          "first_retained_segment",
+          "last_segment",
+          "retired_segments",
+          "natural_end",
+          "durable",
+          "worker_finished"
+        ],
+        "type": "object"
+      },
       "InputFailure": {
         "enum": [
           "CANCELLED",
@@ -2677,6 +2953,26 @@
           "CANCELLED_BEFORE_DISPATCH"
         ],
         "type": "string"
+      },
+      "Limits": {
+        "additionalProperties": false,
+        "properties": {
+          "segment_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "segments": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "segment_bytes",
+          "segments"
+        ],
+        "type": "object"
       },
       "OutputEvent": {
         "additionalProperties": false,
@@ -2798,6 +3094,16 @@
         ],
         "type": "string"
       },
+      "Phase": {
+        "enum": [
+          "OPENING",
+          "RECORDING",
+          "STOPPING",
+          "STOPPED",
+          "FAILED"
+        ],
+        "type": "string"
+      },
       "Profile": {
         "additionalProperties": false,
         "properties": {
@@ -2867,7 +3173,7 @@
                 "$ref": "#/$defs/Reply2"
               },
               "type": {
-                "const": "serial",
+                "const": "logging",
                 "type": "string"
               }
             },
@@ -2882,6 +3188,23 @@
             "properties": {
               "data": {
                 "$ref": "#/$defs/Reply3"
+              },
+              "type": {
+                "const": "serial",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/Reply4"
               },
               "type": {
                 "const": "ssh",
@@ -3106,6 +3429,172 @@
           {
             "additionalProperties": false,
             "properties": {
+              "accepted_raw_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "accepted_records": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "active": {
+                "type": "boolean"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "durable": {
+                "type": "boolean"
+              },
+              "encoding": {
+                "type": "string"
+              },
+              "failure": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Failure"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "first_retained_segment": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "last_segment": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "limits": {
+                "$ref": "#/$defs/Limits"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "natural_end": {
+                "type": "boolean"
+              },
+              "phase": {
+                "$ref": "#/$defs/Phase"
+              },
+              "protocol": {
+                "$ref": "#/$defs/Protocol"
+              },
+              "rejected_raw_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "rejected_records": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "info",
+                "type": "string"
+              },
+              "retired_segments": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "source_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "source_gap_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "started_at_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "text_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "worker_finished": {
+                "type": "boolean"
+              },
+              "written_raw_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "written_records": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "result",
+              "log_id",
+              "connection",
+              "protocol",
+              "encoding",
+              "started_at_ms",
+              "source_cursor",
+              "text_cursor",
+              "limits",
+              "phase",
+              "active",
+              "accepted_records",
+              "written_records",
+              "accepted_raw_bytes",
+              "written_raw_bytes",
+              "rejected_records",
+              "rejected_raw_bytes",
+              "source_gap_bytes",
+              "first_retained_segment",
+              "last_segment",
+              "retired_segments",
+              "natural_end",
+              "durable",
+              "worker_finished"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "logs": {
+                "items": {
+                  "$ref": "#/$defs/Info"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "logs"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Reply3": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
               "devices": {
                 "items": {
                   "$ref": "#/$defs/DeviceSummary"
@@ -3164,7 +3653,7 @@
               "break_cleanup_failure": {
                 "anyOf": [
                   {
-                    "$ref": "#/$defs/Failure"
+                    "$ref": "#/$defs/Failure2"
                   },
                   {
                     "type": "null"
@@ -3188,7 +3677,7 @@
               "failure": {
                 "anyOf": [
                   {
-                    "$ref": "#/$defs/Failure"
+                    "$ref": "#/$defs/Failure2"
                   },
                   {
                     "type": "null"
@@ -3242,7 +3731,7 @@
               "failure": {
                 "anyOf": [
                   {
-                    "$ref": "#/$defs/Failure"
+                    "$ref": "#/$defs/Failure2"
                   },
                   {
                     "type": "null"
@@ -3284,7 +3773,7 @@
           }
         ]
       },
-      "Reply3": {
+      "Reply4": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -3424,7 +3913,7 @@
               "failure": {
                 "anyOf": [
                   {
-                    "$ref": "#/$defs/Failure2"
+                    "$ref": "#/$defs/Failure3"
                   },
                   {
                     "type": "null"

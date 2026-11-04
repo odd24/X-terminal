@@ -1,4 +1,6 @@
 #![cfg(windows)]
+#[path = "support/logging_cases.rs"]
+mod logging_cases;
 #[path = "support/presentation_cases.rs"]
 mod presentation_cases;
 use session_core::{PROTOCOL_VERSION, pairing::SecretToken, session::*};

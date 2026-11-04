@@ -1,6 +1,8 @@
 //! Opt-in bounded journals. Callers must authorize and route an exact generation.
+mod directory;
 mod format;
 mod storage;
+pub use directory::ManagedRoot;
 pub use format::{RawFrame, RawReader, SegmentHeader};
 use serde::{Deserialize, Serialize};
 use session_core::{presentation::TextEvent, session::*};
@@ -137,6 +139,7 @@ pub struct Status {
     pub written_raw_bytes: u64,
     pub rejected_records: u64,
     pub rejected_raw_bytes: u64,
+    pub source_gap_bytes: u64,
     pub first_retained_segment: u64,
     pub last_segment: u64,
     pub retired_segments: u64,
@@ -237,6 +240,7 @@ impl Logger {
                 written_raw_bytes: 0,
                 rejected_records: 0,
                 rejected_raw_bytes: 0,
+                source_gap_bytes: 0,
                 first_retained_segment: 1,
                 last_segment: 1,
                 retired_segments: 0,
@@ -317,6 +321,7 @@ impl Logger {
         }
         let raw_bytes = record.raw_bytes();
         let final_record = record.raw.is_none();
+        let source_gap = record.raw.as_ref().and_then(|r| r.gap_bytes).unwrap_or(0);
         // Bounds apply to retained allocation as well as logical length.
         if let Some(raw) = &mut record.raw {
             raw.bytes = raw.bytes.as_slice().to_vec();
@@ -340,6 +345,8 @@ impl Logger {
                 shared.source_cursor += u64::from(!final_record);
                 shared.status.accepted_records += 1;
                 shared.status.accepted_raw_bytes += raw_bytes;
+                shared.status.source_gap_bytes =
+                    shared.status.source_gap_bytes.saturating_add(source_gap);
                 if final_record {
                     shared.status.natural_end = true;
                     shared.status.phase = Phase::Stopping;

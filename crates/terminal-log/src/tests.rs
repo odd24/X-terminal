@@ -142,6 +142,7 @@ fn raw_bytes_text_gaps_and_eof_survive_real_files_without_fabricated_bytes() {
     assert!(status.durable && status.worker_finished && status.natural_end);
     assert_eq!(status.written_records, 3);
     assert_eq!(status.written_raw_bytes, 5);
+    assert_eq!(status.source_gap_bytes, 13);
     let (header, raw, text) = read_pair(&root(&temp, &logger), 1);
     assert_eq!(header.metadata.connection, meta.connection);
     assert_eq!(header.metadata.encoding, "gbk");
@@ -171,6 +172,24 @@ fn raw_bytes_text_gaps_and_eof_survive_real_files_without_fabricated_bytes() {
         fs::read(root(&temp, &logger).join("0000000000000001.rawlog")).unwrap(),
         original
     );
+}
+
+#[test]
+fn managed_root_bounds_persistent_directories_and_preserves_unrecognized_content() {
+    let temp = Temp::new();
+    let managed = ManagedRoot::open(&temp.0).unwrap();
+    assert!(managed.ids().unwrap().is_empty());
+    for _ in 0..64 {
+        fs::create_dir(managed.path().join(Uuid::new_v4().to_string())).unwrap();
+    }
+    assert_eq!(managed.ids().unwrap().len(), 64);
+    fs::create_dir(managed.path().join(Uuid::new_v4().to_string())).unwrap();
+    assert!(managed.ids().is_err());
+    let sentinel = managed.path().join("unknown");
+    fs::write(&sentinel, b"keep").unwrap();
+    assert!(managed.ids().is_err());
+    assert_eq!(fs::read(sentinel).unwrap(), b"keep");
+    drop(managed);
 }
 
 #[test]

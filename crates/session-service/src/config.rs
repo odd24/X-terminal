@@ -23,6 +23,7 @@ enum Message {
     },
 }
 pub(crate) enum Internal {
+    LoggingDirectory,
     Profile(Uuid),
     Credential(Profile),
     Review(config_store::HostKey),
@@ -33,6 +34,7 @@ pub(crate) enum Internal {
     },
 }
 pub(crate) enum Value {
+    LoggingDirectory(PathBuf),
     Profile(Profile),
     Credential(CredentialBundle),
     Review(config_store::HostKeyReview),
@@ -169,6 +171,13 @@ pub(super) struct State {
 impl State {
     fn internal(&mut self, request: Internal) -> Result<Value, ConfigError> {
         match request {
+            Internal::LoggingDirectory => Ok(Value::LoggingDirectory(
+                self.store
+                    .path()
+                    .parent()
+                    .ok_or(ConfigError::Storage)?
+                    .to_path_buf(),
+            )),
             Internal::Profile(id) => Ok(Value::Profile(
                 self.store
                     .profile(id)

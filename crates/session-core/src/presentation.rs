@@ -139,7 +139,7 @@ impl Presentation {
             .saturating_add(u64::from(decode_error));
     }
 
-    pub(crate) fn append(&mut self, source_seq: u64, raw: &[u8], timestamp_ms: u64) {
+    pub(crate) fn append(&mut self, source_seq: u64, raw: &[u8], timestamp_ms: u64) -> &TextEvent {
         // Caller splits at the raw stream's 4096-byte boundary; expansion fits 16KiB.
         let (text, error) = self
             .decoder
@@ -151,9 +151,10 @@ impl Presentation {
         self.publish(Some(source_seq), timestamp_ms, text, error, None);
         self.source_cursor = source_seq + 1;
         self.last_timestamp = timestamp_ms;
+        self.events.back().unwrap()
     }
 
-    pub(crate) fn gap(&mut self, source_seq: u64, lost: u64, timestamp_ms: u64) {
+    pub(crate) fn gap(&mut self, source_seq: u64, lost: u64, timestamp_ms: u64) -> &TextEvent {
         // Discard buffered lead bytes and parser state, rather than joining across loss.
         self.decoder = StreamDecoder::new(&self.encoding).unwrap();
         self.screen = Screen::new(self.rows, self.cols).unwrap();
@@ -167,11 +168,12 @@ impl Presentation {
         );
         self.source_cursor = source_seq + 1;
         self.last_timestamp = timestamp_ms;
+        self.events.back().unwrap()
     }
 
-    pub(crate) fn finish(&mut self) {
+    pub(crate) fn finish(&mut self) -> Option<&TextEvent> {
         if self.completed {
-            return;
+            return None;
         }
         let (text, error) = self
             .decoder
@@ -180,6 +182,11 @@ impl Presentation {
         self.screen.push(text.as_bytes()).unwrap();
         self.publish(None, self.last_timestamp, text, error, None);
         self.completed = true;
+        self.events.back()
+    }
+
+    pub(crate) fn position(&self) -> (&str, u64) {
+        (&self.encoding, self.next_seq)
     }
 
     pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Result<(), ErrorCode> {

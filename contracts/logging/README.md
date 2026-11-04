@@ -1,6 +1,6 @@
 # 终端日志格式 v1（P11.3）
 
-当前为独立terminal-log库格式，服务和桌面尚未启用。默认不记录，调用者需明确授权连接代次；不包含凭据、自动化输入或操作审计的自动捕获逻辑。所有示例/测试均为合成数据。
+P11.4启停阶段已将terminal-log接入统一服务和桌面，历史读取/导出仍在继续。默认不记录，调用者需明确授权连接代次；不包含凭据、自动化输入或操作审计的自动捕获逻辑。所有示例/测试均为合成数据。
 
 现有本地根目录下创建新随机log_id目录；一个段为`0000000000000001.rawlog`和`0000000000000001.text.jsonl`。段号单调增加，至少16位十进制。两文件合计受segment_bytes限制（含头部），最多segments对；默认100MiB×5，可选128KiB–100MiB、1–16段。轮转退休旧段，不自动扩容。额外completion.json小于1KiB，根目录下其他日志不由本引擎自动清理。
 
@@ -27,6 +27,6 @@ RawReader先限额再分配内存，逐帧返回，不把整个日志读入内�
 
 文本第一行为`{"type":"header","header":SegmentHeader}`；其后每行为`{"type":"output","event":TextEvent}`。TextEvent沿用服务字段seq/source_seq/timestamp_ms/text/decode_error/gap_bytes，文本保留ANSI控制内容，尚非screen纯文字。CR/LF/控制字符由JSON转义，记录分隔LF不是终端payload。text最多16KiB，32排队+1在途，提交时去除过量capacity，最坏JSON转义仍适合最小段预算。
 
-自然EOF或手动停止均先排空已接受队列，双文件sync_all后才以create_new写completion.partial并sync_all，关闭临时文件后用Windows MoveFileW不覆盖地发布为completion.json。标志含log_id/ConnectionRef、written_records/bytes、首/末保留段和natural_end。手动停止natural_end=false，不编造远程退出码；失败可能留下completion.partial，不能当作成功；已有目标拒绝覆盖。完成只覆盖该记录窗口的保留部分，退休段和捕获前后都不包含在完整性承诺中。
+服务输出最终flush或手动停止均先排空已接受队列，双文件sync_all后才以create_new写completion.partial并sync_all，关闭临时文件后用Windows MoveFileW不覆盖地发布为completion.json。标志含log_id/ConnectionRef、written_records/bytes、首/末保留段、source_gap_bytes和natural_end。natural_end指服务最终flush，包含FAILED收尾，不表示正常退出；手动停止natural_end=false，不编造远程退出码；失败可能留下completion.partial，不能当作成功；已有目标拒绝覆盖。完成只覆盖该记录窗口的保留部分，退休段和捕获前后都不包含在完整性承诺中。
 
-状态accepted表示排队，written表示两个文件的write_all均成功（仍可能在OS缓存），durable须同步与完成标志成功；失败可能留下部分原始帧或JSON行。发生故障时range为最后成功写入的范围，需重新验证实际文件，不可用written推断物理接受量或当前保留总数。恢复/读取须检查完成标志身份、段范围、双文件/序号及截断，不能单凭一个文件干净EOF声称完成。服务接入、只读导出与恢复检查由P11.4/P24继续实现。
+状态accepted表示排队，written表示两个文件的write_all均成功（仍可能在OS缓存），durable须同步与完成标志成功；失败可能留下部分原始帧或JSON行。发生故障时range为最后成功写入的范围，需重新验证实际文件，不可用written推断物理接受量或当前保留总数。恢复/读取须检查完成标志身份、段范围、双文件/序号及截断，不能单凭一个文件干净EOF声称完成。服务捕获/启停已接入；持久历史、只读导出与恢复检查由P11.4/P24继续实现。

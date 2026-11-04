@@ -17,6 +17,7 @@ credential-vault = { path = "../credential-vault" }
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
 zeroize = "=1.9.1"
 session-core = { path = "../session-core" }
+terminal-log = { path = "../terminal-log" }
 session-protocol = { path = "../session-protocol" }
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "net", "time", "macros", "sync", "io-util", "io-std", "signal"] }
 serde = { version = "=1.0.229", features = ["derive"] }

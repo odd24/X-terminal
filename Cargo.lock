@@ -4020,6 +4020,7 @@ dependencies = [
  "serialport",
  "session-core",
  "session-protocol",
+ "terminal-log",
  "tokio",
  "transport-serial",
  "transport-ssh2",

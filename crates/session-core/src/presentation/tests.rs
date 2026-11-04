@@ -238,7 +238,7 @@ fn text_counter_reserves_eof_and_rejected_input_does_not_mutate_view() {
     let mut view = Presentation::new("utf-8", 24, 80).unwrap();
     view.next_seq = u64::MAX - 1;
     assert_eq!(view.reserve(1), Err(ErrorCode::CapacityExceeded));
-    view.finish();
+    let _ = view.finish();
     assert!(view.completed);
     assert_eq!(view.next_seq, u64::MAX);
     let mut sessions = Sessions::default();

@@ -1,5 +1,6 @@
 //! Length-prefixed, strictly typed, local session IPC v1.
 pub mod config;
+pub mod logging;
 pub mod serial;
 pub mod ssh;
 use schemars::JsonSchema;
@@ -117,6 +118,9 @@ pub struct RequestEnvelope {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Logging {
+        request: logging::Request,
+    },
     Serial {
         request: serial::Request,
     },
@@ -167,6 +171,9 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
+            Self::Logging { request } if !request.validate() => {
+                return Err(ErrorCode::InvalidArgument);
+            }
             Self::Serial { request } if !request.validate() => {
                 return Err(ErrorCode::InvalidArgument);
             }
@@ -240,6 +247,7 @@ impl Request {
     deny_unknown_fields
 )]
 pub enum Reply {
+    Logging(logging::Reply),
     Serial(serial::Reply),
     Ssh(ssh::Reply),
     Config(config::ConfigReply),

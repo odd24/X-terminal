@@ -208,6 +208,14 @@ struct Connection {
     info: ConnectionInfo,
     output: OutputBuffer,
     presentation: crate::presentation::Presentation,
+    capture: Option<(Uuid, std::sync::Arc<dyn crate::capture::OutputCapture>)>,
+}
+impl Drop for Connection {
+    fn drop(&mut self) {
+        if let Some((_, capture)) = self.capture.take() {
+            capture.stop();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -231,6 +239,7 @@ impl Sessions {
                 info: info.clone(),
                 output: Self::buffer(),
                 presentation: crate::presentation::Presentation::new("utf-8", 24, 80).unwrap(),
+                capture: None,
             },
         );
         Ok(info)
@@ -269,6 +278,9 @@ impl Sessions {
             .generation
             .checked_add(1)
             .ok_or(ErrorCode::CapacityExceeded)?;
+        if let Some((_, capture)) = connection.capture.take() {
+            capture.stop();
+        }
         connection.output = Self::buffer();
         connection.presentation = crate::presentation::Presentation::new("utf-8", 24, 80).unwrap();
         connection.info.generation = generation;
@@ -299,7 +311,14 @@ impl Sessions {
             return Err(ErrorCode::InvalidState);
         }
         if matches!(target, State::Disconnected | State::Failed) {
-            connection.presentation.finish();
+            if let Some(text) = connection.presentation.finish()
+                && let Some((_, capture)) = &connection.capture
+            {
+                capture.record(None, text);
+            }
+            if let Some((_, capture)) = connection.capture.take() {
+                capture.stop();
+            }
         }
         connection.info.state = target;
         Ok(connection.info.clone())
@@ -365,7 +384,18 @@ impl Sessions {
         connection.presentation.reserve(1)?;
         let seq = connection.output.next_seq;
         connection.output.mark_gap(lost, timestamp_ms)?;
-        connection.presentation.gap(seq, lost, timestamp_ms);
+        let text = connection.presentation.gap(seq, lost, timestamp_ms);
+        if let Some((_, capture)) = &connection.capture {
+            capture.record(
+                Some(&OutputEvent {
+                    seq,
+                    timestamp_ms,
+                    bytes: vec![],
+                    gap_bytes: Some(lost),
+                }),
+                text,
+            );
+        }
         Ok(())
     }
 
@@ -383,9 +413,21 @@ impl Sessions {
         let first_seq = connection.output.next_seq;
         connection.output.append(raw, timestamp_ms)?;
         for (index, chunk) in raw.chunks(EVENT_BYTES).enumerate() {
-            connection
-                .presentation
-                .append(first_seq + index as u64, chunk, timestamp_ms);
+            let text =
+                connection
+                    .presentation
+                    .append(first_seq + index as u64, chunk, timestamp_ms);
+            if let Some((_, capture)) = &connection.capture {
+                capture.record(
+                    Some(&OutputEvent {
+                        seq: first_seq + index as u64,
+                        timestamp_ms,
+                        bytes: chunk.to_vec(),
+                        gap_bytes: None,
+                    }),
+                    text,
+                );
+            }
         }
         Ok(())
     }
@@ -435,6 +477,53 @@ impl Sessions {
         reference: ConnectionRef,
     ) -> Result<crate::presentation::ScreenSnapshot, ErrorCode> {
         Ok(self.get(reference)?.presentation.snapshot(reference))
+    }
+
+    pub fn output_position(
+        &self,
+        reference: ConnectionRef,
+    ) -> Result<crate::capture::OutputPosition, ErrorCode> {
+        let connection = self.get(reference)?;
+        if connection.info.state != State::Connected {
+            return Err(ErrorCode::NotConnected);
+        }
+        let (encoding, text_cursor) = connection.presentation.position();
+        Ok(crate::capture::OutputPosition {
+            connection: reference,
+            protocol: connection.info.protocol,
+            encoding: encoding.into(),
+            source_cursor: connection.output.next_seq,
+            text_cursor,
+        })
+    }
+    pub fn capture_id(&self, reference: ConnectionRef) -> Result<Option<Uuid>, ErrorCode> {
+        Ok(self.get(reference)?.capture.as_ref().map(|(id, _)| *id))
+    }
+    pub fn attach_capture(
+        &mut self,
+        reference: ConnectionRef,
+        id: Uuid,
+        capture: std::sync::Arc<dyn crate::capture::OutputCapture>,
+    ) -> Result<(), ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        if id.is_nil() || connection.info.state != State::Connected || connection.capture.is_some()
+        {
+            return Err(ErrorCode::InvalidState);
+        }
+        connection.capture = Some((id, capture));
+        Ok(())
+    }
+    pub fn detach_capture(&mut self, reference: ConnectionRef, id: Uuid) -> Result<(), ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        if let Some((active, _)) = &connection.capture
+            && *active != id
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if let Some((_, capture)) = connection.capture.take() {
+            capture.stop();
+        }
+        Ok(())
     }
 }
 

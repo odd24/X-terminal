@@ -68,6 +68,30 @@ async fn ssh_request(
 }
 
 #[tauri::command]
+async fn logging_request(
+    state: State<'_, Desktop>,
+    request: session_protocol::logging::Request,
+) -> Result<session_protocol::logging::Reply, String> {
+    if !request.validate() {
+        return Err("INVALID_LOG_REQUEST".into());
+    }
+    // File setup never holds the terminal/input client's channel.
+    let mut channel = state.1.lock().await;
+    let client = channel.as_mut().ok_or("LOG_CHANNEL_UNAVAILABLE")?;
+    match client.request(Request::Logging { request }).await {
+        Ok(session_protocol::Response::Ok {
+            reply: Reply::Logging(reply),
+            ..
+        }) => Ok(reply),
+        Ok(session_protocol::Response::Error { code, .. }) => Err(code.to_string()),
+        _ => {
+            *channel = None;
+            Err("LOG_CHANNEL_UNAVAILABLE".into())
+        }
+    }
+}
+
+#[tauri::command]
 async fn serial_request(
     state: State<'_, Desktop>,
     request: session_protocol::serial::Request,
@@ -276,6 +300,7 @@ fn main() {
             fixture_create,
             fixture_append,
             config_request,
+            logging_request,
             config_directory
         ])
         .build(tauri::generate_context!())

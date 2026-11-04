@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -69,6 +69,8 @@ try {
   const freshDevice=await ui.evaluate(`document.querySelector('[aria-label="串口设备"]').options[1].value`);
   await ui.fill('串口设备',freshDevice);await ui.evaluate(`document.querySelector('[aria-label="确认串口设备与控制线"]').click()`);await ui.click('打开串口');
   await state('CONNECTED');connection=(await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
+  const serialLog=await ui.invoke('logging_request',{request:{op:'start',connection:ref(connection),request_id:crypto.randomUUID(),limits:{segment_bytes:131072,segments:2}}});
+  assert.equal(serialLog.encoding,'gbk');
   assert.equal(await buttonDisabled('RTS 开启'),true);assert.equal(await buttonDisabled('RTS 关闭'),true);
   const forbidden={op:'control',connection:ref(connection),request_id:crypto.randomUUID(),line:'RTS',asserted:true};
   assert.equal(await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('serial_request',{request:${JSON.stringify(forbidden)}}).then(()=>'unexpected',error=>String(error))`),'InvalidArgument');
@@ -91,6 +93,11 @@ try {
   await ui.waitFor(`document.querySelector('[aria-label="接收解码提示"]')?.textContent.includes('U+FFFD')`);
   const finalScreen=await ui.invoke('service_screen',{connection:ref(connection)});
   assert.equal(finalScreen.completed,true);assert.equal(finalScreen.decode_error_events,1);assert.ok(finalScreen.contents.includes('�'));
+  let serialLogEnd;
+  for(let attempt=0;attempt<200;attempt++){serialLogEnd=await ui.invoke('logging_request',{request:{op:'status',connection:ref(connection),log_id:serialLog.log_id}});if(serialLogEnd.worker_finished)break;await delay(20);}
+  assert.equal(serialLogEnd.durable,true);assert.equal(serialLogEnd.natural_end,true);assert.equal(serialLogEnd.source_gap_bytes,0);
+  const logText=(await readFile(path.join(directory,'terminal-logs',serialLog.log_id,'0000000000000001.text.jsonl'),'utf8')).trimEnd().split('\n').map(line=>JSON.parse(line));
+  assert.equal(logText.slice(1).map(line=>line.event.text).join(''),'中\r\n文�');assert.equal(logText.at(-1).event.decode_error,true);
   const gb18030=await save('synthetic GB18030','gb18030');
   await ui.click('刷新串口配置与设备');await ui.waitFor(`document.querySelector('[aria-label="串口配置"]').options.length===4`);
   await ui.fill('串口配置',gb18030.id);

@@ -53,7 +53,7 @@ fn publish(source: &Path, target: &Path) -> io::Result<()> {
         fs::remove_file(source)
     }
 }
-fn pin(path: &Path) -> io::Result<File> {
+pub(crate) fn pin(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(windows)]
@@ -83,6 +83,35 @@ fn pin(path: &Path) -> io::Result<File> {
         options.open(path)
     }
 }
+pub(crate) fn guards(root: &Path) -> io::Result<Vec<File>> {
+    if !root.is_absolute()
+        || root
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid local journal root",
+        ));
+    }
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        if !matches!(root.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_)))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "journal root must be a local drive",
+            ));
+        }
+    }
+    root.ancestors()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(pin)
+        .collect()
+}
 impl FileJournal {
     pub(crate) fn open(
         root: PathBuf,
@@ -90,30 +119,7 @@ impl FileJournal {
         metadata: Metadata,
         limits: Limits,
     ) -> io::Result<Self> {
-        if root
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "journal root contains traversal",
-            ));
-        }
-        #[cfg(windows)]
-        {
-            use std::path::{Component, Prefix};
-            if !matches!(root.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_)))
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "journal root must be a local drive",
-                ));
-            }
-        }
-        let mut guards = Vec::new();
-        for path in root.ancestors().collect::<Vec<_>>().into_iter().rev() {
-            guards.push(pin(path)?);
-        }
+        let mut guards = guards(&root)?;
         let directory = root.join(id.to_string());
         fs::create_dir(&directory)?; // Never append to or clear an existing log.
         guards.push(pin(&directory)?);
@@ -235,6 +241,7 @@ impl Journal for FileJournal {
             first_retained_segment: u64,
             last_segment: u64,
             natural_end: bool,
+            source_gap_bytes: u64,
         }
         let completion = Completion {
             format_version: 1,
@@ -245,6 +252,7 @@ impl Journal for FileJournal {
             first_retained_segment: *self.segments.front().unwrap(),
             last_segment: *self.segments.back().unwrap(),
             natural_end: status.natural_end,
+            source_gap_bytes: status.source_gap_bytes,
         };
         let partial = self.directory.join("completion.partial");
         let mut marker = file(&partial)?;

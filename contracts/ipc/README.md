@@ -59,3 +59,7 @@ P10 serial.send接收connection/request_id/content/format(text|hex)/ending(none|
 P11.2增加公共read_text与screen，沿用read的can_read范围/到期/撤销/代次检查，不允许读者指定编码或路径。read_text从独立cursor=1读取，每页UTF-8文本预算16384–65536字节；TextEvent的seq为文本序号，source_seq对应原始事件（最终flush为null），timestamp_ms沿用原始事件/最后输出（无输出为0），text可为空，decode_error表示此事件解码替换，gap_bytes为源头丢失。completed表示生产结束，不表示本页已含全部尾部，需沿next_cursor读到空页；source_cursor为服务派生至原始的下一事件位置，不是本页尾部。文本256KiB/128事件，独立覆盖truncated与available_from，不能当作原始字节窗口。
 
 screen返回编码、parser、resize_reflow、尺寸/光标/替代屏幕、source_cursor/completed、接收gap_bytes与decode_error_events。contents最多64KiB UTF-8，截断时contents_truncated=true。当前parser=vt100-0.18.1+local.1、resize_reflow=false，宽度变化不重排且复杂组合/真实程序兼容仍待验；不是桌面截图或完全一致承诺。源缺口重建字符与终端解析状态，保留历史覆盖仅影响落后读者，不重置服务screen。详见[ADR-028](../../docs/decisions/ADR-028.md)。这是同构建开发契约扩展，schema与客户端必须同步更新。
+
+P11.4启停阶段增加logging族，全部active Desktop专用：start(connection/request_id/limits)、list(connection)、status/stop(connection/log_id)。limits.segment_bytes为128KiB–100MiB（每对raw/text总和），segments为1–16；无路径/编码/角色字段。Start仅当前CONNECTED代次，相同ID/参数返回原log_id及现状态，冲突拒绝；旧Start不会在重连后新建。Stop幂等、核对日志自身ConnectionRef，不能解除别的capture_id。List当前只枚举本次服务注册的该精确代次日志，不冒充持久历史扫描。
+
+Info包含元数据、限额、OPENING/RECORDING/STOPPING/STOPPED/FAILED、active捕获标志、accepted/written/rejected计数、已接受source_gap_bytes、最后成功的分段范围/退休数、natural_end、durable和worker_finished。停止响应不等于同步完成；natural_end指最终解码flush，包括FAILED收尾，不是退出成功。目录/Start回执/日志注册分别限64，满额拒绝新增；持久历史、读取/导出和容量整理继续后续阶段。见[ADR-030](../../docs/decisions/ADR-030.md)。

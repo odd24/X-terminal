@@ -32,6 +32,7 @@ impl Store {
     }
 }
 struct Runtime {
+    logging: crate::logging::Manager,
     config: crate::config::ConfigWorker,
     ssh: crate::ssh::Manager,
     serial: crate::serial::Manager,
@@ -42,6 +43,18 @@ struct Runtime {
     shutdown: watch::Sender<bool>,
 }
 impl Runtime {
+    async fn handle_logging(
+        &self,
+        identity: &Identity,
+        request: logging::Request,
+    ) -> Result<Reply, ErrorCode> {
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            store.pairing.require_active(identity, self.now())?;
+            store.pairing.require_desktop(identity, self.now())?;
+        }
+        self.logging.handle(request).await.map(Reply::Logging)
+    }
     async fn handle_serial(
         &self,
         identity: &Identity,
@@ -273,6 +286,7 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
             frame = timeout(Duration::from_secs(30), read_frame(&mut pipe)) => match frame.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "idle client timeout"))?? { Some(value) => value, None => return Ok(()) }
         };
         let result = match request.request {
+            Request::Logging { request } => runtime.handle_logging(&identity, request).await,
             Request::Serial { request } => runtime.handle_serial(&identity, request).await,
             Request::Ssh { request } => runtime.handle_ssh(&identity, request).await,
             Request::Config { request } => runtime.handle_config(&identity, request).await,
@@ -314,9 +328,11 @@ pub async fn serve_with_config(
     }));
     let ssh = crate::ssh::Manager::new(store.clone(), config.access());
     let serial = crate::serial::Manager::new(store.clone(), config.access());
+    let logging = crate::logging::Manager::new(store.clone(), config.access());
     #[cfg(feature = "serial-ui-fixture")]
     let serial = if fixture { serial.ui_fixture() } else { serial };
     let runtime = Arc::new(Runtime {
+        logging,
         config,
         ssh,
         serial,
@@ -363,7 +379,9 @@ pub async fn serve_with_config(
         .map_err(|_| io::Error::other("session tasks still own runtime"))?;
     runtime.ssh.close().await;
     let serial_result = runtime.serial.close().await;
+    let logging_result = runtime.logging.close().await;
     runtime.config.close().await?;
     serial_result?;
+    logging_result?;
     Ok(())
 }
