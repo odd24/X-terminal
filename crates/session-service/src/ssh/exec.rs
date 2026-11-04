@@ -1,10 +1,12 @@
 use super::*;
+use session_core::input::{RequestWindow, ordered_timestamp};
 use session_core::task_output::Buffer;
 use ssh::{ExecEnd, ExecSummary, TaskPhase, TaskStatus};
 #[derive(Default)]
 pub(super) struct Tasks {
     requests: HashMap<Uuid, (Fingerprint, Uuid)>,
     items: HashMap<Uuid, Task>,
+    window: RequestWindow,
 }
 struct Task {
     status: TaskStatus,
@@ -12,6 +14,7 @@ struct Task {
     cancel: Cancellation,
     stdout: usize,
     stderr: usize,
+    dequeued: bool,
 }
 pub(super) struct Queued {
     pub(super) task_id: Uuid,
@@ -73,9 +76,8 @@ impl Manager {
         if entry.cancel.is_cancelled() || entry.challenge.is_some() || !*entry.writable.borrow() {
             return Err(ErrorCode::InvalidState);
         }
-        if total >= 64
-            || active >= 16
-            || entry.exec.items.len() >= 16
+        entry.exec.window.check(request_id)?;
+        if active >= 16
             || entry
                 .exec
                 .items
@@ -94,7 +96,48 @@ impl Manager {
         let permit = sender
             .try_reserve()
             .map_err(|_| ErrorCode::CapacityExceeded)?;
-        let task_id = Uuid::new_v4();
+        // Reserve queue space before reclaiming results. Only terminal, dequeued ordered
+        // tasks are eligible; cancelling queued work must still be consumed by its actor.
+        if entry.exec.items.len() >= 16 {
+            let (old_id, stamp) = entry.exec.oldest().ok_or(ErrorCode::CapacityExceeded)?;
+            entry.exec.retire(old_id, stamp);
+        }
+        entry.exec.window.check(request_id)?;
+        if total >= 64 {
+            // A local retirement above already made a slot. Otherwise reclaim a terminal
+            // task from another connection, retaining that connection's replay watermark.
+            let now_total: usize = inner
+                .entries
+                .values()
+                .map(|entry| entry.exec.items.len())
+                .sum();
+            if now_total >= 64 {
+                let (owner, old_id, stamp) = inner
+                    .entries
+                    .iter()
+                    .filter_map(|(owner, entry)| {
+                        entry.exec.oldest().map(|(id, stamp)| (*owner, id, stamp))
+                    })
+                    .min_by_key(|(_, _, stamp)| *stamp)
+                    .ok_or(ErrorCode::CapacityExceeded)?;
+                inner
+                    .entries
+                    .get_mut(&owner)
+                    .unwrap()
+                    .exec
+                    .retire(old_id, stamp);
+            }
+        }
+        let entry = inner
+            .entries
+            .get_mut(&connection.connection_id)
+            .ok_or(ErrorCode::NotFound)?;
+        entry.exec.window.check(request_id)?;
+        let task_id = if ordered_timestamp(request_id).is_some() {
+            request_id
+        } else {
+            Uuid::new_v4()
+        };
         let status = TaskStatus {
             task_id,
             connection,
@@ -113,6 +156,7 @@ impl Manager {
                 cancel: Cancellation::default(),
                 stdout: 0,
                 stderr: 0,
+                dequeued: false,
             },
         );
         permit.send(QueuedInput {
@@ -140,11 +184,14 @@ impl Manager {
             .map_err(|_| ErrorCode::InvalidState)?
             .sessions
             .info(connection)?;
-        let task = inner
+        let entry = inner
             .entries
             .get_mut(&connection.connection_id)
-            .and_then(|entry| entry.exec.items.get_mut(&id))
             .ok_or(ErrorCode::NotFound)?;
+        if !entry.exec.items.contains_key(&id) {
+            entry.exec.window.check(id)?;
+        }
+        let task = entry.exec.items.get_mut(&id).ok_or(ErrorCode::NotFound)?;
         if cancel && task.status.phase != TaskPhase::Finished {
             task.cancel.cancel();
             if task.status.phase == TaskPhase::Queued {
@@ -168,11 +215,14 @@ impl Manager {
             .map_err(|_| ErrorCode::InvalidState)?
             .sessions
             .info(connection)?;
-        let task = inner
+        let entry = inner
             .entries
             .get(&connection.connection_id)
-            .and_then(|entry| entry.exec.items.get(&id))
             .ok_or(ErrorCode::NotFound)?;
+        if !entry.exec.items.contains_key(&id) {
+            entry.exec.window.check(id)?;
+        }
+        let task = entry.exec.items.get(&id).ok_or(ErrorCode::NotFound)?;
         Ok(ssh::Reply::ExecOutput {
             connection,
             task_id: id,
@@ -199,6 +249,30 @@ impl Task {
     }
 }
 impl Tasks {
+    fn oldest(&self) -> Option<(Uuid, u64)> {
+        self.requests
+            .iter()
+            .filter_map(|(request, (_, id))| {
+                let task = self.items.get(id)?;
+                if task.status.phase != TaskPhase::Finished || !task.dequeued {
+                    return None;
+                }
+                ordered_timestamp(*request).map(|stamp| (*request, stamp))
+            })
+            .min_by_key(|(_, stamp)| *stamp)
+    }
+    fn retire(&mut self, request: Uuid, stamp: u64) {
+        self.window.retire(stamp);
+        if let Some((_, id)) = self.requests.remove(&request) {
+            self.items.remove(&id);
+        }
+    }
+    pub(super) fn check_available(&self, id: Uuid) -> Result<(), ErrorCode> {
+        if self.contains(id) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        self.window.check(id)
+    }
     pub(super) fn contains(&self, id: Uuid) -> bool {
         self.requests.contains_key(&id)
     }
@@ -232,8 +306,10 @@ pub(super) fn launch(
         let task = all
             .entries
             .get_mut(&reference.connection_id)
+            .filter(|entry| entry.reference == reference)
             .and_then(|entry| entry.exec.items.get_mut(&queued.task_id))
             .ok_or(Failure::Transport)?;
+        task.dequeued = true;
         if task.status.phase == TaskPhase::Finished {
             return Ok(());
         }
@@ -249,6 +325,7 @@ pub(super) fn launch(
                 if let Some(task) = all
                     .entries
                     .get_mut(&reference.connection_id)
+                    .filter(|entry| entry.reference == reference)
                     .and_then(|entry| entry.exec.items.get_mut(&queued.task_id))
                     && task.status.phase != TaskPhase::Finished
                 {
@@ -266,6 +343,7 @@ pub(super) fn launch(
         if let Some(task) = all
             .entries
             .get_mut(&reference.connection_id)
+            .filter(|entry| entry.reference == reference)
             .and_then(|entry| entry.exec.items.get_mut(&queued.task_id))
             && task.status.phase != TaskPhase::Finished
         {
@@ -319,4 +397,65 @@ pub(super) fn launch(
         }
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    #[test]
+    fn queued_cancellation_is_not_reclaimable_until_dequeued_and_opaque_ids_are_pinned() {
+        let connection = ConnectionRef {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let ordered = Uuid::from_u128((10u128 << 80) | 0x7000_8000_0000_0000_0001);
+        let opaque = Uuid::new_v4();
+        let mut tasks = Tasks::default();
+        for id in [ordered, opaque] {
+            tasks
+                .requests
+                .insert(id, (Fingerprint::exec("synthetic", 1000, 4096), id));
+            tasks.items.insert(
+                id,
+                Task {
+                    status: TaskStatus {
+                        task_id: id,
+                        connection,
+                        phase: TaskPhase::Queued,
+                        summary: None,
+                    },
+                    output: Buffer::default(),
+                    cancel: Cancellation::default(),
+                    stdout: 0,
+                    stderr: 0,
+                    dequeued: false,
+                },
+            );
+        }
+        tasks
+            .items
+            .get_mut(&ordered)
+            .unwrap()
+            .finish(ExecEnd::CancelledBeforeDispatch);
+        tasks
+            .items
+            .get_mut(&opaque)
+            .unwrap()
+            .finish(ExecEnd::Completed);
+        tasks.items.get_mut(&opaque).unwrap().dequeued = true;
+        assert!(tasks.oldest().is_none());
+        tasks.items.get_mut(&ordered).unwrap().dequeued = true;
+        assert_eq!(tasks.oldest(), Some((ordered, 10)));
+        tasks.retire(ordered, 10);
+        assert!(tasks.items.contains_key(&opaque));
+        assert!(tasks.oldest().is_none());
+        assert_eq!(
+            tasks.check_available(ordered),
+            Err(ErrorCode::RequestExpired)
+        );
+        assert_eq!(
+            tasks.check_available(opaque),
+            Err(ErrorCode::InvalidArgument)
+        );
+    }
 }

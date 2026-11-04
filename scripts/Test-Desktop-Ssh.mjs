@@ -118,6 +118,12 @@ try {
   await ui.fill('查询 exec 任务 ID',failedTask);await ui.click('查询 exec 任务');
   await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.startsWith(${JSON.stringify(failedTask)})`);
   assert.equal((await control({op:'metrics'})).exec_calls.length,beforeLookup,'query cannot rerun a command');
+  for(let index=0;index<70;index++) await runExec('fail','COMPLETED');
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="exec 任务列表"]').options.length`),65,'page retains 64 records plus placeholder');
+  const beforeExpiredLookup=(await control({op:'metrics'})).exec_calls.length;
+  await ui.fill('查询 exec 任务 ID',failedTask);await ui.click('查询 exec 任务');
+  await ui.waitFor(`document.querySelector('.exec-panel [role="status"]').textContent.includes('保留窗口')`);
+  assert.equal((await control({op:'metrics'})).exec_calls.length,beforeExpiredLookup,'expired query cannot rerun a command');
   await ui.click('exec 任务');
 
   await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);

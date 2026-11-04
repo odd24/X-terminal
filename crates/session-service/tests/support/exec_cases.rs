@@ -612,3 +612,173 @@ async fn global_concurrency_limit_includes_tasks_on_other_connections() {
     }
     service.stop(&mut client).await;
 }
+
+fn ordered_task_id(stamp: u64, nonce: u64) -> Uuid {
+    Uuid::from_u128(((stamp as u128) << 80) | 0x7000_8000_0000_0000_0000 | nonce as u128)
+}
+#[tokio::test]
+async fn ordered_finished_tasks_reclaim_local_and_global_capacity_without_reexecution() {
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    // Keep an older running task and a legacy opaque result while cycling newer results.
+    let running = start(
+        &mut client,
+        connection,
+        ordered_task_id(1, 1),
+        "stall",
+        60000,
+        4096,
+    )
+    .await;
+    let opaque_request = Uuid::new_v4();
+    let opaque = start(&mut client, connection, opaque_request, "fail", 2000, 4096).await;
+    finished(&mut client, connection, opaque.task_id).await;
+    for stamp in 2..=100 {
+        let id = ordered_task_id(stamp, 1);
+        let task = start(&mut client, connection, id, "fail", 2000, 4096).await;
+        assert_eq!(task.task_id, id);
+        assert_eq!(
+            finished(&mut client, connection, id)
+                .await
+                .summary
+                .unwrap()
+                .exit_status,
+            Some(7)
+        );
+    }
+    assert_eq!(
+        start(&mut client, connection, opaque_request, "fail", 2000, 4096)
+            .await
+            .task_id,
+        opaque.task_id
+    );
+    assert_eq!(
+        start(
+            &mut client,
+            connection,
+            ordered_task_id(1, 1),
+            "stall",
+            60000,
+            4096
+        )
+        .await
+        .task_id,
+        running.task_id
+    );
+    for request in [
+        S::Exec {
+            connection,
+            request_id: ordered_task_id(2, 1),
+            command: Sensitive::new("fail".into()),
+            timeout_ms: 2000,
+            max_output_bytes: 4096,
+        },
+        S::Exec {
+            connection,
+            request_id: ordered_task_id(2, 2),
+            command: Sensitive::new("different".into()),
+            timeout_ms: 2000,
+            max_output_bytes: 4096,
+        },
+        input_write(connection, ordered_task_id(2, 1), b"must-not-send"),
+        S::Resize {
+            connection,
+            request_id: ordered_task_id(2, 1),
+            cols: 80,
+            rows: 24,
+        },
+        S::ExecStatus {
+            connection,
+            task_id: ordered_task_id(2, 1),
+        },
+        S::ExecRead {
+            connection,
+            task_id: ordered_task_id(2, 1),
+            cursor: 1,
+            max_bytes: 4096,
+        },
+        S::ExecCancel {
+            connection,
+            task_id: ordered_task_id(2, 1),
+        },
+    ] {
+        assert!(matches!(
+            client.request(Request::Ssh { request }).await.unwrap(),
+            Response::Error {
+                code: ErrorCode::RequestExpired,
+                ..
+            }
+        ));
+    }
+    assert_eq!(remote.exec_calls.lock().unwrap().len(), 101);
+    assert!(remote.received.lock().unwrap().is_empty());
+    ssh_call(
+        &mut client,
+        S::ExecCancel {
+            connection,
+            task_id: running.task_id,
+        },
+    )
+    .await;
+    finished(&mut client, connection, running.task_id).await;
+    // Fill the global result cap across five connections, forcing cross-connection reclamation.
+    let mut connections = vec![connection];
+    let mut firsts = Vec::new();
+    let mut additional_remotes = Vec::new();
+    for index in 1..=4 {
+        let remote = ssh_fixture::Fixture::start().await;
+        let connection = ssh_connected_fixture(&mut client, &remote).await;
+        connections.push(connection);
+        for offset in 0..16 {
+            let id = ordered_task_id(1000 + index * 100 + offset, 1);
+            let task = start(&mut client, connection, id, "fail", 2000, 4096).await;
+            finished(&mut client, connection, task.task_id).await;
+            if offset == 0 {
+                firsts.push((connection, id));
+            }
+        }
+        additional_remotes.push(remote);
+    }
+    let (old_connection, old_id) = firsts[0];
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::ExecStatus {
+                    connection: old_connection,
+                    task_id: old_id
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::RequestExpired,
+            ..
+        }
+    ));
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: input_write(old_connection, old_id, b"must-not-send")
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::RequestExpired,
+            ..
+        }
+    ));
+    assert_eq!(
+        remote.exec_calls.lock().unwrap().len()
+            + additional_remotes
+                .iter()
+                .map(|remote| remote.exec_calls.lock().unwrap().len())
+                .sum::<usize>(),
+        165
+    );
+    for connection in connections {
+        ssh_call(&mut client, S::Close { connection }).await;
+    }
+}

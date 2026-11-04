@@ -80,11 +80,12 @@ async fn explicit_restart_keeps_id_advances_generation_and_never_inherits_comman
     })
     .await
     .unwrap();
+    let ordered_exec_id = Uuid::from_u128((42u128 << 80) | 0x7000_8000_0000_0000_0001);
     let ssh::Reply::Exec(task) = ssh_call(
         &mut client,
         S::Exec {
             connection: old,
-            request_id: Uuid::new_v4(),
+            request_id: ordered_exec_id,
             command: Sensitive::new("stall".into()),
             timeout_ms: 30000,
             max_output_bytes: 1024,
@@ -250,6 +251,43 @@ async fn explicit_restart_keeps_id_advances_generation_and_never_inherits_comman
         }
     ));
     authenticate(&mut client, new, challenge).await;
+    let ssh::Reply::Exec(reused) = ssh_call(
+        &mut client,
+        S::Exec {
+            connection: new,
+            request_id: ordered_exec_id,
+            command: Sensitive::new("fail".into()),
+            timeout_ms: 2000,
+            max_output_bytes: 1024,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(reused.task_id, task.task_id);
+    let done = timeout(Duration::from_secs(4), async {
+        loop {
+            let ssh::Reply::Exec(status) = ssh_call(
+                &mut client,
+                S::ExecStatus {
+                    connection: new,
+                    task_id: reused.task_id,
+                },
+            )
+            .await
+            else {
+                panic!()
+            };
+            if status.phase == ssh::TaskPhase::Finished {
+                break status;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(done.summary.unwrap().exit_status, Some(7));
     timeout(Duration::from_secs(2), async {
         loop {
             let Reply::Output(output) = ok(client
@@ -283,7 +321,10 @@ async fn explicit_restart_keeps_id_advances_generation_and_never_inherits_comman
     })
     .await
     .unwrap();
-    assert_eq!(*remote.exec_calls.lock().unwrap(), [b"stall".to_vec()]);
+    assert_eq!(
+        *remote.exec_calls.lock().unwrap(),
+        [b"stall".to_vec(), b"fail".to_vec()]
+    );
     assert_eq!(
         remote.received.lock().unwrap().concat(),
         b"old-generation-input"

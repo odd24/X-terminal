@@ -44,9 +44,7 @@ impl Manager {
                 .get(&connection.connection_id)
                 .ok_or(ErrorCode::NotFound)?;
             entry.receipts.check_available(id)?;
-            if entry.exec.contains(id) {
-                return Err(ErrorCode::InvalidArgument);
-            }
+            entry.exec.check_available(id)?;
             entry.restart_gate.clone()
         };
         // Serialize only restarts of this connection; no session/configuration lock is held while awaiting cleanup.

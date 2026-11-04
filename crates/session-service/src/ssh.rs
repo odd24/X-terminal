@@ -339,6 +339,7 @@ impl Manager {
         if let Some(receipt) = entry.receipts.lookup(id, fingerprint)? {
             return Ok(ssh::Reply::Input(receipt));
         }
+        entry.exec.check_available(id)?;
         if info.state != State::Connected {
             return Err(ErrorCode::NotConnected);
         }
