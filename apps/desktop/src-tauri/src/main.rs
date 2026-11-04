@@ -68,6 +68,28 @@ async fn ssh_request(
 }
 
 #[tauri::command]
+async fn serial_request(
+    state: State<'_, Desktop>,
+    request: session_protocol::serial::Request,
+) -> Result<session_protocol::serial::Reply, String> {
+    if !request.validate() {
+        return Err("INVALID_SERIAL_REQUEST".into());
+    }
+    match state
+        .0
+        .lock()
+        .await
+        .as_mut()
+        .map_err(|error| error.clone())?
+        .request(Request::Serial { request })
+        .await?
+    {
+        Reply::Serial(reply) => Ok(reply),
+        _ => Err("INVALID_REPLY".into()),
+    }
+}
+
+#[tauri::command]
 async fn service_status(state: State<'_, Desktop>) -> Result<service::Status, String> {
     state
         .0
@@ -205,6 +227,7 @@ fn main() {
             service_list,
             service_read,
             ssh_request,
+            serial_request,
             fixture_create,
             fixture_append,
             config_request,

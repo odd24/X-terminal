@@ -73,6 +73,11 @@ impl Default for Status {
 // Deliberately no Debug for commands or received raw data.
 pub enum Command {
     Write(Vec<u8>),
+    PacedWrite {
+        bytes: Vec<u8>,
+        chunk_bytes: usize,
+        interval: std::time::Duration,
+    },
     Dtr(bool),
     Rts(bool),
     Break(bool),
@@ -136,11 +141,17 @@ pub struct Worker {
 /// In-process transport adapter, never an IPC surface. Production service uses
 /// SerialConnection; test factories are gated by the test-backend Cargo feature.
 pub trait Port: Send {
+    fn bytes_to_read(&self) -> io::Result<u32> {
+        Ok(0)
+    }
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<ReadOutcome>;
     fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize>;
     fn control(&mut self, command: &Command) -> io::Result<()>;
 }
 impl Port for SerialConnection {
+    fn bytes_to_read(&self) -> io::Result<u32> {
+        self.port.bytes_to_read().map_err(Into::into)
+    }
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<ReadOutcome> {
         self.read(bytes)
     }
@@ -152,7 +163,7 @@ impl Port for SerialConnection {
             Command::Dtr(value) => self.set_dtr(*value).map_err(Into::into),
             Command::Rts(value) => self.set_rts(*value).map_err(Into::into),
             Command::Break(value) => self.set_break(*value).map_err(Into::into),
-            Command::Write(_) => Err(invalid("not a control command")),
+            Command::Write(_) | Command::PacedWrite { .. } => Err(invalid("not a control command")),
         }
     }
 }
@@ -212,6 +223,22 @@ impl Worker {
         *self.state.lock().unwrap()
     }
     pub fn submit(&self, mut command: Command) -> Result<Ticket, SubmitError> {
+        if let Command::PacedWrite {
+            bytes,
+            chunk_bytes,
+            interval,
+        } = &command
+            && (bytes.is_empty()
+                || bytes.len() > super::MAX_CHUNK
+                || !(1..=1024).contains(chunk_bytes)
+                || *interval > std::time::Duration::from_secs(1)
+                || interval
+                    .as_nanos()
+                    .saturating_mul(bytes.len().div_ceil(*chunk_bytes).saturating_sub(1) as u128)
+                    > 60_000_000_000)
+        {
+            return Err(SubmitError::InvalidInput);
+        }
         if matches!(&command, Command::Write(bytes) if bytes.is_empty() || bytes.len() > super::MAX_CHUNK)
         {
             return Err(SubmitError::InvalidInput);
@@ -224,7 +251,7 @@ impl Worker {
             Phase::Ended(_) => return Err(SubmitError::Stopped),
             Phase::Ready => {}
         }
-        if let Command::Write(bytes) = &mut command {
+        if let Command::Write(bytes) | Command::PacedWrite { bytes, .. } = &mut command {
             // Retain payload length, not an arbitrarily overallocated caller buffer.
             *bytes = std::mem::take(bytes).into_boxed_slice().into_vec();
         }
@@ -283,6 +310,9 @@ impl Worker {
         if self.stop.swap(true, Ordering::AcqRel) {
             return;
         }
+        if let Some(task) = &self.task {
+            task.thread().unpark();
+        }
         #[cfg(windows)]
         if let Some(task) = &self.task {
             use std::os::windows::io::AsRawHandle;
@@ -321,7 +351,20 @@ impl Drop for EndGuard {
     }
 }
 
+#[cfg(test)]
 fn write<P: Port>(port: &mut P, bytes: &[u8], stop: &AtomicBool) -> Outcome {
+    write_paced(port, bytes, stop, 1024, std::time::Duration::ZERO, |_| {
+        Ok(())
+    })
+}
+fn write_paced<P: Port>(
+    port: &mut P,
+    bytes: &[u8],
+    stop: &AtomicBool,
+    chunk_bytes: usize,
+    interval: std::time::Duration,
+    mut pump: impl FnMut(&mut P) -> io::Result<()>,
+) -> Outcome {
     let mut accepted = 0;
     let mut interruptions = 0;
     loop {
@@ -341,9 +384,40 @@ fn write<P: Port>(port: &mut P, bytes: &[u8], stop: &AtomicBool) -> Outcome {
                 cancelled: true,
             };
         }
-        let end = (accepted + 1024).min(bytes.len());
+        let end = ((accepted / chunk_bytes + 1) * chunk_bytes).min(bytes.len());
         match port.write_once(&bytes[accepted..end]) {
-            Ok(count) if count > 0 && count <= end - accepted => accepted += count,
+            Ok(count) if count > 0 && count <= end - accepted => {
+                accepted += count;
+                if accepted == end
+                    && accepted < bytes.len()
+                    && let Err(error) = pump(port)
+                {
+                    return Outcome::Written {
+                        driver_accepted: accepted,
+                        complete: false,
+                        error: Some(error.kind()),
+                        cancelled: stop.load(Ordering::Acquire),
+                    };
+                }
+                if accepted == end && accepted < bytes.len() && !interval.is_zero() {
+                    let deadline = std::time::Instant::now() + interval;
+                    while !stop.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+                        if let Err(error) = pump(port) {
+                            return Outcome::Written {
+                                driver_accepted: accepted,
+                                complete: false,
+                                error: Some(error.kind()),
+                                cancelled: stop.load(Ordering::Acquire),
+                            };
+                        }
+                        thread::park_timeout(
+                            deadline
+                                .saturating_duration_since(std::time::Instant::now())
+                                .min(std::time::Duration::from_millis(10)),
+                        );
+                    }
+                }
+            }
             Ok(0) => {
                 return Outcome::Written {
                     driver_accepted: accepted,
@@ -392,7 +466,18 @@ fn run<P: Port>(
                 Outcome::CancelledBeforeDispatch
             } else {
                 match &work.command {
-                    Command::Write(bytes) => write(port, bytes, stop),
+                    Command::Write(bytes) => {
+                        write_paced(port, bytes, stop, 1024, std::time::Duration::ZERO, |port| {
+                            pump_available(port, output, state)
+                        })
+                    }
+                    Command::PacedWrite {
+                        bytes,
+                        chunk_bytes,
+                        interval,
+                    } => write_paced(port, bytes, stop, *chunk_bytes, *interval, |port| {
+                        pump_available(port, output, state)
+                    }),
                     command => {
                         // A failed assertion can still have changed the line. Keep a
                         // best-effort clear pending until an explicit clear succeeds.
@@ -455,4 +540,38 @@ fn run<P: Port>(
         state.lock().unwrap().break_cleanup_error = Some(error.kind());
     }
     end
+}
+
+fn pump_available<P: Port>(
+    port: &mut P,
+    output: &mpsc::SyncSender<Chunk>,
+    state: &Mutex<Status>,
+) -> io::Result<()> {
+    let mut buffer = [0u8; READ_BYTES];
+    for _ in 0..OUTPUT_CHUNKS {
+        let available = (port.bytes_to_read()? as usize).min(buffer.len());
+        if available == 0 {
+            break;
+        }
+        match port.read(&mut buffer[..available])? {
+            ReadOutcome::Idle => break,
+            ReadOutcome::Data(count) if count > 0 && count <= available => {
+                let mut state = state.lock().unwrap();
+                let next = state
+                    .read_bytes
+                    .checked_add(count as u64)
+                    .ok_or_else(|| io::Error::other("serial receive counter exhausted"))?;
+                let chunk = Chunk {
+                    offset: state.read_bytes,
+                    bytes: buffer[..count].to_vec(),
+                };
+                state.read_bytes = next;
+                if output.try_send(chunk).is_err() {
+                    state.dropped_bytes += count as u64;
+                }
+            }
+            _ => return Err(io::ErrorKind::InvalidData.into()),
+        }
+    }
+    Ok(())
 }

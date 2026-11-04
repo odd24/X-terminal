@@ -22,6 +22,16 @@ struct Wire {
 }
 struct Memory(Arc<Wire>);
 impl worker::Port for Memory {
+    fn bytes_to_read(&self) -> io::Result<u32> {
+        Ok(self
+            .0
+            .output
+            .lock()
+            .unwrap()
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>() as u32)
+    }
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<transport_serial::ReadOutcome> {
         while self.0.pause.load(Ordering::Acquire) {
             std::thread::sleep(Duration::from_millis(1));
@@ -597,6 +607,129 @@ async fn service_caps_unsettled_tickets_even_if_worker_finishes_before_polling()
         InputState::DriverAccepted
     );
     assert_eq!(wire.accepted.lock().unwrap().len(), 18);
+    manager.close().await.unwrap();
+    config.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn prepared_send_is_encoded_deduplicated_and_cancelled_without_stopping_receive() {
+    use session_protocol::{
+        Sensitive,
+        serial::{Ending, Format, Pace},
+    };
+    let (_temp, config, manager, wire, profile) = setup().await;
+    let (revision, device) = selection(&manager).await;
+    let connection = start(&manager, profile, Uuid::new_v4(), revision, device).await;
+    status(&manager, connection, State::Connected).await;
+    let send = |id, content: &str, format, ending, pace| Request::Send {
+        connection,
+        request_id: id,
+        content: Sensitive::new(content.into()),
+        format,
+        ending,
+        pace,
+    };
+    let id = Uuid::new_v4();
+    manager
+        .handle(send(
+            id,
+            "00 ff",
+            Format::Hex,
+            Ending::CrLf,
+            Pace::default(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        receipt(&manager, connection, id).await.driver_accepted,
+        Some(4)
+    );
+    manager
+        .handle(send(
+            id,
+            "00 ff",
+            Format::Hex,
+            Ending::CrLf,
+            Pace::default(),
+        ))
+        .await
+        .unwrap();
+    assert!(matches!(
+        manager
+            .handle(send(
+                id,
+                "00 ff",
+                Format::Hex,
+                Ending::CrLf,
+                Pace {
+                    chunk_bytes: 1,
+                    interval_ms: 0
+                }
+            ))
+            .await,
+        Err(ErrorCode::InvalidArgument)
+    ));
+    assert!(matches!(
+        manager
+            .handle(send(
+                Uuid::new_v4(),
+                "GG",
+                Format::Hex,
+                Ending::None,
+                Pace::default()
+            ))
+            .await,
+        Err(ErrorCode::InvalidArgument)
+    ));
+    assert_eq!(*wire.accepted.lock().unwrap(), [0, 255, 13, 10]);
+    let paced_id = Uuid::new_v4();
+    manager
+        .handle(send(
+            paced_id,
+            &"x".repeat(61),
+            Format::Text,
+            Ending::None,
+            Pace {
+                chunk_bytes: 1,
+                interval_ms: 1000,
+            },
+        ))
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(4);
+    loop {
+        manager.tick();
+        let read = manager.inner.lock().unwrap().entries[&connection.connection_id]
+            .status
+            .read_bytes;
+        if read > 4 {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let tail = Uuid::new_v4();
+    manager
+        .handle(write(connection, tail, b"never-send"))
+        .await
+        .unwrap();
+    manager.handle(Request::Close { connection }).await.unwrap();
+    status(&manager, connection, State::Disconnected).await;
+    let result = receipt(&manager, connection, paced_id).await;
+    assert_eq!(result.state, InputState::Unknown);
+    assert!(result.driver_accepted.unwrap() > 0 && result.driver_accepted.unwrap() < 61);
+    assert_eq!(
+        receipt(&manager, connection, tail).await.state,
+        InputState::CancelledBeforeDispatch
+    );
+    assert!(
+        !wire
+            .accepted
+            .lock()
+            .unwrap()
+            .windows(10)
+            .any(|bytes| bytes == b"never-send")
+    );
     manager.close().await.unwrap();
     config.close().await.unwrap();
 }

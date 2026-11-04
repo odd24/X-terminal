@@ -3,6 +3,7 @@
 pub mod input;
 pub mod pairing;
 pub mod screen;
+pub mod serial_input;
 pub mod session;
 pub mod task_output;
 

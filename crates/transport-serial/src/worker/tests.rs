@@ -194,6 +194,14 @@ fn queue_is_bounded_and_cancellation_settles_unsent_commands_without_dispatch() 
         worker.submit(Command::Write(vec![0; super::super::MAX_CHUNK + 1])),
         Err(SubmitError::InvalidInput)
     ));
+    assert!(matches!(
+        worker.submit(Command::PacedWrite {
+            bytes: vec![0; 65536],
+            chunk_bytes: 1,
+            interval: Duration::from_nanos(999999)
+        }),
+        Err(SubmitError::InvalidInput)
+    ));
     worker.cancel();
     assert!(matches!(
         worker.submit(Command::Dtr(true)),
@@ -376,4 +384,43 @@ fn failed_break_assertion_still_attempts_clear_before_closing() {
         *log.lock().unwrap(),
         [Op::Break(true), Op::Break(false), Op::Closed]
     );
+}
+
+#[test]
+fn paced_write_waits_at_least_the_requested_interval_between_complete_chunks() {
+    struct Timed(Vec<Instant>);
+    impl Port for Timed {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<ReadOutcome> {
+            Ok(ReadOutcome::Idle)
+        }
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.push(Instant::now());
+            assert_eq!(bytes.len(), 1);
+            Ok(1)
+        }
+        fn control(&mut self, _: &Command) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut port = Timed(vec![]);
+    let interval = Duration::from_millis(20);
+    assert!(matches!(
+        write_paced(
+            &mut port,
+            b"abc",
+            &AtomicBool::new(false),
+            1,
+            interval,
+            |_| Ok(())
+        ),
+        Outcome::Written {
+            complete: true,
+            driver_accepted: 3,
+            ..
+        }
+    ));
+    assert_eq!(port.0.len(), 3);
+    for times in port.0.windows(2) {
+        assert!(times[1].duration_since(times[0]) >= interval);
+    }
 }

@@ -21,6 +21,8 @@ use transport_serial::{
 };
 use uuid::Uuid;
 mod entry;
+#[cfg(feature = "serial-ui-fixture")]
+mod fixture;
 #[cfg(test)]
 mod tests;
 
@@ -48,6 +50,8 @@ struct Record {
     receipt: InputReceipt,
 }
 struct Entry {
+    hardware_rts: bool,
+    encoding: config_store::Encoding,
     device: Device,
     reference: ConnectionRef,
     profile_id: Uuid,
@@ -77,6 +81,11 @@ pub(crate) struct Manager {
     factory: Arc<dyn Factory>,
 }
 impl Manager {
+    #[cfg(feature = "serial-ui-fixture")]
+    pub(crate) fn ui_fixture(mut self) -> Self {
+        self.factory = Arc::new(fixture::MemoryFactory);
+        self
+    }
     pub(crate) fn new(store: Arc<Mutex<Store>>, config: Access) -> Self {
         Self {
             inner: Mutex::new(Inner::default()),
@@ -162,7 +171,12 @@ impl Manager {
                     return Err(ErrorCode::InvalidState);
                 };
                 let config = parameters(&profile.settings)?;
+                let encoding = match &profile.settings {
+                    config_store::Settings::Serial { encoding, .. } => encoding.clone(),
+                    _ => unreachable!(),
+                };
                 let port = config.port.clone();
+                let hardware_rts = config.flow_control == serialport::FlowControl::Hardware;
                 let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
                 if let Some(connection) = Self::duplicate(&inner, request_id, start)? {
                     return Ok(Reply::Started { connection });
@@ -223,6 +237,8 @@ impl Manager {
                 inner.entries.insert(
                     connection.connection_id,
                     Entry {
+                        hardware_rts,
+                        encoding,
                         device,
                         reference: connection.reference(),
                         profile_id,
@@ -241,6 +257,50 @@ impl Manager {
                 inner.starts.insert(request_id, (start, connection.clone()));
                 Ok(Reply::Started { connection })
             }
+            Request::Send {
+                connection,
+                request_id,
+                content,
+                format,
+                ending,
+                pace,
+            } => {
+                let encoding = {
+                    let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    self.store
+                        .lock()
+                        .map_err(|_| ErrorCode::InvalidState)?
+                        .sessions
+                        .info(connection)?;
+                    inner
+                        .entries
+                        .get(&connection.connection_id)
+                        .ok_or(ErrorCode::NotFound)?
+                        .encoding
+                        .clone()
+                };
+                let label = match encoding {
+                    config_store::Encoding::Utf8 => "utf8",
+                    config_store::Encoding::Gbk => "gbk",
+                    config_store::Encoding::Gb18030 => "gb18030",
+                };
+                let bytes =
+                    session_core::serial_input::prepare(content.expose(), format, ending, label)
+                        .map_err(|_| ErrorCode::InvalidArgument)?;
+                if !pace.valid(bytes.len()) {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                self.enqueue(
+                    connection,
+                    request_id,
+                    Fingerprint::paced_write(&bytes, pace.chunk_bytes, pace.interval_ms),
+                    worker::Command::PacedWrite {
+                        bytes,
+                        chunk_bytes: pace.chunk_bytes,
+                        interval: Duration::from_millis(pace.interval_ms),
+                    },
+                )
+            }
             Request::Write {
                 connection,
                 request_id,
@@ -257,6 +317,22 @@ impl Manager {
                 line,
                 asserted,
             } => {
+                if line == Line::Rts {
+                    let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    self.store
+                        .lock()
+                        .map_err(|_| ErrorCode::InvalidState)?
+                        .sessions
+                        .info(connection)?;
+                    if inner
+                        .entries
+                        .get(&connection.connection_id)
+                        .ok_or(ErrorCode::NotFound)?
+                        .hardware_rts
+                    {
+                        return Err(ErrorCode::InvalidArgument);
+                    }
+                }
                 let (code, command) = match line {
                     Line::Dtr => (0, worker::Command::Dtr(asserted)),
                     Line::Rts => (1, worker::Command::Rts(asserted)),
@@ -288,6 +364,8 @@ impl Manager {
                     Request::Status { .. } => {
                         let cleanup_pending = info.state == State::Closing && !entry.joined;
                         Ok(Reply::Status(serial::Status {
+                            hardware_rts: entry.hardware_rts,
+                            encoding: entry.encoding.clone(),
                             connection: info,
                             profile_id: entry.profile_id,
                             port: entry.port.clone(),

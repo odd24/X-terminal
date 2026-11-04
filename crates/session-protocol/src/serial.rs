@@ -2,12 +2,21 @@
 use crate::SensitiveBytes;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+pub use session_core::serial_input::{Ending, Format, Pace};
 use session_core::session::{ConnectionInfo, ConnectionRef};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Send {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        content: crate::Sensitive,
+        format: Format,
+        ending: Ending,
+        pace: Pace,
+    },
     Inventory {},
     Start {
         profile_id: Uuid,
@@ -46,6 +55,19 @@ impl Request {
             !reference.connection_id.0.is_nil() && reference.generation > 0
         };
         match self {
+            Self::Send {
+                connection,
+                request_id,
+                content,
+                pace,
+                ..
+            } => {
+                valid(connection)
+                    && !request_id.is_nil()
+                    && content.expose().len() <= 196608
+                    && (1..=1024).contains(&pace.chunk_bytes)
+                    && pace.interval_ms <= 1000
+            }
             Self::Inventory {} => true,
             Self::Start {
                 profile_id,
@@ -126,6 +148,8 @@ pub struct DeviceSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Status {
+    pub hardware_rts: bool,
+    pub encoding: config_model::Encoding,
     pub connection: ConnectionInfo,
     pub profile_id: Uuid,
     pub port: String,

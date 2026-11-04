@@ -543,6 +543,15 @@
         ],
         "type": "string"
       },
+      "Ending": {
+        "enum": [
+          "none",
+          "cr",
+          "lf",
+          "cr_lf"
+        ],
+        "type": "string"
+      },
       "Flow": {
         "enum": [
           "none",
@@ -574,6 +583,13 @@
           "name"
         ],
         "type": "object"
+      },
+      "Format": {
+        "enum": [
+          "text",
+          "hex"
+        ],
+        "type": "string"
       },
       "HostEndpoint": {
         "additionalProperties": false,
@@ -612,6 +628,26 @@
           "BREAK"
         ],
         "type": "string"
+      },
+      "Pace": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_bytes": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "interval_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chunk_bytes",
+          "interval_ms"
+        ],
+        "type": "object"
       },
       "Parity": {
         "enum": [
@@ -910,6 +946,44 @@
       },
       "Request2": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "content": {
+                "$ref": "#/$defs/Sensitive"
+              },
+              "ending": {
+                "$ref": "#/$defs/Ending"
+              },
+              "format": {
+                "$ref": "#/$defs/Format"
+              },
+              "op": {
+                "const": "send",
+                "type": "string"
+              },
+              "pace": {
+                "$ref": "#/$defs/Pace"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "content",
+              "format",
+              "ending",
+              "pace"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -3028,6 +3102,9 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
               "failure": {
                 "anyOf": [
                   {
@@ -3037,6 +3114,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "hardware_rts": {
+                "type": "boolean"
               },
               "port": {
                 "type": "string"
@@ -3057,6 +3137,8 @@
             },
             "required": [
               "result",
+              "hardware_rts",
+              "encoding",
               "connection",
               "profile_id",
               "port",

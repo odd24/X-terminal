@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+serial-ui-fixture = ["transport-serial/test-backend"]
+
 [dependencies]
 config-store = { path = "../config-store" }
 transport-ssh2 = { path = "../transport-ssh2" }

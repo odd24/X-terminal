@@ -41,6 +41,14 @@ impl RequestWindow {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Fingerprint([u8; 32]);
 impl Fingerprint {
+    pub fn paced_write(bytes: &[u8], chunk: usize, interval_ms: u64) -> Self {
+        let mut digest = Sha256::new();
+        digest.update(b"terminal-input/paced-write/v1\0");
+        digest.update((chunk as u64).to_le_bytes());
+        digest.update(interval_ms.to_le_bytes());
+        digest.update(bytes);
+        Self(digest.finalize().into())
+    }
     pub fn control(line: u8, asserted: bool) -> Self {
         let mut digest = Sha256::new();
         digest.update(b"terminal-input/control/v1\0");

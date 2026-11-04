@@ -53,3 +53,5 @@ Desktop 专用 ssh.forget 只接收完整 ConnectionRef 并返回 accepted，仅
 P10 增加 serial 请求，见 [ADR-025](../../docs/decisions/ADR-025.md)：active Desktop 的 inventory/start/status/write/control/input_status/close/forget；观察者仍用公共 list/read。start 只接受 Profile/request_id/枚举 revision+device_id，不接受原生路径。串口写入/控制明确 ConnectionRef/request_id，回执分 PENDING（可能已派发）、DRIVER_ACCEPTED、CONTROL_APPLIED、UNKNOWN、CANCELLED_BEFORE_DISPATCH；成功驱动调用的字节计数是下界，不是设备执行/退出码。关闭排空并 join 后才发布终态，之后才能移除/再次手动打开；当前再次打开使用不同 connection_id，不继承旧权限。
 
 OutputEvent 可选 gap_bytes 表示接收端已丢失字节，该事件 bytes 为空且有独立 seq/时间戳；普通字节事件省略字段。truncated 仍表示消费者落后导致保留历史覆盖，不能替代源头接收缺口。客户端必须显示/传递 gap_bytes，不得无声拼接；本开发增量随服务/客户端一同构建，不声明旧严格客户端跨版本兼容。
+
+P10 serial.send接收connection/request_id/content/format(text|hex)/ending(none|cr|lf|cr_lf)/pace(chunk_bytes,interval_ms)。编码取打开时快照；文本不可表示拒绝，HEX只数字/ASCII空白，最终最多64KiB含末尾换行，内容UTF-8最多196608字节。整批一个FIFO元素，段1–1024、间隔0–1000ms、计划间隔总计60秒；返回串口Input回执，未知/取消不重发。Status增加encoding/hardware_rts，硬件流控的RTS服务层拒绝。见[ADR-026](../../docs/decisions/ADR-026.md)。

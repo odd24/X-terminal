@@ -300,6 +300,8 @@ pub async fn serve_with_config(
     }));
     let ssh = crate::ssh::Manager::new(store.clone(), config.access());
     let serial = crate::serial::Manager::new(store.clone(), config.access());
+    #[cfg(feature = "serial-ui-fixture")]
+    let serial = if fixture { serial.ui_fixture() } else { serial };
     let runtime = Arc::new(Runtime {
         config,
         ssh,

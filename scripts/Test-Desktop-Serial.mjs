@@ -1,0 +1,91 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
+
+const build = fixture => {
+  const result = spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});
+  if(result.error)throw result.error;assert.equal(result.status,0,'serial service build must succeed');
+};
+let ui;let directory;
+try {
+  build(true);
+  directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-serial-ui-'));
+  ui=await launchDesktop(directory,{fixture:true});
+  const save=async(name,encoding='utf8',flow='none')=>{
+    const profile={id:crypto.randomUUID(),folder_id:null,name,settings:{protocol:'serial',port:'COM7',baud_rate:115200,data_bits:8,stop_bits:1,parity:'none',flow,dtr_on_open:false,rts_on_open:flow==='hardware'?null:false,encoding}};
+    assert.equal((await ui.invoke('config_request',{request:{op:'save_profile',profile,credential:{action:'keep'}}})).result,'saved_profile');return profile;
+  };
+  const utf8=await save('synthetic UTF8');const hardware=await save('synthetic GBK hardware','gbk','hardware');
+  const state=value=>ui.waitFor(`document.querySelector('[aria-label="串口状态"]')?.textContent.startsWith(${JSON.stringify(value)})`);
+  const message=value=>ui.waitFor(`document.querySelector('.serial-panel [role="status"]')?.textContent.includes(${JSON.stringify(value)})`);
+  const buttonDisabled=label=>ui.evaluate(`Array.from(document.querySelectorAll('button')).find(item=>item.textContent===${JSON.stringify(label)}).disabled`);
+  const recent=async()=> (await ui.evaluate(`document.querySelector('[aria-label="串口最近请求"]').textContent`)).match(/[0-9a-f-]{36}/)[0];
+  const ref=connection=>({connection_id:connection.connection_id,generation:connection.generation});
+  const raw=async connection=>{
+    const page=await ui.invoke('service_read',{connection:ref(connection),cursor:1});
+    assert.equal(page.truncated,false);assert.equal(page.events.some(event=>event.gap_bytes),false);
+    return page.events.flatMap(event=>event.bytes);
+  };
+  const waitRaw=async(connection,expected)=>{
+    for(let attempt=0;attempt<200;attempt++){const bytes=await raw(connection);if(bytes.length>=expected.length){assert.deepEqual(bytes,expected);return;}await delay(25);}throw new Error('serial raw echo did not arrive');
+  };
+  await ui.click('串口连接');await ui.click('刷新串口配置与设备');
+  await ui.waitFor(`document.querySelector('[aria-label="串口配置"]').options.length===3 && document.querySelector('[aria-label="串口设备"]').options.length===2`);
+  assert.equal(await ui.evaluate(`document.querySelector('.serial-panel').textContent.includes('COM99')`),true);
+  await ui.fill('串口配置',utf8.id);
+  const device=await ui.evaluate(`document.querySelector('[aria-label="串口设备"]').options[1].value`);
+  await ui.fill('串口设备',device);assert.equal(await buttonDisabled('打开串口'),true);
+  await ui.evaluate(`document.querySelector('[aria-label="确认串口设备与控制线"]').click()`);await ui.click('打开串口');await state('CONNECTED');
+  let connection=(await ui.invoke('service_list')).find(item=>item.protocol==='SERIAL');assert.equal(connection.generation,1);
+  await ui.fill('串口发送格式','hex');await ui.fill('串口发送换行','cr_lf');await ui.fill('串口发送内容','00 ff');await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
+  let expected=[0,255,13,10];await waitRaw(connection,expected);
+  await ui.waitFor(`document.querySelector('[aria-label="串口HEX接收"]')?.textContent.includes('00 FF 0D 0A')`);
+  const original=await recent();
+  const duplicate=await ui.invoke('serial_request',{request:{op:'send',connection:ref(connection),request_id:original,content:'00 ff',format:'hex',ending:'cr_lf',pace:{chunk_bytes:1024,interval_ms:0}}});
+  assert.equal(duplicate.state,'DRIVER_ACCEPTED');await waitRaw(connection,expected);
+  await ui.fill('串口发送内容','GG');await ui.click('发送串口内容');await message('无效');await waitRaw(connection,expected);
+  await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);await ui.command('Input.insertText',{text:'keyboard'});
+  expected.push(...Buffer.from('keyboard'));await waitRaw(connection,expected);
+  await ui.fill('串口发送格式','text');await ui.fill('串口发送换行','lf');await ui.fill('串口每段字节',1);await ui.fill('串口段间隔',25);await ui.fill('串口发送内容','abc');await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
+  expected.push(...Buffer.from('abc\n'));await waitRaw(connection,expected);
+  const pid=(await ui.invoke('service_status')).pid;
+  await ui.evaluate(`window.__serialReloadProbe=true`);await ui.command('Page.reload');
+  await ui.waitFor(`window.__serialReloadProbe===undefined && document.querySelector('footer')?.textContent.includes('服务 ')`);
+  assert.equal((await ui.invoke('service_status')).pid,pid);
+  await ui.click('串口连接');await state('CONNECTED');await waitRaw(connection,expected);
+  await ui.fill('串口每段字节',1);await ui.fill('串口段间隔',1000);await ui.fill('串口发送内容','x'.repeat(61));await ui.click('发送串口内容');
+  await ui.waitFor(`document.querySelector('[aria-label="串口发送内容"]').value===''`);
+  const pacedId=await recent();
+  for(let attempt=0;attempt<200 && (await raw(connection)).length===expected.length;attempt++)await delay(10);
+  await ui.click('停止发送并关闭串口');await state('DISCONNECTED');await message('UNKNOWN');
+  const cancelled=await ui.invoke('serial_request',{request:{op:'input_status',connection:ref(connection),request_id:pacedId}});
+  assert.equal(cancelled.state,'UNKNOWN');assert.ok(cancelled.driver_accepted>0 && cancelled.driver_accepted<61);
+  expected.push(...Array(cancelled.driver_accepted).fill(120));await waitRaw(connection,expected);
+  await ui.click('刷新串口配置与设备');await ui.waitFor(`document.querySelector('[aria-label="串口配置"]').options.length===3`);
+  await ui.fill('串口配置',hardware.id);
+  const freshDevice=await ui.evaluate(`document.querySelector('[aria-label="串口设备"]').options[1].value`);
+  await ui.fill('串口设备',freshDevice);await ui.evaluate(`document.querySelector('[aria-label="确认串口设备与控制线"]').click()`);await ui.click('打开串口');
+  await state('CONNECTED');connection=(await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
+  assert.equal(await buttonDisabled('RTS 开启'),true);assert.equal(await buttonDisabled('RTS 关闭'),true);
+  const forbidden={op:'control',connection:ref(connection),request_id:crypto.randomUUID(),line:'RTS',asserted:true};
+  assert.equal(await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('serial_request',{request:${JSON.stringify(forbidden)}}).then(()=>'unexpected',error=>String(error))`),'InvalidArgument');
+  await ui.click('DTR 开启');await message('DTR 开启：CONTROL_APPLIED');await ui.click('BREAK 开启');await message('BREAK 开启：CONTROL_APPLIED');await ui.click('BREAK 关闭');await message('BREAK 关闭：CONTROL_APPLIED');
+  await ui.fill('串口发送内容','中');await ui.fill('串口发送换行','cr_lf');await ui.fill('串口每段字节',1024);await ui.fill('串口段间隔',0);await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');await waitRaw(connection,[0xd6,0xd0,13,10]);
+  await ui.fill('串口发送内容','😀');await ui.click('发送串口内容');await message('无效');await waitRaw(connection,[0xd6,0xd0,13,10]);
+  await ui.screenshot('desktop-serial-synthetic.png');
+  await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
+  for(const item of await ui.invoke('service_list')) {
+    await ui.fill('会话',item.connection_id);await ui.waitFor(`document.querySelector('[aria-label="串口状态"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);
+    await ui.click('移除串口记录');await ui.waitFor(`!Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(item.connection_id)})`);
+  }
+  await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
+  console.log('PASS serial native WebView over synthetic worker: explicit device/control approval, HEX/CRLF, exact raw echo, dedup/no replay, native keyboard, paced text, cancel/close, reload, GBK strict encoding, hardware RTS, DTR/Break, terminal cleanup; no COM opened');
+} finally {
+  try {
+    await ui?.close();
+    if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-serial-ui-'));await rm(target,{recursive:true,force:true});}
+  } finally { build(false); }
+}

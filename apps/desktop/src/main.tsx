@@ -8,6 +8,8 @@ import { TerminalWriter } from './terminal-writer';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { ExecPanel } from './exec-panel';
+import { SerialPanel } from './serial-panel';
+import { serial, serialResult } from './serial-api';
 import { InputQueue } from './input-queue';
 import { requestId } from './request-id';
 import { ssh, dimensions, type Receipt } from './ssh-api';
@@ -24,6 +26,7 @@ function App() {
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [sshOpen, setSshOpen] = useState(false);
   const [execOpen, setExecOpen] = useState(false);
+  const [serialOpen, setSerialOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<{ term: Terminal; fit: FitAddon; writer: TerminalWriter; connection?: Ref; fixture: boolean; inputs: number; protocol: string; writable: boolean } | null>(null);
   const [service, setService] = useState<Status>();
@@ -54,13 +57,23 @@ function App() {
     let queue = newQueue();
     let resizeTimer = 0;
     let lastSize = '';
-    function submit(action: { bytes: number[] } | { cols: number; rows: number }) {
+    function submit(action: { bytes: number[] } | { cols: number; rows: number } | { text: string }) {
       const target = current.connection;
-      if (!target || current.protocol !== 'SSH2' || !current.writable || selectedRef.current !== target.connection_id) return;
+      const protocol = current.protocol;
+      if (!target || !['SSH2','SERIAL'].includes(protocol) || !current.writable || selectedRef.current !== target.connection_id) return;
       const id = requestId();
       const accepted = queue.enqueue(async () => {
         // A selection change drops unsent input rather than retargeting it.
         if (disposed || current.connection?.connection_id !== target.connection_id || current.connection.generation !== target.generation || selectedRef.current !== target.connection_id) return;
+        if (protocol === 'SERIAL') {
+          if (!('text' in action)) return;
+          const initial = await serial({ op: 'send', connection: target, request_id: id, content: action.text, format: 'text', ending: 'none', pace: { chunk_bytes: 1024, interval_ms: 0 } });
+          const receipt = await serialResult(target, initial, () => !disposed && current.connection?.connection_id === target.connection_id && current.connection.generation === target.generation);
+          if (receipt.state !== 'DRIVER_ACCEPTED') throw new Error('unknown');
+          if (!disposed) setLastInput('串口驱动已接受；不代表设备已执行');
+          return;
+        }
+        if ('text' in action) return;
         const reply = await ssh('bytes' in action
           ? { op: 'write', connection: target, request_id: id, bytes: action.bytes }
           : { op: 'resize', connection: target, request_id: id, ...action });
@@ -81,6 +94,11 @@ function App() {
       if (!accepted) setInputFailure('输入队列已满或已停止；此次输入未发送。');
     }
     const input = term.onData(data => {
+      if (current.protocol === 'SERIAL') {
+        if (!current.writable || selectedRef.current !== current.connection?.connection_id) { setLastInput('串口当前不可写，此次输入未发送'); return; }
+        if (new TextEncoder().encode(data).length > 65536) { setInputFailure('单次输入超过 64 KiB；此次输入未发送'); return; }
+        setLastInput('串口键盘输入已收到，内容不显示；Enter 按终端 CR 发送'); submit({ text: data }); return;
+      }
       if (current.protocol === 'SSH2') {
         if (!current.writable || selectedRef.current !== current.connection?.connection_id) { setLastInput('连接当前不可写；此次输入未发送'); return; }
         const bytes = Array.from(new TextEncoder().encode(data));
@@ -219,11 +237,12 @@ function App() {
   }
 
   return <main>
-    <header><span className="eyebrow">共享终端 · 开发预览</span><h1>你的连接，同一个会话。</h1><p>{connections.length ? connections.every(item => item.protocol === 'FIXTURE') ? `${connections.length} 个合成会话 · 未连接设备` : `${connections.length} 个会话 · SSH2 连接状态见面板` : '尚无活动连接'}</p></header>
+    <header><span className="eyebrow">共享终端 · 开发预览</span><h1>你的连接，同一个会话。</h1><p>{connections.length ? connections.every(item => item.protocol === 'FIXTURE') ? `${connections.length} 个合成会话 · 未连接设备` : `${connections.length} 个会话 · 连接状态见对应面板` : '尚无活动连接'}</p></header>
     <nav aria-label="会话控制">
       <button onClick={() => setConfigurationOpen(open => !open)}>连接配置</button>
       <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
       <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
+      <button onClick={() => setSerialOpen(open => !open)}>串口连接</button>
       <select aria-label="会话" value={selected} onChange={event => { selectedRef.current = event.target.value; setSelected(event.target.value); }}>
         {!connections.length && <option value="">尚无会话</option>}
         {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
@@ -236,9 +255,10 @@ function App() {
     {configurationOpen && <ConfigPanel close={() => setConfigurationOpen(false)} />}
     {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={id => { selectedRef.current = id; setSelected(id); }} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
     <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />
+    {serialOpen && <SerialPanel connection={connections.find(item => item.connection_id === selected)} select={id => { selectedRef.current = id; setSelected(id); }} />}
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || inputFailure || status}</div>
-    <div className="input-status">{connections.find(item => item.connection_id === selected)?.protocol === 'SSH2' ? 'SSH2 输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>
+    <div className="input-status">{connections.find(item => item.connection_id === selected)?.protocol === 'SSH2' ? 'SSH2 输入' : connections.find(item => item.connection_id === selected)?.protocol === 'SERIAL' ? '串口输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>
     {snapshot && <pre aria-label="屏幕快照">{snapshot}</pre>}
     <footer>{service && <span>服务 {service.service_id} · </span>}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</footer>
   </main>;
