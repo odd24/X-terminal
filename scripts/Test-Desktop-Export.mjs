@@ -112,7 +112,24 @@ try {
   assert.ok(['COMPLETED','CANCELLED'].includes(result.phase));
   if(result.phase==='COMPLETED') await completed(closing.request_id);else await assert.rejects(readFile(savedPath(closing.request_id)));
   assert.deepEqual(await readFile(savedPath(firstScope.request_id)),output.bytes);
-  console.log('PASS export native WebView: frozen independent target, real JSONL bytes/path/retained range, reload ID query without restart, lost real start reply recovered by status, corrupt source never claims saved, restart NotFound permits explicit fresh export, close/in-flight response cannot retarget or undo published files; synthetic only');
+  const cleanupScope=result.phase==='COMPLETED'?closing:restarted;
+  if(result.phase!=='COMPLETED') {
+    await ui.click('关闭日志面板');
+    await ui.evaluate(`sessionStorage.setItem(${JSON.stringify(key)},${JSON.stringify(JSON.stringify(restarted))})`);
+    await history(second.log_id);await ui.click('查询导出结果');await completed(restarted.request_id);
+  }
+  {
+    const preview=await request({op:'cleanup_preview',kind:'EXPORT',id:cleanupScope.request_id,preview_id:crypto.randomUUID()});
+    assert.equal(preview.phase,'PREVIEW');assert.equal(preview.files[0].name,'export.jsonl');
+    const removed=await request({op:'cleanup_commit',kind:'EXPORT',id:cleanupScope.request_id,preview_id:preview.preview_id,confirmation:preview.confirmation});
+    assert.equal(removed.report.directory_removed,true);
+    await ui.waitFor(`document.querySelector('[aria-label="日志导出状态"]')?.textContent.includes('导出产物已整理')`);
+    assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="日志导出文件路径"]')`),false);
+    await ui.waitFor(`document.activeElement?.textContent==='查询导出结果'`);
+    await assert.rejects(readFile(savedPath(cleanupScope.request_id)));
+    await ui.screenshot('desktop-export-removed-synthetic.png');
+  }
+  console.log('PASS export native WebView: frozen independent target, real JSONL bytes/path/retained range, reload ID query without restart, lost real start reply recovered by status, corrupt source never claims saved, restart NotFound permits explicit fresh export, close/in-flight response cannot retarget or undo published files; cleanup invalidates saved paths; synthetic only');
 } catch(error) {
   if(ui){console.error(await snapshot());await ui.screenshot('desktop-export-failure-synthetic.png');}
   throw error;

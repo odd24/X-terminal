@@ -1,6 +1,6 @@
 import type { ExportInfo, ExportScope } from './logging-api';
 
-const phases = ['QUEUED', 'RUNNING', 'CANCELLING', 'COMPLETED', 'CANCELLED', 'FAILED'];
+const phases = ['QUEUED', 'RUNNING', 'CANCELLING', 'COMPLETED', 'CANCELLED', 'FAILED', 'REMOVED'];
 const failures = ['INVALID_SOURCE', 'CAPACITY', 'TOO_LARGE', 'STORAGE', 'WORKER_FAILED'];
 const counters = ['bytes', 'retained_records', 'retained_raw_bytes', 'retained_gap_bytes', 'next_cursor'] as const;
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value) && value !== '00000000-0000-0000-0000-000000000000';
@@ -15,7 +15,7 @@ export function restoreExport(value: string | null): ExportScope | undefined {
   } catch { return; }
 }
 
-export function terminalExport(info: ExportInfo) { return ['COMPLETED', 'CANCELLED', 'FAILED'].includes(info.phase); }
+export function terminalExport(info: ExportInfo) { return ['COMPLETED', 'CANCELLED', 'FAILED', 'REMOVED'].includes(info.phase); }
 
 // Never display a path or success counters for a mismatched/unsafe reply. A
 // completed source declaration cannot stand in for a completed export job.

@@ -3,6 +3,7 @@ use crate::{
     config::{Access, Internal, Value},
     server::Store,
 };
+use session_core::input::{RequestWindow, ordered_timestamp};
 use session_core::{capture::OutputCapture, presentation::TextEvent, session::*};
 use session_protocol::logging::{self as wire, Reply, Request};
 use std::{
@@ -20,6 +21,7 @@ struct Start {
     limits: wire::Limits,
 }
 
+mod cleanup;
 mod export;
 mod history;
 #[cfg(test)]
@@ -33,6 +35,28 @@ struct Entry {
 struct Inner {
     entries: HashMap<Uuid, Entry>,
     starts: HashMap<Uuid, (Start, Uuid)>,
+    removed: HashSet<Uuid>,
+    window: RequestWindow,
+}
+impl Inner {
+    fn reserve(&mut self, id: Uuid) -> Result<(), ErrorCode> {
+        self.window.check(id)?;
+        if self.starts.len() >= 64 {
+            let (old, log, stamp) = self
+                .starts
+                .iter()
+                .filter(|(_, (_, log))| self.removed.contains(log))
+                .filter_map(|(id, (_, log))| ordered_timestamp(*id).map(|stamp| (*id, *log, stamp)))
+                .min_by_key(|(_, _, stamp)| *stamp)
+                .ok_or(ErrorCode::CapacityExceeded)?;
+            self.starts.remove(&old);
+            self.entries.remove(&log);
+            self.removed.remove(&log);
+            self.window.retire(stamp);
+            self.window.check(id)?;
+        }
+        Ok(())
+    }
 }
 struct Sink {
     logger: Arc<Logger>,
@@ -53,23 +77,28 @@ impl OutputCapture for Sink {
 pub(crate) struct Manager {
     history: history::Worker,
     export: export::Worker,
-    inner: Mutex<Inner>,
+    cleanup: cleanup::Worker,
+    inner: Arc<Mutex<Inner>>,
     gate: tokio::sync::Mutex<()>,
     store: Arc<Mutex<Store>>,
     config: Access,
 }
 impl Manager {
     pub(crate) fn new(store: Arc<Mutex<Store>>, config: Access) -> io::Result<Self> {
+        let export = export::Worker::start()?;
+        let inner = Arc::new(Mutex::new(Inner::default()));
+        let cleanup = cleanup::Worker::start(inner.clone(), export.access(), store.clone())?;
         Ok(Self {
             history: history::Worker::start()?,
-            export: export::Worker::start()?,
-            inner: Mutex::new(Inner::default()),
+            export,
+            cleanup,
+            inner,
             gate: tokio::sync::Mutex::new(()),
             store,
             config,
         })
     }
-    fn info(&self, entry: &Entry) -> Result<wire::Info, ErrorCode> {
+    fn info(&self, entry: &Entry, removed: bool) -> Result<wire::Info, ErrorCode> {
         let status = entry.logger.status();
         let active = self
             .store
@@ -105,9 +134,9 @@ impl Manager {
             source_cursor: entry.metadata.source_cursor,
             text_cursor: entry.metadata.text_cursor,
             limits: entry.limits,
-            phase,
+            phase: if removed { wire::Phase::Removed } else { phase },
             failure,
-            active,
+            active: active && !removed,
             accepted_records: status.accepted_records,
             written_records: status.written_records,
             accepted_raw_bytes: status.accepted_raw_bytes,
@@ -119,18 +148,22 @@ impl Manager {
             last_segment: status.last_segment,
             retired_segments: status.retired_segments,
             natural_end: status.natural_end,
-            durable: status.durable,
+            durable: status.durable && !removed,
             worker_finished: status.worker_finished,
         })
     }
     fn duplicate(&self, id: Uuid, start: Start) -> Result<Option<wire::Info>, ErrorCode> {
         let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         match inner.starts.get(&id) {
-            Some((old, log)) if *old == start => Ok(Some(
-                self.info(inner.entries.get(log).ok_or(ErrorCode::InvalidState)?)?,
-            )),
+            Some((old, log)) if *old == start => Ok(Some(self.info(
+                inner.entries.get(log).ok_or(ErrorCode::InvalidState)?,
+                inner.removed.contains(log),
+            )?)),
             Some(_) => Err(ErrorCode::InvalidArgument),
-            None => Ok(None),
+            None => {
+                inner.window.check(id)?;
+                Ok(None)
+            }
         }
     }
     pub(crate) async fn handle(&self, request: Request) -> Result<Reply, ErrorCode> {
@@ -138,6 +171,40 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            request @ (Request::CleanupList { .. }
+            | Request::CleanupPreview { .. }
+            | Request::CleanupStatus { .. }
+            | Request::CleanupCancel { .. }
+            | Request::CleanupCommit { .. }) => {
+                let _gate = self.gate.lock().await;
+                if matches!(request, Request::CleanupPreview { .. })
+                    && self.export.access().busy()?
+                {
+                    return Err(ErrorCode::InvalidState);
+                }
+                if matches!(request, Request::CleanupList { .. }) && self.cleanup.reserved() {
+                    return Err(ErrorCode::InvalidState);
+                }
+                let directory = if matches!(
+                    request,
+                    Request::CleanupList { .. }
+                        | Request::CleanupPreview { .. }
+                        | Request::CleanupCommit { .. }
+                ) {
+                    let Value::LoggingDirectory(path) = self
+                        .config
+                        .request(Internal::LoggingDirectory)
+                        .await
+                        .map_err(|_| ErrorCode::InvalidState)?
+                    else {
+                        return Err(ErrorCode::InvalidState);
+                    };
+                    Some(path)
+                } else {
+                    None
+                };
+                self.cleanup.request(directory, request).await
+            }
             Request::ExportStart {
                 connection,
                 log_id,
@@ -145,6 +212,13 @@ impl Manager {
             } => {
                 if let Some(info) = self.export.duplicate(connection, log_id, request_id)? {
                     return Ok(Reply::Export(Box::new(info)));
+                }
+                let _gate = self.gate.lock().await;
+                if let Some(info) = self.export.duplicate(connection, log_id, request_id)? {
+                    return Ok(Reply::Export(Box::new(info)));
+                }
+                if self.cleanup.reserved() {
+                    return Err(ErrorCode::InvalidState);
                 }
                 let Value::LoggingDirectory(directory) = self
                     .config
@@ -180,6 +254,13 @@ impl Manager {
             | Request::HistoryOpen { .. }
             | Request::HistoryRead { .. }
             | Request::HistoryClose { .. }) => {
+                if matches!(
+                    request,
+                    Request::HistoryList {} | Request::HistoryOpen { .. }
+                ) && self.cleanup.reserved()
+                {
+                    return Err(ErrorCode::InvalidState);
+                }
                 let directory = if matches!(
                     request,
                     Request::HistoryList {} | Request::HistoryOpen { .. }
@@ -211,6 +292,9 @@ impl Manager {
                 if let Some(info) = self.duplicate(request_id, start)? {
                     return Ok(Reply::Info(Box::new(info)));
                 }
+                if self.cleanup.reserved() {
+                    return Err(ErrorCode::InvalidState);
+                }
                 let Value::LoggingDirectory(directory) = self
                     .config
                     .request(Internal::LoggingDirectory)
@@ -229,8 +313,15 @@ impl Manager {
                 .map_err(|_| ErrorCode::InvalidState)?
                 .map_err(|_| ErrorCode::InvalidState)?;
                 let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                inner.reserve(request_id)?;
                 let mut ids: HashSet<_> = root.1.into_iter().collect();
-                ids.extend(inner.entries.keys().copied());
+                ids.extend(
+                    inner
+                        .entries
+                        .keys()
+                        .filter(|id| !inner.removed.contains(id))
+                        .copied(),
+                );
                 if ids.len() >= 64 || inner.entries.len() >= 64 {
                     return Err(ErrorCode::CapacityExceeded);
                 }
@@ -286,7 +377,9 @@ impl Manager {
                 );
                 inner.starts.insert(request_id, (start, id));
                 drop(store);
-                Ok(Reply::Info(Box::new(self.info(&inner.entries[&id])?)))
+                Ok(Reply::Info(Box::new(
+                    self.info(&inner.entries[&id], false)?,
+                )))
             }
             Request::List { connection } => {
                 let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
@@ -294,7 +387,9 @@ impl Manager {
                     .entries
                     .values()
                     .filter(|entry| entry.metadata.connection == connection)
-                    .map(|entry| self.info(entry))
+                    .map(|entry| {
+                        self.info(entry, inner.removed.contains(&entry.logger.status().log_id))
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 logs.sort_by_key(|info| (std::cmp::Reverse(info.started_at_ms), info.log_id));
                 Ok(Reply::List { logs })
@@ -315,15 +410,18 @@ impl Manager {
                     }
                     entry.logger.stop();
                 }
-                Ok(Reply::Info(Box::new(self.info(entry)?)))
+                Ok(Reply::Info(Box::new(
+                    self.info(entry, inner.removed.contains(&log_id))?,
+                )))
             }
         }
     }
     pub(crate) async fn close(self) -> io::Result<()> {
+        self.cleanup.close().await?;
         self.export.close().await?;
         self.history.close().await?;
-        let inner = self
-            .inner
+        let inner = Arc::try_unwrap(self.inner)
+            .map_err(|_| io::Error::other("cleanup still owns logging state"))?
             .into_inner()
             .map_err(|_| io::Error::other("logging state poisoned"))?;
         {

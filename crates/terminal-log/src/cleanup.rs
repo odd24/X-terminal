@@ -156,6 +156,45 @@ fn discard(file: &File) -> io::Result<()> {
     Ok(())
 }
 impl CleanupPreview {
+    /// Trusted service data directory only. This does not acquire the export
+    /// writer's root lock: its caller must coordinate queued/active jobs before
+    /// reserving a UUID. The UUID's live writer pin still rejects this open.
+    pub fn export(data_directory: &Path, id: Uuid) -> io::Result<Self> {
+        let _guards = storage::guards(data_directory)?;
+        Self::open(
+            &data_directory.join("terminal-log-exports"),
+            CleanupKind::Export,
+            id,
+        )
+    }
+    pub fn export_ids(data_directory: &Path) -> io::Result<Vec<Uuid>> {
+        let _guards = storage::guards(data_directory)?;
+        let root = data_directory.join("terminal-log-exports");
+        let _root = match storage::pin(&root) {
+            Ok(value) => value,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        let mut ids = Vec::new();
+        for entry in fs::read_dir(&root)? {
+            let entry = entry?;
+            if entry.file_name() == "exports.lock" {
+                continue;
+            }
+            let name = entry.file_name().into_string().map_err(|_| invalid())?;
+            let id = Uuid::parse_str(&name)
+                .ok()
+                .filter(|id| !id.is_nil() && id.to_string() == name)
+                .ok_or_else(invalid)?;
+            let _child = storage::pin(&entry.path())?;
+            ids.push(id);
+            if ids.len() > 64 {
+                return Err(invalid());
+            }
+        }
+        ids.sort_unstable();
+        Ok(ids)
+    }
     pub(crate) fn open(root: &Path, kind: CleanupKind, id: Uuid) -> io::Result<Self> {
         if id.is_nil() {
             return Err(io::Error::new(

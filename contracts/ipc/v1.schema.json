@@ -45,6 +45,13 @@
         ],
         "type": "string"
       },
+      "CleanupKind": {
+        "enum": [
+          "LOG",
+          "EXPORT"
+        ],
+        "type": "string"
+      },
       "ConfigRequest": {
         "oneOf": [
           {
@@ -1126,6 +1133,136 @@
             },
             "required": [
               "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/CleanupKind"
+              },
+              "op": {
+                "const": "cleanup_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/CleanupKind"
+              },
+              "op": {
+                "const": "cleanup_preview",
+                "type": "string"
+              },
+              "preview_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "kind",
+              "id",
+              "preview_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/CleanupKind"
+              },
+              "op": {
+                "const": "cleanup_status",
+                "type": "string"
+              },
+              "preview_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "kind",
+              "id",
+              "preview_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/CleanupKind"
+              },
+              "op": {
+                "const": "cleanup_cancel",
+                "type": "string"
+              },
+              "preview_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "kind",
+              "id",
+              "preview_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "confirmation": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/CleanupKind"
+              },
+              "op": {
+                "const": "cleanup_commit",
+                "type": "string"
+              },
+              "preview_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "kind",
+              "id",
+              "preview_id",
+              "confirmation"
             ],
             "type": "object"
           },
@@ -2347,6 +2484,88 @@
           }
         ]
       },
+      "CleanupFailure": {
+        "enum": [
+          "CHANGED",
+          "STORAGE"
+        ],
+        "type": "string"
+      },
+      "CleanupFile": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "CleanupKind": {
+        "enum": [
+          "LOG",
+          "EXPORT"
+        ],
+        "type": "string"
+      },
+      "CleanupPhase": {
+        "enum": [
+          "PREVIEW",
+          "CANCELLED",
+          "EXPIRED",
+          "APPLIED"
+        ],
+        "type": "string"
+      },
+      "CleanupReport": {
+        "additionalProperties": false,
+        "properties": {
+          "directory_removed": {
+            "type": "boolean"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CleanupFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "os_code": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "removed_files": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "removed_logical_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "removed_files",
+          "removed_logical_bytes",
+          "directory_removed"
+        ],
+        "type": "object"
+      },
       "ClientKind": {
         "enum": [
           "desktop",
@@ -2943,6 +3162,7 @@
       },
       "ExportPhase": {
         "enum": [
+          "REMOVED",
           "QUEUED",
           "RUNNING",
           "CANCELLING",
@@ -3463,6 +3683,7 @@
       },
       "Phase": {
         "enum": [
+          "REMOVED",
           "OPENING",
           "RECORDING",
           "STOPPING",
@@ -3793,6 +4014,98 @@
       },
       "Reply2": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "ids": {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "kind": {
+                "$ref": "#/$defs/CleanupKind"
+              },
+              "result": {
+                "const": "cleanup_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "kind",
+              "ids"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "confirmation": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "files": {
+                "items": {
+                  "$ref": "#/$defs/CleanupFile"
+                },
+                "type": "array"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/CleanupKind"
+              },
+              "logical_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "phase": {
+                "$ref": "#/$defs/CleanupPhase"
+              },
+              "preview_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "report": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CleanupReport"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "result": {
+                "const": "cleanup",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "kind",
+              "id",
+              "preview_id",
+              "phase",
+              "expires_at_ms",
+              "files",
+              "logical_bytes"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {

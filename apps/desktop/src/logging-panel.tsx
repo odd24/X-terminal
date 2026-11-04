@@ -3,7 +3,7 @@ import { logging, type LogInfo } from './logging-api';
 import { reference, type Connection } from './ssh-api';
 import { requestId } from './request-id';
 import { LogHistoryPanel } from './log-history-panel';
-const phases: Record<LogInfo['phase'], string> = { OPENING: '正在打开文件', RECORDING: '正在记录', STOPPING: '正在排空并同步', STOPPED: '记录已停止', FAILED: '记录失败' };
+const phases: Record<LogInfo['phase'], string> = { OPENING: '正在打开文件', RECORDING: '正在记录', STOPPING: '正在排空并同步', STOPPED: '记录已停止', FAILED: '记录失败', REMOVED: '文件已整理，计数为捕获历史' };
 const failures: Record<string, string> = { QUEUE_FULL: '写盘队列已满', DISK_FULL: '磁盘空间不足', STORAGE: '文件存储故障', INVALID_RECORD: '输出序号或代次异常', COUNTER_EXHAUSTED: '计数容量已耗尽', WORKER_PANICKED: '文件线程异常' };
 export function LoggingPanel({ connection, open, close }: { connection?: Connection; open: boolean; close: () => void }) {
   const [logs, setLogs] = useState<LogInfo[]>([]);

@@ -62,3 +62,5 @@ ExportStore提供文件库层的受管理暂存：可信服务数据目录/termi
 ManagedRoot/ExportStore::preview_cleanup只针对其受管理根下非空UUID，无调用者文件名或递归删除。CleanupPreview持有目录DELETE/不允许delete共享及各文件DELETE/share=0句柄；活动logger/ArchiveReader的pin或文件占用会拒绝预览，预览也阻止同范围新pin。拒绝reparse/子目录/只读/未知项；日志最多34个固定分段/完成文件，导出最多2个固定产物/partial，空目录允许。只取元数据，不读取或宣称内容有效；已知名称坏/超大完成标志仍可显式整理。
 
 CleanupInfo为kind/id/files(name,bytes)/logical_bytes，不是可序列化授权。丢弃预览不删除，apply须调用方先明确确认，消费持有句柄一次；提交前核对名字集合，Changed则零删除。通过FileDispositionInfo逐项处理精确句柄，不重新按路径删除；中途错误或最后目录仍非空时返回Storage、OS码和精确removed_files/removed_logical_bytes/directory_removed=false。新增未知文件保留，已删项不可恢复、不能重试旧预览。逻辑字节不是实际释放分配空间或安全擦除证明。详情见ADR-031；尚无整理IPC/GUI、预览期限/权限和回执治理，不从文件库通过推断产品整理已启用。
+
+服务整理IPC已接入Desktop专用有界actor，作用域kind/id/preview_id+确认码、4快照/30秒、8队列/128回执，详见IPC说明及ADR-031。受影响的捕获/导出注册返回REMOVED，旧创建不重跑；捕获已清理和导出已清理/失败/取消的有序回执可退休，不透明回执不偷删。导出元数据只读枚举允许与现有exports.lock共存，缺失根返回空，不改变写入者8项配额。GUI整理确认/无目录失败捕获的显式维护继续，不能从原生RPC或REMOVED显示推断完整整理体验已验收。

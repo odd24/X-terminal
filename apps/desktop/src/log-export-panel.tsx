@@ -5,7 +5,7 @@ import { checkedExport, restoreExport, terminalExport } from './log-export';
 import { requestId } from './request-id';
 
 const storageKey = 'terminal-log-export-task-v1';
-const states: Record<ExportInfo['phase'], string> = { QUEUED: '等待导出', RUNNING: '正在校验并生成文件', CANCELLING: '已请求停止，等待服务确认', COMPLETED: '导出文件已保存到应用目录', CANCELLED: '导出已停止，未发布文件', FAILED: '导出失败，未发布文件' };
+const states: Record<ExportInfo['phase'], string> = { QUEUED: '等待导出', RUNNING: '正在校验并生成文件', CANCELLING: '已请求停止，等待服务确认', COMPLETED: '导出文件已保存到应用目录', CANCELLED: '导出已停止，未发布文件', FAILED: '导出失败，未发布文件', REMOVED: '导出产物已整理，文件不再可用' };
 const failures: Record<NonNullable<ExportInfo['failure']>, string> = { INVALID_SOURCE: '源日志未完成、已损坏或范围不匹配', CAPACITY: '导出目录容量或磁盘空间不足', TOO_LARGE: '编码后的文件超过 256 MiB 上限', STORAGE: '文件存储失败或已有同编号目录', WORKER_FAILED: '导出工作线程失败' };
 function remembered() { try { return restoreExport(sessionStorage.getItem(storageKey)); } catch { return undefined; } }
 function remember(target: ExportScope) { try { sessionStorage.setItem(storageKey, JSON.stringify(target)); } catch { /* The task still has an explicit, visible ID. */ } }
@@ -21,6 +21,9 @@ export function LogExportPanel({ selected, disabled }: { selected?: ArchiveInfo;
   const current = useRef(task);
   const mounted = useRef(true);
   const inFlight = useRef(false);
+  const output = useRef<HTMLInputElement>(null);
+  const query = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
   async function cancelClosed(target: Task) {
     if (target.last && terminalExport(target.last)) return;
     try { await logging({ op: 'export_cancel', ...target.scope }); } catch { /* Outcome remains unknown; the saved ID can be queried after reopening. */ }
@@ -38,11 +41,12 @@ export function LogExportPanel({ selected, disabled }: { selected?: ArchiveInfo;
       target.last = result;
       if (!mounted.current) { await cancelClosed(target); return; }
       if (current.current !== target) return;
+      if (result.phase === 'REMOVED' && document.activeElement === output.current) returnFocus.current = true;
       setTask({ ...target }); setUncertain(false); setMissing(false);
       setMessage(`${states[result.phase]}${result.failure ? `：${failures[result.failure]}` : ''}。${result.phase === 'COMPLETED' ? '仅包含保留范围；捕获前及退休段不在文件中。' : ''}`);
     } catch (error) {
       if (mounted.current && current.current === target) {
-        const absent = error instanceof ExportRequestError && error.code === 'NotFound';
+        const absent = error instanceof ExportRequestError && ['NotFound', 'RequestExpired'].includes(error.code);
         setMissing(absent); setUncertain(!absent);
         setMessage(`${error instanceof Error ? error.message : '请求失败。'} ${absent ? '旧编号保留供核对；可为选中日志显式新建导出，已有文件不会覆盖。' : '保留原任务编号，仅查询结果；未自动重启导出。'}`);
       }
@@ -52,8 +56,13 @@ export function LogExportPanel({ selected, disabled }: { selected?: ArchiveInfo;
     }
   }
   useEffect(() => {
-    if (!task?.last || terminalExport(task.last) || pending || uncertain || missing) return;
-    const timer = setTimeout(() => { const target = current.current; if (target) void run(target, 'export_status'); }, 500);
+    if (returnFocus.current && !pending) { returnFocus.current = false; query.current?.focus(); }
+  }, [task, pending]);
+  useEffect(() => {
+    if (!task?.last || (terminalExport(task.last) && task.last.phase !== 'COMPLETED') || pending || uncertain || missing) return;
+    // A different trusted desktop can clean an already-completed artifact.
+    // Keep its availability fresh through cheap memory-only status queries.
+    const timer = setTimeout(() => { const target = current.current; if (target) void run(target, 'export_status'); }, task.last.phase === 'COMPLETED' ? 5000 : 500);
     return () => clearTimeout(timer);
   }, [task, pending, uncertain, missing]);
   function start() {
@@ -68,9 +77,9 @@ export function LogExportPanel({ selected, disabled }: { selected?: ArchiveInfo;
   const active = task && !missing && (!task.last || !terminalExport(task.last) || uncertain);
   return <fieldset aria-label="历史日志导出"><legend>导出日志</legend>
     <small>保存 JSONL 到应用目录，原始字节与派生文本分别保留。每份最多 256 MiB，共保留 8 次尝试（含失败）；不会覆盖已有文件。关闭日志面板会请求停止未完成任务，已保存文件保留。</small>
-    <div className="config-actions"><button disabled={disabled || !selected || pending || !!active} onClick={start}>导出选中日志</button><button disabled={!task || pending} onClick={() => { if (current.current) void run(current.current, 'export_status'); }}>查询导出结果</button><button disabled={!active || pending} onClick={() => { if (current.current) void run(current.current, 'export_cancel'); }}>停止日志导出</button></div>
+    <div className="config-actions"><button disabled={disabled || !selected || pending || !!active} onClick={start}>导出选中日志</button><button ref={query} disabled={!task || pending} onClick={() => { if (current.current) void run(current.current, 'export_status'); }}>查询导出结果</button><button disabled={!active || pending} onClick={() => { if (current.current) void run(current.current, 'export_cancel'); }}>停止日志导出</button></div>
     {task && <p className="data-location" aria-label="导出任务目标">日志 {task.scope.log_id} · {task.scope.connection.connection_id} / {task.scope.connection.generation} · 任务 {task.scope.request_id}</p>}
     <p role="status" aria-label="日志导出状态">{message}</p>
-    {done && <><p aria-label="日志导出范围">实际保留 {done.retained_records} 条 · 原始 {done.retained_raw_bytes} 字节 · 源缺口 {done.retained_gap_bytes} 字节 · 文本结束游标 {done.next_cursor} · 文件 {done.bytes} 字节</p><label>已保存文件路径<input aria-label="日志导出文件路径" readOnly value={`${directory ? `${directory}\\` : ''}terminal-log-exports\\${done.request_id}\\export.jsonl`} onFocus={event => event.target.select()} /></label>{!directory && <small>应用目录路径暂不可用，以上为相对应用目录的位置。</small>}</>}
+    {done && <><p aria-label="日志导出范围">实际保留 {done.retained_records} 条 · 原始 {done.retained_raw_bytes} 字节 · 源缺口 {done.retained_gap_bytes} 字节 · 文本结束游标 {done.next_cursor} · 文件 {done.bytes} 字节</p><label>已保存文件路径<input ref={output} aria-label="日志导出文件路径" readOnly value={`${directory ? `${directory}\\` : ''}terminal-log-exports\\${done.request_id}\\export.jsonl`} onFocus={event => event.target.select()} /></label>{!directory && <small>应用目录路径暂不可用，以上为相对应用目录的位置。</small>}</>}
   </fieldset>;
 }

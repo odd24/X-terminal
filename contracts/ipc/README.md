@@ -73,3 +73,9 @@ history_read显式同一范围和cursor，1–128条、32–64KiB逻辑负载并
 P11.4增加logging/export_start、export_status、export_cancel，均active Desktop专用，要求精确ConnectionRef/log_id/request_id，不接受路径/角色。Start按完整作用域去重，返回result=export及ExportInfo；独立文件线程、8队列、64本次服务回执，满额CapacityExceeded。相同ID不同范围InvalidArgument；不存在回执NotFound，失败/取消/完成重试均不重跑。任务与8项磁盘导出尝试配额独立，不隐式清理。
 
 phase为QUEUED/RUNNING/CANCELLING/COMPLETED/CANCELLED/FAILED，failure为INVALID_SOURCE/CAPACITY/TOO_LARGE/STORAGE/WORKER_FAILED或null；bytes/retained_records/retained_raw_bytes/retained_gap_bytes/next_cursor仅COMPLETED提供，否则null。COMPLETED表示保留范围已全检并同步、不覆盖发布到受管理存储，不保证原连接完整、远端命令成功或用户自选位置已保存。CANCELLING不能作完成；发布成功优先于晚到取消。取消/查询直接访问回执，不等待文件队列。重启不恢复回执或授权，同ID既有目录禁止覆盖；新ID仍可从无活动连接的历史日志生成。协议schema由例程重生成，本开发扩展要求服务/桌面/桥接同构建。
+
+P11.4增加logging/cleanup_list(kind)、cleanup_preview/status/cancel(kind,id,preview_id)、cleanup_commit(kind,id,preview_id,confirmation)，kind=LOG/EXPORT，UUID非空，拒绝路径/自报文件集合/role/recursive。全部仅active Desktop，list/preview/commit另外核对目录所有权；损坏文件也仅按明确UUID维护，不猜造ConnectionRef或授予观察者维护权。目录列表最多64个UUID，不读内容/不保证完整；导出枚举不创建缺失根或争抢写入者锁。
+
+返回result=cleanup_list(kind,ids)或result=cleanup，后者含原kind/id/preview_id、phase=PREVIEW/CANCELLED/EXPIRED/APPLIED、expires_at_ms、confirmation（仅PREVIEW非空）、固定文件名/逻辑大小及report。独立8队列、4快照、128回执，快照30秒有效，查询不续租；取消/到期只释放。提交必须回传原确认码，作用域/码不符InvalidArgument，到期/取消后提交RequestExpired；相同已提交ID+码返回原报告不再次删除。APPLIED不等于清理成功：report包含removed_files/removed_logical_bytes/directory_removed/failure(CHANGED|STORAGE|null)/os_code，途中失败按实际前缀报告且不可回滚，新增未知项不删除。重启不恢复旧确认，不能用旧提交重建预览。
+
+快照或排队保留意图期间新的日志/导出Start及历史目录/新开读取明确InvalidState；其他终端输入/输出不受文件锁影响。存在排队/执行中导出时不接受新整理快照。受影响的本次捕获/导出状态新增REMOVED：捕获durable=false、active=false且计数为历史；导出成功计数全部null，不再返回可用路径。已结束且仍挂接的旧失败capture仅按精确ID解除。64条创建回执满额时只退休符合ADR-031条件的UUIDv7，旧编号RequestExpired；opaque不偷删；物理配额不扩大。schema与服务/桌面/桥接必须同构建。此阶段没有GUI整理确认入口，现有导出面板仅识别整理后的状态。

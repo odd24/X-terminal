@@ -11,7 +11,7 @@ test('export replies must match the exact frozen scope and completion before rev
   for (const edit of [v=>v.log_id=scope.request_id, v=>v.request_id=scope.log_id, v=>v.connection.generation++, v=>v.connection.connection_id=scope.log_id, v=>v.result='info', v=>v.phase='UNKNOWN']) {
     const value=done();edit(value);assert.throws(()=>checkedExport(value,scope));
   }
-  for (const phase of ['QUEUED','RUNNING','CANCELLING','CANCELLED','FAILED']) {
+  for (const phase of ['QUEUED','RUNNING','CANCELLING','CANCELLED','FAILED','REMOVED']) {
     const value={...done(),phase, failure:phase==='FAILED'?'STORAGE':null};
     assert.throws(()=>checkedExport(value,scope),'noncompleted jobs cannot claim retained/saved totals');
   }
@@ -28,6 +28,7 @@ test('export safety rejects unsafe integer totals, incomplete terminal shapes an
   assert.throws(()=>checkedExport({...pending(),phase:'FAILED'},scope));
   assert.equal(checkedExport({...pending(),phase:'FAILED',failure:'INVALID_SOURCE'},scope).bytes,null);
   assert.equal(checkedExport({...pending(),phase:'CANCELLED'},scope).failure,null);
+  assert.equal(terminalExport(checkedExport({...pending(),phase:'REMOVED'},scope)),true);
 });
 test('restored task slots contain only bounded identifiers and never restore paths, phases or unsafe scope', () => {
   assert.deepEqual(restoreExport(JSON.stringify({...scope,path:'forbidden',phase:'COMPLETED'})),scope);

@@ -2,6 +2,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use session_core::session::*;
 use uuid::Uuid;
+mod cleanup;
+pub use cleanup::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -35,6 +37,30 @@ pub enum Request {
         log_id: Uuid,
     },
     HistoryList {},
+    CleanupList {
+        kind: CleanupKind,
+    },
+    CleanupPreview {
+        kind: CleanupKind,
+        id: Uuid,
+        preview_id: Uuid,
+    },
+    CleanupStatus {
+        kind: CleanupKind,
+        id: Uuid,
+        preview_id: Uuid,
+    },
+    CleanupCancel {
+        kind: CleanupKind,
+        id: Uuid,
+        preview_id: Uuid,
+    },
+    CleanupCommit {
+        kind: CleanupKind,
+        id: Uuid,
+        preview_id: Uuid,
+        confirmation: Uuid,
+    },
     ExportStart {
         connection: ConnectionRef,
         log_id: Uuid,
@@ -72,6 +98,18 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         let connection = match self {
+            Self::CleanupList { .. } => return true,
+            Self::CleanupPreview { id, preview_id, .. }
+            | Self::CleanupStatus { id, preview_id, .. }
+            | Self::CleanupCancel { id, preview_id, .. } => {
+                return !id.is_nil() && !preview_id.is_nil();
+            }
+            Self::CleanupCommit {
+                id,
+                preview_id,
+                confirmation,
+                ..
+            } => return !id.is_nil() && !preview_id.is_nil() && !confirmation.is_nil(),
             Self::HistoryList {} => return true,
             Self::ExportStart {
                 connection,
@@ -209,6 +247,7 @@ pub struct HistoryPage {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Phase {
+    Removed,
     Opening,
     Recording,
     Stopping,
@@ -256,6 +295,7 @@ pub struct Info {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExportPhase {
+    Removed,
     Queued,
     Running,
     Cancelling,
@@ -290,6 +330,11 @@ pub struct ExportInfo {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    CleanupList {
+        kind: CleanupKind,
+        ids: Vec<Uuid>,
+    },
+    Cleanup(Box<CleanupInfo>),
     Export(Box<ExportInfo>),
     Info(Box<Info>),
     List {

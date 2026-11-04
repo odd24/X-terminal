@@ -1,6 +1,25 @@
 use super::*;
 use crate::{ArchiveReader, ExportStore, Limits, Logger, ManagedRoot, Metadata};
 use session_core::session::{ConnectionId, ConnectionRef, Protocol};
+#[test]
+fn export_cleanup_catalogue_does_not_create_missing_roots_or_take_the_writer_lock() {
+    let temp = Temp::new();
+    assert!(CleanupPreview::export_ids(&temp.0).unwrap().is_empty());
+    assert!(!temp.0.join("terminal-log-exports").exists());
+    let store = ExportStore::open(&temp.0).unwrap();
+    let id = Uuid::new_v4();
+    std::fs::create_dir(store.path().join(id.to_string())).unwrap();
+    assert_eq!(CleanupPreview::export_ids(&temp.0).unwrap(), [id]);
+    let preview = CleanupPreview::export(&temp.0, id).unwrap();
+    assert!(preview.info().files.is_empty());
+    drop(preview);
+    std::fs::write(store.path().join("unknown"), b"preserve").unwrap();
+    assert!(CleanupPreview::export_ids(&temp.0).is_err());
+    assert_eq!(
+        std::fs::read(store.path().join("unknown")).unwrap(),
+        b"preserve"
+    );
+}
 
 struct Temp(PathBuf);
 impl Temp {
