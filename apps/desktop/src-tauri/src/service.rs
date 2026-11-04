@@ -17,6 +17,7 @@ use uuid::Uuid;
 use windows_sys::Win32::System::JobObjects::*;
 
 pub struct Service {
+    pub config_client: Option<Client>,
     child: Child,
     _job: OwnedHandle,
     client: Client,
@@ -34,7 +35,7 @@ pub struct Status {
 }
 
 impl Service {
-    pub async fn start(fixture: bool) -> io::Result<Self> {
+    pub async fn start(fixture: bool, directory: std::path::PathBuf) -> io::Result<Self> {
         // An unnamed, non-inherited Job kills the child if the desktop crashes.
         let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if job.is_null() {
@@ -61,6 +62,7 @@ impl Service {
         if fixture {
             command.arg("--test-fixture");
         }
+        command.arg("--data-dir").arg(directory);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -112,7 +114,15 @@ impl Service {
         else {
             return Err(io::Error::other("invalid service welcome"));
         };
+        let config_client = Client::connect(
+            &instance,
+            token.expose(),
+            child.id().ok_or_else(|| io::Error::other("child exited"))?,
+        )
+        .await?
+        .0;
         Ok(Self {
+            config_client: Some(config_client),
             child,
             _job: job,
             client,

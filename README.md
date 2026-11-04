@@ -65,3 +65,5 @@ P08.2 已有 Windows 用户级 DPAPI/AES-GCM 凭据库：`cargo test -p credenti
 `npm run desktop:build` 同时构建相邻的 session-service.exe。直接运行 `target/debug/shared-terminal-desktop.exe` 默认不启用合成接口；追加 `--test-fixture` 可手动新建合成会话。键盘合成回显和高输出均通过同一服务，页面重载从保留游标重新呈现；输出覆盖会明确报缺口。退出桌面会停止服务，当前没有后台保留选项（P12 后续实现）。服务不可用时不自动重连/重放，退出后重新启动会得到全新服务；不能把重载当作重连。启动失败请检查相邻服务文件与普通用户权限，当前不提供安装包。
 
 P08.3 已有 Desktop 专用配置 IPC 后端、有界工作线程和明确配置故障；当前桌面尚未传入数据目录/提供编辑器。进展与主机密钥/导出/备份恢复等剩余项见 [P08.3](docs/records/P08.3.md)。
+
+P08.3 桌面增量已接入“连接配置”：目录与 SSH2/SSH1/SERIAL Profile 编辑、复制/移动/删除、凭据引用管理，保存不打开设备。默认使用应用本地用户目录，可通过 --data-dir 绝对路径选择其他目录；所有自动化测试使用独立临时目录。私钥表单只输入本地普通文件路径，内容由服务读取并加密，源文件不修改，页面不接收私钥明文。主机密钥/配置导出与备份恢复/凭据整理仍在实施，P08.3 尚未完成。npm run test:desktop 同时运行生命周期和配置编辑器的真实 WebView 测试，也可单跑 npm run test:desktop:config。

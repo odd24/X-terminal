@@ -17,3 +17,24 @@ label { color: #a9b8c9; font-size: 14px; }
 .status { margin: 12px 0 6px; color: #84d9ca; }
 .input-status, footer { color: #8294a9; font-size: 13px; margin: 8px 0; }
 pre { max-height: 220px; overflow: auto; white-space: pre-wrap; background: #17222e; padding: 16px; }
+.config-panel { border: 1px solid #425670; border-radius: 10px; background: #141f2b; padding: 20px; margin-bottom: 24px; }
+.config-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+h2 { font-size: 20px; margin: 0; }
+.config-message { padding: 12px; border-left: 3px solid #84d9ca; background: #203044; margin: 16px 0; }
+.config-layout { display: grid; grid-template-columns: minmax(210px, 280px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.config-panel label { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.config-panel input, .config-panel select, .config-panel textarea { box-sizing: border-box; width: 100%; min-width: 0; }
+.config-panel textarea { min-height: 120px; background: #101720; color: #e7edf5; border: 1px solid #425670; padding: 8px; font: 13px Consolas, monospace; }
+.config-panel fieldset { border: 1px solid #314054; border-radius: 6px; padding: 12px; margin: 12px 0; min-width: 0; }
+.config-panel legend { color: #84d9ca; padding: 0 6px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.config-panel .check { flex-direction: row; align-items: center; }
+.config-panel .check input { width: auto; }
+.config-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.profile-list { list-style: none; margin: 16px 0; padding: 0; max-height: 280px; overflow: auto; }
+.profile-list button { width: 100%; text-align: left; margin-bottom: 6px; overflow-wrap: anywhere; }
+.profile-list .selected { border-color: #84d9ca; }
+.config-panel small { display: block; color: #9bafc5; font-size: 12px; line-height: 1.6; }
+.config-panel p { font-size: 13px; }
+.data-location { overflow-wrap: anywhere; }
+@media (max-width: 850px) { .config-layout { grid-template-columns: 1fr; } .form-grid { grid-template-columns: 1fr; } }

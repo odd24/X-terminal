@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 
@@ -8,11 +9,12 @@ import assert from 'node:assert/strict';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function launch(fixture, killDesktop = false) {
+  const dataDirectory=await mkdtemp(path.join(tmpdir(),'shared-terminal-P07-ui-'));
   const reservation = createServer();
   await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve));
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
-  const app = spawn(path.resolve('target/debug/shared-terminal-desktop.exe'), fixture ? ['--test-fixture'] : [], {
+  const app = spawn(path.resolve('target/debug/shared-terminal-desktop.exe'), [...(fixture ? ['--test-fixture'] : []),'--data-dir',dataDirectory], {
     windowsHide: true, stdio: 'ignore',
     env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1` },
   });
@@ -107,6 +109,7 @@ async function launch(fixture, killDesktop = false) {
     await command('Page.reload');
     await waitFor(`document.querySelector('[role=status]')?.textContent === '服务输出已同步'`);
     const reloaded = await invoke('service_status');
+    assert.equal((await invoke('config_request', {request:{op:'page',revision:null,offset:0,folders:false}})).result,'page','configuration IPC must survive renderer suspension too');
     assert.equal(reloaded.service_id, status.service_id); assert.equal(reloaded.pid, status.pid);
     assert.deepEqual(await invoke('service_list'), sessions);
     assert.deepEqual(await invoke('service_read', {connection, cursor:1}), withInput, 'reload must preserve bytes and cursor without replaying input');
@@ -125,6 +128,9 @@ async function launch(fixture, killDesktop = false) {
     if (app.exitCode === null) app.kill();
     for (let attempt = 0; attempt < 100 && childPid && alive(childPid); attempt++) await delay(20);
     if (childPid) assert.equal(alive(childPid), false, 'desktop termination must leave no owned service');
+    assert.equal(path.dirname(path.resolve(dataDirectory)),path.resolve(tmpdir()));
+    assert.ok(path.basename(dataDirectory).startsWith('shared-terminal-P07-ui-'));
+    await rm(dataDirectory,{recursive:true,maxRetries:20,retryDelay:100});
   }
 }
 const results = [];

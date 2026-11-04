@@ -1029,3 +1029,120 @@ async fn blocked_configuration_has_a_bounded_queue_and_does_not_block_session_pi
     assert_eq!(folders.len(), accepted);
     service.stop(&mut desktop).await;
 }
+
+#[tokio::test]
+async fn private_key_file_import_is_bounded_and_does_not_return_key_bytes() {
+    use config::{ConfigReply as C, ConfigRequest as Q};
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let key = "-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic-header-only-not-a-valid-key\n-----END OPENSSH PRIVATE KEY-----\n";
+    let path = temp.0.join("synthetic-key");
+    std::fs::write(&path, key).unwrap();
+    let mut profile = portable();
+    if let config_store::Settings::Ssh2 { auth, .. } = &mut profile.settings {
+        *auth = config_store::Auth::PublicKey;
+    }
+    let saved = config_call(
+        &mut client,
+        Q::SaveProfileKeyFile {
+            profile: profile.clone(),
+            key_path: path.to_string_lossy().into_owned(),
+            passphrase: None,
+        },
+    )
+    .await;
+    assert!(
+        !serde_json::to_string(&saved)
+            .unwrap()
+            .contains("synthetic-header-only")
+    );
+    let C::SavedProfile { profile: saved, .. } = saved else {
+        panic!("key file import failed")
+    };
+    assert!(saved.credential_ref.is_some());
+    let vault = credential_vault::Vault::open(&temp.0.join("credentials.sqlite")).unwrap();
+    assert!(
+        vault
+            .get(saved.credential_ref.unwrap())
+            .unwrap()
+            .expose()
+            .windows(b"synthetic-header-only".len())
+            .any(|part| part == b"synthetic-header-only")
+    );
+    drop(vault);
+    for key_path in [
+        r"\\.\COM89",
+        r"C:\CON",
+        r"C:\COM1",
+        r"C:\LPT¹",
+        r"relative-key",
+        r"C:\key:stream",
+    ] {
+        assert!(matches!(
+            config_call(
+                &mut client,
+                Q::SaveProfileKeyFile {
+                    profile: profile.clone(),
+                    key_path: key_path.into(),
+                    passphrase: None
+                }
+            )
+            .await,
+            C::Error {
+                code: config::ConfigError::Invalid
+            }
+        ));
+    }
+    std::fs::write(&path, vec![b'x'; 65537]).unwrap();
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::SaveProfileKeyFile {
+                profile: profile.clone(),
+                key_path: path.to_string_lossy().into_owned(),
+                passphrase: None
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Invalid
+        }
+    ));
+    let fixture = match ok(client.request(Request::CreateFixture {}).await.unwrap()) {
+        Reply::Connection(info) => info.reference(),
+        _ => panic!(),
+    };
+    let token = match ok(client
+        .request(Request::IssueRead {
+            scopes: vec![fixture],
+            lifetime_ms: 10000,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::ReadTicket { token, .. } => token,
+        _ => panic!(),
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    assert!(matches!(
+        observer
+            .request(Request::Config {
+                request: Q::SaveProfileKeyFile {
+                    profile,
+                    key_path: path.to_string_lossy().into_owned(),
+                    passphrase: None
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::PermissionDenied,
+            ..
+        }
+    ));
+    service.stop(&mut client).await;
+}

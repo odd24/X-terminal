@@ -129,6 +129,37 @@
           {
             "additionalProperties": false,
             "properties": {
+              "key_path": {
+                "type": "string"
+              },
+              "op": {
+                "const": "save_profile_key_file",
+                "type": "string"
+              },
+              "passphrase": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Sensitive"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "profile": {
+                "$ref": "#/$defs/PortableProfile"
+              }
+            },
+            "required": [
+              "op",
+              "profile",
+              "key_path"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "id": {
                 "format": "uuid",
                 "type": "string"

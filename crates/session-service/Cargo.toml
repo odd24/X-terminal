@@ -9,6 +9,7 @@ license.workspace = true
 config-store = { path = "../config-store" }
 credential-vault = { path = "../credential-vault" }
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
+zeroize = "=1.9.1"
 session-core = { path = "../session-core" }
 session-protocol = { path = "../session-protocol" }
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "net", "time", "macros", "sync", "io-util", "io-std", "signal"] }
@@ -17,7 +18,7 @@ serde_json = "=1.0.154"
 uuid = { version = "=1.29.0", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Pipes"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Pipes", "Win32_System_WindowsProgramming"] }
 
 [dev-dependencies]
 tokio = { version = "=1.54.1", features = ["process"] }

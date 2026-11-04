@@ -36,6 +36,11 @@ pub enum ConfigRequest {
         profile: PortableProfile,
         credential: CredentialEdit,
     },
+    SaveProfileKeyFile {
+        profile: PortableProfile,
+        key_path: String,
+        passphrase: Option<Sensitive>,
+    },
     DeleteProfile {
         id: Uuid,
     },
@@ -43,6 +48,28 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::SaveProfileKeyFile {
+                profile,
+                key_path,
+                passphrase,
+            } => {
+                !profile.id.is_nil()
+                    && config_model::valid_text(&profile.name, 256)
+                    && profile.settings.validate().is_ok()
+                    && matches!(
+                        profile.settings,
+                        config_model::Settings::Ssh2 {
+                            auth: config_model::Auth::PublicKey,
+                            ..
+                        }
+                    )
+                    && !key_path.is_empty()
+                    && key_path.len() <= 32767
+                    && !key_path.chars().any(char::is_control)
+                    && passphrase
+                        .as_ref()
+                        .is_none_or(|value| value.expose().len() <= 4096)
+            }
             Self::Page {
                 revision, offset, ..
             } => *offset <= 10000 && (*offset == 0 || revision.is_some()),

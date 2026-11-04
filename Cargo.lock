@@ -4020,6 +4020,7 @@ dependencies = [
  "tokio",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -4081,6 +4082,7 @@ dependencies = [
 name = "shared-terminal-desktop"
 version = "0.1.0"
 dependencies = [
+ "config-model",
  "serde",
  "session-core",
  "session-protocol",

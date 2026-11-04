@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { TerminalWriter } from './terminal-writer';
+import { ConfigPanel } from './config-panel';
 import '@xterm/xterm/css/xterm.css';
 import './style.css';
 
@@ -15,6 +16,7 @@ type Page = { connection: Ref; events: { seq: number; bytes: number[] }[]; next_
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
 
 function App() {
+  const [configurationOpen, setConfigurationOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<{ term: Terminal; fit: FitAddon; writer: TerminalWriter; connection?: Ref; fixture: boolean; inputs: number } | null>(null);
   const [service, setService] = useState<Status>();
@@ -129,6 +131,7 @@ function App() {
   return <main>
     <header><span className="eyebrow">共享终端 · 开发预览</span><h1>你的连接，同一个会话。</h1><p>{connections.length ? `${connections.length} 个合成会话 · 未连接设备` : '尚无活动连接'}</p></header>
     <nav aria-label="会话控制">
+      <button onClick={() => setConfigurationOpen(open => !open)}>连接配置</button>
       <select aria-label="会话" value={selected} onChange={event => { selectedRef.current = event.target.value; setSelected(event.target.value); }}>
         {!connections.length && <option value="">尚无会话</option>}
         {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
@@ -138,6 +141,7 @@ function App() {
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
       <label>字号 <input aria-label="字号" type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
     </nav>
+    {configurationOpen && <ConfigPanel close={() => setConfigurationOpen(false)} />}
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || status}</div>
     <div className="input-status">{service?.fixture ? '合成键盘事件' : '设备输入尚未接入'}：<output>{lastInput}</output></div>
