@@ -1,5 +1,324 @@
 use super::*;
 use session_protocol::logging::{self as log, Request as L};
+
+fn export_info(reply: log::Reply) -> log::ExportInfo {
+    match reply {
+        log::Reply::Export(info) => *info,
+        _ => panic!(),
+    }
+}
+async fn export_done(
+    client: &mut Client,
+    connection: ConnectionRef,
+    log_id: Uuid,
+    request_id: Uuid,
+) -> log::ExportInfo {
+    timeout(Duration::from_secs(10), async {
+        loop {
+            let result = export_info(
+                call(
+                    client,
+                    L::ExportStatus {
+                        connection,
+                        log_id,
+                        request_id,
+                    },
+                )
+                .await,
+            );
+            if matches!(
+                result.phase,
+                log::ExportPhase::Completed
+                    | log::ExportPhase::Failed
+                    | log::ExportPhase::Cancelled
+            ) {
+                return result;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn export_jobs_are_desktop_only_scoped_deduplicated_and_survive_source_restart() {
+    let temp = ConfigTemp::new();
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let (connection, captured) = captured_fixture(&mut client).await;
+    let log_id = captured.log_id;
+    let request_id = Uuid::new_v4();
+    let Reply::ReadTicket { token, .. } = ok(client
+        .request(Request::IssueRead {
+            scopes: vec![connection],
+            lifetime_ms: 60000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let mut observer = Client::connect(&fixture.instance, token.expose(), fixture.pid)
+        .await
+        .unwrap()
+        .0;
+    for request in [
+        L::ExportStart {
+            connection,
+            log_id,
+            request_id,
+        },
+        L::ExportStatus {
+            connection,
+            log_id,
+            request_id,
+        },
+        L::ExportCancel {
+            connection,
+            log_id,
+            request_id,
+        },
+    ] {
+        assert_eq!(
+            error(
+                observer
+                    .request(Request::Logging { request })
+                    .await
+                    .unwrap()
+            ),
+            ErrorCode::PermissionDenied
+        );
+    }
+    for _ in 0..2 {
+        let value = export_info(
+            call(
+                &mut client,
+                L::ExportStart {
+                    connection,
+                    log_id,
+                    request_id,
+                },
+            )
+            .await,
+        );
+        assert_eq!(value.request_id, request_id);
+    }
+    let done = export_done(&mut client, connection, log_id, request_id).await;
+    assert_eq!(done.phase, log::ExportPhase::Completed);
+    assert_eq!(done.retained_records, Some(3));
+    assert_eq!(done.retained_raw_bytes, Some(15));
+    assert_eq!(done.retained_gap_bytes, Some(0));
+    let ready = temp
+        .0
+        .join("terminal-log-exports")
+        .join(request_id.to_string())
+        .join("export.jsonl");
+    let original = std::fs::read(&ready).unwrap();
+    assert_eq!(done.bytes, Some(original.len() as u64));
+    let rows: Vec<serde_json::Value> = std::str::from_utf8(&original)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows[0]["source_completion"]["log_id"], log_id.to_string());
+    assert_eq!(rows[1]["raw"]["bytes"], serde_json::json!([0, 255, 13, 10]));
+    assert_eq!(rows.last().unwrap()["type"], "verified");
+    let wrong = ConnectionRef {
+        generation: connection.generation + 1,
+        ..connection
+    };
+    for request in [
+        L::ExportStart {
+            connection: wrong,
+            log_id,
+            request_id,
+        },
+        L::ExportStatus {
+            connection: wrong,
+            log_id,
+            request_id,
+        },
+        L::ExportCancel {
+            connection: wrong,
+            log_id,
+            request_id,
+        },
+    ] {
+        assert_eq!(
+            error(client.request(Request::Logging { request }).await.unwrap()),
+            ErrorCode::InvalidArgument
+        );
+    }
+    assert_eq!(
+        export_info(
+            call(
+                &mut client,
+                L::ExportCancel {
+                    connection,
+                    log_id,
+                    request_id
+                }
+            )
+            .await
+        )
+        .phase,
+        log::ExportPhase::Completed
+    );
+    let mut nonowner = temp.start().await;
+    let mut nonowner_client = nonowner.connect().await;
+    assert_eq!(
+        error(
+            nonowner_client
+                .request(Request::Logging {
+                    request: L::ExportStart {
+                        connection,
+                        log_id,
+                        request_id: Uuid::new_v4()
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    nonowner.stop(&mut nonowner_client).await;
+    fixture.stop(&mut client).await;
+    let mut restarted = temp.start().await;
+    let mut client = restarted.connect().await;
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::ExportStatus {
+                        connection,
+                        log_id,
+                        request_id
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::NotFound
+    );
+    // A repeated ID after service restart cannot overwrite a prior artifact.
+    call(
+        &mut client,
+        L::ExportStart {
+            connection,
+            log_id,
+            request_id,
+        },
+    )
+    .await;
+    assert_eq!(
+        export_done(&mut client, connection, log_id, request_id)
+            .await
+            .phase,
+        log::ExportPhase::Failed
+    );
+    assert_eq!(std::fs::read(&ready).unwrap(), original);
+    let fresh = Uuid::new_v4();
+    call(
+        &mut client,
+        L::ExportStart {
+            connection,
+            log_id,
+            request_id: fresh,
+        },
+    )
+    .await;
+    assert_eq!(
+        export_done(&mut client, connection, log_id, fresh)
+            .await
+            .phase,
+        log::ExportPhase::Completed
+    );
+    restarted.stop(&mut client).await;
+}
+
+#[tokio::test]
+async fn export_jobs_report_corrupt_source_without_publishing_or_blocking_terminal_output() {
+    use std::io::Write;
+    let temp = ConfigTemp::new();
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let (connection, captured) = captured_fixture(&mut client).await;
+    let log_id = captured.log_id;
+    let path = temp
+        .0
+        .join("terminal-logs")
+        .join(log_id.to_string())
+        .join("0000000000000001.text.jsonl");
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .unwrap()
+        .write_all(b"broken-synthetic-tail\n")
+        .unwrap();
+    let request_id = Uuid::new_v4();
+    call(
+        &mut client,
+        L::ExportStart {
+            connection,
+            log_id,
+            request_id,
+        },
+    )
+    .await;
+    let done = export_done(&mut client, connection, log_id, request_id).await;
+    assert_eq!(done.phase, log::ExportPhase::Failed);
+    assert_eq!(done.failure, Some(log::ExportFailure::InvalidSource));
+    assert!(done.bytes.is_none() && done.retained_records.is_none());
+    let directory = temp
+        .0
+        .join("terminal-log-exports")
+        .join(request_id.to_string());
+    assert!(!directory.join("export.jsonl").exists());
+    assert!(directory.join("export.partial").exists());
+    ok(client
+        .request(Request::AppendFixture {
+            connection,
+            bytes: b"terminal-still-responsive".to_vec(),
+        })
+        .await
+        .unwrap());
+    let Reply::Output(page) = ok(client
+        .request(Request::Read {
+            connection,
+            cursor: 1,
+            max_bytes: 4096,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    assert!(
+        page.events
+            .iter()
+            .flat_map(|event| event.bytes.clone())
+            .collect::<Vec<_>>()
+            .ends_with(b"terminal-still-responsive")
+    );
+    // Repeated failed jobs stay failed and cannot create another partial.
+    assert_eq!(
+        export_info(
+            call(
+                &mut client,
+                L::ExportStart {
+                    connection,
+                    log_id,
+                    request_id
+                }
+            )
+            .await
+        )
+        .phase,
+        log::ExportPhase::Failed
+    );
+    fixture.stop(&mut client).await;
+}
 fn limits() -> log::Limits {
     log::Limits {
         segment_bytes: 131072,

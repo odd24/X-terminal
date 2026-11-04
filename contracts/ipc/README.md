@@ -69,3 +69,7 @@ P11.4新增logging/history_list、history_open、history_read、history_close，
 history_read显式同一范围和cursor，1–128条、32–64KiB逻辑负载并额外检查真实编码帧；返回原始事件/TextEvent配对，next_cursor仅越过交付记录，只有finished=true表示保留范围全检通过。一个reader保留最近页，相同cursor及限额重试返回同页，改变参数InvalidArgument，旧于缓存RequestExpired，超前InvalidArgument。history_close立即释放句柄和页缓存，重复关闭保留回执时幂等；关闭/120秒闲置/损坏后的read_id不可重开。8个reader、16队列、128回执，UUIDv7已关闭回执按水位退休；不透明ID固定保留，满额CapacityExceeded。阻塞文件系统期间不保证准时到期。旧代次历史读取不隐式连接/发送/重放任何命令。
 
 目录路径由配置线程持有数据目录所有权时提供，SQLite损坏不屏蔽已完成日志，目录被另一服务占用仍拒绝；服务退出释放全部句柄。当前桌面只具日志启停UI，历史浏览/搜索/导出UI继续P11.4，不以IPC存在推断界面或整日志恢复完成。
+
+P11.4增加logging/export_start、export_status、export_cancel，均active Desktop专用，要求精确ConnectionRef/log_id/request_id，不接受路径/角色。Start按完整作用域去重，返回result=export及ExportInfo；独立文件线程、8队列、64本次服务回执，满额CapacityExceeded。相同ID不同范围InvalidArgument；不存在回执NotFound，失败/取消/完成重试均不重跑。任务与8项磁盘导出尝试配额独立，不隐式清理。
+
+phase为QUEUED/RUNNING/CANCELLING/COMPLETED/CANCELLED/FAILED，failure为INVALID_SOURCE/CAPACITY/TOO_LARGE/STORAGE/WORKER_FAILED或null；bytes/retained_records/retained_raw_bytes/retained_gap_bytes/next_cursor仅COMPLETED提供，否则null。COMPLETED表示保留范围已全检并同步、不覆盖发布到受管理存储，不保证原连接完整、远端命令成功或用户自选位置已保存。CANCELLING不能作完成；发布成功优先于晚到取消。取消/查询直接访问回执，不等待文件队列。重启不恢复回执或授权，同ID既有目录禁止覆盖；新ID仍可从无活动连接的历史日志生成。协议schema由例程重生成，本开发扩展要求服务/桌面/桥接同构建。

@@ -52,3 +52,5 @@ export_jsonl新开精确作用域的ArchiveReader，逐32KiB逻辑页完整扫�
 source_completion为原文件声明，退休历史无法全检，不以其总量冒充导出保留量。旧source_gap_bytes缺失仍缺失；时间保留epoch毫秒，source gap不补造字节。无签名/防篡改承诺。此库API没有路径/IPC/保存入口，接收调用者Write；调用者须在阻塞线程执行、授权精确目标、使用私有新暂存，只有Ok并sync后才不覆盖发布。取消、源损坏、写/flush失败均不得发布；flush失败可能已经写出尾行，不能仅靠尾行声称持久保存。后续服务/桌面保存、失败恢复和容量整理继续。
 
 ExportStore提供文件库层的受管理暂存：可信服务数据目录/terminal-log-exports，Windows独占exports.lock；最多8个UUID尝试目录，含失败不自动删除，未知项/目录reparse拒绝。单份实际JSON编码上限256MiB，超限返回FileTooLarge而非截断成功。固定export.partial使用create_new独占写；全检/flush/sync_all与取消检查后，以MoveFileW不覆盖发布export.jsonl。ExportArtifact仅含ID、字节数及实际保留统计；原始日志不修改。失败/取消/已有目标时不发布、不自动重试；partial即使有verified也不等同成功产物。尚无IPC/用户保存入口/任务回执和显式清理，不能从文件名推断授权。
+
+服务现已新增Desktop专用export_start/status/cancel任务，参见[IPC说明](../ipc/README.md)。独立文件线程1在途/8队列、64本次服务回执，状态/取消不等待文件I/O；成功发布与取消冲突以发布成功为准，不编造撤销。此入口只在受管理目录准备产物，不接收任意路径、不代表用户已保存到自选位置；桌面按钮/保存与显式容量整理继续。

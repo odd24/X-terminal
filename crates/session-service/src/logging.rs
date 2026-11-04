@@ -20,6 +20,7 @@ struct Start {
     limits: wire::Limits,
 }
 
+mod export;
 mod history;
 #[cfg(test)]
 mod tests;
@@ -51,6 +52,7 @@ impl OutputCapture for Sink {
 }
 pub(crate) struct Manager {
     history: history::Worker,
+    export: export::Worker,
     inner: Mutex<Inner>,
     gate: tokio::sync::Mutex<()>,
     store: Arc<Mutex<Store>>,
@@ -60,6 +62,7 @@ impl Manager {
     pub(crate) fn new(store: Arc<Mutex<Store>>, config: Access) -> io::Result<Self> {
         Ok(Self {
             history: history::Worker::start()?,
+            export: export::Worker::start()?,
             inner: Mutex::new(Inner::default()),
             gate: tokio::sync::Mutex::new(()),
             store,
@@ -135,6 +138,44 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            Request::ExportStart {
+                connection,
+                log_id,
+                request_id,
+            } => {
+                if let Some(info) = self.export.duplicate(connection, log_id, request_id)? {
+                    return Ok(Reply::Export(Box::new(info)));
+                }
+                let Value::LoggingDirectory(directory) = self
+                    .config
+                    .request(Internal::LoggingDirectory)
+                    .await
+                    .map_err(|_| ErrorCode::InvalidState)?
+                else {
+                    return Err(ErrorCode::InvalidState);
+                };
+                self.export
+                    .submit(directory, connection, log_id, request_id)
+                    .map(|info| Reply::Export(Box::new(info)))
+            }
+            Request::ExportStatus {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Request::ExportCancel {
+                connection,
+                log_id,
+                request_id,
+            } => self
+                .export
+                .status(
+                    connection,
+                    log_id,
+                    request_id,
+                    matches!(request, Request::ExportCancel { .. }),
+                )
+                .map(|info| Reply::Export(Box::new(info))),
             request @ (Request::HistoryList {}
             | Request::HistoryOpen { .. }
             | Request::HistoryRead { .. }
@@ -279,6 +320,7 @@ impl Manager {
         }
     }
     pub(crate) async fn close(self) -> io::Result<()> {
+        self.export.close().await?;
         self.history.close().await?;
         let inner = self
             .inner

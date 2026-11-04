@@ -35,6 +35,21 @@ pub enum Request {
         log_id: Uuid,
     },
     HistoryList {},
+    ExportStart {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
+    ExportStatus {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
+    ExportCancel {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
     HistoryOpen {
         connection: ConnectionRef,
         log_id: Uuid,
@@ -58,6 +73,26 @@ impl Request {
     pub fn validate(&self) -> bool {
         let connection = match self {
             Self::HistoryList {} => return true,
+            Self::ExportStart {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Self::ExportStatus {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Self::ExportCancel {
+                connection,
+                log_id,
+                request_id,
+            } => {
+                if log_id.is_nil() || request_id.is_nil() {
+                    return false;
+                }
+                connection
+            }
             Self::HistoryRead {
                 connection,
                 log_id,
@@ -218,9 +253,44 @@ pub struct Info {
     pub durable: bool,
     pub worker_finished: bool,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ExportPhase {
+    Queued,
+    Running,
+    Cancelling,
+    Completed,
+    Cancelled,
+    Failed,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ExportFailure {
+    InvalidSource,
+    Capacity,
+    TooLarge,
+    Storage,
+    WorkerFailed,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExportInfo {
+    pub connection: ConnectionRef,
+    pub log_id: Uuid,
+    pub request_id: Uuid,
+    pub phase: ExportPhase,
+    pub failure: Option<ExportFailure>,
+    // Present only after successful synchronized, no-overwrite publication.
+    pub bytes: Option<u64>,
+    pub retained_records: Option<u64>,
+    pub retained_raw_bytes: Option<u64>,
+    pub retained_gap_bytes: Option<u64>,
+    pub next_cursor: Option<u64>,
+}
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    Export(Box<ExportInfo>),
     Info(Box<Info>),
     List {
         logs: Vec<Info>,
@@ -240,6 +310,32 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn export_contract_requires_exact_scope_and_never_accepts_paths_or_roles() {
+        for op in ["export_start", "export_status", "export_cancel"] {
+            let value = serde_json::json!({ "op":op,
+                "connection": { "connection_id":Uuid::new_v4(), "generation":1 },
+                "log_id":Uuid::new_v4(), "request_id":Uuid::new_v4() });
+            assert!(
+                serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            for field in ["path", "directory", "filename", "role", "max_bytes"] {
+                let mut bad = value.clone();
+                bad[field] = "forbidden".into();
+                assert!(serde_json::from_value::<Request>(bad).is_err());
+            }
+            for field in ["log_id", "request_id"] {
+                let mut bad = value.clone();
+                bad[field] = Uuid::nil().to_string().into();
+                assert!(!serde_json::from_value::<Request>(bad).unwrap().validate());
+            }
+            let mut bad = value;
+            bad["connection"]["generation"] = 0.into();
+            assert!(!serde_json::from_value::<Request>(bad).unwrap().validate());
+        }
+    }
     #[test]
     fn historical_contract_bounds_identifiers_scopes_payload_and_unknown_fields() {
         let connection = ConnectionRef {

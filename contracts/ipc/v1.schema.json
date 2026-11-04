@@ -1140,6 +1140,87 @@
                 "type": "string"
               },
               "op": {
+                "const": "export_start",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "export_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "export_cancel",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
                 "const": "history_open",
                 "type": "string"
               },
@@ -2850,6 +2931,27 @@
         ],
         "type": "object"
       },
+      "ExportFailure": {
+        "enum": [
+          "INVALID_SOURCE",
+          "CAPACITY",
+          "TOO_LARGE",
+          "STORAGE",
+          "WORKER_FAILED"
+        ],
+        "type": "string"
+      },
+      "ExportPhase": {
+        "enum": [
+          "QUEUED",
+          "RUNNING",
+          "CANCELLING",
+          "COMPLETED",
+          "CANCELLED",
+          "FAILED"
+        ],
+        "type": "string"
+      },
       "Failure": {
         "enum": [
           "QUEUE_FULL",
@@ -3691,6 +3793,87 @@
       },
       "Reply2": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "failure": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ExportFailure"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "next_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "phase": {
+                "$ref": "#/$defs/ExportPhase"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "export",
+                "type": "string"
+              },
+              "retained_gap_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "retained_raw_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "retained_records": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "connection",
+              "log_id",
+              "request_id",
+              "phase"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {

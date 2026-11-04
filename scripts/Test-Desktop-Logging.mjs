@@ -103,6 +103,30 @@ try {
   }
   assert.equal(lastRead, 74);
   await request({ op: 'history_close', connection: target, log_id: first.log_id, read_id: readId });
+  const exportId = crypto.randomUUID();
+  const exportScope = { connection: target, log_id: first.log_id, request_id: exportId };
+  assert.equal((await request({ op: 'export_start', ...exportScope })).result, 'export');
+  assert.equal((await request({ op: 'export_start', ...exportScope })).request_id, exportId);
+  let exported;
+  for (let attempt = 0; attempt < 300; attempt++) {
+    exported = await request({ op: 'export_status', ...exportScope });
+    if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(exported.phase)) break;
+    await delay(20);
+  }
+  assert.equal(exported.phase, 'COMPLETED');assert.equal(exported.failure, null);
+  const exportPath = path.join(directory, 'terminal-log-exports', exportId, 'export.jsonl');
+  const exportBytes = await readFile(exportPath);
+  assert.equal(exported.bytes, exportBytes.length);
+  const exportLines = exportBytes.toString().trimEnd().split('\n').map(line => JSON.parse(line));
+  assert.equal(exportLines[0].available_from, opened.info.available_from);
+  assert.deepEqual(exportLines[0].metadata.connection, target);
+  const exportRecords = exportLines.slice(1, -1);
+  assert.equal(exported.retained_records, exportRecords.length);
+  assert.equal(exported.retained_raw_bytes, exportRecords.length * 4096);
+  assert.equal(exportLines.at(-1).type, 'verified');assert.equal(exported.next_cursor, 75);
+  for (const record of exportRecords) assert.deepEqual(Buffer.from(record.raw.bytes), Buffer.alloc(4096, 65 + (record.raw.seq - 5) % 26));
+  assert.equal((await request({ op: 'export_cancel', ...exportScope })).phase, 'COMPLETED');
+  assert.deepEqual(await readFile(exportPath), exportBytes, 'late cancellation cannot undo a published artifact');
   const info = await request({ op: 'start', connection: target, request_id: crypto.randomUUID(), limits: { segment_bytes: 131072, segments: 2 } });
   assert.notEqual(info.log_id, first.log_id);
   await request({ op: 'stop', connection: target, log_id: first.log_id });
@@ -118,7 +142,7 @@ try {
   await ui.invoke('fixture_append', { connection: target, bytes: [...Buffer.from('\r\nCONNECTION_STILL_ALIVE')] });
   await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('CONNECTION_STILL_ALIVE'))`);
   await ui.screenshot('desktop-logging-synthetic.png');
-  console.log('PASS logging native WebView: explicit scope/start/stop, no history backfill, panel close/reload keep capture, exact bounded raw/text rotation, historical catalogue and paged exact bytes/retry/final verification/close, stop old log cannot stop new log, visible file failure while terminal continues; synthetic only');
+  console.log('PASS logging native WebView: explicit scope/start/stop, no history backfill, panel close/reload keep capture, exact bounded raw/text rotation, historical catalogue/pages, deduplicated managed export with exact retained bytes and late cancellation, stop old log cannot stop new log, visible file failure while terminal continues; synthetic only');
 } finally {
   await ui?.close();
   const target = path.resolve(directory);assert.equal(path.dirname(target), path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-logging-ui-'));

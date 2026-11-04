@@ -105,3 +105,5 @@ P11.3 新增独立terminal-log：cargo test -p terminal-log --locked、cargo cli
 P11.4启停阶段新增 npm run test:desktop:logging，前置桌面构建，已加入完整桌面回归；只记录合成临时输出。日志RPC走独立配置通道，仍禁止通用RPC/任意路径。服务/原生验证必须区分本次列表与持久历史，以及写入/同步/源缺口，不能将启停通过当作搜索/导出或长稳完成。
 
 P11.4历史界面新增 npm run test:desktop:history（前置桌面构建），完整回归包含。只用合成日志，验证跨记录全文计数/显示限额、独立目标、取消/关闭回收及坏尾行；控制字符/HTML只能作为文本，不写入当前终端。时间Asia/Shanghai；T22/T23全局矩阵及导出/恢复不得从专项推断通过。
+
+P11.4受管理导出任务扩展test:desktop:logging：验证专用Tauri通道的export_start/status/cancel和真实暂存产物，不代表用户保存按钮/自选位置已完成。导出队列8/回执64，磁盘尝试8/每份256MiB；失败partial保留，不自动清理或覆盖。涉及格式/文件策略继续运行terminal-log测试及严格clippy，任务权限/去重须有真实Windows IPC证据。

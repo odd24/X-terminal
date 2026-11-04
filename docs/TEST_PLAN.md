@@ -131,3 +131,5 @@ P11.4桌面历史新增npm run test:desktop:history（前置桌面构建，完�
 P11.4文件库导出流新增5项测试，terminal-log合计31项PASS：真实轮转保留范围、原始/文本/控制/时间/来源/缺口/flush、旧代次拒绝、取消和最终计数损坏不生成成功尾行、空手停与旧未知计数，以及部分写入/flush错误传播。仅库Write阶段，无持久发布或桌面保存验收；不代替完整T16/长稳，详见P11.4。
 
 P11.4受管理导出存储新增6项，terminal-log合计37项PASS：真实新建/同步/不覆盖发布、锁owner/释放、失败/取消/最终计数坏尾、sync后取消虽含verified仍只留partial、发布冲突不覆盖、8项含失败限额、未知项及根/子项NTFS junction拒绝与目标保持。256MiB上限用临近边界sink验证，未真实写满磁盘；服务/GUI保存入口与清理尚未验收。
+
+P11.4服务导出任务新增协议/队列取消单元及2项Windows IPC，三包整轮117项PASS；覆盖Desktop/Observer/精确作用域、重复请求与终态不重跑、8队列/64回执、重启读取历史和同ID既有文件保护、坏尾行仅留partial且终端输出继续。原生test:desktop:logging扩展真实Tauri export_start/status/cancel和落盘保留范围/原始字节/最终验证；专项与桌面构建通过。无保存按钮/自选位置/任务清理UI，未全局T22/T23或完整桌面回归，详见P11.4。
