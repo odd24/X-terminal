@@ -7,20 +7,31 @@ export type Settings =
   | { protocol: 'serial'; port: string; baud_rate: number; data_bits: number; stop_bits: number; parity: 'none' | 'odd' | 'even'; flow: 'none' | 'software' | 'hardware'; dtr_on_open: boolean; rts_on_open: boolean | null; encoding: Encoding };
 export type Folder = { id: string; parent_id: string | null; name: string };
 export type PortableProfile = { id: string; folder_id: string | null; name: string; settings: Settings };
-export type Profile = PortableProfile & { credential_ref: string | null };
+export type Profile = PortableProfile & { credential_ref: string | null; credential_missing?: boolean };
 export type HostEndpoint = { protocol: 'ssh1' | 'ssh2'; host: string; port: number };
 export type HostKeySummary = { endpoint: HostEndpoint; algorithm: string; fingerprint: string };
 export type CredentialEdit = { action: 'keep' | 'clear' } | { action: 'replace'; value: { password: string | null; private_key: string | null; passphrase: string | null } };
 export type ConfigRequest = { op: 'page'; revision: string | null; offset: number; folders: boolean }
+  | { op: 'archives' | 'create_backup' | 'export_config' }
+  | { op: 'inspect_backup'; id: string }
+  | { op: 'restore_backup'; id: string; digest: string; current_revision: string }
+  | { op: 'recover_backup'; id: string; digest: string }
+  | { op: 'delete_archive'; id: string; kind: 'backup' | 'export' }
   | { op: 'host_keys_page'; revision: string | null; offset: number }
   | { op: 'forget_host_key'; endpoint: HostEndpoint; algorithm: string; expected_fingerprint: string }
   | { op: 'save_folder'; folder: Folder } | { op: 'delete_folder' | 'delete_profile'; id: string }
   | { op: 'save_profile'; profile: PortableProfile; credential: CredentialEdit }
   | { op: 'save_profile_key_file'; profile: PortableProfile; key_path: string; passphrase: string | null };
 // File import is Desktop-only; file bytes are read inside the service.
-type Page = { result: 'page'; revision: string; folders: Folder[]; profiles: Profile[]; next_offset: number | null };
-export type Reply = Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null };
+type Page = { result: 'page'; revision: string; folders: Folder[]; profiles: Profile[]; next_offset: number | null; missing_credential_profiles: string[] };
+export type ArchiveInfo = { id: string; kind: 'backup' | 'export'; filename: string; bytes: number; modified_ms: number };
+export type BackupPreview = { result: 'backup_preview'; id: string; digest: string; folders: number; profiles: number; host_keys: number; missing_credentials: number; current_revision: string | null; sample_profiles: string[] };
+export type Reply = Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null }
+  | { result: 'archives'; entries: ArchiveInfo[] } | { result: 'artifact'; artifact: ArchiveInfo } | BackupPreview
+  | { result: 'restored'; revision: string; safety_backup: ArchiveInfo; missing_credentials: number }
+  | { result: 'recovered'; directory_id: string; missing_credentials: number };
 export const messages: Record<string, string> = {
+  CAPACITY: '备份或恢复目录数量达到上限，请先整理副本。',
   INVALID: '配置无效，或目录仍被引用。请检查参数和目录关系。',
   NOT_FOUND: '配置已不存在，请刷新。', CONFLICT: '配置已变化，请刷新后重试。',
   LOCKED: '该数据目录已被另一服务使用。请退出另一桌面后重新启动。',
@@ -48,7 +59,7 @@ export async function readConfiguration(): Promise<{ folders: Folder[]; profiles
     for (;;) {
       const reply = await config({ op: 'page', revision, offset, folders: folderPage });
       if (reply.result !== 'page') throw new Error('配置响应不匹配。');
-      revision = reply.revision; folders.push(...reply.folders); profiles.push(...reply.profiles);
+      revision = reply.revision; folders.push(...reply.folders); profiles.push(...reply.profiles.map(profile => ({...profile,credential_missing:reply.missing_credential_profiles.includes(profile.id)})));
       if (reply.next_offset === null) break;
       offset = reply.next_offset;
     }

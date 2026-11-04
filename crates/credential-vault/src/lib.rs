@@ -191,4 +191,13 @@ impl Vault {
         }
         Ok(())
     }
+    /// Presence is not proof that Windows can decrypt the record for this user.
+    pub fn contains(&self, id: Uuid) -> Result<bool> {
+        self.entropy(id)?;
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM credentials WHERE id=?1)",
+            [id.to_string()],
+            |row| row.get(0),
+        )?)
+    }
 }

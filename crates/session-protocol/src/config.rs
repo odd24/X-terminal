@@ -21,6 +21,25 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    Archives {},
+    CreateBackup {},
+    ExportConfig {},
+    InspectBackup {
+        id: Uuid,
+    },
+    RestoreBackup {
+        id: Uuid,
+        digest: String,
+        current_revision: Uuid,
+    },
+    RecoverBackup {
+        id: Uuid,
+        digest: String,
+    },
+    DeleteArchive {
+        id: Uuid,
+        kind: ArchiveKind,
+    },
     HostKeysPage {
         revision: Option<Uuid>,
         offset: u32,
@@ -57,6 +76,14 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::Archives {} | Self::CreateBackup {} | Self::ExportConfig {} => true,
+            Self::InspectBackup { id } | Self::DeleteArchive { id, .. } => !id.is_nil(),
+            Self::RestoreBackup {
+                id,
+                digest,
+                current_revision,
+            } => !id.is_nil() && !current_revision.is_nil() && valid_digest(digest),
+            Self::RecoverBackup { id, digest } => !id.is_nil() && valid_digest(digest),
             Self::HostKeysPage { revision, offset } => {
                 *offset <= 1024 && (*offset == 0 || revision.is_some())
             }
@@ -127,6 +154,7 @@ impl ConfigRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConfigError {
+    Capacity,
     Invalid,
     NotFound,
     Conflict,
@@ -139,6 +167,31 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    Archives {
+        entries: Vec<ArchiveInfo>,
+    },
+    Artifact {
+        artifact: ArchiveInfo,
+    },
+    BackupPreview {
+        id: Uuid,
+        digest: String,
+        folders: u32,
+        profiles: u32,
+        host_keys: u32,
+        missing_credentials: u32,
+        current_revision: Option<Uuid>,
+        sample_profiles: Vec<String>,
+    },
+    Restored {
+        revision: Uuid,
+        safety_backup: ArchiveInfo,
+        missing_credentials: u32,
+    },
+    Recovered {
+        directory_id: Uuid,
+        missing_credentials: u32,
+    },
     HostKeysPage {
         revision: Uuid,
         keys: Vec<config_model::HostKeySummary>,
@@ -149,6 +202,7 @@ pub enum ConfigReply {
         folders: Vec<Folder>,
         profiles: Vec<Profile>,
         next_offset: Option<u32>,
+        missing_credential_profiles: Vec<Uuid>,
     },
     SavedProfile {
         profile: Profile,
@@ -160,6 +214,25 @@ pub enum ConfigReply {
     Error {
         code: ConfigError,
     },
+}
+
+fn valid_digest(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveKind {
+    Backup,
+    Export,
+}
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveInfo {
+    pub id: Uuid,
+    pub kind: ArchiveKind,
+    pub filename: String,
+    pub bytes: u64,
+    pub modified_ms: u64,
 }
 
 #[cfg(test)]

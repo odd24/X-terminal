@@ -31,15 +31,20 @@ impl ConfigWorker {
         let thread = std::thread::Builder::new()
             .name("configuration-store".into())
             .spawn(move || {
-                let mut state = State::open(directory);
+                let owner = lock_directory(&directory);
+                let mut state = match &owner {
+                    Ok(_) => State::open(directory.clone()),
+                    Err(error) => Err(*error),
+                };
+                let archives = crate::archives::Archives::new(directory);
                 while let Some(message) = receiver.blocking_recv() {
                     // Skip work if its server response future was already cancelled.
                     // Network loss alone is not proof of cancellation; running writes may commit.
                     if message.reply.is_closed() {
                         continue;
                     }
-                    let result = match &mut state {
-                        Ok(state) => state.handle(message.request),
+                    let result = match &owner {
+                        Ok(_) => archives.handle(message.request, &mut state),
                         Err(code) => Err(*code),
                     };
                     let _ = message
@@ -78,30 +83,34 @@ impl ConfigWorker {
         Ok(())
     }
 }
-struct State {
-    store: Store,
-    vault: Vault,
-    revision: Uuid,
-    _lock: File,
+fn lock_directory(directory: &std::path::Path) -> Result<File, ConfigError> {
+    std::fs::create_dir_all(directory).map_err(|_| ConfigError::Storage)?;
+    // Windows share mode zero prevents separate service instances using this directory.
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .share_mode(0)
+        .open(directory.join("configuration.lock"))
+        .map_err(|error| {
+            if matches!(error.raw_os_error(), Some(32 | 33)) {
+                ConfigError::Locked
+            } else {
+                ConfigError::Storage
+            }
+        })?;
+
+    Ok(lock)
+}
+
+pub(super) struct State {
+    pub(super) store: Store,
+    pub(super) vault: Vault,
+    pub(super) revision: Uuid,
 }
 impl State {
     fn open(directory: PathBuf) -> Result<Self, ConfigError> {
-        std::fs::create_dir_all(&directory).map_err(|_| ConfigError::Storage)?;
-        // Windows share mode zero prevents separate service instances using this directory.
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .share_mode(0)
-            .open(directory.join("configuration.lock"))
-            .map_err(|error| {
-                if matches!(error.raw_os_error(), Some(32 | 33)) {
-                    ConfigError::Locked
-                } else {
-                    ConfigError::Storage
-                }
-            })?;
         let store = Store::open(&directory.join("config.sqlite")).map_err(|error| {
             match config_error(error) {
                 ConfigError::Invalid => ConfigError::Corrupt,
@@ -113,18 +122,24 @@ impl State {
             store,
             vault,
             revision: Uuid::new_v4(),
-            _lock: lock,
         })
     }
-    fn changed(&mut self) -> Uuid {
+    pub(super) fn changed(&mut self) -> Uuid {
         self.revision = Uuid::new_v4();
         self.revision
     }
-    fn handle(&mut self, request: ConfigRequest) -> Result<ConfigReply, ConfigError> {
+    pub(super) fn handle(&mut self, request: ConfigRequest) -> Result<ConfigReply, ConfigError> {
         if !request.validate() {
             return Err(ConfigError::Invalid);
         }
         match request {
+            ConfigRequest::Archives {}
+            | ConfigRequest::CreateBackup {}
+            | ConfigRequest::ExportConfig {}
+            | ConfigRequest::InspectBackup { .. }
+            | ConfigRequest::RestoreBackup { .. }
+            | ConfigRequest::RecoverBackup { .. }
+            | ConfigRequest::DeleteArchive { .. } => Err(ConfigError::Invalid),
             ConfigRequest::HostKeysPage { revision, offset } => {
                 if revision.is_some_and(|revision| revision != self.revision) {
                     return Err(ConfigError::Conflict);
@@ -276,11 +291,20 @@ impl State {
                 if start > total {
                     return Err(ConfigError::Invalid);
                 }
+                let mut missing_credential_profiles = Vec::new();
+                for profile in &profiles {
+                    if let Some(id) = profile.credential_ref
+                        && !self.vault.contains(id).map_err(vault_error)?
+                    {
+                        missing_credential_profiles.push(profile.id);
+                    }
+                }
                 Ok(ConfigReply::Page {
                     revision: self.revision,
                     folders,
                     profiles,
                     next_offset: (start + 64 < total).then_some(offset + 64),
+                    missing_credential_profiles,
                 })
             }
             ConfigRequest::SaveFolder { folder } => {
@@ -383,7 +407,7 @@ fn validate_credential(settings: &Settings, value: &CredentialBundle) -> Result<
         Err(ConfigError::Invalid)
     }
 }
-fn config_error(error: config_store::Error) -> ConfigError {
+pub(super) fn config_error(error: config_store::Error) -> ConfigError {
     match error {
         config_store::Error::Conflict => ConfigError::Conflict,
         config_store::Error::Invalid(_)

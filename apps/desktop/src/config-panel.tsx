@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { HostKeysPanel } from './host-keys-panel';
+import { ArchivesPanel } from './archives-panel';
 import { config, readConfiguration, type Auth, type CredentialEdit, type Encoding, type Folder, type Profile, type Settings } from './config-api';
 
 type Draft = {
@@ -35,6 +36,7 @@ export function ConfigPanel({ close }: { close(): void }) {
   const [message, setMessage] = useState('正在读取配置');
   const [location, setLocation] = useState('');
   const [ready, setReady] = useState(false);
+  const [managementEpoch,setManagementEpoch]=useState(0);
   const current = profiles.find(profile => profile.id === draft.id);
   const clearSecrets = () => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential('keep'); };
   const change = <K extends keyof Draft>(field: K, value: Draft[K]) => setDraft(previous => ({ ...previous, [field]: value }));
@@ -80,7 +82,7 @@ export function ConfigPanel({ close }: { close(): void }) {
       <aside>
         <label>目录筛选<select aria-label="目录筛选" value={filter} onChange={event => setFilter(event.target.value)}><option value="*">全部目录</option>{options}</select></label>
         <label>搜索配置<input aria-label="搜索配置" value={search} onChange={event => setSearch(event.target.value)} /></label>
-        <ul className="profile-list">{filtered.map(profile => <li key={profile.id}><button className={draft.id === profile.id ? 'selected' : ''} onClick={() => { clearSecrets(); setDraft(edit(profile)); }}>{profile.name}<small>{profile.settings.protocol.toUpperCase()} · {profile.credential_ref ? '有凭据引用' : '无凭据引用'}</small></button></li>)}</ul>
+        <ul className="profile-list">{filtered.map(profile => <li key={profile.id}><button className={draft.id === profile.id ? 'selected' : ''} onClick={() => { clearSecrets(); setDraft(edit(profile)); }}>{profile.name}<small>{profile.settings.protocol.toUpperCase()} · {profile.credential_missing ? '凭据引用缺失' : profile.credential_ref ? '有凭据引用' : '无凭据引用'}</small></button></li>)}</ul>
         <div className="config-actions"><button disabled={busy || !ready} onClick={() => { clearSecrets(); setDraft({ ...blank(), folder: filter === '*' ? '' : filter }); }}>新建配置</button><button disabled={busy} onClick={() => void run(async () => {}, '配置已刷新')}>刷新配置</button></div>
         <form aria-label="目录编辑" onSubmit={event => { event.preventDefault(); void run(async () => { await config({ op: 'save_folder', folder: folderDraft }); }, '目录已保存'); }}>
           <fieldset disabled={busy || !ready}><legend>目录管理</legend>
@@ -115,7 +117,7 @@ export function ConfigPanel({ close }: { close(): void }) {
               {draft.flow !== 'hardware' ? <label className="check"><input aria-label="打开时RTS" type="checkbox" checked={draft.rts} onChange={event => change('rts', event.target.checked)} />打开时 RTS</label> : <p>RTS 将由硬件流控驱动管理。</p>}
             </>}
           </div>
-          {draft.protocol !== 'serial' && <fieldset><legend>凭据</legend><p>{current?.credential_ref ? '此配置有保存的凭据引用；不会回填秘密。' : '此配置没有保存的凭据引用。'}</p>
+          {draft.protocol !== 'serial' && <fieldset><legend>凭据</legend><p>{current?.credential_missing ? '此配置的凭据记录缺失，请重新输入或移除引用。恢复配置不会恢复密码或私钥。' : current?.credential_ref ? '此配置有保存的凭据引用；不会回填秘密。' : '此配置没有保存的凭据引用。'}</p>
             <label>凭据操作<select aria-label="凭据操作" value={credential} onChange={event => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential(event.target.value as typeof credential); }}><option value="keep">保留现有引用 / 暂不保存</option><option value="clear">移除此配置的凭据引用</option><option value="replace">保存新凭据</option></select></label>
             {credential === 'replace' && (draft.protocol === 'ssh2' && draft.auth === 'public_key' ? <><label>本地私钥文件<input aria-label="本地私钥文件" required autoComplete="off" placeholder="C:\keys\id_ed25519" value={keyPath} onChange={event => setKeyPath(event.target.value)} /><small>仅本地盘的普通文件，服务读取并加密保存；文件内容不进入页面。</small></label><label>私钥口令<input aria-label="私钥口令" type="password" autoComplete="new-password" value={passphrase} onChange={event => setPassphrase(event.target.value)} /></label></> : <label>新密码<input aria-label="新密码" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /><small>允许显式保存空密码。</small></label>)}
             <small>移除引用不删除其他配置或备份可能使用的密文。保存、切换或关闭后清空新输入。</small>
@@ -124,7 +126,8 @@ export function ConfigPanel({ close }: { close(): void }) {
         </fieldset>
       </form>
     </div>
-    <HostKeysPanel />
+    <HostKeysPanel key={managementEpoch} />
+    <ArchivesPanel directory={location} usable={ready} restored={async () => { clearSecrets();setDraft(blank());setFolderDraft({id:crypto.randomUUID(),parent_id:null,name:''});await reload();setManagementEpoch(value=>value+1);setMessage('配置已从备份恢复；没有连接或重放输入。'); }} />
     <p className="data-location">数据目录：{location || '读取失败时请重新启动检查启动目录'}</p>
   </section>;
 }

@@ -30,6 +30,13 @@
   },
   "request": {
     "$defs": {
+      "ArchiveKind": {
+        "enum": [
+          "backup",
+          "export"
+        ],
+        "type": "string"
+      },
       "Auth": {
         "enum": [
           "password",
@@ -40,6 +47,134 @@
       },
       "ConfigRequest": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "archives",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "create_backup",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "export_config",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "inspect_backup",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "current_revision": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "restore_backup",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id",
+              "digest",
+              "current_revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "digest": {
+                "type": "string"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "recover_backup",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id",
+              "digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/ArchiveKind"
+              },
+              "op": {
+                "const": "delete_archive",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id",
+              "kind"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -824,6 +959,46 @@
   },
   "response": {
     "$defs": {
+      "ArchiveInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/$defs/ArchiveKind"
+          },
+          "modified_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "filename",
+          "bytes",
+          "modified_ms"
+        ],
+        "type": "object"
+      },
+      "ArchiveKind": {
+        "enum": [
+          "backup",
+          "export"
+        ],
+        "type": "string"
+      },
       "Auth": {
         "enum": [
           "password",
@@ -841,6 +1016,7 @@
       },
       "ConfigError": {
         "enum": [
+          "CAPACITY",
           "INVALID",
           "NOT_FOUND",
           "CONFLICT",
@@ -854,6 +1030,155 @@
       },
       "ConfigReply": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "items": {
+                  "$ref": "#/$defs/ArchiveInfo"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "archives",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "entries"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "artifact": {
+                "$ref": "#/$defs/ArchiveInfo"
+              },
+              "result": {
+                "const": "artifact",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "artifact"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "current_revision": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "digest": {
+                "type": "string"
+              },
+              "folders": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "host_keys": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "missing_credentials": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "profiles": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "backup_preview",
+                "type": "string"
+              },
+              "sample_profiles": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "result",
+              "id",
+              "digest",
+              "folders",
+              "profiles",
+              "host_keys",
+              "missing_credentials",
+              "sample_profiles"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "missing_credentials": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "restored",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "safety_backup": {
+                "$ref": "#/$defs/ArchiveInfo"
+              }
+            },
+            "required": [
+              "result",
+              "revision",
+              "safety_backup",
+              "missing_credentials"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "directory_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "missing_credentials": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "recovered",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "directory_id",
+              "missing_credentials"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -896,6 +1221,13 @@
                 },
                 "type": "array"
               },
+              "missing_credential_profiles": {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "next_offset": {
                 "format": "uint32",
                 "minimum": 0,
@@ -923,7 +1255,8 @@
               "result",
               "revision",
               "folders",
-              "profiles"
+              "profiles",
+              "missing_credential_profiles"
             ],
             "type": "object"
           },

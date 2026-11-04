@@ -1255,3 +1255,333 @@ async fn host_key_configuration_requires_desktop_and_exact_fingerprint() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn archive_export_preview_restore_and_new_directory_recovery_preserve_boundaries() {
+    use config::{ArchiveKind, ConfigReply as C, ConfigRequest as Q};
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let original = portable();
+    let C::SavedProfile { profile: saved, .. } = config_call(
+        &mut desktop,
+        Q::SaveProfile {
+            profile: original.clone(),
+            credential: replace_password("synthetic archive password"),
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    let C::Artifact { artifact: export } = config_call(&mut desktop, Q::ExportConfig {}).await
+    else {
+        panic!()
+    };
+    assert_eq!(export.kind, ArchiveKind::Export);
+    let text = std::fs::read_to_string(temp.0.join("artifacts").join(&export.filename)).unwrap();
+    assert!(!text.contains("credential_ref"));
+    assert!(!text.contains("synthetic archive password"));
+    let C::Artifact { artifact: backup } = config_call(&mut desktop, Q::CreateBackup {}).await
+    else {
+        panic!()
+    };
+    assert_eq!(
+        config_store::Store::read_backup(&temp.0.join("artifacts").join(&backup.filename))
+            .unwrap()
+            .profiles[0]
+            .credential_ref,
+        saved.credential_ref
+    );
+    let fixture = match ok(desktop.request(Request::CreateFixture {}).await.unwrap()) {
+        Reply::Connection(info) => info.reference(),
+        _ => panic!(),
+    };
+    desktop
+        .request(Request::AppendFixture {
+            connection: fixture,
+            bytes: b"synthetic output retained".to_vec(),
+        })
+        .await
+        .unwrap();
+    let before = match ok(desktop
+        .request(Request::Read {
+            connection: fixture,
+            cursor: 1,
+            max_bytes: 4096,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::Output(page) => page,
+        _ => panic!(),
+    };
+    let mut changed = original.clone();
+    changed.name = "changed after backup".into();
+    config_call(
+        &mut desktop,
+        Q::SaveProfile {
+            profile: changed.clone(),
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    let C::BackupPreview {
+        digest,
+        current_revision: Some(revision),
+        missing_credentials,
+        ..
+    } = config_call(&mut desktop, Q::InspectBackup { id: backup.id }).await
+    else {
+        panic!()
+    };
+    assert_eq!(missing_credentials, 0);
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            Q::RestoreBackup {
+                id: backup.id,
+                digest: "0".repeat(64),
+                current_revision: revision
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Conflict
+        }
+    ));
+    config_call(
+        &mut desktop,
+        Q::SaveProfile {
+            profile: changed,
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            Q::RestoreBackup {
+                id: backup.id,
+                digest: digest.clone(),
+                current_revision: revision
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Conflict
+        }
+    ));
+    let C::BackupPreview {
+        current_revision: Some(revision),
+        ..
+    } = config_call(&mut desktop, Q::InspectBackup { id: backup.id }).await
+    else {
+        panic!()
+    };
+    let C::Restored {
+        safety_backup,
+        missing_credentials,
+        ..
+    } = config_call(
+        &mut desktop,
+        Q::RestoreBackup {
+            id: backup.id,
+            digest: digest.clone(),
+            current_revision: revision,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(missing_credentials, 0);
+    assert_eq!(
+        config_store::Store::read_backup(&temp.0.join("artifacts").join(safety_backup.filename))
+            .unwrap()
+            .profiles[0]
+            .name,
+        "changed after backup"
+    );
+    let C::Page { profiles, .. } = config_call(
+        &mut desktop,
+        Q::Page {
+            revision: None,
+            offset: 0,
+            folders: false,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(profiles, vec![saved.clone()]);
+    let after = match ok(desktop
+        .request(Request::Read {
+            connection: fixture,
+            cursor: 1,
+            max_bytes: 4096,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::Output(page) => page,
+        _ => panic!(),
+    };
+    assert_eq!(
+        before, after,
+        "restore must not mutate/replay existing session output"
+    );
+    service.stop(&mut desktop).await;
+    let source = temp.0.join("config.sqlite");
+    let conn = rusqlite::Connection::open(&source).unwrap();
+    conn.execute_batch("PRAGMA user_version=99").unwrap();
+    drop(conn);
+    let source_before = std::fs::read(&source).unwrap();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    assert!(matches!(
+        config_call(&mut desktop, Q::InspectBackup { id: backup.id }).await,
+        C::BackupPreview {
+            current_revision: None,
+            ..
+        }
+    ));
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            Q::RestoreBackup {
+                id: backup.id,
+                digest: digest.clone(),
+                current_revision: Uuid::new_v4()
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::UnsupportedSchema
+        }
+    ));
+    let mut second = temp.start().await;
+    let mut other = second.connect().await;
+    assert!(matches!(
+        config_call(&mut other, Q::Archives {}).await,
+        C::Error {
+            code: config::ConfigError::Locked
+        }
+    ));
+    second.stop(&mut other).await;
+    let C::Recovered {
+        directory_id,
+        missing_credentials,
+    } = config_call(
+        &mut desktop,
+        Q::RecoverBackup {
+            id: backup.id,
+            digest,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(missing_credentials, 1);
+    let recovered = temp.0.join(format!("recovered-{directory_id}"));
+    assert!(recovered.join("recovery.ready").is_file());
+    assert!(!recovered.join("credentials.sqlite").exists());
+    assert_eq!(
+        config_store::Store::open(&recovered.join("config.sqlite"))
+            .unwrap()
+            .profiles()
+            .unwrap(),
+        vec![saved]
+    );
+    assert_eq!(std::fs::read(source).unwrap(), source_before);
+    service.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+async fn archive_read_write_are_denied_to_observers_and_bad_sources_cannot_restore() {
+    use config::{ArchiveKind, ConfigReply as C, ConfigRequest as Q};
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let fixture = match ok(desktop.request(Request::CreateFixture {}).await.unwrap()) {
+        Reply::Connection(info) => info.reference(),
+        _ => panic!(),
+    };
+    let token = match ok(desktop
+        .request(Request::IssueRead {
+            scopes: vec![fixture],
+            lifetime_ms: 10000,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::ReadTicket { token, .. } => token,
+        _ => panic!(),
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    for request in [
+        Q::Archives {},
+        Q::CreateBackup {},
+        Q::ExportConfig {},
+        Q::InspectBackup { id: Uuid::new_v4() },
+        Q::RestoreBackup {
+            id: Uuid::new_v4(),
+            digest: "0".repeat(64),
+            current_revision: Uuid::new_v4(),
+        },
+        Q::RecoverBackup {
+            id: Uuid::new_v4(),
+            digest: "0".repeat(64),
+        },
+        Q::DeleteArchive {
+            id: Uuid::new_v4(),
+            kind: ArchiveKind::Backup,
+        },
+    ] {
+        assert!(matches!(
+            observer.request(Request::Config { request }).await.unwrap(),
+            Response::Error {
+                code: ErrorCode::PermissionDenied,
+                ..
+            }
+        ));
+    }
+    let C::Artifact { artifact } = config_call(&mut desktop, Q::CreateBackup {}).await else {
+        panic!()
+    };
+    let path = temp.0.join("artifacts").join(&artifact.filename);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("PRAGMA user_version=99").unwrap();
+    drop(conn);
+    assert!(matches!(
+        config_call(&mut desktop, Q::InspectBackup { id: artifact.id }).await,
+        C::Error {
+            code: config::ConfigError::UnsupportedSchema
+        }
+    ));
+    std::fs::write(&path, b"synthetic corrupt backup").unwrap();
+    assert!(matches!(
+        config_call(&mut desktop, Q::InspectBackup { id: artifact.id }).await,
+        C::Error {
+            code: config::ConfigError::Corrupt
+        }
+    ));
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            Q::DeleteArchive {
+                id: artifact.id,
+                kind: ArchiveKind::Backup
+            }
+        )
+        .await,
+        C::Updated { .. }
+    ));
+    assert!(!path.exists());
+    service.stop(&mut desktop).await;
+}

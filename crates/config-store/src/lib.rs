@@ -277,6 +277,10 @@ impl Store {
     }
     pub fn export(&self) -> Result<Snapshot> {
         let tx = self.connection.unchecked_transaction()?;
+        check(&tx)?;
+        if metadata(&tx)?.1 != SCHEMA_VERSION {
+            return Err(Error::Schema);
+        }
         let snapshot = Snapshot {
             format_version: 1,
             folders: self.folders()?,

@@ -1,6 +1,6 @@
 # 执行台账
 
-更新：2026-11-04（Asia/Shanghai）。P01/P02/P06/P07 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。P08.1/P08.2 完成；P08.3 后端与桌面编辑器已提交，继续主机密钥/备份恢复/凭据整理。
+更新：2026-11-04（Asia/Shanghai）。P01/P02/P06/P07 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。P08.1/P08.2 完成；P08.3 后端与桌面编辑器已提交，主机密钥与备份恢复阶段已验证，继续凭据整理。
 
 DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变更管理](CHANGE_CONTROL.md)。Pxx 记录在开始该步骤时创建，不预填产品测试结果。
 
@@ -22,7 +22,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P08 | 配置与凭据 | IN_PROGRESS | 待子步骤完成后汇总 | — |
 | P08.1 | 配置模型与 SQLite 迁移 | DONE | [P08.1](records/P08.1.md) | Step-ID: P08.1 |
 | P08.2 | Windows 保护凭据 | DONE | [P08.2](records/P08.2.md) | Step-ID: P08.2 |
-| P08.3 | 配置服务/编辑器/主机密钥与恢复存储层；备份 UI/凭据整理继续 | IN_PROGRESS | [P08.3](records/P08.3.md) | Step-ID: P08.3 |
+| P08.3 | 配置服务/编辑器/主机密钥/备份恢复；凭据整理继续 | IN_PROGRESS | [P08.3](records/P08.3.md) | Step-ID: P08.3 |
 | P09 | SSH2 正式接入 | TODO | 待创建 | — |
 | P10 | 串口正式接入 | TODO | 待创建 | — |
 | P11 | 编码/日志/终端行为 | TODO | 待创建 | — |
