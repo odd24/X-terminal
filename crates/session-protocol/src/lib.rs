@@ -12,6 +12,32 @@ use zeroize::Zeroizing;
 pub const MAX_FRAME: usize = 512 * 1024;
 
 #[derive(JsonSchema)]
+pub struct SensitiveBytes(#[schemars(with = "Vec<u8>")] Zeroizing<Vec<u8>>);
+impl SensitiveBytes {
+    pub fn new(value: Vec<u8>) -> Self {
+        Self(Zeroizing::new(value))
+    }
+    pub fn expose(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl std::fmt::Debug for SensitiveBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+impl Serialize for SensitiveBytes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.expose().serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for SensitiveBytes {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Vec::<u8>::deserialize(deserializer).map(Self::new)
+    }
+}
+
+#[derive(JsonSchema)]
 pub struct Sensitive(#[schemars(with = "String")] Zeroizing<String>);
 impl Sensitive {
     pub fn new(value: String) -> Self {

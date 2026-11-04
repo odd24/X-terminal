@@ -888,6 +888,88 @@
           {
             "additionalProperties": false,
             "properties": {
+              "bytes": {
+                "$ref": "#/$defs/SensitiveBytes"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "write",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cols": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "resize",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "rows": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "cols",
+              "rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "input_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "cols": {
                 "format": "uint32",
                 "minimum": 0,
@@ -1049,6 +1131,15 @@
       },
       "Sensitive": {
         "type": "string"
+      },
+      "SensitiveBytes": {
+        "items": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": "array"
       },
       "Settings": {
         "oneOf": [
@@ -1943,6 +2034,24 @@
         ],
         "type": "string"
       },
+      "InputFailure": {
+        "enum": [
+          "CANCELLED",
+          "TIMEOUT",
+          "TRANSPORT"
+        ],
+        "type": "string"
+      },
+      "InputState": {
+        "enum": [
+          "PENDING",
+          "DISPATCHING",
+          "PIPELINE_QUEUED",
+          "UNKNOWN",
+          "CANCELLED_BEFORE_DISPATCH"
+        ],
+        "type": "string"
+      },
       "OutputEvent": {
         "additionalProperties": false,
         "properties": {
@@ -2274,6 +2383,46 @@
       },
       "Reply2": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "failure": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/InputFailure"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pipeline_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "input",
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/$defs/InputState"
+              }
+            },
+            "required": [
+              "result",
+              "request_id",
+              "state"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {

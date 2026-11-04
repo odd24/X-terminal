@@ -31,3 +31,7 @@ P09 开发增量加入 ssh 请求：Start(profile_id/request_id/cols/rows)、Sta
 其余 SSH 操作明确 connection_id/generation；回答还须当前 challenge_id，回执消耗一次，错误类型/重复/关闭后/旧代次均拒绝。HostKey 挑战只携带当前公开 review，服务保存实际握手 candidate 和信任 revision；客户端不能提交任意待批准密钥。Authenticate 选择 use_saved 或临时 password，禁止两者并存或原始 key 字段；公钥使用启动 Profile 的受保护引用，启动后配置变化拒绝取用。KeyboardInteractive 返回 name/instructions/prompts 与 echo，不将远端文字解释为权限或工具指令。
 
 当前服务阶段仅建立/认证/读取 shell 与关闭；写入、尺寸更新、exec 任务、重连及 GUI 尚未接入。Status 保留失败类别、待确认挑战和可选 shell_exit_status/shell_exit_signal，缺退出码不编造成功；TransportTimeout 和 ApprovalTimeout 区分协议操作与用户等待。该开发契约扩展不代表 R01 或 v1.0 验收完成。详见 [P09](../../docs/records/P09.md)。
+
+P09 输入增量：ssh/write、resize、input_status 都要求 connection_id/generation/request_id，仅 Desktop；Write 的 bytes 是最多 65536 项非空字节数组，Debug 脱敏。相同 request_id/相同内容返回已有回执，不再次发送；内容或动作冲突拒绝；队列满 CapacityExceeded 且不登记已接受。Input 回复的 request_id/state/pipeline_bytes/failure 不带输入内容。
+
+状态包括 PENDING、DISPATCHING、PIPELINE_QUEUED、UNKNOWN、CANCELLED_BEFORE_DISPATCH。PIPELINE_QUEUED 只表示 SSH pipeline 接收了调用，绝不表示远端执行；resize 的 pipeline_bytes 为 null。UNKNOWN 可能已有部分字节发送，关闭/超时不重放；尚未调用底层的队列项为 CANCELLED_BEFORE_DISPATCH。可在关闭后查询既有回执；旧代次拒绝。每代最多 1024 回执且不淘汰，长期策略留 P14/P22，详见 [ADR-015](../../docs/decisions/ADR-015.md)。

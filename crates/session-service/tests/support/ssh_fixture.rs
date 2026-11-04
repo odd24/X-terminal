@@ -15,6 +15,10 @@ use std::{
 };
 #[derive(Clone)]
 struct Server {
+    observations: Arc<Mutex<Vec<Observation>>>,
+    received: Arc<Mutex<Vec<Vec<u8>>>>,
+    sizes: Arc<Mutex<Vec<(u32, u32)>>>,
+    stall: bool,
     client_key: russh::keys::PublicKey,
     password: Arc<String>,
     attempts: Arc<AtomicUsize>,
@@ -100,6 +104,7 @@ impl server::Handler for Server {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         assert_eq!((cols, rows), (80, 24));
+        self.sizes.lock().unwrap().push((cols, rows));
         session.data(channel, b"before-pty|".to_vec())?;
         session.channel_success(channel)?;
         Ok(())
@@ -115,8 +120,44 @@ impl server::Handler for Server {
         *self.shell.lock().unwrap() = Some((session.handle(), channel));
         Ok(())
     }
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        bytes: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.received.lock().unwrap().push(bytes.to_vec());
+        self.observations
+            .lock()
+            .unwrap()
+            .push(Observation::Data(bytes.to_vec()));
+        if self.stall {
+            std::future::pending::<()>().await;
+        }
+        session.data(channel, bytes.to_vec())?;
+        Ok(())
+    }
+    async fn window_change_request(
+        &mut self,
+        _: ChannelId,
+        cols: u32,
+        rows: u32,
+        _: u32,
+        _: u32,
+        _: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.sizes.lock().unwrap().push((cols, rows));
+        self.observations
+            .lock()
+            .unwrap()
+            .push(Observation::Resize(cols, rows));
+        Ok(())
+    }
 }
 pub struct Fixture {
+    pub observations: Arc<Mutex<Vec<Observation>>>,
+    pub received: Arc<Mutex<Vec<Vec<u8>>>>,
+    pub sizes: Arc<Mutex<Vec<(u32, u32)>>>,
     pub client_key: PrivateKey,
     pub port: u16,
     pub password: Arc<String>,
@@ -127,8 +168,16 @@ pub struct Fixture {
     task: tokio::task::JoinHandle<()>,
     shutdown: server::RunningServerHandle,
 }
+#[derive(Debug, PartialEq, Eq)]
+pub enum Observation {
+    Data(Vec<u8>),
+    Resize(u32, u32),
+}
 impl Fixture {
     pub async fn start() -> Self {
+        Self::options(false).await
+    }
+    pub async fn options(stall: bool) -> Self {
         let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let client_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let pin = key.public_key().fingerprint(HashAlg::Sha256).to_string();
@@ -136,13 +185,22 @@ impl Fixture {
         let password = Arc::new(format!("synthetic-service-{}", rand::random::<u64>()));
         let attempts = Arc::new(AtomicUsize::new(0));
         let shell = Arc::new(Mutex::new(None));
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let sizes = Arc::new(Mutex::new(Vec::new()));
+        let observations = Arc::new(Mutex::new(Vec::new()));
         let mut server = Server {
+            observations: observations.clone(),
+            received: received.clone(),
+            sizes: sizes.clone(),
+            stall,
             client_key: client_key.public_key().clone(),
             password: password.clone(),
             attempts: attempts.clone(),
             shell: shell.clone(),
         };
         let config = Arc::new(server::Config {
+            window_size: 32768,
+            maximum_packet_size: 32768,
             keys: vec![key],
             auth_rejection_time: Duration::from_millis(1),
             auth_rejection_time_initial: Some(Duration::ZERO),
@@ -160,6 +218,9 @@ impl Fixture {
         });
         let shutdown = rx.await.unwrap();
         Self {
+            observations,
+            received,
+            sizes,
             client_key,
             port,
             password,

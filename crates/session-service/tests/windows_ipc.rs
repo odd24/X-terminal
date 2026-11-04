@@ -2578,3 +2578,439 @@ async fn ssh2_service_remote_disconnect_fails_without_an_invented_exit_code() {
     assert!(output.disconnected);
     service.stop(&mut client).await;
 }
+
+async fn ssh_connected_fixture(
+    client: &mut Client,
+    remote: &ssh_fixture::Fixture,
+) -> ConnectionRef {
+    use ssh::{Challenge as H, Request as S};
+    let profile = ssh_profile(remote, config_store::Auth::Password);
+    config_call(
+        client,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: replace_password(&remote.password),
+        },
+    )
+    .await;
+    let connection = ssh_start(client, profile.id, Uuid::new_v4())
+        .await
+        .reference();
+    let status = ssh_status(client, connection, |status| {
+        matches!(status.challenge, Some(H::HostKey { .. }))
+    })
+    .await;
+    ssh_call(
+        client,
+        S::AnswerHost {
+            connection,
+            challenge_id: status.challenge.unwrap().id(),
+            approve: true,
+        },
+    )
+    .await;
+    let status = ssh_status(client, connection, |status| {
+        matches!(status.challenge, Some(H::Credentials { .. }))
+    })
+    .await;
+    ssh_call(
+        client,
+        S::Authenticate {
+            connection,
+            challenge_id: status.challenge.unwrap().id(),
+            use_saved: true,
+            password: None,
+        },
+    )
+    .await;
+    ssh_status(client, connection, |status| {
+        status.connection.state == State::Connected
+    })
+    .await;
+    connection
+}
+async fn input_status(
+    client: &mut Client,
+    connection: ConnectionRef,
+    id: Uuid,
+    accept: impl Fn(&session_core::input::Receipt) -> bool,
+) -> session_core::input::Receipt {
+    timeout(Duration::from_secs(4), async {
+        loop {
+            let ssh::Reply::Input(receipt) = ssh_call(
+                client,
+                ssh::Request::InputStatus {
+                    connection,
+                    request_id: id,
+                },
+            )
+            .await
+            else {
+                panic!()
+            };
+            if accept(&receipt) {
+                return receipt;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+fn input_write(connection: ConnectionRef, request_id: Uuid, bytes: &[u8]) -> ssh::Request {
+    ssh::Request::Write {
+        connection,
+        request_id,
+        bytes: SensitiveBytes::new(bytes.to_vec()),
+    }
+}
+#[tokio::test]
+async fn ssh2_input_is_fifo_deduplicated_generation_scoped_and_observer_cannot_write() {
+    use session_core::input::InputState as I;
+    use ssh::Request as S;
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let ids = [Uuid::new_v4(), Uuid::new_v4()];
+    ssh_call(&mut client, input_write(connection, ids[0], b"first|")).await;
+    ssh_call(&mut client, input_write(connection, ids[0], b"first|")).await;
+    ssh_call(&mut client, input_write(connection, ids[1], b"second|")).await;
+    for id in ids {
+        let receipt = input_status(&mut client, connection, id, |receipt| {
+            receipt.state == I::PipelineQueued
+        })
+        .await;
+        assert!(receipt.pipeline_bytes.is_some());
+    }
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: input_write(connection, ids[0], b"different input")
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidArgument,
+            ..
+        }
+    ));
+    let resize = Uuid::new_v4();
+    ssh_call(
+        &mut client,
+        S::Resize {
+            connection,
+            request_id: resize,
+            cols: 101,
+            rows: 31,
+        },
+    )
+    .await;
+    ssh_call(
+        &mut client,
+        S::Resize {
+            connection,
+            request_id: resize,
+            cols: 101,
+            rows: 31,
+        },
+    )
+    .await;
+    let receipt = input_status(&mut client, connection, resize, |receipt| {
+        receipt.state == I::PipelineQueued
+    })
+    .await;
+    assert!(receipt.pipeline_bytes.is_none());
+    timeout(Duration::from_secs(3), async {
+        loop {
+            if *remote.sizes.lock().unwrap() == [(80, 24), (101, 31)]
+                && remote.received.lock().unwrap().concat() == b"first|second|"
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        *remote.observations.lock().unwrap(),
+        vec![
+            ssh_fixture::Observation::Data(b"first|".to_vec()),
+            ssh_fixture::Observation::Data(b"second|".to_vec()),
+            ssh_fixture::Observation::Resize(101, 31)
+        ]
+    );
+    let token = match ok(client
+        .request(Request::IssueRead {
+            scopes: vec![connection],
+            lifetime_ms: 10000,
+        })
+        .await
+        .unwrap())
+    {
+        Reply::ReadTicket { token, .. } => token,
+        _ => panic!(),
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    for request in [
+        input_write(connection, Uuid::new_v4(), b"not permitted"),
+        S::Resize {
+            connection,
+            request_id: Uuid::new_v4(),
+            cols: 90,
+            rows: 25,
+        },
+        S::InputStatus {
+            connection,
+            request_id: ids[0],
+        },
+    ] {
+        assert!(matches!(
+            observer.request(Request::Ssh { request }).await.unwrap(),
+            Response::Error {
+                code: ErrorCode::PermissionDenied,
+                ..
+            }
+        ));
+    }
+    let mut stale = connection;
+    stale.generation += 1;
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: input_write(stale, Uuid::new_v4(), b"stale")
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::StaleGeneration,
+            ..
+        }
+    ));
+    let Reply::Output(output) = ok(observer
+        .request(Request::Read {
+            connection,
+            cursor: 1,
+            max_bytes: 65536,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    assert!(
+        output
+            .events
+            .iter()
+            .flat_map(|event| event.bytes.iter())
+            .copied()
+            .collect::<Vec<_>>()
+            .ends_with(b"first|second|")
+    );
+    ssh_call(&mut client, S::Close { connection }).await;
+    assert_eq!(
+        input_status(&mut client, connection, ids[0], |_| true)
+            .await
+            .state,
+        I::PipelineQueued
+    );
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: input_write(connection, Uuid::new_v4(), b"after close")
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::NotConnected,
+            ..
+        }
+    ));
+    assert_eq!(remote.received.lock().unwrap().concat(), b"first|second|");
+    service.stop(&mut client).await;
+}
+#[tokio::test]
+async fn ssh2_input_backpressure_has_a_bounded_queue_and_close_does_not_replay_partial_or_unsent_input()
+ {
+    use session_core::input::InputState as I;
+    use ssh::Request as S;
+    let remote = ssh_fixture::Fixture::options(true).await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let first = Uuid::new_v4();
+    let payload = vec![b'x'; 65536];
+    ssh_call(&mut client, input_write(connection, first, &payload)).await;
+    input_status(&mut client, connection, first, |receipt| {
+        receipt.state == I::Dispatching
+    })
+    .await;
+    timeout(Duration::from_secs(2), async {
+        while remote.received.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut pending = Vec::new();
+    for _ in 0..16 {
+        let id = Uuid::new_v4();
+        let ssh::Reply::Input(receipt) = ssh_call(
+            &mut client,
+            input_write(connection, id, b"must stay unsent"),
+        )
+        .await
+        else {
+            panic!()
+        };
+        assert_eq!(receipt.state, I::Pending);
+        pending.push(id);
+    }
+    let rejected = Uuid::new_v4();
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: input_write(connection, rejected, b"queue overflow")
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::CapacityExceeded,
+            ..
+        }
+    ));
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: S::InputStatus {
+                    connection,
+                    request_id: rejected
+                }
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::NotFound,
+            ..
+        }
+    ));
+    assert!(matches!(
+        ok(client.request(Request::Ping {}).await.unwrap()),
+        Reply::Pong { .. }
+    ));
+    assert!(matches!(
+        ok(client
+            .request(Request::Read {
+                connection,
+                cursor: 1,
+                max_bytes: 65536
+            })
+            .await
+            .unwrap()),
+        Reply::Output(_)
+    ));
+    ssh_call(&mut client, input_write(connection, first, &payload)).await;
+    ssh_call(&mut client, S::Close { connection }).await;
+    let first_receipt = input_status(&mut client, connection, first, |receipt| {
+        receipt.state == I::Unknown
+    })
+    .await;
+    assert!(first_receipt.pipeline_bytes.is_none());
+    for id in pending {
+        let receipt = input_status(&mut client, connection, id, |_| true).await;
+        assert_eq!(receipt.state, I::CancelledBeforeDispatch);
+        assert!(receipt.pipeline_bytes.is_none());
+    }
+    let ssh::Reply::Input(receipt) =
+        ssh_call(&mut client, input_write(connection, first, &payload)).await
+    else {
+        panic!()
+    };
+    assert_eq!(receipt.state, I::Unknown);
+    assert!(matches!(
+        client
+            .request(Request::Ssh {
+                request: input_write(connection, first, b"changed retry")
+            })
+            .await
+            .unwrap(),
+        Response::Error {
+            code: ErrorCode::InvalidArgument,
+            ..
+        }
+    ));
+    assert_eq!(remote.received.lock().unwrap().concat(), vec![b'x'; 32768]);
+    service.stop(&mut client).await;
+}
+
+#[tokio::test]
+async fn ssh2_input_timeout_keeps_a_partial_send_unknown_and_stops_following_commands() {
+    use session_core::input::{InputFailure, InputState as I};
+    use ssh::Request as S;
+    let remote = ssh_fixture::Fixture::options(true).await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let first = Uuid::new_v4();
+    let queued = Uuid::new_v4();
+    let payload = vec![b't'; 65536];
+    ssh_call(&mut client, input_write(connection, first, &payload)).await;
+    input_status(&mut client, connection, first, |receipt| {
+        receipt.state == I::Dispatching
+    })
+    .await;
+    ssh_call(
+        &mut client,
+        input_write(connection, queued, b"must not follow timed out send"),
+    )
+    .await;
+    let receipt = timeout(Duration::from_secs(20), async {
+        loop {
+            let ssh::Reply::Input(receipt) = ssh_call(
+                &mut client,
+                S::InputStatus {
+                    connection,
+                    request_id: first,
+                },
+            )
+            .await
+            else {
+                panic!()
+            };
+            if receipt.state == I::Unknown {
+                break receipt;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(receipt.failure, Some(InputFailure::Timeout));
+    assert!(receipt.pipeline_bytes.is_none());
+    let status = ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Failed
+    })
+    .await;
+    assert_eq!(status.failure, Some(ssh::Failure::TransportTimeout));
+    assert_eq!(
+        input_status(&mut client, connection, queued, |_| true)
+            .await
+            .state,
+        I::CancelledBeforeDispatch
+    );
+    let ssh::Reply::Input(retry) =
+        ssh_call(&mut client, input_write(connection, first, &payload)).await
+    else {
+        panic!()
+    };
+    assert_eq!(retry, receipt);
+    assert_eq!(remote.received.lock().unwrap().concat(), vec![b't'; 32768]);
+    service.stop(&mut client).await;
+}

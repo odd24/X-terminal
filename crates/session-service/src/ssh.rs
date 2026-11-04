@@ -4,6 +4,7 @@ use crate::{
     server::Store,
 };
 use config_store::{Auth, HostEndpoint, HostKey, HostKeyStatus, HostProtocol, Profile, Settings};
+use session_core::input::{Fingerprint, InputFailure, Receipts};
 use session_core::session::*;
 use session_protocol::{
     Sensitive,
@@ -15,7 +16,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
     task::JoinHandle,
     time::timeout,
 };
@@ -30,6 +31,9 @@ struct Start {
     rows: u32,
 }
 struct Entry {
+    writable: watch::Sender<bool>,
+    commands: Option<mpsc::Sender<QueuedInput>>,
+    receipts: Receipts,
     profile_id: Uuid,
     cancel: Cancellation,
     challenge: Option<Challenge>,
@@ -38,6 +42,22 @@ struct Entry {
     exit: Option<u32>,
     signal: Option<String>,
     task: Option<JoinHandle<()>>,
+}
+enum Input {
+    Write(session_protocol::SensitiveBytes),
+    Resize { cols: u32, rows: u32 },
+}
+impl Input {
+    fn fingerprint(&self) -> Fingerprint {
+        match self {
+            Self::Write(bytes) => Fingerprint::write(bytes.expose()),
+            Self::Resize { cols, rows } => Fingerprint::resize(*cols, *rows),
+        }
+    }
+}
+struct QueuedInput {
+    id: Uuid,
+    input: Input,
 }
 enum Answer {
     Host(bool),
@@ -78,6 +98,33 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Write {
+                connection,
+                request_id,
+                bytes,
+            } => self.enqueue(connection, request_id, Input::Write(bytes)),
+            ssh::Request::Resize {
+                connection,
+                request_id,
+                cols,
+                rows,
+            } => self.enqueue(connection, request_id, Input::Resize { cols, rows }),
+            ssh::Request::InputStatus {
+                connection,
+                request_id,
+            } => {
+                let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                self.store
+                    .lock()
+                    .map_err(|_| ErrorCode::InvalidState)?
+                    .sessions
+                    .info(connection)?;
+                let entry = inner
+                    .entries
+                    .get(&connection.connection_id)
+                    .ok_or(ErrorCode::NotFound)?;
+                Ok(ssh::Reply::Input(entry.receipts.get(request_id)?))
+            }
             ssh::Request::Start {
                 profile_id,
                 request_id,
@@ -123,6 +170,9 @@ impl Manager {
                 inner.entries.insert(
                     connection.connection_id,
                     Entry {
+                        writable: watch::channel(false).0,
+                        commands: None,
+                        receipts: Receipts::default(),
                         profile_id,
                         cancel: cancel.clone(),
                         challenge: None,
@@ -184,6 +234,8 @@ impl Manager {
                     .get_mut(&connection.connection_id)
                     .ok_or(ErrorCode::NotFound)?;
                 entry.cancel.cancel();
+                entry.commands = None;
+                entry.receipts.connection_lost(InputFailure::Cancelled);
                 entry.answer = None;
                 entry.challenge = None;
                 if !matches!(info.state, State::Disconnected | State::Closing) {
@@ -216,6 +268,46 @@ impl Manager {
                 answers,
             } => self.answer(connection, challenge_id, Answer::Interactive(answers)),
         }
+    }
+    fn enqueue(
+        &self,
+        connection: ConnectionRef,
+        id: Uuid,
+        input: Input,
+    ) -> Result<ssh::Reply, ErrorCode> {
+        let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let info = self
+            .store
+            .lock()
+            .map_err(|_| ErrorCode::InvalidState)?
+            .sessions
+            .info(connection)?;
+        let entry = inner
+            .entries
+            .get_mut(&connection.connection_id)
+            .ok_or(ErrorCode::NotFound)?;
+        let fingerprint = input.fingerprint();
+        if let Some(receipt) = entry.receipts.lookup(id, fingerprint)? {
+            return Ok(ssh::Reply::Input(receipt));
+        }
+        if info.state != State::Connected {
+            return Err(ErrorCode::NotConnected);
+        }
+        if entry.cancel.is_cancelled() || entry.challenge.is_some() || !*entry.writable.borrow() {
+            return Err(ErrorCode::InvalidState);
+        }
+        let sender = entry
+            .commands
+            .as_ref()
+            .ok_or(ErrorCode::NotConnected)?
+            .clone();
+        let permit = sender.try_reserve().map_err(|error| match error {
+            mpsc::error::TrySendError::Full(_) => ErrorCode::CapacityExceeded,
+            _ => ErrorCode::NotConnected,
+        })?;
+        let receipt = entry.receipts.remember(id, fingerprint)?;
+        permit.send(QueuedInput { id, input });
+        Ok(ssh::Reply::Input(receipt))
     }
     fn answer(
         &self,
@@ -340,6 +432,11 @@ impl Actor {
         key: transport::ServerKey,
         endpoint: &HostEndpoint,
     ) -> Result<bool, Failure> {
+        if let Ok(inner) = self.inner.lock()
+            && let Some(entry) = inner.entries.get(&self.reference.connection_id)
+        {
+            entry.writable.send_replace(false);
+        }
         let candidate = HostKey {
             endpoint: endpoint.clone(),
             algorithm: key.algorithm,
@@ -349,6 +446,11 @@ impl Actor {
             return Err(Failure::Configuration);
         };
         if review.status == HostKeyStatus::Known {
+            if let Ok(inner) = self.inner.lock()
+                && let Some(entry) = inner.entries.get(&self.reference.connection_id)
+            {
+                entry.writable.send_replace(true);
+            }
             return Ok(true);
         }
         let revision = review.revision.clone();
@@ -370,6 +472,11 @@ impl Actor {
             cancel: self.cancel.clone(),
         })
         .await?;
+        if let Ok(inner) = self.inner.lock()
+            && let Some(entry) = inner.entries.get(&self.reference.connection_id)
+        {
+            entry.writable.send_replace(true);
+        }
         Ok(true)
     }
     async fn challenge(
@@ -554,16 +661,91 @@ impl Actor {
         let mut shell = self
             .drive(&mut receiver, &endpoint, session.shell(cols, rows))
             .await?;
+        let (sender, commands) = mpsc::channel(16);
+        {
+            let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
+            let entry = inner
+                .entries
+                .get_mut(&self.reference.connection_id)
+                .ok_or(Failure::Transport)?;
+            entry.commands = Some(sender);
+        }
         self.transition(State::Connected)?;
         if let Ok(mut inner) = self.inner.lock()
             && let Some(entry) = inner.entries.get_mut(&self.reference.connection_id)
         {
             entry.failure = None;
         }
+        tokio::select! {
+            result=self.read_shell(&mut receiver,&endpoint,&mut shell.reader)=>result,
+            result=self.write_shell(commands,shell.writer)=>result,
+        }
+    }
+    async fn write_shell(
+        &self,
+        mut commands: mpsc::Receiver<QueuedInput>,
+        writer: transport::ShellWriter,
+    ) -> Result<(), Failure> {
+        let mut ready = {
+            self.inner
+                .lock()
+                .map_err(|_| Failure::Transport)?
+                .entries
+                .get(&self.reference.connection_id)
+                .ok_or(Failure::Transport)?
+                .writable
+                .subscribe()
+        };
         loop {
-            let event = self
-                .drive(&mut receiver, &endpoint, shell.reader.next())
-                .await?;
+            let command = tokio::select! {biased;_=self.cancel.cancelled()=>return Err(Failure::Cancelled),value=commands.recv()=>value.ok_or(Failure::Transport)?};
+            loop {
+                tokio::select! {biased;_=self.cancel.cancelled()=>return Err(Failure::Cancelled),value=ready.wait_for(|value|*value)=>{value.map_err(|_|Failure::Transport)?;}}
+                let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
+                let entry = inner
+                    .entries
+                    .get_mut(&self.reference.connection_id)
+                    .ok_or(Failure::Transport)?;
+                if entry.cancel.is_cancelled() {
+                    return Err(Failure::Cancelled);
+                }
+                if !*entry.writable.borrow() {
+                    continue;
+                }
+                if !entry.receipts.dispatch(command.id) {
+                    return Err(Failure::Transport);
+                }
+                break;
+            }
+            let result = match command.input {
+                Input::Write(bytes) => writer.write(bytes.expose()).await.map(Some),
+                Input::Resize { cols, rows } => writer.resize(cols, rows).await.map(|()| None),
+            };
+            {
+                let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
+                if let Some(entry) = inner.entries.get_mut(&self.reference.connection_id) {
+                    entry.receipts.complete(
+                        command.id,
+                        result.map_err(|error| match error {
+                            transport::Error::Cancelled => InputFailure::Cancelled,
+                            transport::Error::Timeout => InputFailure::Timeout,
+                            _ => InputFailure::Transport,
+                        }),
+                    );
+                }
+            }
+            if let Err(error) = result {
+                return Err(map_error(error));
+            }
+        }
+    }
+    async fn read_shell(
+        &self,
+        receiver: &mut mpsc::Receiver<transport::Challenge>,
+        endpoint: &HostEndpoint,
+        reader: &mut transport::ShellReader,
+    ) -> Result<(), Failure> {
+        loop {
+            let event = self.drive(receiver, endpoint, reader.next()).await?;
             match event {
                 Some(ShellEvent::Stdout(bytes) | ShellEvent::Stderr(bytes)) => {
                     let timestamp = SystemTime::now()
@@ -610,6 +792,14 @@ impl Actor {
         };
         entry.challenge = None;
         entry.answer = None;
+        entry.commands = None;
+        entry
+            .receipts
+            .connection_lost(if entry.cancel.is_cancelled() {
+                InputFailure::Cancelled
+            } else {
+                InputFailure::Transport
+            });
         if let Err(error) = result
             && !entry.cancel.is_cancelled()
         {

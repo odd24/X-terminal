@@ -79,3 +79,5 @@ P08 凭据整理可运行 npm run test:desktop:credentials。只显示 UUID/引�
 P09 正在实施：新增服务专用 SSH2 传输原语，有界异步主机/认证挑战、实际 socket 取消、早到输出保留和结构化 exec 结果。可用 cargo test -p transport-ssh2 --locked 运行隔离协议测试；服务已接入基础建立/读取流程，输入/任务/桌面继续，不代表实机验收，见 P09 记录与 ADR-014。
 
 P09 服务增量已接入 Start/Profile、主机及认证挑战和共享原始输出；只有 Desktop 可控制，Observer 通过只读票据看同一 SSH2 连接。私钥从已有保护存储内部解析，不经页面返回；首次/变化确认绑定连接代次和当前信任版本。当前尚无桌面连接入口/写入/resize/exec 任务/重连命令，仍在持续实施，不能将服务隔离测试当作设备或 GUI 验收。
+
+P09 服务输入增量提供有界 write/resize/input_status：明确连接代次和 request_id 去重，重复不重发、冲突拒绝；成功只表示排入 SSH pipeline，超时/取消可能部分发送，回执 Unknown 不重放。仍无桌面 SSH2 入口/exec 任务/同 ID 重连，长期回执容量和 Agent 接管留后续步骤，见 ADR-015。

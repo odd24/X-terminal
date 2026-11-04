@@ -8,6 +8,21 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Write {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        bytes: crate::SensitiveBytes,
+    },
+    Resize {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+    },
+    InputStatus {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Start {
         profile_id: Uuid,
         request_id: Uuid,
@@ -40,6 +55,31 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         match self {
+            Self::Write {
+                connection,
+                request_id,
+                bytes,
+            } => {
+                valid(*connection)
+                    && !request_id.is_nil()
+                    && !bytes.expose().is_empty()
+                    && bytes.expose().len() <= 65536
+            }
+            Self::Resize {
+                connection,
+                request_id,
+                cols,
+                rows,
+            } => {
+                valid(*connection)
+                    && !request_id.is_nil()
+                    && (2..=500).contains(cols)
+                    && (1..=200).contains(rows)
+            }
+            Self::InputStatus {
+                connection,
+                request_id,
+            } => valid(*connection) && !request_id.is_nil(),
             Self::Start {
                 profile_id,
                 request_id,
@@ -154,6 +194,7 @@ pub struct Status {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    Input(session_core::input::Receipt),
     Started { connection: ConnectionInfo },
     Status(Box<Status>),
     Accepted,
@@ -162,6 +203,60 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn input_contract_requires_bounded_payloads_scopes_and_request_ids_and_redacts_debug() {
+        let connection = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let request_id = Uuid::new_v4();
+        let bytes = b"synthetic input secret".to_vec();
+        let request = Request::Write {
+            connection,
+            request_id,
+            bytes: crate::SensitiveBytes::new(bytes.clone()),
+        };
+        assert!(request.validate());
+        assert!(!format!("{request:?}").contains("[115, 121, 110"));
+        assert!(format!("{request:?}").contains("[REDACTED]"));
+        assert!(!format!("{request:?}").contains("synthetic"));
+        let Request::Write {
+            bytes: roundtrip, ..
+        } = serde_json::from_str::<Request>(&serde_json::to_string(&request).unwrap()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(roundtrip.expose(), bytes);
+        for bytes in [Vec::new(), vec![0; 65537]] {
+            assert!(
+                !Request::Write {
+                    connection,
+                    request_id,
+                    bytes: crate::SensitiveBytes::new(bytes)
+                }
+                .validate()
+            );
+        }
+        assert!(
+            !Request::InputStatus {
+                connection,
+                request_id: Uuid::nil()
+            }
+            .validate()
+        );
+        assert!(
+            !Request::Resize {
+                connection,
+                request_id,
+                cols: 501,
+                rows: 24
+            }
+            .validate()
+        );
+        let mut value = serde_json::to_value(request).unwrap();
+        value["bytes"] = serde_json::json!([256]);
+        assert!(serde_json::from_value::<Request>(value).is_err());
+    }
     #[test]
     fn ssh_contract_rejects_raw_keys_invalid_credentials_and_unscoped_decisions() {
         let connection = ConnectionRef {

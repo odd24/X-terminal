@@ -1,5 +1,6 @@
 //! Shared session domain. Transport access belongs to the future service layer.
 
+pub mod input;
 pub mod pairing;
 pub mod screen;
 pub mod session;
