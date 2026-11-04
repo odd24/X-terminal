@@ -1,4 +1,5 @@
 //! P05 byte transport candidate, independent of UI. It has no command exit codes.
+pub mod device;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
@@ -51,7 +52,18 @@ impl SerialConnection {
     /// Caller must explicitly select a device and its open-time line states.
     pub fn open(config: &Config) -> Result<Self, Box<dyn std::error::Error>> {
         config.validate()?;
-        let mut port = serialport::new(&config.port, config.baud_rate)
+        Ok(Self::open_path(config, &config.port)?)
+    }
+
+    /// Service integration must use a freshly verified, immutable device selection.
+    /// Opens the OS interface path, never a COM alias obtained after validation.
+    pub fn open_selected(config: &Config, selected: &device::Device) -> io::Result<Self> {
+        let current = device::inventory()?;
+        device::open_verified(config, selected, &current, Self::open_path)
+    }
+
+    fn open_path(config: &Config, path: &str) -> io::Result<Self> {
+        let mut port = serialport::new(path, config.baud_rate)
             .data_bits(config.data_bits)
             .stop_bits(config.stop_bits)
             .parity(config.parity)

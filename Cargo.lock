@@ -5004,6 +5004,7 @@ name = "transport-serial"
 version = "0.1.0"
 dependencies = [
  "serialport",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
