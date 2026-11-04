@@ -103,3 +103,5 @@ P11.2 扩展公共 IPC 的 read_text/screen 与桌面专用 service_read_text/se
 P11.3 新增独立terminal-log：cargo test -p terminal-log --locked、cargo clippy -p terminal-log --all-targets --locked -- -D warnings。测试只写带前缀的中文临时目录并清理自建junction，不记录真实设备；引擎通过不能冒充P11.4服务/GUI日志已启用。
 
 P11.4启停阶段新增 npm run test:desktop:logging，前置桌面构建，已加入完整桌面回归；只记录合成临时输出。日志RPC走独立配置通道，仍禁止通用RPC/任意路径。服务/原生验证必须区分本次列表与持久历史，以及写入/同步/源缺口，不能将启停通过当作搜索/导出或长稳完成。
+
+P11.4历史界面新增 npm run test:desktop:history（前置桌面构建），完整回归包含。只用合成日志，验证跨记录全文计数/显示限额、独立目标、取消/关闭回收及坏尾行；控制字符/HTML只能作为文本，不写入当前终端。时间Asia/Shanghai；T22/T23全局矩阵及导出/恢复不得从专项推断通过。
