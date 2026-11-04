@@ -14,6 +14,7 @@ P06 mock SDK/stdio 见 [ADR-004](decisions/ADR-004.md)：rmcp 3.8.0 与实际 Co
 
 P07.1 已建立协议中立领域/内存配对身份与 [IPC v1](../contracts/ipc/README.md)，P07.2 已验证原生 ACL/独立服务与跨进程共享状态，P07.3 已验证桌面持有服务、页面暂停/重载及正常/异常退出，见 [ADR-007](decisions/ADR-007.md)。真实传输仍未接入服务。
 
+P08 已建立 SQLite 配置/迁移、Windows DPAPI/AES-GCM 凭据、Desktop 专用配置线程及编辑器、主机信任存储/管理和事务恢复。见 [P08 汇总](records/P08.md)、[恢复决定](decisions/ADR-012.md)、[凭据整理边界](decisions/ADR-013.md)。保存配置不连接设备；真实握手仍待 P09/P13。
 ## 分层
 
 ```text
