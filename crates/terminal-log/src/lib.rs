@@ -1,9 +1,11 @@
 //! Opt-in bounded journals. Callers must authorize and route an exact generation.
 mod directory;
 mod format;
+mod paired;
 mod storage;
 pub use directory::ManagedRoot;
 pub use format::{RawFrame, RawReader, SegmentHeader};
+pub use paired::PairReader;
 use serde::{Deserialize, Serialize};
 use session_core::{presentation::TextEvent, session::*};
 use std::{
@@ -22,7 +24,7 @@ const MAX_TEXT: usize = 16 * 1024;
 const MAX_WORKERS: usize = 64;
 static WORKERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Metadata {
     pub connection: ConnectionRef,
@@ -42,7 +44,7 @@ impl Metadata {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Limits {
     /// Combined raw + text bytes per segment, including both headers.

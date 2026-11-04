@@ -6,7 +6,7 @@ use uuid::Uuid;
 pub(crate) const MAGIC: &[u8; 8] = b"STRAW001";
 pub(crate) const FRAME_FIXED: usize = 33;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SegmentHeader {
     pub format_version: u32,

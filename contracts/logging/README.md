@@ -30,3 +30,5 @@ RawReader先限额再分配内存，逐帧返回，不把整个日志读入内�
 服务输出最终flush或手动停止均先排空已接受队列，双文件sync_all后才以create_new写completion.partial并sync_all，关闭临时文件后用Windows MoveFileW不覆盖地发布为completion.json。标志含log_id/ConnectionRef、written_records/bytes、首/末保留段、source_gap_bytes和natural_end。natural_end指服务最终flush，包含FAILED收尾，不表示正常退出；手动停止natural_end=false，不编造远程退出码；失败可能留下completion.partial，不能当作成功；已有目标拒绝覆盖。完成只覆盖该记录窗口的保留部分，退休段和捕获前后都不包含在完整性承诺中。
 
 状态accepted表示排队，written表示两个文件的write_all均成功（仍可能在OS缓存），durable须同步与完成标志成功；失败可能留下部分原始帧或JSON行。发生故障时range为最后成功写入的范围，需重新验证实际文件，不可用written推断物理接受量或当前保留总数。恢复/读取须检查完成标志身份、段范围、双文件/序号及截断，不能单凭一个文件干净EOF声称完成。服务捕获/启停已接入；持久历史、只读导出与恢复检查由P11.4/P24继续实现。
+
+P11.4的PairReader在不可变单段上同时读取raw/text：两份SegmentHeader必须完全相同，逐条核对seq/source_seq/timestamp_ms/gap_bytes，拒绝错误缺口文本、缺少伙伴、未知字段或额外行。JSONL要求每行以LF结尾；头行上限4224字节，输出行上限98816字节，反转义后text仍最多16384字节。超限在继续增长前拒绝，任一错误永久锁定reader；它不验证文件目录政策、完成标志、总文件大小或跨段范围，也不重新解码校对文本内容，不能充当签名/篡改检测或完整连接保证。后续历史读取/导出须在此基础上增加文件和跨段检查。

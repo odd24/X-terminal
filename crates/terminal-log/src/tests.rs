@@ -99,12 +99,233 @@ fn read_pair(
     while let Some(record) = reader.next_record().unwrap() {
         raw.push(record);
     }
-    let text = fs::read_to_string(directory.join(format!("{segment:016}.text.jsonl")))
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
+    let text: Vec<serde_json::Value> =
+        fs::read_to_string(directory.join(format!("{segment:016}.text.jsonl")))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+    let mut pair = PairReader::new(
+        fs::File::open(directory.join(format!("{segment:016}.rawlog"))).unwrap(),
+        fs::File::open(directory.join(format!("{segment:016}.text.jsonl"))).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(pair.header(), &reader.header);
+    for (index, expected) in raw.iter().enumerate() {
+        let actual = pair.next_record().unwrap().unwrap();
+        assert_eq!(
+            serde_json::to_value(actual.text).unwrap(),
+            text[index + 1]["event"]
+        );
+        assert_eq!(
+            actual
+                .raw
+                .as_ref()
+                .map(|r| r.bytes.as_slice())
+                .unwrap_or_default(),
+            expected.bytes
+        );
+    }
+    assert!(pair.next_record().unwrap().is_none());
     (reader.header, raw, text)
+}
+
+fn encoded_pair(records: &[Record]) -> (Vec<u8>, Vec<u8>) {
+    let meta = metadata();
+    let header = SegmentHeader {
+        format_version: 1,
+        log_id: Uuid::new_v4(),
+        segment: 1,
+        metadata: meta,
+        limits: Limits::default(),
+        source_cursor: 1,
+        text_cursor: 1,
+    };
+    let body = serde_json::to_vec(&header).unwrap();
+    let mut raw = format::MAGIC.to_vec();
+    raw.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    raw.extend_from_slice(&body);
+    let mut text =
+        serde_json::to_vec(&serde_json::json!({"type":"header","header":header})).unwrap();
+    text.push(b'\n');
+    for record in records {
+        raw.extend_from_slice(&format::raw_frame(record));
+        text.extend_from_slice(
+            &serde_json::to_vec(&serde_json::json!({"type":"output","event":record.text})).unwrap(),
+        );
+        text.push(b'\n');
+    }
+    (raw, text)
+}
+
+#[test]
+fn pair_reader_preserves_bytes_gap_and_final_text_without_redecoding() {
+    let meta = metadata();
+    let mut first = data(&meta, 1, &[0, 255, 13, 10]);
+    first.text.text = "\0�\r\n".into();
+    first.text.decode_error = true;
+    let mut gap = data(&meta, 2, &[]);
+    gap.raw.as_mut().unwrap().gap_bytes = Some(13);
+    gap.text.gap_bytes = Some(13);
+    let records = [first, gap, eof(&meta, 3)];
+    let (raw, text) = encoded_pair(&records);
+    let mut reader = PairReader::new(Cursor::new(raw), Cursor::new(text)).unwrap();
+    for expected in &records {
+        let actual = reader.next_record().unwrap().unwrap();
+        assert_eq!(actual.connection, reader.header().metadata.connection);
+        assert_eq!(actual.text, expected.text);
+        assert_eq!(
+            actual.raw.as_ref().map(|r| &r.bytes),
+            expected.raw.as_ref().map(|r| &r.bytes)
+        );
+        assert_eq!(
+            actual.raw.as_ref().and_then(|r| r.gap_bytes),
+            expected.raw.as_ref().and_then(|r| r.gap_bytes)
+        );
+    }
+    assert!(reader.next_record().unwrap().is_none());
+    assert!(reader.next_record().unwrap().is_none());
+}
+
+#[test]
+fn pair_reader_rejects_other_identity_header_extensions_and_event_mismatches() {
+    let meta = metadata();
+    let (raw, text) = encoded_pair(&[data(&meta, 1, b"a")]);
+    let lines: Vec<serde_json::Value> = text
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect();
+    let encode = |lines: &[serde_json::Value]| -> Vec<u8> {
+        lines
+            .iter()
+            .flat_map(|line| {
+                let mut bytes = serde_json::to_vec(line).unwrap();
+                bytes.push(b'\n');
+                bytes
+            })
+            .collect()
+    };
+    for field in [
+        "log_id",
+        "segment",
+        "source_cursor",
+        "text_cursor",
+        "metadata",
+        "limits",
+    ] {
+        let mut bad = lines.clone();
+        bad[0]["header"][field] = match field {
+            "log_id" => Uuid::new_v4().to_string().into(),
+            "metadata" => serde_json::to_value(metadata()).unwrap(),
+            "limits" => serde_json::json!({"segment_bytes":131072,"segments":1}),
+            _ => 2.into(),
+        };
+        assert!(
+            PairReader::new(Cursor::new(raw.clone()), Cursor::new(encode(&bad))).is_err(),
+            "{field}"
+        );
+    }
+    let mut extension = lines.clone();
+    extension[0]["extra"] = true.into();
+    assert!(PairReader::new(Cursor::new(raw.clone()), Cursor::new(encode(&extension))).is_err());
+    for field in [
+        "seq",
+        "source_seq",
+        "timestamp_ms",
+        "gap_bytes",
+        "text",
+        "extra",
+    ] {
+        let mut bad = lines.clone();
+        bad[1]["event"][field] = match field {
+            "text" => "x".repeat(MAX_TEXT + 1).into(),
+            _ => 999.into(),
+        };
+        let mut reader =
+            PairReader::new(Cursor::new(raw.clone()), Cursor::new(encode(&bad))).unwrap();
+        assert!(reader.next_record().is_err(), "{field}");
+        assert!(reader.next_record().is_err(), "failure must latch");
+    }
+}
+
+#[test]
+fn pair_reader_rejects_truncation_missing_partner_and_trailing_lines() {
+    let meta = metadata();
+    let (raw, text) = encoded_pair(&[data(&meta, 1, b"a")]);
+    let header_end = text.iter().position(|b| *b == b'\n').unwrap() + 1;
+    let raw_header_end = 12 + u32::from_le_bytes(raw[8..12].try_into().unwrap()) as usize;
+    let variants = [
+        (raw.clone(), text[..text.len() - 1].to_vec()),
+        (raw.clone(), text[..header_end].to_vec()),
+        (raw[..raw_header_end].to_vec(), text.clone()),
+        (raw[..raw.len() - 1].to_vec(), text.clone()),
+        (raw.clone(), [text.as_slice(), b"\n"].concat()),
+    ];
+    for (raw, text) in variants {
+        let mut reader = PairReader::new(Cursor::new(raw), Cursor::new(text)).unwrap();
+        let first = reader.next_record();
+        if first.is_ok() {
+            assert!(reader.next_record().is_err());
+        }
+        assert!(reader.next_record().is_err());
+    }
+}
+
+#[test]
+fn pair_reader_rejects_nonempty_or_error_marked_gap_text() {
+    let meta = metadata();
+    let mut gap = data(&meta, 1, &[]);
+    gap.raw.as_mut().unwrap().gap_bytes = Some(3);
+    gap.text.gap_bytes = Some(3);
+    for decode_error in [false, true] {
+        gap.text.decode_error = decode_error;
+        gap.text.text = if decode_error {
+            String::new()
+        } else {
+            "invented".into()
+        };
+        let (raw, text) = encoded_pair(&[gap.clone()]);
+        let mut reader = PairReader::new(Cursor::new(raw), Cursor::new(text)).unwrap();
+        assert!(reader.next_record().is_err());
+        assert!(reader.next_record().is_err());
+    }
+}
+
+#[test]
+fn pair_reader_bounds_unterminated_lines_before_reading_the_whole_source() {
+    struct Infinite {
+        count: Arc<AtomicUsize>,
+    }
+    impl io::Read for Infinite {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.count.fetch_add(buffer.len(), Ordering::SeqCst);
+            buffer.fill(b' ');
+            Ok(buffer.len())
+        }
+    }
+    let meta = metadata();
+    let (raw, text) = encoded_pair(&[data(&meta, 1, b"a")]);
+    let count = Arc::new(AtomicUsize::new(0));
+    assert!(
+        PairReader::new(
+            Cursor::new(raw.clone()),
+            Infinite {
+                count: count.clone()
+            }
+        )
+        .is_err()
+    );
+    assert!(count.load(Ordering::SeqCst) <= 8192);
+    count.store(0, Ordering::SeqCst);
+    let header_end = text.iter().position(|b| *b == b'\n').unwrap() + 1;
+    use std::io::Read;
+    let endless = Cursor::new(text[..header_end].to_vec()).chain(Infinite {
+        count: count.clone(),
+    });
+    let mut reader = PairReader::new(Cursor::new(raw), endless).unwrap();
+    assert!(reader.next_record().is_err());
+    assert!(count.load(Ordering::SeqCst) <= MAX_TEXT * 6 + 512 + 8192);
 }
 
 #[test]
