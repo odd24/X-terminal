@@ -77,7 +77,7 @@ export function ConfigPanel({ close }: { close(): void }) {
   const filtered = profiles.filter(profile => (filter === '*' || (profile.folder_id ?? '') === filter) && profile.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <section className="config-panel" aria-label="连接配置">
     <div className="config-heading"><h2>连接配置</h2><button onClick={() => { clearSecrets(); close(); }}>关闭配置</button></div>
-    <p className="config-notice">保存配置不会建立连接。SSH2、SSH1 和串口的正式连接入口仍在后续步骤。</p>
+    <p className="config-notice">保存配置不会建立连接。已保存的 UTF-8 SSH2 配置可在“SSH2 连接”面板手动连接。SSH1/串口入口继续实施。</p>
     <div className="config-message" role="status" aria-label="配置状态">{message}</div>
     <div className="config-layout">
       <aside>

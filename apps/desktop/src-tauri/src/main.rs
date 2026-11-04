@@ -46,6 +46,28 @@ fn config_directory(state: State<'_, Desktop>) -> String {
 }
 
 #[tauri::command]
+async fn ssh_request(
+    state: State<'_, Desktop>,
+    request: session_protocol::ssh::Request,
+) -> Result<session_protocol::ssh::Reply, String> {
+    if !request.validate() {
+        return Err("INVALID_SSH_REQUEST".into());
+    }
+    match state
+        .0
+        .lock()
+        .await
+        .as_mut()
+        .map_err(|error| error.clone())?
+        .request(Request::Ssh { request })
+        .await?
+    {
+        Reply::Ssh(reply) => Ok(reply),
+        _ => Err("INVALID_REPLY".into()),
+    }
+}
+
+#[tauri::command]
 async fn service_status(state: State<'_, Desktop>) -> Result<service::Status, String> {
     state
         .0
@@ -182,6 +204,7 @@ fn main() {
             service_status,
             service_list,
             service_read,
+            ssh_request,
             fixture_create,
             fixture_append,
             config_request,

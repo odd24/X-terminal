@@ -104,7 +104,7 @@ impl server::Handler for Server {
         _: &[(Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        assert_eq!((cols, rows), (80, 24));
+        assert!((2..=500).contains(&cols) && (1..=200).contains(&rows));
         self.sizes.lock().unwrap().push((cols, rows));
         session.data(channel, b"before-pty|".to_vec())?;
         session.channel_success(channel)?;
