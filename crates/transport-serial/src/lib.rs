@@ -1,5 +1,6 @@
 //! P05 byte transport candidate, independent of UI. It has no command exit codes.
 pub mod device;
+pub mod worker;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
