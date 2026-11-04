@@ -133,6 +133,9 @@ impl State {
             return Err(ConfigError::Invalid);
         }
         match request {
+            ConfigRequest::CredentialsPage { .. }
+            | ConfigRequest::InspectCredential { .. }
+            | ConfigRequest::ForgetCredential { .. } => Err(ConfigError::Invalid),
             ConfigRequest::Archives {}
             | ConfigRequest::CreateBackup {}
             | ConfigRequest::ExportConfig {}
@@ -429,7 +432,7 @@ pub(super) fn config_error(error: config_store::Error) -> ConfigError {
         _ => ConfigError::Storage,
     }
 }
-fn vault_error(error: credential_vault::Error) -> ConfigError {
+pub(super) fn vault_error(error: credential_vault::Error) -> ConfigError {
     match error {
         credential_vault::Error::Schema => ConfigError::UnsupportedSchema,
         credential_vault::Error::Corrupt => ConfigError::Corrupt,

@@ -50,6 +50,73 @@
           {
             "additionalProperties": false,
             "properties": {
+              "offset": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "credentials_page",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "offset"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "inspect_credential",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "forget_credential",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "op": {
                 "const": "archives",
                 "type": "string"
@@ -1016,6 +1083,7 @@
       },
       "ConfigError": {
         "enum": [
+          "IN_USE",
           "CAPACITY",
           "INVALID",
           "NOT_FOUND",
@@ -1030,6 +1098,74 @@
       },
       "ConfigReply": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "items": {
+                  "$ref": "#/$defs/CredentialInfo"
+                },
+                "type": "array"
+              },
+              "next_offset": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "result": {
+                "const": "credentials_page",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "revision",
+              "entries"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "backup_profiles": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "current_profiles": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "credential_preview",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "id",
+              "revision",
+              "current_profiles",
+              "backup_profiles"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -1364,6 +1500,25 @@
         "required": [
           "connection_id",
           "generation"
+        ],
+        "type": "object"
+      },
+      "CredentialInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "current_profiles": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "current_profiles"
         ],
         "type": "object"
       },

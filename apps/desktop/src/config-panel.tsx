@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { HostKeysPanel } from './host-keys-panel';
 import { ArchivesPanel } from './archives-panel';
+import { CredentialsPanel } from './credentials-panel';
 import { config, readConfiguration, type Auth, type CredentialEdit, type Encoding, type Folder, type Profile, type Settings } from './config-api';
 
 type Draft = {
@@ -127,6 +128,7 @@ export function ConfigPanel({ close }: { close(): void }) {
       </form>
     </div>
     <HostKeysPanel key={managementEpoch} />
+    <CredentialsPanel key={`credentials-${managementEpoch}`} />
     <ArchivesPanel directory={location} usable={ready} restored={async () => { clearSecrets();setDraft(blank());setFolderDraft({id:crypto.randomUUID(),parent_id:null,name:''});await reload();setManagementEpoch(value=>value+1);setMessage('配置已从备份恢复；没有连接或重放输入。'); }} />
     <p className="data-location">数据目录：{location || '读取失败时请重新启动检查启动目录'}</p>
   </section>;

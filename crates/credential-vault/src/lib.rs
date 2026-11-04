@@ -200,4 +200,23 @@ impl Vault {
             |row| row.get(0),
         )?)
     }
+    /// Metadata only: never decrypt or return protected payloads for inventory.
+    pub fn ids(&self) -> Result<Vec<Uuid>> {
+        let mut query = self
+            .connection
+            .prepare("SELECT id FROM credentials ORDER BY id LIMIT 10001")?;
+        let mut ids = Vec::new();
+        for value in query.query_map([], |row| row.get::<_, String>(0))? {
+            let value = value?;
+            let id = Uuid::parse_str(&value)
+                .ok()
+                .filter(|id| !id.is_nil() && id.to_string() == value)
+                .ok_or(Error::Corrupt)?;
+            ids.push(id);
+        }
+        if ids.len() > 10000 {
+            return Err(Error::Capacity);
+        }
+        Ok(ids)
+    }
 }

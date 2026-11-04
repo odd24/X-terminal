@@ -1526,6 +1526,15 @@ async fn archive_read_write_are_denied_to_observers_and_bad_sources_cannot_resto
         .0;
     for request in [
         Q::Archives {},
+        Q::CredentialsPage {
+            revision: None,
+            offset: 0,
+        },
+        Q::InspectCredential { id: Uuid::new_v4() },
+        Q::ForgetCredential {
+            id: Uuid::new_v4(),
+            revision: Uuid::new_v4(),
+        },
         Q::CreateBackup {},
         Q::ExportConfig {},
         Q::InspectBackup { id: Uuid::new_v4() },
@@ -1584,4 +1593,265 @@ async fn archive_read_write_are_denied_to_observers_and_bad_sources_cannot_resto
     ));
     assert!(!path.exists());
     service.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+async fn credential_inventory_forgetting_protects_live_and_backup_references_and_stale_previews() {
+    use config::{ArchiveKind, ConfigError as E, ConfigReply as C, ConfigRequest as Q};
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let profile = portable();
+    let C::SavedProfile {
+        profile: saved,
+        revision: initial,
+    } = config_call(
+        &mut client,
+        Q::SaveProfile {
+            profile: profile.clone(),
+            credential: replace_password("synthetic forget fixture"),
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    let id = saved.credential_ref.unwrap();
+    let C::CredentialsPage {
+        entries,
+        next_offset,
+        ..
+    } = config_call(
+        &mut client,
+        Q::CredentialsPage {
+            revision: None,
+            offset: 0,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].id, id);
+    assert_eq!(entries[0].current_profiles, 1);
+    assert!(next_offset.is_none());
+    let serialized = serde_json::to_string(&entries).unwrap();
+    assert!(!serialized.contains("synthetic forget fixture"));
+    assert!(!serialized.contains("protected"));
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::ForgetCredential {
+                id,
+                revision: initial
+            }
+        )
+        .await,
+        C::Error { code: E::InUse }
+    ));
+    let C::Artifact { artifact: backup } = config_call(&mut client, Q::CreateBackup {}).await
+    else {
+        panic!()
+    };
+    let C::SavedProfile {
+        revision: cleared, ..
+    } = config_call(
+        &mut client,
+        Q::SaveProfile {
+            profile,
+            credential: config::CredentialEdit::Clear {},
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::ForgetCredential {
+                id,
+                revision: initial
+            }
+        )
+        .await,
+        C::Error { code: E::Conflict }
+    ));
+    assert!(matches!(
+        config_call(&mut client, Q::InspectCredential { id }).await,
+        C::CredentialPreview {
+            current_profiles: 0,
+            backup_profiles: 1,
+            ..
+        }
+    ));
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::ForgetCredential {
+                id,
+                revision: cleared
+            }
+        )
+        .await,
+        C::Error { code: E::InUse }
+    ));
+    let backup_path = temp.0.join("artifacts").join(&backup.filename);
+    let bytes = std::fs::read(&backup_path).unwrap();
+    std::fs::write(&backup_path, b"broken managed backup").unwrap();
+    assert!(matches!(
+        config_call(&mut client, Q::InspectCredential { id }).await,
+        C::Error { code: E::Corrupt }
+    ));
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::ForgetCredential {
+                id,
+                revision: cleared
+            }
+        )
+        .await,
+        C::Error { code: E::Corrupt }
+    ));
+    std::fs::write(&backup_path, bytes).unwrap();
+    config_call(
+        &mut client,
+        Q::DeleteArchive {
+            id: backup.id,
+            kind: ArchiveKind::Backup,
+        },
+    )
+    .await;
+    let C::CredentialPreview { revision, .. } =
+        config_call(&mut client, Q::InspectCredential { id }).await
+    else {
+        panic!()
+    };
+    // A backup made after preview must be rechecked by the actual delete.
+    let C::Artifact {
+        artifact: empty_backup,
+    } = config_call(&mut client, Q::CreateBackup {}).await
+    else {
+        panic!()
+    };
+    // Inject a reference into that backup without changing the service revision.
+    let connection =
+        rusqlite::Connection::open(temp.0.join("artifacts").join(&empty_backup.filename)).unwrap();
+    connection
+        .execute("UPDATE profiles SET credential_ref=?1", [id.to_string()])
+        .unwrap();
+    drop(connection);
+    assert!(matches!(
+        config_call(&mut client, Q::ForgetCredential { id, revision }).await,
+        C::Error { code: E::InUse }
+    ));
+    config_call(
+        &mut client,
+        Q::DeleteArchive {
+            id: empty_backup.id,
+            kind: ArchiveKind::Backup,
+        },
+    )
+    .await;
+    let C::CredentialPreview {
+        revision,
+        current_profiles: 0,
+        backup_profiles: 0,
+        ..
+    } = config_call(&mut client, Q::InspectCredential { id }).await
+    else {
+        panic!()
+    };
+    assert!(matches!(
+        config_call(&mut client, Q::ForgetCredential { id, revision }).await,
+        C::Updated { .. }
+    ));
+    assert!(matches!(
+        config_call(&mut client, Q::InspectCredential { id }).await,
+        C::Error { code: E::NotFound }
+    ));
+    service.stop(&mut client).await;
+    let mut restarted = temp.start().await;
+    let mut client = restarted.connect().await;
+    assert!(
+        matches!(config_call(&mut client,Q::CredentialsPage{revision:None,offset:0}).await,C::CredentialsPage{entries,..} if entries.is_empty())
+    );
+    restarted.stop(&mut client).await;
+    let vault = credential_vault::Vault::open(&temp.0.join("credentials.sqlite")).unwrap();
+    assert!(matches!(
+        vault.get(id),
+        Err(credential_vault::Error::NotFound)
+    ));
+    drop(vault);
+}
+
+#[tokio::test]
+async fn credential_inventory_pages_are_bounded_and_revision_consistent() {
+    use config::{ConfigError as E, ConfigReply as C, ConfigRequest as Q};
+    let temp = ConfigTemp::new();
+    let mut vault = credential_vault::Vault::open(&temp.0.join("credentials.sqlite")).unwrap();
+    let mut ids = Vec::new();
+    for _ in 0..65 {
+        let id = Uuid::new_v4();
+        vault
+            .set(
+                id,
+                credential_vault::Secret::new(b"synthetic inventory fixture".to_vec()).unwrap(),
+            )
+            .unwrap();
+        ids.push(id);
+    }
+    drop(vault);
+    ids.sort();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let C::CredentialsPage {
+        revision,
+        entries,
+        next_offset: Some(64),
+    } = config_call(
+        &mut client,
+        Q::CredentialsPage {
+            revision: None,
+            offset: 0,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_eq!(entries.len(), 64);
+    assert!(entries.iter().all(|entry| entry.current_profiles == 0));
+    assert_eq!(
+        entries.iter().map(|entry| entry.id).collect::<Vec<_>>(),
+        ids[..64]
+    );
+    assert!(
+        matches!(config_call(&mut client,Q::CredentialsPage{revision:Some(revision),offset:64}).await,C::CredentialsPage{entries,next_offset:None,..} if entries.len()==1 && entries[0].id==ids[64])
+    );
+    config_call(
+        &mut client,
+        Q::SaveFolder {
+            folder: config_store::Folder {
+                id: Uuid::new_v4(),
+                parent_id: None,
+                name: "revision fixture".into(),
+            },
+        },
+    )
+    .await;
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::CredentialsPage {
+                revision: Some(revision),
+                offset: 64
+            }
+        )
+        .await,
+        C::Error { code: E::Conflict }
+    ));
+    service.stop(&mut client).await;
 }

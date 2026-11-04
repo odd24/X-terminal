@@ -1,4 +1,4 @@
-use crate::config::{State, config_error};
+use crate::config::{State, config_error, vault_error};
 use config_store::{ConfigImage, Store};
 use session_protocol::config::*;
 use std::{
@@ -241,6 +241,27 @@ impl Archives {
         self.info(id, kind)?;
         fs::remove_file(self.path(id, kind)?).map_err(|_| ConfigError::Storage)
     }
+    fn credential_usage(&self, id: Uuid, state: &State) -> Result<(u32, u32), ConfigError> {
+        if !state.vault.contains(id).map_err(vault_error)? {
+            return Err(ConfigError::NotFound);
+        }
+        let count = |image: &ConfigImage| {
+            image
+                .profiles
+                .iter()
+                .filter(|profile| profile.credential_ref == Some(id))
+                .count() as u32
+        };
+        let current = count(&state.store.image().map_err(config_error)?);
+        let mut backups = 0;
+        for entry in self.list()? {
+            if entry.kind == ArchiveKind::Backup {
+                // Fail closed on an unreadable managed backup; never guess that a reference is unused.
+                backups += count(&self.read(entry.id)?);
+            }
+        }
+        Ok((current, backups))
+    }
     pub fn handle(
         &self,
         request: ConfigRequest,
@@ -250,6 +271,61 @@ impl Archives {
             return Err(ConfigError::Invalid);
         }
         match request {
+            ConfigRequest::CredentialsPage { revision, offset } => {
+                let state = state.as_ref().map_err(|error| *error)?;
+                if revision.is_some_and(|revision| revision != state.revision) {
+                    return Err(ConfigError::Conflict);
+                }
+                let ids = state.vault.ids().map_err(vault_error)?;
+                if offset as usize > ids.len() {
+                    return Err(ConfigError::Invalid);
+                }
+                let image = state.store.image().map_err(config_error)?;
+                let mut counts = std::collections::HashMap::<Uuid, u32>::new();
+                for profile in image.profiles {
+                    if let Some(id) = profile.credential_ref {
+                        *counts.entry(id).or_default() += 1;
+                    }
+                }
+                let next_offset = ((offset as usize) + 64 < ids.len()).then_some(offset + 64);
+                Ok(ConfigReply::CredentialsPage {
+                    revision: state.revision,
+                    entries: ids
+                        .into_iter()
+                        .skip(offset as usize)
+                        .take(64)
+                        .map(|id| CredentialInfo {
+                            id,
+                            current_profiles: counts.get(&id).copied().unwrap_or(0),
+                        })
+                        .collect(),
+                    next_offset,
+                })
+            }
+            ConfigRequest::InspectCredential { id } => {
+                let state = state.as_ref().map_err(|error| *error)?;
+                let (current_profiles, backup_profiles) = self.credential_usage(id, state)?;
+                Ok(ConfigReply::CredentialPreview {
+                    id,
+                    revision: state.revision,
+                    current_profiles,
+                    backup_profiles,
+                })
+            }
+            ConfigRequest::ForgetCredential { id, revision } => {
+                let state = state.as_mut().map_err(|error| *error)?;
+                if revision != state.revision {
+                    return Err(ConfigError::Conflict);
+                }
+                let (current, backups) = self.credential_usage(id, state)?;
+                if current != 0 || backups != 0 {
+                    return Err(ConfigError::InUse);
+                }
+                state.vault.delete(id).map_err(vault_error)?;
+                Ok(ConfigReply::Updated {
+                    revision: state.changed(),
+                })
+            }
             ConfigRequest::Archives {} => Ok(ConfigReply::Archives {
                 entries: self.list()?,
             }),

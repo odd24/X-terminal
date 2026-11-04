@@ -28,10 +28,14 @@ fn native_dpapi_roundtrip_reopen_update_delete_and_missing_are_explicit() {
     let temp = Temp::new();
     let id = Uuid::new_v4();
     let mut vault = Vault::open(&temp.db()).unwrap();
+    assert!(vault.ids().unwrap().is_empty());
+    assert!(!vault.contains(id).unwrap());
     vault
         .set(id, Secret::new(SYNTHETIC.to_vec()).unwrap())
         .unwrap();
     let secret = vault.get(id).unwrap();
+    assert_eq!(vault.ids().unwrap(), vec![id]);
+    assert!(vault.contains(id).unwrap());
     assert!(secret.expose() == SYNTHETIC);
     assert_eq!(format!("{secret:?}"), "[REDACTED]");
     drop(vault);
@@ -42,6 +46,8 @@ fn native_dpapi_roundtrip_reopen_update_delete_and_missing_are_explicit() {
         .unwrap();
     assert!(vault.get(id).unwrap().expose() == b"synthetic replacement");
     vault.delete(id).unwrap();
+    assert!(vault.ids().unwrap().is_empty());
+    assert!(!vault.contains(id).unwrap());
     assert!(matches!(vault.get(id), Err(Error::NotFound)));
     assert!(matches!(vault.delete(id), Err(Error::NotFound)));
     assert!(matches!(vault.get(Uuid::nil()), Err(Error::Invalid)));

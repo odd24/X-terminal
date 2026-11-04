@@ -58,18 +58,20 @@ P06 已有只读 mock MCP 原型与真实 Codex CLI app-server 客户端互通�
 
 P07 已增加协议中立状态机、有界原始输出、内存只读票据与 [IPC v1](contracts/ipc/README.md)，以及受限 Windows Named Pipe 服务。可运行 `cargo test -p session-core -p session-protocol -p session-service --locked`；桌面启动、原生 ACL/跨进程、页面暂停/重载、退出/崩溃已验证，不代表实际设备会话已接入。
 
-P08.1 已有独立 SQLite 配置存储与真实临时数据库测试：`cargo test -p config-store --locked`。配置迁移/备份/新目标恢复、Profile/目录 CRUD 可在库层使用，配置服务与编辑器仍在后续子步骤，见 [ADR-008](docs/decisions/ADR-008.md)。
+P08.1 已有独立 SQLite 配置存储与真实临时数据库测试：`cargo test -p config-store --locked`。配置迁移/备份/新目标恢复、Profile/目录 CRUD 可在库层使用，配置服务与编辑器已在 P08.3 接入，见 [ADR-008](docs/decisions/ADR-008.md)。
 
-P08.2 已有 Windows 用户级 DPAPI/AES-GCM 凭据库：`cargo test -p credential-vault --locked`，只用合成秘密验证真实保护 API、跨进程重开与篡改拒绝。配置服务与桌面凭据流程仍待 P08.3，见 [ADR-009](docs/decisions/ADR-009.md)。
+P08.2 已有 Windows 用户级 DPAPI/AES-GCM 凭据库：`cargo test -p credential-vault --locked`，只用合成秘密验证真实保护 API、跨进程重开与篡改拒绝。配置服务与桌面凭据流程见 P08.3，见 [ADR-009](docs/decisions/ADR-009.md)。
 
 `npm run desktop:build` 同时构建相邻的 session-service.exe。直接运行 `target/debug/shared-terminal-desktop.exe` 默认不启用合成接口；追加 `--test-fixture` 可手动新建合成会话。键盘合成回显和高输出均通过同一服务，页面重载从保留游标重新呈现；输出覆盖会明确报缺口。退出桌面会停止服务，当前没有后台保留选项（P12 后续实现）。服务不可用时不自动重连/重放，退出后重新启动会得到全新服务；不能把重载当作重连。启动失败请检查相邻服务文件与普通用户权限，当前不提供安装包。
 
-P08.3 已有 Desktop 专用配置 IPC 后端、有界工作线程和明确配置故障；当前桌面尚未传入数据目录/提供编辑器。进展与主机密钥/导出/备份恢复等剩余项见 [P08.3](docs/records/P08.3.md)。
+P08.3 已有 Desktop 专用配置 IPC 后端、有界工作线程和明确配置故障；桌面已传入独立数据目录并提供编辑器。完整产物及边界见 [P08.3](docs/records/P08.3.md)。
 
-P08.3 桌面增量已接入“连接配置”：目录与 SSH2/SSH1/SERIAL Profile 编辑、复制/移动/删除、凭据引用管理，保存不打开设备。默认使用应用本地用户目录，可通过 --data-dir 绝对路径选择其他目录；所有自动化测试使用独立临时目录。私钥表单只输入本地普通文件路径，内容由服务读取并加密，源文件不修改，页面不接收私钥明文。主机密钥/配置导出与备份恢复/凭据整理仍在实施，P08.3 尚未完成。npm run test:desktop 同时运行生命周期和配置编辑器的真实 WebView 测试，也可单跑 npm run test:desktop:config。
+P08.3 桌面增量已接入“连接配置”：目录与 SSH2/SSH1/SERIAL Profile 编辑、复制/移动/删除、凭据引用管理，保存不打开设备。默认使用应用本地用户目录，可通过 --data-dir 绝对路径选择其他目录；所有自动化测试使用独立临时目录。私钥表单只输入本地普通文件路径，内容由服务读取并加密，源文件不修改，页面不接收私钥明文。主机密钥、配置导出与备份恢复、凭据整理现已接入。npm run test:desktop 同时运行生命周期和配置编辑器的真实 WebView 测试，也可单跑 npm run test:desktop:config。
 
-P08.3 已有主机密钥信任库与 GUI 管理：显示完整指纹，移除须勾选且与当前记录匹配；变更冲突不会自动删除。存储层只读判定未知/已知/变化，批准要求当前版本，SSH1/SSH2/端口分别隔离。真实首次/变化握手确认由 P09/P13 接入，见 [ADR-011](docs/decisions/ADR-011.md)；备份恢复/凭据整理仍未完成。
+P08.3 已有主机密钥信任库与 GUI 管理：显示完整指纹，移除须勾选且与当前记录匹配；变更冲突不会自动删除。存储层只读判定未知/已知/变化，批准要求当前版本，SSH1/SSH2/端口分别隔离。真实首次/变化握手确认由 P09/P13 接入，见 [ADR-011](docs/decisions/ADR-011.md)；备份恢复/凭据整理现已提供桌面入口。
 
-P08.3 的恢复存储层已增加一致镜像/预览摘要和事务恢复，安全副本不覆盖原文件，中途 SQL 失败回滚。当前尚未提供服务/桌面导出与恢复入口，详见 [ADR-012](docs/decisions/ADR-012.md)；不能将库测试当作用户恢复流程完成。
+P08.3 的恢复存储层已增加一致镜像/预览摘要和事务恢复，安全副本不覆盖原文件，中途 SQL 失败回滚。现已提供服务/桌面导出与恢复入口，详见 [ADR-012](docs/decisions/ADR-012.md)；原生桌面流程已验证，设备与安装恢复验收仍在后续步骤。
 
-P08.3 现有“配置导出与备份恢复”入口：便携 JSON 排除凭据引用/信任记录，配置备份保留引用/信任记录但不含秘密或 vault。预览并勾选后可恢复，替换前保存旧库；坏库可恢复到新目录，再用 --data-dir 指定该目录启动。缺引用会提示重新输入。所有操作通过统一服务，不重连已有会话；凭据整理仍在实施。可单跑 npm run test:desktop:archives，细节见 ADR-012。
+P08.3 现有“配置导出与备份恢复”入口：便携 JSON 排除凭据引用/信任记录，配置备份保留引用/信任记录但不含秘密或 vault。预览并勾选后可恢复，替换前保存旧库；坏库可恢复到新目录，再用 --data-dir 指定该目录启动。缺引用会提示重新输入。所有操作通过统一服务，不重连已有会话；凭据整理支持元数据列表、引用检查和显式遗忘。可单跑 npm run test:desktop:archives，细节见 ADR-012。
+
+P08 凭据整理可运行 npm run test:desktop:credentials。只显示 UUID/引用数；检查当前配置和 artifacts 受管理备份，仍有引用或备份不可读时拒绝遗忘。界面明示外部副本不在核对范围，遗忘不承诺磁盘物理擦除。所有自动化均用随机临时目录和合成秘密，尚未连接实际设备。

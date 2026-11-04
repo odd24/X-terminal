@@ -21,6 +21,17 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    CredentialsPage {
+        revision: Option<Uuid>,
+        offset: u32,
+    },
+    InspectCredential {
+        id: Uuid,
+    },
+    ForgetCredential {
+        id: Uuid,
+        revision: Uuid,
+    },
     Archives {},
     CreateBackup {},
     ExportConfig {},
@@ -76,6 +87,11 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::CredentialsPage { revision, offset } => {
+                *offset <= 10000 && (*offset == 0 || revision.is_some())
+            }
+            Self::InspectCredential { id } => !id.is_nil(),
+            Self::ForgetCredential { id, revision } => !id.is_nil() && !revision.is_nil(),
             Self::Archives {} | Self::CreateBackup {} | Self::ExportConfig {} => true,
             Self::InspectBackup { id } | Self::DeleteArchive { id, .. } => !id.is_nil(),
             Self::RestoreBackup {
@@ -154,6 +170,7 @@ impl ConfigRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConfigError {
+    InUse,
     Capacity,
     Invalid,
     NotFound,
@@ -167,6 +184,17 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    CredentialsPage {
+        revision: Uuid,
+        entries: Vec<CredentialInfo>,
+        next_offset: Option<u32>,
+    },
+    CredentialPreview {
+        id: Uuid,
+        revision: Uuid,
+        current_profiles: u32,
+        backup_profiles: u32,
+    },
     Archives {
         entries: Vec<ArchiveInfo>,
     },
@@ -214,6 +242,13 @@ pub enum ConfigReply {
     Error {
         code: ConfigError,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialInfo {
+    pub id: Uuid,
+    pub current_profiles: u32,
 }
 
 fn valid_digest(value: &str) -> bool {

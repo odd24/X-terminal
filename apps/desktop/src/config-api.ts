@@ -12,6 +12,9 @@ export type HostEndpoint = { protocol: 'ssh1' | 'ssh2'; host: string; port: numb
 export type HostKeySummary = { endpoint: HostEndpoint; algorithm: string; fingerprint: string };
 export type CredentialEdit = { action: 'keep' | 'clear' } | { action: 'replace'; value: { password: string | null; private_key: string | null; passphrase: string | null } };
 export type ConfigRequest = { op: 'page'; revision: string | null; offset: number; folders: boolean }
+  | { op: 'credentials_page'; revision: string | null; offset: number }
+  | { op: 'inspect_credential'; id: string }
+  | { op: 'forget_credential'; id: string; revision: string }
   | { op: 'archives' | 'create_backup' | 'export_config' }
   | { op: 'inspect_backup'; id: string }
   | { op: 'restore_backup'; id: string; digest: string; current_revision: string }
@@ -27,10 +30,13 @@ type Page = { result: 'page'; revision: string; folders: Folder[]; profiles: Pro
 export type ArchiveInfo = { id: string; kind: 'backup' | 'export'; filename: string; bytes: number; modified_ms: number };
 export type BackupPreview = { result: 'backup_preview'; id: string; digest: string; folders: number; profiles: number; host_keys: number; missing_credentials: number; current_revision: string | null; sample_profiles: string[] };
 export type Reply = Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null }
+  | { result: 'credentials_page'; revision: string; entries: CredentialInfo[]; next_offset: number | null }
+  | CredentialPreview
   | { result: 'archives'; entries: ArchiveInfo[] } | { result: 'artifact'; artifact: ArchiveInfo } | BackupPreview
   | { result: 'restored'; revision: string; safety_backup: ArchiveInfo; missing_credentials: number }
   | { result: 'recovered'; directory_id: string; missing_credentials: number };
 export const messages: Record<string, string> = {
+  IN_USE: '凭据仍被当前配置或受管理备份引用，未删除。请先移除引用或保留凭据。',
   CAPACITY: '备份或恢复目录数量达到上限，请先整理副本。',
   INVALID: '配置无效，或目录仍被引用。请检查参数和目录关系。',
   NOT_FOUND: '配置已不存在，请刷新。', CONFLICT: '配置已变化，请刷新后重试。',
@@ -43,6 +49,8 @@ export const messages: Record<string, string> = {
   INVALID_CONFIGURATION: '配置参数无效，请检查输入。',
   CapacityExceeded: '配置队列已满，此次操作未被接受。',
 };
+export type CredentialInfo = { id: string; current_profiles: number };
+export type CredentialPreview = { result: 'credential_preview'; id: string; revision: string; current_profiles: number; backup_profiles: number };
 export async function config(request: ConfigRequest): Promise<Reply> {
   let reply: Reply | { result: 'error'; code: string };
   try { reply = await invoke('config_request', { request }); }
