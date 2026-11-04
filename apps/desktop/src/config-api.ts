@@ -51,4 +51,3 @@ export async function readConfiguration(): Promise<{ folders: Folder[]; profiles
   }
   return { folders, profiles };
 }
-

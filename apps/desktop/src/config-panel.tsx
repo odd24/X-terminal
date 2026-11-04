@@ -126,5 +126,3 @@ export function ConfigPanel({ close }: { close(): void }) {
     <p className="data-location">数据目录：{location || '读取失败时请重新启动检查启动目录'}</p>
   </section>;
 }
-
-
