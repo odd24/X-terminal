@@ -1,8 +1,10 @@
 //! Opt-in bounded journals. Callers must authorize and route an exact generation.
+mod archive;
 mod directory;
 mod format;
 mod paired;
 mod storage;
+pub use archive::{ArchiveInfo, ArchivePage, ArchiveReader, Completion};
 pub use directory::ManagedRoot;
 pub use format::{RawFrame, RawReader, SegmentHeader};
 pub use paired::PairReader;
@@ -334,6 +336,11 @@ impl Logger {
             .accepted_raw_bytes
             .checked_add(raw_bytes)
             .is_none()
+            || shared
+                .status
+                .source_gap_bytes
+                .checked_add(source_gap)
+                .is_none()
             || shared.text_cursor.checked_add(1).is_none()
             || (!final_record && shared.source_cursor.checked_add(1).is_none())
         {
@@ -347,8 +354,7 @@ impl Logger {
                 shared.source_cursor += u64::from(!final_record);
                 shared.status.accepted_records += 1;
                 shared.status.accepted_raw_bytes += raw_bytes;
-                shared.status.source_gap_bytes =
-                    shared.status.source_gap_bytes.saturating_add(source_gap);
+                shared.status.source_gap_bytes += source_gap;
                 if final_record {
                     shared.status.natural_end = true;
                     shared.status.phase = Phase::Stopping;

@@ -9,6 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod archive;
+
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {

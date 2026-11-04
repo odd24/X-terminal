@@ -1,5 +1,4 @@
 use crate::{Journal, Limits, Metadata, Record, SegmentHeader, Status, format};
-use serde::Serialize;
 use std::{
     collections::VecDeque,
     fs::{self, File, OpenOptions},
@@ -231,19 +230,7 @@ impl Journal for FileJournal {
     }
     fn finish(&mut self, status: &Status) -> io::Result<()> {
         self.sync()?;
-        #[derive(Serialize)]
-        struct Completion {
-            format_version: u32,
-            log_id: Uuid,
-            connection: session_core::session::ConnectionRef,
-            written_records: u64,
-            written_raw_bytes: u64,
-            first_retained_segment: u64,
-            last_segment: u64,
-            natural_end: bool,
-            source_gap_bytes: u64,
-        }
-        let completion = Completion {
+        let completion = crate::Completion {
             format_version: 1,
             log_id: self.id,
             connection: self.metadata.connection,
@@ -252,7 +239,7 @@ impl Journal for FileJournal {
             first_retained_segment: *self.segments.front().unwrap(),
             last_segment: *self.segments.back().unwrap(),
             natural_end: status.natural_end,
-            source_gap_bytes: status.source_gap_bytes,
+            source_gap_bytes: Some(status.source_gap_bytes),
         };
         let partial = self.directory.join("completion.partial");
         let mut marker = file(&partial)?;
