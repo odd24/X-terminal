@@ -74,9 +74,32 @@ try {
   assert.equal(await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('serial_request',{request:${JSON.stringify(forbidden)}}).then(()=>'unexpected',error=>String(error))`),'InvalidArgument');
   await ui.click('DTR 开启');await message('DTR 开启：CONTROL_APPLIED');await ui.click('BREAK 开启');await message('BREAK 开启：CONTROL_APPLIED');await ui.click('BREAK 关闭');await message('BREAK 关闭：CONTROL_APPLIED');
   await ui.fill('串口发送内容','中');await ui.fill('串口发送换行','cr_lf');await ui.fill('串口每段字节',1024);await ui.fill('串口段间隔',0);await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');await waitRaw(connection,[0xd6,0xd0,13,10]);
-  await ui.fill('串口发送内容','😀');await ui.click('发送串口内容');await message('无效');await waitRaw(connection,[0xd6,0xd0,13,10]);
+  await ui.click('屏幕快照');await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('中')`);
+  // Each byte arrives in a separate poll, exercising the actual WebView decoder.
+  await ui.fill('串口发送格式','hex');await ui.fill('串口发送内容','CE C4');await ui.fill('串口发送换行','none');await ui.fill('串口每段字节',1);await ui.fill('串口段间隔',250);await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
+  await waitRaw(connection,[0xd6,0xd0,13,10,0xce,0xc4]);
+  await delay(300);await ui.click('屏幕快照');await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('文')`);
+  await ui.fill('串口发送格式','text');
+  await ui.fill('串口发送内容','😀');await ui.click('发送串口内容');await message('无效');await waitRaw(connection,[0xd6,0xd0,13,10,0xce,0xc4]);
+  await ui.fill('串口发送格式','hex');await ui.fill('串口发送内容','D6');await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
   await ui.screenshot('desktop-serial-synthetic.png');
   await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
+  await ui.waitFor(`document.querySelector('[aria-label="接收解码提示"]')?.textContent.includes('U+FFFD')`);
+  const gb18030=await save('synthetic GB18030','gb18030');
+  await ui.click('刷新串口配置与设备');await ui.waitFor(`document.querySelector('[aria-label="串口配置"]').options.length===4`);
+  await ui.fill('串口配置',gb18030.id);
+  await ui.fill('串口设备',await ui.evaluate(`document.querySelector('[aria-label="串口设备"]').options[1].value`));
+  await ui.evaluate(`document.querySelector('[aria-label="确认串口设备与控制线"]').click()`);await ui.click('打开串口');await state('CONNECTED');
+  connection=(await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
+  await ui.fill('串口发送格式','hex');await ui.fill('串口发送换行','none');await ui.fill('串口每段字节',1);await ui.fill('串口段间隔',200);await ui.fill('串口发送内容','90 30 81 30');await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
+  await waitRaw(connection,[0x90,0x30,0x81,0x30]);await delay(300);await ui.click('屏幕快照');await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('\u{10000}')`);
+  // Editing the Profile does not change the active connection's encoding snapshot.
+  gb18030.settings.encoding='utf8';
+  await ui.invoke('config_request',{request:{op:'save_profile',profile:gb18030,credential:{action:'keep'}}});
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await ui.fill('会话',connection.connection_id);await delay(400);await ui.click('屏幕快照');await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('\u{10000}')`);
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="接收解码提示"]')`),false);
+  await ui.click('串口连接');await state('CONNECTED');await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
   for(const item of await ui.invoke('service_list')) {
     await ui.fill('会话',item.connection_id);await ui.waitFor(`document.querySelector('[aria-label="串口状态"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);
     await ui.click('移除串口记录');await ui.waitFor(`!Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(item.connection_id)})`);

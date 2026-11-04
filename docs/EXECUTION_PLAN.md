@@ -170,6 +170,14 @@
 - 验收：R04/R12；vim/top/less/tmux、中文、Ctrl+C、粘贴模式可用；日志截断有证据。
 - 提交：`feat(P11): add terminal fidelity and bounded logging`。
 
+### P11.1 桌面增量接收解码
+
+- 依赖：P02、P09/P10 已提交的软件链路、CR-001；实机验收继续保留。
+- 动作：按活动串口的服务编码快照解码 UTF-8/GBK/GB18030，连接/代次隔离，断开排空后 flush；缺口同时重置字符和终端解析状态。
+- 产物：有界桌面解码组件、字节分块测试与真实 WebView 内存串口显示证据。
+- 验收：多字节任意分块不损坏、原始 HEX 不变、残留字节替换提示；不以此宣称完整 P11、SSH 旧编码、screen、日志或实机通过。
+- 提交：`feat(P11.1): decode desktop output incrementally by session encoding`。
+
 ### P12 基础桌面体验
 
 - 依赖：P08–P11。

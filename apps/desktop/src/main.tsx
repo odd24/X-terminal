@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { TerminalWriter } from './terminal-writer';
+import { OutputDecoder } from './output-decoder';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { ExecPanel } from './exec-panel';
@@ -39,6 +40,7 @@ function App() {
   const [inputFailure, setInputFailure] = useState('');
   const [fontSize, setFontSize] = useState(15);
   const [snapshot, setSnapshot] = useState('');
+  const [decodeWarning, setDecodeWarning] = useState('');
   const [busy, setBusy] = useState(false);
   const stopped = useRef(false);
 
@@ -53,6 +55,26 @@ function App() {
     let disposed = false;
     let cursor = 1;
     let gap = false;
+    let decoder = new OutputDecoder('utf8');
+    // xterm 6 reset() clears buffers but leaves the parser state intact.
+    // CAN/SUB cancel a partial string/CSI; RIS also resets the parser via public write.
+    const resetParser = () => new Promise<void>(resolve => term.write(new Uint8Array([0x18, 0x1a, 0x1b, 0x63]), resolve));
+    function display(decoded: { bytes: Uint8Array; replacement: boolean }) {
+      if (decoded.replacement) setDecodeWarning('解码文本含 U+FFFD（原始字符或无效字节替换）；请核对原始字节。');
+      if (!current.writer.enqueue(decoded.bytes)) { gap = true; setStatus('渲染队列输出缺口；请重载后读取保留输出'); }
+    }
+    async function outputGap(message: string) {
+      gap = true;
+      await current.writer.drain();
+      if (disposed) return;
+      // Drop partial character and escape state together, so bytes across a gap cannot join.
+      await resetParser();
+      if (disposed) return;
+      term.reset();
+      decoder = new OutputDecoder(decoder.encoding);
+      setSnapshot('');
+      setStatus(message + '；终端已清屏并重置解析状态，后续内容可能从序列中间开始');
+    }
     const newQueue = () => new InputQueue(() => { if (!disposed) setInputFailure('输入结果可能未知；已停止本页面后续输入，未重试。请核对远端状态。'); });
     let queue = newQueue();
     let resizeTimer = 0;
@@ -146,17 +168,25 @@ function App() {
           current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
           current.writer.close();
           current.connection = undefined; current.protocol = '';
-          await new Promise<void>(resolve => term.write(new Uint8Array(), resolve));
+          await resetParser();
           if (disposed) return;
           if (selectedRef.current !== wanted) { timer = window.setTimeout(() => void poll(), 0); return; }
           term.reset(); current.writer = new TerminalWriter(term);
+          decoder = new OutputDecoder('utf8'); setDecodeWarning('');
           cursor = 1; gap = false; setSnapshot(''); setLastInput('尚无输入'); setInputFailure('');
           if (selectedRef.current === wanted) { selectedRef.current = ''; setSelected(''); }
         }
         if (connection && (connection.connection_id !== current.connection?.connection_id || connection.generation !== current.connection?.generation)) {
+          let encoding = 'utf8';
+          if (connection.protocol === 'SERIAL') {
+            const metadata = await serial({ op: 'status', connection: { connection_id: connection.connection_id, generation: connection.generation } });
+            if (disposed) return;
+            if (metadata.result !== 'status') throw new Error('Invalid serial status');
+            encoding = metadata.encoding;
+          }
           current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
           current.writer.close();
-          await new Promise<void>(resolve => term.write(new Uint8Array(), resolve));
+          await resetParser();
           if (disposed) return;
           if (selectedRef.current !== wanted) {
             // A newer user selection wins over a poll suspended in xterm.write.
@@ -166,6 +196,7 @@ function App() {
           }
           term.reset();
           current.writer = new TerminalWriter(term);
+          decoder = new OutputDecoder(encoding); setDecodeWarning('');
           current.connection = { connection_id: connection.connection_id, generation: connection.generation };
           cursor = 1; gap = false; setSnapshot(''); setLastInput('尚无输入'); setInputFailure('');
           selectedRef.current = connection.connection_id; setSelected(connection.connection_id);
@@ -179,11 +210,14 @@ function App() {
         if (current.connection) {
           const page = await invoke<Page>('service_read', { connection: current.connection, cursor });
           if (disposed) return;
-          if (page.truncated) { gap = true; setStatus(`输出缺口：起始游标 ${page.available_from}，历史输出已覆盖`); }
+          if (page.truncated) await outputGap(`输出缺口：起始游标 ${page.available_from}，历史输出已覆盖`);
+          if (disposed) return;
           for (const event of page.events) {
-            if (event.gap_bytes) { gap = true; setStatus(`设备接收输出缺口：丢失 ${event.gap_bytes} 字节`); continue; }
-            if (!current.writer.enqueue(new Uint8Array(event.bytes))) { gap = true; setStatus('渲染队列输出缺口；请重载后读取保留输出'); }
+            if (event.gap_bytes) { await outputGap(`设备接收输出缺口：丢失 ${event.gap_bytes} 字节`); if (disposed) return; continue; }
+            display(decoder.decode(new Uint8Array(event.bytes)));
           }
+          // A disconnected page may still have unread retained events. Flush only after drain.
+          if (page.disconnected && page.events.length === 0) display(decoder.finish());
           cursor = page.next_cursor;
           await current.writer.drain();
           if (!disposed && !gap) setStatus(page.disconnected ? '会话已断开' : '服务输出已同步');
@@ -258,6 +292,7 @@ function App() {
     {serialOpen && <SerialPanel connection={connections.find(item => item.connection_id === selected)} select={id => { selectedRef.current = id; setSelected(id); }} />}
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || inputFailure || status}</div>
+    {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}
     <div className="input-status">{connections.find(item => item.connection_id === selected)?.protocol === 'SSH2' ? 'SSH2 输入' : connections.find(item => item.connection_id === selected)?.protocol === 'SERIAL' ? '串口输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>
     {snapshot && <pre aria-label="屏幕快照">{snapshot}</pre>}
     <footer>{service && <span>服务 {service.service_id} · </span>}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</footer>

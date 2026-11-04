@@ -90,6 +90,8 @@ npm run test:desktop:credentials
 
 P09/P10 新增 `npm run test:desktop:ssh` 与 `npm run test:desktop:serial`，前置为 `npm run desktop:build`。串口专项编译仅测试用的 `serial-ui-fixture` 服务，以内存串口验证实际 WebView/IPC，finally 尝试恢复普通服务二进制；必须检查恢复命令实际成功，不能把内存后端当作虚拟/真实 COM 驱动验收。完整 `npm run test:desktop` 包含这两个专项。
 
+P11.1 新增 `npm run test:desktop:output`（前置桌面构建），以合成会话验证输出覆盖缺口与终端解析重置；完整桌面回归包含该专项。串口专项还覆盖 GBK/GB18030 增量显示/编码快照/尾字节提示，仍不代表驱动验收。
+
 ## 结束工作
 
 报告已完成的步骤、产物、验证、提交短 hash、未解决问题与下一步；工作区应干净，若用户已有修改保留并说明。未执行的检查明确写“未执行”。
