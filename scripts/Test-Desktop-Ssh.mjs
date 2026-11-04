@@ -172,6 +172,25 @@ try {
   await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.includes('RUNNING')`);
   assert.equal((await control({op:'metrics'})).exec_calls.length,beforeTaskReload,'reload/query cannot restart exec');
   await ui.click('取消选中 exec 任务');await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.includes('CANCELLED')`);
+  await ui.click('SSH2 连接');await state('CONNECTED');
+  assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='移除连接记录').disabled`),true);
+  await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');
+  const retained=await ui.invoke('service_list');
+  for(const item of retained){
+    await ui.fill('会话',item.connection_id);
+    await ui.waitFor(`document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);
+    await waitButton('移除连接记录');await ui.click('移除连接记录');
+    await ui.waitFor(`!Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(item.connection_id)})`);
+  }
+  await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
+  assert.equal((await ui.invoke('service_list')).length,0);
+  await choose(password);await waitButton('提交本次 SSH2 密码');
+  await ui.fill('SSH2 临时密码',server.password);await ui.click('提交本次 SSH2 密码');await state('CONNECTED');
+  const replacement=(await ui.invoke('service_list'))[0];
+  assert.notEqual(replacement.connection_id,connection.connection_id);
+  await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');await ui.click('移除连接记录');
+  await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
+  assert.equal((await ui.invoke('service_list')).length,0);
   await ui.close();ui=null;
   console.log('PASS SSH2 native WebView: trust/reject/changed key, wrong/temporary password, DPAPI key, keyboard challenge, FIFO input/resize, bounded exec/exit/signal/timeout/cancel/gaps, exit/disconnect, reload/query without reconnect/replay');
 } catch (error) {

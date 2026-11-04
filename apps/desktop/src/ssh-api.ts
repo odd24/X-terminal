@@ -17,7 +17,7 @@ type Request =
   | { op: 'exec_read'; connection: ConnectionRef; task_id: string; cursor: number; max_bytes: number }
   | { op: 'start'; profile_id: string; request_id: string; cols: number; rows: number }
   | { op: 'reconnect'; connection: ConnectionRef; request_id: string; cols: number; rows: number }
-  | { op: 'status' | 'close'; connection: ConnectionRef }
+  | { op: 'status' | 'close' | 'forget'; connection: ConnectionRef }
   | { op: 'answer_host'; connection: ConnectionRef; challenge_id: string; approve: boolean }
   | { op: 'authenticate'; connection: ConnectionRef; challenge_id: string; use_saved: boolean; password: string | null }
   | { op: 'answer_interactive'; connection: ConnectionRef; challenge_id: string; answers: string[] }

@@ -59,6 +59,8 @@ P09 已建立输入回执的 UUIDv7 退休窗口，见 [ADR-020](decisions/ADR-0
 
 P09 exec 有序结果按 [ADR-021](decisions/ADR-021.md) 在容量需要时回收结束任务；task_id 可等于 request_id，权限仍由服务的连接代次/客户端范围判定。REQUEST_EXPIRED 同样用于过期 task status/read/cancel，不能解释为原命令未执行、成功或可安全重跑。可保留结果每连接 16/全局 64，其他连接的新任务也可能导致已结束结果回收，工具须明确反馈，不缓存成无限期可查询承诺。
 
+连接记录由 Desktop 显式移除，见 [ADR-022](decisions/ADR-022.md)。Agent 后续 connect 工具须使用同一有序 request_id 查询/重试；原 Started 重复可能对应已移除或旧代次连接，不能当作当前在线，须另查状态。NotFound/RequestExpired 不能自动触发新建或换 ID。移除不向当前只读 MCP 暴露，P14/P15 授权尚待实施。
+
 ## 输入与上下文规则
 
 1. Codex 必须使用 connection_id，不能把当前 UI 标签作为隐式目标。

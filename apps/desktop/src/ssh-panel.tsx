@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { readConfiguration, type Profile } from './config-api';
 import { ssh, reference, type Connection, type SshStatus } from './ssh-api';
+import { requestId } from './request-id';
 
 export function SshPanel({ connection, select, size }: { connection?: Connection; select(id: string): void; size(): { cols: number; rows: number } }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -50,7 +51,7 @@ export function SshPanel({ connection, select, size }: { connection?: Connection
     return reference(status.connection);
   }
   async function start(reconnect = false) {
-    const request_id = crypto.randomUUID();
+    const request_id = requestId();
     const reply = await ssh(reconnect
       ? { op: 'reconnect', connection: active(), request_id, ...size() }
       : { op: 'start', profile_id: profileId, request_id, ...size() });
@@ -64,9 +65,18 @@ export function SshPanel({ connection, select, size }: { connection?: Connection
     <small>当前终端入口使用 UTF-8。GBK/GB18030 的终端收发将在编码步骤接入；配置仍保留。密码不显示在输入诊断中。</small>
     <p role="status">{message}</p>
     {status && <>
+      <small aria-label="SSH2 目标">连接：{status.connection.connection_id} · 代次 {status.connection.generation}</small>
       <p aria-label="SSH2 状态">{status.connection.state} · 代次 {status.connection.generation}{status.failure && ` · ${status.failure}`}{status.shell_exit_status !== null && ` · shell 退出码 ${status.shell_exit_status}`}{status.shell_exit_signal && ` · 信号 ${status.shell_exit_signal}`}</p>
       <div className="config-actions"><button disabled={busy || ['DISCONNECTED', 'FAILED'].includes(status.connection.state)} onClick={() => void act(async () => { await ssh({ op: 'close', connection: active() }); setPassword(''); setAnswers([]); setMessage('已请求关闭；已发送的远端动作不会因此撤销。'); })}>关闭 SSH2 连接</button>
-        <button disabled={busy || !['DISCONNECTED', 'FAILED'].includes(status.connection.state)} onClick={() => void act(() => start(true))}>显式重连 SSH2</button></div>
+        <button disabled={busy || !['DISCONNECTED', 'FAILED'].includes(status.connection.state)} onClick={() => void act(() => start(true))}>显式重连 SSH2</button>
+        <button disabled={busy || !['DISCONNECTED', 'FAILED'].includes(status.connection.state)} onClick={() => void act(async () => {
+          const target = active();
+          const reply = await ssh({ op: 'forget', connection: target });
+          if (reply.result !== 'accepted') throw new Error('移除连接响应不匹配。');
+          if (mounted.current && current.current?.connection_id === target.connection_id && current.current.generation === target.generation) { setStatus(undefined); select(''); }
+          if (mounted.current) setMessage('连接记录及保留输出/任务已移除；配置和凭据仍可使用。旧建连请求不会重新执行。');
+        })}>移除连接记录</button></div>
+      <small>服务最多保留 64 条连接。仅已断开或失败的连接可移除；移除会丢弃其保留输出、输入回执和任务结果。已发送的远端动作不会因此撤销。</small>
       {challenge && <fieldset key={challenge.id} disabled={busy}><legend>{challenge.kind === 'host_key' ? '确认主机身份' : '本次连接认证'}</legend>
         {challenge.kind === 'host_key' && <>
           <p>{challenge.review.status === 'changed' ? '主机密钥已变化。请通过可信渠道核对后再继续。' : '此主机尚需确认。请通过可信渠道核对指纹。'}</p>

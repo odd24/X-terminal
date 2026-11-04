@@ -1,5 +1,6 @@
 //! Service-owned SSH2 actors. Public control messages never carry private key bytes.
 mod exec;
+mod history;
 mod reconnect;
 use crate::{
     config::{Access, Internal, Value},
@@ -79,6 +80,7 @@ enum Answer {
 struct Inner {
     entries: HashMap<ConnectionId, Entry>,
     requests: HashMap<Uuid, (Start, ConnectionInfo)>,
+    request_window: session_core::input::RequestWindow,
 }
 pub(crate) struct Manager {
     inner: Arc<Mutex<Inner>>,
@@ -98,7 +100,10 @@ impl Manager {
         match inner.requests.get(&id) {
             Some((previous, connection)) if *previous == start => Ok(Some(connection.clone())),
             Some(_) => Err(ErrorCode::InvalidArgument),
-            None => Ok(None),
+            None => {
+                inner.request_window.check(id)?;
+                Ok(None)
+            }
         }
     }
     pub(crate) async fn handle(&self, request: ssh::Request) -> Result<ssh::Reply, ErrorCode> {
@@ -106,6 +111,7 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Forget { connection } => self.forget(connection).await,
             ssh::Request::Reconnect {
                 connection,
                 request_id,
@@ -202,9 +208,10 @@ impl Manager {
                         Err(ErrorCode::InvalidArgument)
                     };
                 }
-                if inner.requests.len() >= 1024 || inner.entries.len() >= MAX_CONNECTIONS {
+                if inner.entries.len() >= MAX_CONNECTIONS {
                     return Err(ErrorCode::CapacityExceeded);
                 }
+                inner.reserve_start(request_id)?;
                 let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
                 let initial = store.sessions.create(Protocol::Ssh2)?;
                 let connection = store.sessions.begin_connect(initial.reference())?;

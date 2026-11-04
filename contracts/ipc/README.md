@@ -45,3 +45,7 @@ P09 exec 增量：exec、exec_status、exec_read、exec_cancel。启动输入 co
 P09 reconnect 增量仅从 DISCONNECTED/FAILED 接受当前 connection_id/generation/request_id/尺寸；活动连接先显式 Close。保持 connection_id，generation+1，并重建输出/挑战/输入/任务，不重放。读取当时的最新 Profile 快照，新端点或变化主机需重新确认，认证须新回答；旧票据不自动获得新代次。
 
 相同 Reconnect 来源和参数/request_id 返回原 Started 结果，并发只迁移一次；参数/动作冲突拒绝。同源不同 request_id 竞争只能一个成功，另一方 StaleGeneration。重复响应中的 state 是原始响应而非当前状态，应另查 Status。Profile 已删除或改为其他协议则拒绝，不递增代次；当前表不迁移旧任务/输出历史，旧代次查询明确拒绝。详见 [ADR-017](../../docs/decisions/ADR-017.md)，GUI/审计/长期容量仍待后续。
+
+后续容量增量以 [ADR-020](../../docs/decisions/ADR-020.md)/[ADR-021](../../docs/decisions/ADR-021.md)/[ADR-022](../../docs/decisions/ADR-022.md) 为准：输入/结束任务/结束建连回执的有序退休水位替代满额后的永久拒绝，旧不透明 ID 仍不可回收，RequestExpired 不表示动作从未执行，不自动换 ID 重发。
+
+Desktop 专用 ssh.forget 只接收完整 ConnectionRef 并返回 accepted，仅 DISCONNECTED/FAILED 当前代次可移除，丢弃其保留输出/输入/任务，保留配置/凭据与独立 Start/Reconnect 去重。移除后 status/read 返回 NotFound；保留中的建连重复仍返回原 Started（不是新建），回执退休后旧 Start/Reconnect 返回 RequestExpired。连接最多 64、建连回执最多 1024，活动当前代次回执及 opaque 回执不回收。移除与重连竞争只允许一个在原代次成功，不支持 force 或隐式当前连接。

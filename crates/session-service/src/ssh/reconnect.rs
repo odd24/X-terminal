@@ -15,7 +15,10 @@ impl Manager {
                 Ok(Some(result.clone()))
             }
             Some(_) => Err(ErrorCode::InvalidArgument),
-            None => Ok(None),
+            None => {
+                inner.request_window.check(id)?;
+                Ok(None)
+            }
         }
     }
     pub(super) async fn reconnect(
@@ -101,9 +104,18 @@ impl Manager {
             let _ = task.await;
         }
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-        if inner.requests.len() >= 1024 {
-            return Err(ErrorCode::CapacityExceeded);
+        // Another connection can use the same global request ID while this restart
+        // awaits cleanup. Resolve that collision before advancing either generation.
+        if let Some((old, result)) = inner.requests.get(&id) {
+            return if old.previous == Some(connection) && old.cols == cols && old.rows == rows {
+                Ok(ssh::Reply::Started {
+                    connection: result.clone(),
+                })
+            } else {
+                Err(ErrorCode::InvalidArgument)
+            };
         }
+        inner.reserve_start(id)?;
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         let current = store.sessions.begin_connect(connection)?;
         let reference = current.reference();

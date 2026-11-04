@@ -118,11 +118,22 @@ function App() {
         setConnections(sessions);
         const wanted = selectedRef.current;
         const connection = sessions.find(item => item.connection_id === wanted) ?? (!wanted ? sessions[0] : undefined);
-        if (!connection && wanted) {
+        if (!connection && wanted && current.connection?.connection_id !== wanted) {
           current.writable = false;
           setStatus('正在刷新所选会话；输入尚未发送');
           timer = window.setTimeout(() => void poll(), 100);
           return;
+        }
+        if (!connection && current.connection) {
+          current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
+          current.writer.close();
+          current.connection = undefined; current.protocol = '';
+          await new Promise<void>(resolve => term.write(new Uint8Array(), resolve));
+          if (disposed) return;
+          if (selectedRef.current !== wanted) { timer = window.setTimeout(() => void poll(), 0); return; }
+          term.reset(); current.writer = new TerminalWriter(term);
+          cursor = 1; gap = false; setSnapshot(''); setLastInput('尚无输入'); setInputFailure('');
+          if (selectedRef.current === wanted) { selectedRef.current = ''; setSelected(''); }
         }
         if (connection && (connection.connection_id !== current.connection?.connection_id || connection.generation !== current.connection?.generation)) {
           current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
@@ -160,7 +171,7 @@ function App() {
         } else setStatus('服务就绪 · 尚无活动连接');
         if (!disposed) timer = window.setTimeout(() => void poll(), 100);
       } catch (error) {
-        if (!disposed && String(error) === 'StaleGeneration') {
+        if (!disposed && ['StaleGeneration', 'NotFound'].includes(String(error))) {
           current.writable = false;
           timer = window.setTimeout(() => void poll(), 100);
           return;

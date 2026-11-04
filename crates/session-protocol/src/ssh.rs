@@ -78,6 +78,9 @@ pub enum Request {
     Close {
         connection: ConnectionRef,
     },
+    Forget {
+        connection: ConnectionRef,
+    },
 }
 impl Request {
     pub fn validate(&self) -> bool {
@@ -163,7 +166,9 @@ impl Request {
                     && (2..=500).contains(cols)
                     && (1..=200).contains(rows)
             }
-            Self::Status { connection } | Self::Close { connection } => valid(*connection),
+            Self::Status { connection }
+            | Self::Close { connection }
+            | Self::Forget { connection } => valid(*connection),
             Self::AnswerHost {
                 connection,
                 challenge_id,
@@ -368,6 +373,26 @@ mod tests {
         })
         .unwrap();
         value["replay_pending"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<Request>(value).is_err());
+    }
+    #[test]
+    fn forget_requires_an_exact_reference_and_rejects_extra_controls() {
+        let connection = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 2,
+        };
+        assert!(Request::Forget { connection }.validate());
+        assert!(
+            !Request::Forget {
+                connection: ConnectionRef {
+                    generation: 0,
+                    ..connection
+                }
+            }
+            .validate()
+        );
+        let mut value = serde_json::to_value(Request::Forget { connection }).unwrap();
+        value["force"] = serde_json::json!(true);
         assert!(serde_json::from_value::<Request>(value).is_err());
     }
     #[test]

@@ -2583,6 +2583,13 @@ async fn ssh_connected_fixture(
     client: &mut Client,
     remote: &ssh_fixture::Fixture,
 ) -> ConnectionRef {
+    ssh_connected_fixture_with_request(client, remote, Uuid::new_v4()).await
+}
+async fn ssh_connected_fixture_with_request(
+    client: &mut Client,
+    remote: &ssh_fixture::Fixture,
+    request_id: Uuid,
+) -> ConnectionRef {
     use ssh::{Challenge as H, Request as S};
     let profile = ssh_profile(remote, config_store::Auth::Password);
     config_call(
@@ -2593,9 +2600,7 @@ async fn ssh_connected_fixture(
         },
     )
     .await;
-    let connection = ssh_start(client, profile.id, Uuid::new_v4())
-        .await
-        .reference();
+    let connection = ssh_start(client, profile.id, request_id).await.reference();
     let status = ssh_status(client, connection, |status| {
         matches!(status.challenge, Some(H::HostKey { .. }))
     })
@@ -3026,3 +3031,6 @@ mod capacity_cases;
 
 #[path = "support/reconnect_cases.rs"]
 mod reconnect_cases;
+
+#[path = "support/history_cases.rs"]
+mod history_cases;
