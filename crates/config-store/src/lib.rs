@@ -53,6 +53,13 @@ fn metadata(connection: &Connection) -> Result<(i64, i64)> {
         connection.pragma_query_value(None, "user_version", |row| row.get(0))?,
     ))
 }
+/// Called after acquiring the write transaction so external version changes cannot race a mutation.
+fn require_current(connection: &Connection) -> Result<()> {
+    if metadata(connection)? != (APP_ID, SCHEMA_VERSION) {
+        return Err(Error::Schema);
+    }
+    Ok(())
+}
 fn check(connection: &Connection) -> Result<()> {
     let (app, version) = metadata(connection)?;
     if app != APP_ID || !(1..=SCHEMA_VERSION).contains(&version) {
@@ -212,6 +219,7 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         // Read under this transaction so concurrent writers cannot bypass limits/cycles.
+        require_current(&tx)?;
         let mut folders = read_folders(&tx)?;
         folders.retain(|f| f.id != folder.id);
         folders.push(folder.clone());
@@ -228,6 +236,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        require_current(&tx)?;
         let exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM profiles WHERE id=?1)",
             [profile.id.to_string()],
@@ -371,8 +380,11 @@ fn validate_folder(folder: &Folder, folders: &[Folder]) -> Result<()> {
     Ok(())
 }
 fn delete(connection: &Connection, sql: &str, id: Uuid) -> Result<()> {
-    if connection.execute(sql, [id.to_string()])? == 0 {
+    let tx = rusqlite::Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+    require_current(&tx)?;
+    if tx.execute(sql, [id.to_string()])? == 0 {
         return Err(Error::NotFound);
     }
+    tx.commit()?;
     Ok(())
 }

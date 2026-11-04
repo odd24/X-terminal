@@ -648,3 +648,89 @@ fn changed_backup_preview_and_live_newer_schema_cannot_be_restored_over() {
     assert!(!temp.path("also-not-created").exists());
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }
+
+#[test]
+fn open_store_refuses_mutations_after_external_schema_or_application_change() {
+    let temp = Temp::new();
+    let path = temp.path("live-version.sqlite");
+    let mut store = Store::open(&path).unwrap();
+    let folder = Folder {
+        id: Uuid::new_v4(),
+        parent_id: None,
+        name: "existing folder".into(),
+    };
+    store.put_folder(folder.clone()).unwrap();
+    let saved = profile();
+    store.put_profile(saved.clone()).unwrap();
+    let key = HostKey {
+        endpoint: HostEndpoint {
+            protocol: HostProtocol::Ssh2,
+            host: "example.invalid".into(),
+            port: 22,
+        },
+        algorithm: "ssh-ed25519".into(),
+        key: b"synthetic approved public key".to_vec(),
+    };
+    let review = store.review_host_key(&key).unwrap();
+    store
+        .approve_host_key(key.clone(), &review.revision)
+        .unwrap();
+    let fingerprint = store.host_keys().unwrap()[0].fingerprint.clone();
+    for pragma in [
+        "PRAGMA user_version=99",
+        "PRAGMA user_version=1",
+        "PRAGMA user_version=2;PRAGMA application_id=7",
+    ] {
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch(pragma).unwrap();
+        drop(connection);
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            matches!(
+                store.put_folder(Folder {
+                    name: "must not write".into(),
+                    ..folder.clone()
+                }),
+                Err(Error::Schema)
+            ),
+            "{pragma}: put_folder"
+        );
+        assert!(
+            matches!(
+                store.put_profile(Profile {
+                    name: "must not write".into(),
+                    ..saved.clone()
+                }),
+                Err(Error::Schema)
+            ),
+            "{pragma}: put_profile"
+        );
+        assert!(
+            matches!(store.delete_profile(saved.id), Err(Error::Schema)),
+            "{pragma}: delete_profile"
+        );
+        assert!(
+            matches!(store.delete_folder(folder.id), Err(Error::Schema)),
+            "{pragma}: delete_folder"
+        );
+        assert!(
+            matches!(
+                store.approve_host_key(key.clone(), &review.revision),
+                Err(Error::Schema)
+            ),
+            "{pragma}: approve_host_key"
+        );
+        assert!(
+            matches!(
+                store.forget_host_key(&key.endpoint, &key.algorithm, &fingerprint),
+                Err(Error::Schema)
+            ),
+            "{pragma}: forget_host_key"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "{pragma}: original bytes changed"
+        );
+    }
+}

@@ -124,6 +124,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        crate::require_current(&tx)?;
         let before = review(&tx, &candidate)?;
         if before.revision != expected_revision {
             return Err(Error::Conflict);
@@ -154,6 +155,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        crate::require_current(&tx)?;
         let value = read(&tx)?
             .into_iter()
             .find(|value| value.endpoint == endpoint && value.algorithm == algorithm)
