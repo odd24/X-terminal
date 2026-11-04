@@ -55,3 +55,7 @@ P10 增加 serial 请求，见 [ADR-025](../../docs/decisions/ADR-025.md)：acti
 OutputEvent 可选 gap_bytes 表示接收端已丢失字节，该事件 bytes 为空且有独立 seq/时间戳；普通字节事件省略字段。truncated 仍表示消费者落后导致保留历史覆盖，不能替代源头接收缺口。客户端必须显示/传递 gap_bytes，不得无声拼接；本开发增量随服务/客户端一同构建，不声明旧严格客户端跨版本兼容。
 
 P10 serial.send接收connection/request_id/content/format(text|hex)/ending(none|cr|lf|cr_lf)/pace(chunk_bytes,interval_ms)。编码取打开时快照；文本不可表示拒绝，HEX只数字/ASCII空白，最终最多64KiB含末尾换行，内容UTF-8最多196608字节。整批一个FIFO元素，段1–1024、间隔0–1000ms、计划间隔总计60秒；返回串口Input回执，未知/取消不重发。Status增加encoding/hardware_rts，硬件流控的RTS服务层拒绝。见[ADR-026](../../docs/decisions/ADR-026.md)。
+
+P11.2增加公共read_text与screen，沿用read的can_read范围/到期/撤销/代次检查，不允许读者指定编码或路径。read_text从独立cursor=1读取，每页UTF-8文本预算16384–65536字节；TextEvent的seq为文本序号，source_seq对应原始事件（最终flush为null），timestamp_ms沿用原始事件/最后输出（无输出为0），text可为空，decode_error表示此事件解码替换，gap_bytes为源头丢失。completed表示生产结束，不表示本页已含全部尾部，需沿next_cursor读到空页；source_cursor为服务派生至原始的下一事件位置，不是本页尾部。文本256KiB/128事件，独立覆盖truncated与available_from，不能当作原始字节窗口。
+
+screen返回编码、parser、resize_reflow、尺寸/光标/替代屏幕、source_cursor/completed、接收gap_bytes与decode_error_events。contents最多64KiB UTF-8，截断时contents_truncated=true。当前parser=vt100-0.18.1+local.1、resize_reflow=false，宽度变化不重排且复杂组合/真实程序兼容仍待验；不是桌面截图或完全一致承诺。源缺口重建字符与终端解析状态，保留历史覆盖仅影响落后读者，不重置服务screen。详见[ADR-028](../../docs/decisions/ADR-028.md)。这是同构建开发契约扩展，schema与客户端必须同步更新。

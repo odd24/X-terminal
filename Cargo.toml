@@ -1,10 +1,11 @@
 [workspace]
 members = ["apps/desktop/src-tauri", "crates/session-core", "crates/transport-ssh2", "crates/transport-serial", "crates/mcp-bridge", "crates/session-protocol", "crates/session-service", "crates/config-store", "crates/credential-vault", "crates/config-model"]
 resolver = "2"
-exclude = ["vendor/russh"]
+exclude = ["vendor/russh", "vendor/vt100"]
 
 [patch.crates-io]
 russh = { path = "vendor/russh" }
+vt100 = { path = "vendor/vt100" }
 
 [workspace.package]
 version = "0.1.0"

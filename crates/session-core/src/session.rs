@@ -207,6 +207,7 @@ impl OutputBuffer {
 struct Connection {
     info: ConnectionInfo,
     output: OutputBuffer,
+    presentation: crate::presentation::Presentation,
 }
 
 #[derive(Default)]
@@ -229,6 +230,7 @@ impl Sessions {
             Connection {
                 info: info.clone(),
                 output: Self::buffer(),
+                presentation: crate::presentation::Presentation::new("utf-8", 24, 80).unwrap(),
             },
         );
         Ok(info)
@@ -268,6 +270,7 @@ impl Sessions {
             .checked_add(1)
             .ok_or(ErrorCode::CapacityExceeded)?;
         connection.output = Self::buffer();
+        connection.presentation = crate::presentation::Presentation::new("utf-8", 24, 80).unwrap();
         connection.info.generation = generation;
         connection.info.state = State::Connecting;
         Ok(connection.info.clone())
@@ -295,6 +298,9 @@ impl Sessions {
         if !allowed {
             return Err(ErrorCode::InvalidState);
         }
+        if matches!(target, State::Disconnected | State::Failed) {
+            connection.presentation.finish();
+        }
         connection.info.state = target;
         Ok(connection.info.clone())
     }
@@ -308,7 +314,7 @@ impl Sessions {
         if connection.info.state != State::Connected {
             return Err(ErrorCode::NotConnected);
         }
-        connection.output.append(bytes, timestamp_ms)
+        Self::append_output(connection, bytes, timestamp_ms)
     }
     pub fn read(
         &self,
@@ -344,7 +350,7 @@ impl Sessions {
         if !matches!(connection.info.state, State::Connected | State::Closing) {
             return Err(ErrorCode::NotConnected);
         }
-        connection.output.append(raw, timestamp_ms)
+        Self::append_output(connection, raw, timestamp_ms)
     }
     pub fn mark_gap(
         &mut self,
@@ -356,7 +362,79 @@ impl Sessions {
         if !matches!(connection.info.state, State::Connected | State::Closing) {
             return Err(ErrorCode::NotConnected);
         }
-        connection.output.mark_gap(lost, timestamp_ms)
+        connection.presentation.reserve(1)?;
+        let seq = connection.output.next_seq;
+        connection.output.mark_gap(lost, timestamp_ms)?;
+        connection.presentation.gap(seq, lost, timestamp_ms);
+        Ok(())
+    }
+
+    fn append_output(
+        connection: &mut Connection,
+        raw: &[u8],
+        timestamp_ms: u64,
+    ) -> Result<(), ErrorCode> {
+        if raw.len() > MAX_APPEND {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        connection
+            .presentation
+            .reserve(raw.len().div_ceil(EVENT_BYTES))?;
+        let first_seq = connection.output.next_seq;
+        connection.output.append(raw, timestamp_ms)?;
+        for (index, chunk) in raw.chunks(EVENT_BYTES).enumerate() {
+            connection
+                .presentation
+                .append(first_seq + index as u64, chunk, timestamp_ms);
+        }
+        Ok(())
+    }
+
+    /// Service-owned setup, before any transport output. Never a public write capability.
+    pub fn configure_output(
+        &mut self,
+        reference: ConnectionRef,
+        encoding: &str,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        if connection.info.state != State::Connecting || connection.output.next_seq != 1 {
+            return Err(ErrorCode::InvalidState);
+        }
+        connection.presentation = crate::presentation::Presentation::new(encoding, rows, cols)?;
+        Ok(())
+    }
+
+    pub fn resize_screen(
+        &mut self,
+        reference: ConnectionRef,
+        rows: u16,
+        cols: u16,
+    ) -> Result<(), ErrorCode> {
+        let connection = self.get_mut(reference)?;
+        if connection.info.state != State::Connected {
+            return Err(ErrorCode::NotConnected);
+        }
+        connection.presentation.resize(rows, cols)
+    }
+
+    pub fn read_text(
+        &self,
+        reference: ConnectionRef,
+        cursor: u64,
+        max_bytes: usize,
+    ) -> Result<crate::presentation::TextPage, ErrorCode> {
+        self.get(reference)?
+            .presentation
+            .read(reference, cursor, max_bytes)
+    }
+
+    pub fn screen(
+        &self,
+        reference: ConnectionRef,
+    ) -> Result<crate::presentation::ScreenSnapshot, ErrorCode> {
+        Ok(self.get(reference)?.presentation.snapshot(reference))
     }
 }
 

@@ -118,6 +118,13 @@ impl Manager {
         inner.reserve_start(id)?;
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         let current = store.sessions.begin_connect(connection)?;
+        configure_output(
+            &mut store.sessions,
+            current.reference(),
+            &profile,
+            rows,
+            cols,
+        )?;
         let reference = current.reference();
         let cancel = Cancellation::default();
         inner.entries.insert(

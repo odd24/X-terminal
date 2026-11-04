@@ -79,12 +79,18 @@ try {
   await ui.fill('串口发送格式','hex');await ui.fill('串口发送内容','CE C4');await ui.fill('串口发送换行','none');await ui.fill('串口每段字节',1);await ui.fill('串口段间隔',250);await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
   await waitRaw(connection,[0xd6,0xd0,13,10,0xce,0xc4]);
   await delay(300);await ui.click('屏幕快照');await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('文')`);
+  const gbkScreen=await ui.invoke('service_screen',{connection:ref(connection)});
+  assert.equal(gbkScreen.encoding,'gbk');assert.ok(gbkScreen.contents.includes('中'));assert.ok(gbkScreen.contents.includes('文'));assert.equal(gbkScreen.decode_error_events,0);
+  const gbkText=await ui.invoke('service_read_text',{connection:ref(connection),cursor:1});
+  assert.equal(gbkText.events.map(event=>event.text).join(''),'中\r\n文');
   await ui.fill('串口发送格式','text');
   await ui.fill('串口发送内容','😀');await ui.click('发送串口内容');await message('无效');await waitRaw(connection,[0xd6,0xd0,13,10,0xce,0xc4]);
   await ui.fill('串口发送格式','hex');await ui.fill('串口发送内容','D6');await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
   await ui.screenshot('desktop-serial-synthetic.png');
   await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
   await ui.waitFor(`document.querySelector('[aria-label="接收解码提示"]')?.textContent.includes('U+FFFD')`);
+  const finalScreen=await ui.invoke('service_screen',{connection:ref(connection)});
+  assert.equal(finalScreen.completed,true);assert.equal(finalScreen.decode_error_events,1);assert.ok(finalScreen.contents.includes('�'));
   const gb18030=await save('synthetic GB18030','gb18030');
   await ui.click('刷新串口配置与设备');await ui.waitFor(`document.querySelector('[aria-label="串口配置"]').options.length===4`);
   await ui.fill('串口配置',gb18030.id);
@@ -97,7 +103,14 @@ try {
   gb18030.settings.encoding='utf8';
   await ui.invoke('config_request',{request:{op:'save_profile',profile:gb18030,credential:{action:'keep'}}});
   await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
-  await ui.fill('会话',connection.connection_id);await delay(400);await ui.click('屏幕快照');await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('\u{10000}')`);
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(connection.connection_id)})`);
+  await ui.fill('会话',connection.connection_id);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),connection.connection_id);
+  // Selection/replay spans several asynchronous polls after reload. Read the
+  // current viewport on each attempt instead of waiting on one stale capture.
+  await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('\u{10000}'))`);
+  const gb18030Screen=await ui.invoke('service_screen',{connection:ref(connection)});
+  assert.equal(gb18030Screen.encoding,'gb18030');assert.ok(gb18030Screen.contents.includes('\u{10000}'));
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="接收解码提示"]')`),false);
   await ui.click('串口连接');await state('CONNECTED');await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
   for(const item of await ui.invoke('service_list')) {

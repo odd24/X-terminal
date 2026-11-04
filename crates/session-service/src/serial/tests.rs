@@ -136,6 +136,11 @@ impl Drop for Temp {
     }
 }
 async fn setup() -> (Temp, crate::config::ConfigWorker, Manager, Arc<Wire>, Uuid) {
+    setup_encoding(config_store::Encoding::Utf8).await
+}
+async fn setup_encoding(
+    encoding: config_store::Encoding,
+) -> (Temp, crate::config::ConfigWorker, Manager, Arc<Wire>, Uuid) {
     let temp = Temp::new();
     let config = crate::config::ConfigWorker::start(Some(temp.0.clone())).unwrap();
     let id = Uuid::new_v4();
@@ -154,7 +159,7 @@ async fn setup() -> (Temp, crate::config::ConfigWorker, Manager, Arc<Wire>, Uuid
                     flow: config_store::Flow::None,
                     dtr_on_open: false,
                     rts_on_open: Some(false),
-                    encoding: config_store::Encoding::Utf8,
+                    encoding,
                 },
             },
             credential: CredentialEdit::Keep {},
@@ -471,6 +476,19 @@ async fn partial_driver_write_is_unknown_and_transport_tail_gaps_reach_shared_re
         let page = store.sessions.read(connection, 1, 65536).unwrap();
         let lost: u64 = page.events.iter().filter_map(|event| event.gap_bytes).sum();
         assert!(lost > 0);
+        let mut cursor = 1;
+        let mut text_lost = 0;
+        loop {
+            let text = store.sessions.read_text(connection, cursor, 65536).unwrap();
+            assert!(!text.truncated);
+            if text.events.is_empty() {
+                break;
+            }
+            text_lost += text.events.iter().filter_map(|e| e.gap_bytes).sum::<u64>();
+            cursor = text.next_cursor;
+        }
+        assert_eq!(text_lost, lost);
+        assert_eq!(store.sessions.screen(connection).unwrap().gap_bytes, lost);
         assert_eq!(
             lost,
             manager.inner.lock().unwrap().entries[&connection.connection_id]
@@ -498,6 +516,117 @@ async fn partial_driver_write_is_unknown_and_transport_tail_gaps_reach_shared_re
     assert_eq!(*wire.accepted.lock().unwrap(), b"ab");
     manager.close().await.unwrap();
     config.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn serial_output_uses_profile_encoding_in_headless_views_and_flushes_only_after_drain() {
+    for (encoding, raw, expected) in [
+        (
+            config_store::Encoding::Gbk,
+            vec![0xd6, 0xd0, 0xce, 0xc4],
+            "中文",
+        ),
+        (
+            config_store::Encoding::Gb18030,
+            vec![0xd6, 0xd0, 0x90, 0x30, 0x81, 0x30],
+            "中\u{10000}",
+        ),
+    ] {
+        let label = crate::encoding_label(&encoding);
+        let (_temp, config, manager, wire, profile) = setup_encoding(encoding).await;
+        let (revision, device) = selection(&manager).await;
+        let connection = start(&manager, profile, Uuid::new_v4(), revision, device).await;
+        status(&manager, connection, State::Connected).await;
+        wire.output.lock().unwrap().push_back(vec![raw[0]]);
+        let deadline = Instant::now() + Duration::from_secs(4);
+        loop {
+            manager.tick();
+            if manager
+                .store
+                .lock()
+                .unwrap()
+                .sessions
+                .screen(connection)
+                .unwrap()
+                .source_cursor
+                > 1
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert!(
+            manager
+                .store
+                .lock()
+                .unwrap()
+                .sessions
+                .screen(connection)
+                .unwrap()
+                .contents
+                .is_empty()
+        );
+        wire.output
+            .lock()
+            .unwrap()
+            .extend(raw[1..].iter().map(|b| vec![*b]));
+        loop {
+            manager.tick();
+            if manager
+                .store
+                .lock()
+                .unwrap()
+                .sessions
+                .screen(connection)
+                .unwrap()
+                .contents
+                == expected
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        {
+            let store = manager.store.lock().unwrap();
+            let text = store.sessions.read_text(connection, 1, 65536).unwrap();
+            assert_eq!(text.encoding, label);
+            assert_eq!(
+                text.events
+                    .iter()
+                    .map(|e| e.text.as_str())
+                    .collect::<String>(),
+                expected
+            );
+            assert!(text.events.iter().all(|e| !e.decode_error));
+            assert_eq!(
+                store
+                    .sessions
+                    .read(connection, 1, 65536)
+                    .unwrap()
+                    .events
+                    .iter()
+                    .flat_map(|e| e.bytes.clone())
+                    .collect::<Vec<_>>(),
+                raw
+            );
+        }
+        manager.handle(Request::Close { connection }).await.unwrap();
+        status(&manager, connection, State::Disconnected).await;
+        assert!(
+            manager
+                .store
+                .lock()
+                .unwrap()
+                .sessions
+                .screen(connection)
+                .unwrap()
+                .completed
+        );
+        manager.close().await.unwrap();
+        config.close().await.unwrap();
+    }
 }
 
 #[tokio::test]

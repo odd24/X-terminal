@@ -113,3 +113,5 @@ Named Pipe ACL 限定当前用户，拒绝远程客户端；通过启动/配对�
 - [Tauri 权限](https://tauri.app/security/capabilities/) 与 [xterm.js 安全](https://xtermjs.org/docs/guides/security/)：前序方案已核对，实施时重新核对所锁版本。
 - [libssh](https://www.libssh.org/) 与 [PuTTY FAQ](https://www.puttyssh.org/0.83/htmldoc/AppendixA.html)：SSH2 与 SSH1 候选能力依据，非适配器已验收证明。
 - [Xshell 7 标签组](https://netsarang.atlassian.net/wiki/spaces/EN7/pages/419956992/Tab%2BGroup)：交互参考。
+
+P11.2已将增量派生文本和screen放入统一Sessions输出入口，GUI不在也持续维护；ReadText/Screen沿用只读范围校验。来源游标、独立文本窗口、帧限额、缺口/EOF与vt100替换字补丁见[ADR-028](decisions/ADR-028.md)。保留历史覆盖不等于服务源头丢字节；BUG-001 resize/reflow和持久日志仍开放。

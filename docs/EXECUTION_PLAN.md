@@ -178,6 +178,14 @@
 - 验收：多字节任意分块不损坏、原始 HEX 不变、残留字节替换提示；不以此宣称完整 P11、SSH 旧编码、screen、日志或实机通过。
 - 提交：`feat(P11.1): decode desktop output incrementally by session encoding`。
 
+### P11.2 服务派生文本与屏幕
+
+- 依赖：P02、P07、P09/P10已提交软件链路、P11.1及CR-001。
+- 动作：服务维护独立增量解码/有界文本事件与screen；按连接代次和编码快照隔离，绑定原始来源序号，处理缺口/终止/尺寸；只读IPC沿用范围授权。
+- 产物：领域派生输出、严格契约、传输接入与跨进程证据，明确解析器/reflow局限。
+- 验收：没有GUI也可读取文本和screen；旧代次/越权拒绝，慢文本读者不影响原始读取；缺口与替换显式；不宣称日志持久化或真实程序完整兼容。
+- 提交：`feat(P11.2): maintain scoped decoded output and service screens`。
+
 ### P12 基础桌面体验
 
 - 依赖：P08–P11。

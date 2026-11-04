@@ -19,6 +19,7 @@ import './style.css';
 
 type Connection = { connection_id: string; generation: number; protocol: string; state: string };
 type Ref = Pick<Connection, 'connection_id' | 'generation'>;
+type ServiceScreen = { connection: Ref; encoding: string; parser: string; resize_reflow: boolean; rows: number; cols: number; contents: string; contents_truncated: boolean; cursor_row: number; cursor_col: number; alternate: boolean; source_cursor: number; completed: boolean; gap_bytes: number; decode_error_events: number };
 type Status = { service_id: string; pid: number; fixture: boolean; exit_policy: string };
 type Page = { connection: Ref; events: { seq: number; bytes: number[]; gap_bytes?: number }[]; next_cursor: number; available_from: number; truncated: boolean; disconnected: boolean };
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
@@ -41,6 +42,7 @@ function App() {
   const [fontSize, setFontSize] = useState(15);
   const [snapshot, setSnapshot] = useState('');
   const [decodeWarning, setDecodeWarning] = useState('');
+  const [serviceScreen, setServiceScreen] = useState<ServiceScreen>();
   const [busy, setBusy] = useState(false);
   const stopped = useRef(false);
 
@@ -173,6 +175,7 @@ function App() {
           if (selectedRef.current !== wanted) { timer = window.setTimeout(() => void poll(), 0); return; }
           term.reset(); current.writer = new TerminalWriter(term);
           decoder = new OutputDecoder('utf8'); setDecodeWarning('');
+          setServiceScreen(undefined);
           cursor = 1; gap = false; setSnapshot(''); setLastInput('尚无输入'); setInputFailure('');
           if (selectedRef.current === wanted) { selectedRef.current = ''; setSelected(''); }
         }
@@ -197,6 +200,7 @@ function App() {
           term.reset();
           current.writer = new TerminalWriter(term);
           decoder = new OutputDecoder(encoding); setDecodeWarning('');
+          setServiceScreen(undefined);
           current.connection = { connection_id: connection.connection_id, generation: connection.generation };
           cursor = 1; gap = false; setSnapshot(''); setLastInput('尚无输入'); setInputFailure('');
           selectedRef.current = connection.connection_id; setSelected(connection.connection_id);
@@ -270,6 +274,15 @@ function App() {
     setSnapshot(Array.from({ length: term.rows }, (_, row) => buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? '').join('\n').trimEnd());
   }
 
+  async function captureServiceScreen() {
+    const target = runtime.current?.connection;
+    if (!target || selectedRef.current !== target.connection_id) return;
+    try {
+      const screen = await invoke<ServiceScreen>('service_screen', { connection: target });
+      if (runtime.current?.connection?.connection_id === target.connection_id && runtime.current.connection.generation === target.generation && selectedRef.current === target.connection_id) setServiceScreen(screen);
+    } catch { setInputFailure('服务端屏幕读取失败；未重试。'); }
+  }
+
   return <main>
     <header><span className="eyebrow">共享终端 · 开发预览</span><h1>你的连接，同一个会话。</h1><p>{connections.length ? connections.every(item => item.protocol === 'FIXTURE') ? `${connections.length} 个合成会话 · 未连接设备` : `${connections.length} 个会话 · 连接状态见对应面板` : '尚无活动连接'}</p></header>
     <nav aria-label="会话控制">
@@ -283,6 +296,7 @@ function App() {
       </select>
       {service?.fixture && <><button disabled={busy || !!failure} onClick={() => void createFixture()}>新建合成会话</button><button disabled={busy || !selected || !!failure} onClick={() => void stress()}>高输出回放</button><button onClick={() => { stopped.current = true; }}>停止后续回放</button></>}
       <button onClick={capture}>屏幕快照</button>
+      <button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
       <label>字号 <input aria-label="字号" type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
     </nav>
@@ -295,6 +309,7 @@ function App() {
     {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}
     <div className="input-status">{connections.find(item => item.connection_id === selected)?.protocol === 'SSH2' ? 'SSH2 输入' : connections.find(item => item.connection_id === selected)?.protocol === 'SERIAL' ? '串口输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>
     {snapshot && <pre aria-label="屏幕快照">{snapshot}</pre>}
+    {serviceScreen && <details open><summary>服务端屏幕快照</summary><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · 宽度变化不重排，可能与桌面显示不同 · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></details>}
     <footer>{service && <span>服务 {service.service_id} · </span>}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</footer>
   </main>;
 }

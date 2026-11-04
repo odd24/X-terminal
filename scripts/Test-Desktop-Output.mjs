@@ -12,6 +12,13 @@ try {
   await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
   const [connection] = await ui.invoke('service_list');
   const ref = { connection_id: connection.connection_id, generation: connection.generation };
+  await ui.click('服务端屏幕');await ui.waitFor(`document.querySelector('[aria-label="服务端屏幕快照"]')?.textContent.includes('中文宽字')`);
+  const initialScreen=await ui.invoke('service_screen',{connection:ref});
+  assert.equal(initialScreen.encoding,'utf-8');assert.equal(initialScreen.resize_reflow,false);
+  assert.equal(initialScreen.parser,'vt100-0.18.1+local.1');
+  const text=await ui.invoke('service_read_text',{connection:ref,cursor:1});
+  assert.ok(text.events.map(event=>event.text).join('').includes('中文宽字'));
+  assert.equal(text.truncated,false);assert.equal(text.completed,false);
   await ui.invoke('fixture_append', { connection: ref, bytes: [...Buffer.from('\r\nPREFIX\x1b]0;')] });
   await delay(300);await ui.click('屏幕快照');
   await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('PREFIX')`);
@@ -34,15 +41,27 @@ try {
   }
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="屏幕快照"]').textContent.includes('PREFIX')`), false);
   assert.equal(await ui.evaluate(`document.querySelector('.status').textContent.includes('输出缺口')`), true);
+  const continuous=await ui.invoke('service_screen',{connection:ref});
+  assert.equal(continuous.gap_bytes,0,'a slow raw reader loses retained history, not service input');
+  assert.ok(continuous.contents.includes('PREFIX'),'service parser keeps continuous OSC state independently of renderer reset');
+  assert.equal(continuous.contents.includes('SAFE_AFTER_GAP'),false);
   await ui.screenshot('desktop-output-gap-synthetic.png');
   await ui.invoke('fixture_append', { connection: ref, bytes: [...Buffer.from('\x1b]0;'), 0xe4] });
   await delay(300);
   const second = await ui.invoke('fixture_create');
   const secondRef = { connection_id: second.connection_id, generation: second.generation };
   await ui.invoke('fixture_append', { connection: secondRef, bytes: [...Buffer.from('SECOND_CONNECTION')] });
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(second.connection_id)})`);
   await ui.fill('会话', second.connection_id);
-  await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('SECOND_CONNECTION'))`);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),second.connection_id);
+  try {
+    await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('SECOND_CONNECTION'))`);
+  } catch(error) {
+    console.log('synthetic selection failure',await ui.evaluate(`({selected:document.querySelector('[aria-label="会话"]').value,status:document.querySelector('.status').textContent,snapshot:document.querySelector('[aria-label="屏幕快照"]')?.textContent})`));
+    throw error;
+  }
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="屏幕快照"]').textContent.includes('SAFE_AFTER_GAP')`), false);
+  await ui.click('服务端屏幕');await ui.waitFor(`document.querySelector('[aria-label="服务端屏幕快照"]')?.textContent==='SECOND_CONNECTION'`);
   console.log('PASS native output gap and connection isolation: retained overflow during renderer pause; explicit gap, reset abandons incomplete OSC; tail and new connection visible; no device opened');
 } finally {
   await ui?.close();

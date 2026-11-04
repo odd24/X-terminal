@@ -95,3 +95,5 @@ P11.1 新增 `npm run test:desktop:output`（前置桌面构建），以合成�
 ## 结束工作
 
 报告已完成的步骤、产物、验证、提交短 hash、未解决问题与下一步；工作区应干净，若用户已有修改保留并说明。未执行的检查明确写“未执行”。
+
+P11.2 扩展公共 IPC 的 read_text/screen 与桌面专用 service_read_text/service_screen；受限只读票据沿用作用域/到期/撤销/代次。vt100 使用 vendor/vt100 最小补丁（替换字符显示），修改解析器时运行 npm run test:screen，已知 reflow 差异不能误报通过。

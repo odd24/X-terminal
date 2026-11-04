@@ -2,7 +2,7 @@
 
 面向 SSH/串口调试、延续 Xshell 使用习惯、支持 Codex 通过 MCP 协作的 Windows 桌面终端。
 
-当前状态：**P07 桌面/独立会话服务整合**。原生桌面通过受限 Named Pipe 共享合成会话，重载保留输出，服务故障明确反馈；尚无生产 SSH、串口和 Codex 会话功能。验证与完成状态见执行台账。
+当前状态：**P09–P11 基础终端开发预览**。SSH2 与串口已接入统一会话服务/桌面并有隔离软件验证；配置/保护凭据、输入/任务去重、串口编码接收与服务派生文本/屏幕已实现。SSH1、正式 Agent 授权/MCP、持久日志及后续效率功能仍在执行，真实设备与发布验收尚未完成。各项证据见[执行台账](docs/EXECUTION_LOG.md)。
 
 ## 执行入口
 
@@ -56,7 +56,7 @@ P05 可用 `cargo run -p transport-serial --example enumerate` 只读列举端�
 
 P06 已有只读 mock MCP 原型与真实 Codex CLI app-server 客户端互通测试，使用隔离配置、无模型推理，不修改全局设置。它不访问实际会话，见 [P06](docs/records/P06.md)。
 
-P07 已增加协议中立状态机、有界原始输出、内存只读票据与 [IPC v1](contracts/ipc/README.md)，以及受限 Windows Named Pipe 服务。可运行 `cargo test -p session-core -p session-protocol -p session-service --locked`；桌面启动、原生 ACL/跨进程、页面暂停/重载、退出/崩溃已验证，不代表实际设备会话已接入。
+P07 已增加协议中立状态机、有界原始输出、内存只读票据与 [IPC v1](contracts/ipc/README.md)，以及受限 Windows Named Pipe 服务。可运行 `cargo test -p session-core -p session-protocol -p session-service --locked`；桌面启动、原生 ACL/跨进程、页面暂停/重载、退出/崩溃已验证，这些合成结果不代表实际设备验收通过。
 
 P08.1 已有独立 SQLite 配置存储与真实临时数据库测试：`cargo test -p config-store --locked`。配置迁移/备份/新目标恢复、Profile/目录 CRUD 可在库层使用，配置服务与编辑器已在 P08.3 接入，见 [ADR-008](docs/decisions/ADR-008.md)。
 
@@ -81,3 +81,7 @@ P09 服务已接入 Profile/受保护凭据、主机挑战、密码/加密密钥
 桌面“SSH2 连接”面板可手动连接已保存 UTF-8 SSH2 配置、确认完整主机指纹、提交临时密码/保存凭据/交互回答、关闭和显式重连；终端输入与尺寸经统一服务，输入诊断不显示真实按键。GBK/GB18030 配置仍保留，终端编码接入由 P11 完成；exec 面板支持状态、增量输出、显式缺口、取消与按任务 ID 查询；重载不重新执行。页面重载保留服务会话，不自动重连。
 
 完成 npm run desktop:build 后，可运行 npm run test:desktop:ssh 构建隔离回环服务器并操作真实 WebView，覆盖指纹/认证/输入/尺寸/退出/重载。npm run test:desktop 包含此场景和原生命周期、配置、备份、凭据回归；所有配置和合成秘密使用临时目录。尚未连接实际 Linux/UNIX/用户设备，不代表 G0–G4 或完整产品验收通过。
+
+串口面板支持显式设备/控制线确认、文本/HEX/换行/节奏、RTS/DTR/Break与独立有界HEX接收；文本按打开时的UTF-8/GBK/GB18030快照增量解码。真实驱动占用/拔插、控制线及参数兼容待实机验证。`npm run test:desktop:serial`仅以测试编译的内存端口操作实际WebView，结束后检查普通服务恢复，不代表COM驱动验证。
+
+“屏幕快照”读取桌面当前视口；“服务端屏幕”读取统一服务持续维护的屏幕，GUI重载不重建服务状态。快照标出编码/尺寸/来源游标、接收缺口/解码错误和截断情况；当前解析器宽度变化不重排，可能与桌面显示不同，不能冒充完整程序兼容。原始字节、解码文本与screen分别有界保留，尚无持久终端日志。详见[ADR-028](docs/decisions/ADR-028.md)。`npm run test:desktop:output`验证专用读取入口、保留覆盖与跨连接控制序列隔离；完整桌面回归包含该专项。

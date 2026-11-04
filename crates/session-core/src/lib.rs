@@ -2,6 +2,7 @@
 
 pub mod input;
 pub mod pairing;
+pub mod presentation;
 pub mod screen;
 pub mod serial_input;
 pub mod session;

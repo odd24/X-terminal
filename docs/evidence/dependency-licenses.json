@@ -3343,7 +3343,7 @@
     "name": "vt100",
     "version": "0.18.1",
     "license": "MIT",
-    "source": "registry+https://github.com/rust-lang/crates.io-index"
+    "source": "vendored:vendor/vt100"
   },
   {
     "ecosystem": "cargo",

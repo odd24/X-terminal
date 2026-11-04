@@ -117,6 +117,20 @@ impl Runtime {
                     store.sessions.read(connection, cursor, max_bytes)?,
                 ))
             }
+            Request::ReadText {
+                connection,
+                cursor,
+                max_bytes,
+            } => {
+                store.pairing.can_read(identity, connection, now)?;
+                Ok(Reply::Text(
+                    store.sessions.read_text(connection, cursor, max_bytes)?,
+                ))
+            }
+            Request::Screen { connection } => {
+                store.pairing.can_read(identity, connection, now)?;
+                Ok(Reply::Screen(store.sessions.screen(connection)?))
+            }
             request => {
                 store.pairing.require_desktop(identity, now)?;
                 match request {

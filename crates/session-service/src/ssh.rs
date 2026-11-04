@@ -215,6 +215,13 @@ impl Manager {
                 let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
                 let initial = store.sessions.create(Protocol::Ssh2)?;
                 let connection = store.sessions.begin_connect(initial.reference())?;
+                configure_output(
+                    &mut store.sessions,
+                    connection.reference(),
+                    &profile,
+                    rows,
+                    cols,
+                )?;
                 let cancel = Cancellation::default();
                 inner.entries.insert(
                     connection.connection_id,
@@ -813,7 +820,18 @@ impl Actor {
                     continue;
                 }
                 Input::Write(bytes) => writer.write(bytes.expose()).await.map(Some),
-                Input::Resize { cols, rows } => writer.resize(cols, rows).await.map(|()| None),
+                Input::Resize { cols, rows } => {
+                    let result = writer.resize(cols, rows).await.map(|()| None);
+                    if result.is_ok() {
+                        self.store
+                            .lock()
+                            .map_err(|_| Failure::Transport)?
+                            .sessions
+                            .resize_screen(self.reference, rows as u16, cols as u16)
+                            .map_err(|_| Failure::Transport)?;
+                    }
+                    result
+                }
             };
             {
                 let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
@@ -924,6 +942,24 @@ impl Actor {
         entry.cancel.cancel();
     }
 }
+fn configure_output(
+    sessions: &mut Sessions,
+    reference: ConnectionRef,
+    profile: &Profile,
+    rows: u32,
+    cols: u32,
+) -> Result<(), ErrorCode> {
+    let Settings::Ssh2 { encoding, .. } = &profile.settings else {
+        return Err(ErrorCode::Unsupported);
+    };
+    sessions.configure_output(
+        reference,
+        crate::encoding_label(encoding),
+        rows as u16,
+        cols as u16,
+    )
+}
+
 fn map_error(error: transport::Error) -> Failure {
     match error {
         transport::Error::Cancelled => Failure::Cancelled,

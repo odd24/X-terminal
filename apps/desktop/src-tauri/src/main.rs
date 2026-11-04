@@ -138,6 +138,49 @@ async fn service_read(
         _ => Err("INVALID_REPLY".into()),
     }
 }
+
+#[tauri::command]
+async fn service_read_text(
+    state: State<'_, Desktop>,
+    connection: ConnectionRef,
+    cursor: u64,
+) -> Result<session_core::presentation::TextPage, String> {
+    match state
+        .0
+        .lock()
+        .await
+        .as_mut()
+        .map_err(|e| e.clone())?
+        .request(Request::ReadText {
+            connection,
+            cursor,
+            max_bytes: 65536,
+        })
+        .await?
+    {
+        Reply::Text(page) => Ok(page),
+        _ => Err("INVALID_REPLY".into()),
+    }
+}
+
+#[tauri::command]
+async fn service_screen(
+    state: State<'_, Desktop>,
+    connection: ConnectionRef,
+) -> Result<session_core::presentation::ScreenSnapshot, String> {
+    match state
+        .0
+        .lock()
+        .await
+        .as_mut()
+        .map_err(|e| e.clone())?
+        .request(Request::Screen { connection })
+        .await?
+    {
+        Reply::Screen(screen) => Ok(screen),
+        _ => Err("INVALID_REPLY".into()),
+    }
+}
 #[tauri::command]
 async fn fixture_create(state: State<'_, Desktop>) -> Result<ConnectionInfo, String> {
     let mut state = state.0.lock().await;
@@ -226,6 +269,8 @@ fn main() {
             service_status,
             service_list,
             service_read,
+            service_read_text,
+            service_screen,
             ssh_request,
             serial_request,
             fixture_create,

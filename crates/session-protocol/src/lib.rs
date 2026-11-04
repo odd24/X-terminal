@@ -133,6 +133,14 @@ pub enum Request {
         cursor: u64,
         max_bytes: usize,
     },
+    ReadText {
+        connection: ConnectionRef,
+        cursor: u64,
+        max_bytes: usize,
+    },
+    Screen {
+        connection: ConnectionRef,
+    },
     IssueRead {
         scopes: Vec<ConnectionRef>,
         lifetime_ms: u64,
@@ -191,6 +199,21 @@ impl Request {
                     return Err(ErrorCode::InvalidArgument);
                 }
             }
+            Self::ReadText {
+                connection,
+                cursor,
+                max_bytes,
+            } => {
+                if connection.generation == 0
+                    || *cursor == 0
+                    || !(session_core::presentation::MIN_TEXT_PAGE..=MAX_APPEND).contains(max_bytes)
+                {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+            }
+            Self::Screen { connection } if connection.generation == 0 => {
+                return Err(ErrorCode::InvalidArgument);
+            }
             Self::AppendFixture { connection, bytes } => {
                 if connection.generation == 0 || bytes.len() > MAX_APPEND {
                     return Err(ErrorCode::InvalidArgument);
@@ -228,6 +251,8 @@ pub enum Reply {
     Sessions(Vec<ConnectionInfo>),
     Connection(ConnectionInfo),
     Output(OutputPage),
+    Text(session_core::presentation::TextPage),
+    Screen(session_core::presentation::ScreenSnapshot),
     ReadTicket {
         ticket_id: Uuid,
         token: Sensitive,
@@ -288,6 +313,62 @@ pub async fn write_frame<W: AsyncWrite + Unpin, T: Serialize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn derived_requests_are_strict_bounded_and_worst_text_frame_fits() {
+        let mut sessions = Sessions::default();
+        let initial = sessions.create(Protocol::Serial).unwrap();
+        let connection = sessions
+            .begin_connect(initial.reference())
+            .unwrap()
+            .reference();
+        sessions.transition(connection, State::Connected).unwrap();
+        for op in ["read_text", "screen"] {
+            let mut value = serde_json::json!({"op":op,"connection":connection});
+            if op == "read_text" {
+                value["cursor"] = 1.into();
+                value["max_bytes"] = 16384.into();
+            }
+            let request: Request = serde_json::from_value(value.clone()).unwrap();
+            assert!(request.validate().is_ok());
+            value["encoding"] = "gbk".into();
+            assert!(
+                serde_json::from_value::<Request>(value).is_err(),
+                "reader cannot change decoding"
+            );
+        }
+        assert!(
+            Request::ReadText {
+                connection,
+                cursor: 1,
+                max_bytes: 4096
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Request::Screen {
+                connection: ConnectionRef {
+                    generation: 0,
+                    ..connection
+                }
+            }
+            .validate()
+            .is_err()
+        );
+        sessions.append(connection, &[0; MAX_APPEND], 1).unwrap();
+        let page = sessions.read_text(connection, 1, MAX_APPEND).unwrap();
+        let reply = Response::Ok {
+            id: 1,
+            reply: Reply::Text(page),
+        };
+        assert!(serde_json::to_vec(&reply).unwrap().len() < MAX_FRAME);
+        write_frame(&mut tokio::io::sink(), &reply).await.unwrap();
+        let reply = Response::Ok {
+            id: 2,
+            reply: Reply::Screen(sessions.screen(connection).unwrap()),
+        };
+        write_frame(&mut tokio::io::sink(), &reply).await.unwrap();
+    }
     #[test]
     fn strict_contract_rejects_self_assigned_role_unknown_fields_and_bad_uuid() {
         assert!(serde_json::from_value::<Hello>(serde_json::json!({"protocol_version":1,"client_name":"x","token":"a".repeat(64),"role":"desktop"})).is_err());

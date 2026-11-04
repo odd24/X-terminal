@@ -797,6 +797,52 @@
           {
             "additionalProperties": false,
             "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "read_text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "cursor",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "screen",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "lifetime_ms": {
                 "format": "uint64",
                 "minimum": 0,
@@ -2973,6 +3019,40 @@
             "additionalProperties": false,
             "properties": {
               "data": {
+                "$ref": "#/$defs/TextPage"
+              },
+              "type": {
+                "const": "text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/ScreenSnapshot"
+              },
+              "type": {
+                "const": "screen",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
                 "additionalProperties": false,
                 "properties": {
                   "expires_at_ms": {
@@ -3396,6 +3476,92 @@
           }
         ]
       },
+      "ScreenSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "alternate": {
+            "type": "boolean"
+          },
+          "cols": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "contents": {
+            "type": "string"
+          },
+          "contents_truncated": {
+            "type": "boolean"
+          },
+          "cursor_col": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cursor_row": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "decode_error_events": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "gap_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "parser": {
+            "type": "string"
+          },
+          "resize_reflow": {
+            "type": "boolean"
+          },
+          "rows": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection",
+          "encoding",
+          "parser",
+          "resize_reflow",
+          "rows",
+          "cols",
+          "contents",
+          "contents_truncated",
+          "cursor_row",
+          "cursor_col",
+          "alternate",
+          "source_cursor",
+          "completed",
+          "gap_bytes",
+          "decode_error_events"
+        ],
+        "type": "object"
+      },
       "Sensitive": {
         "type": "string"
       },
@@ -3553,6 +3719,101 @@
           "FINISHED"
         ],
         "type": "string"
+      },
+      "TextEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "decode_error": {
+            "type": "boolean"
+          },
+          "gap_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_seq": {
+            "description": "None only for the final decoder flush, which consumes no raw event.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "timestamp_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seq",
+          "timestamp_ms",
+          "text",
+          "decode_error"
+        ],
+        "type": "object"
+      },
+      "TextPage": {
+        "additionalProperties": false,
+        "properties": {
+          "available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completed": {
+            "description": "Producer finalized, even if this page does not yet contain the tail.",
+            "type": "boolean"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/$defs/TextEvent"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connection",
+          "encoding",
+          "events",
+          "next_cursor",
+          "available_from",
+          "truncated",
+          "completed",
+          "source_cursor"
+        ],
+        "type": "object"
       },
       "Welcome": {
         "additionalProperties": false,

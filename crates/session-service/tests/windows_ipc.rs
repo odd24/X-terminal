@@ -1,4 +1,6 @@
 #![cfg(windows)]
+#[path = "support/presentation_cases.rs"]
+mod presentation_cases;
 use session_core::{PROTOCOL_VERSION, pairing::SecretToken, session::*};
 use session_protocol::*;
 use session_service::{client::Client, security::pipe_name};

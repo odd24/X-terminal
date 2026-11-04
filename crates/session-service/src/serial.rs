@@ -220,6 +220,12 @@ impl Manager {
                 let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
                 let initial = store.sessions.create(Protocol::Serial)?;
                 let connection = store.sessions.begin_connect(initial.reference())?;
+                store.sessions.configure_output(
+                    connection.reference(),
+                    crate::encoding_label(&encoding),
+                    24,
+                    80,
+                )?;
                 let worker = match self.factory.open(config, device.clone()) {
                     Ok(worker) => worker,
                     Err(error) => {
