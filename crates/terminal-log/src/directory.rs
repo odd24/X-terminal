@@ -29,6 +29,10 @@ impl ManagedRoot {
     pub fn path(&self) -> &Path {
         &self.path
     }
+    #[cfg(windows)]
+    pub fn preview_cleanup(&self, id: Uuid) -> io::Result<crate::CleanupPreview> {
+        crate::CleanupPreview::open(&self.path, crate::CleanupKind::Log, id)
+    }
     pub fn ids(&self) -> io::Result<Vec<Uuid>> {
         let mut result = Vec::new();
         for entry in fs::read_dir(&self.path)? {

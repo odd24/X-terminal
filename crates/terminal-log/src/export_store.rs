@@ -91,6 +91,10 @@ impl ExportStore {
     pub fn path(&self) -> &Path {
         &self.path
     }
+    #[cfg(windows)]
+    pub fn preview_cleanup(&mut self, id: Uuid) -> io::Result<crate::CleanupPreview> {
+        crate::CleanupPreview::open(&self.path, crate::CleanupKind::Export, id)
+    }
 
     /// At most eight fresh UUID directories (including failed attempts), each
     /// with at most 256MiB. No overwrite, automatic pruning, source modification

@@ -81,7 +81,7 @@ fn eof(meta: &Metadata, seq: u64) -> Record {
         },
     }
 }
-fn wait(mut condition: impl FnMut() -> bool) {
+pub(crate) fn wait(mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !condition() {
         assert!(Instant::now() < deadline, "journal did not settle");

@@ -56,3 +56,9 @@ ExportStore提供文件库层的受管理暂存：可信服务数据目录/termi
 服务现已新增Desktop专用export_start/status/cancel任务，参见[IPC说明](../ipc/README.md)。独立文件线程1在途/8队列、64本次服务回执，状态/取消不等待文件I/O；成功发布与取消冲突以发布成功为准，不编造撤销。此入口只在受管理目录准备产物，不接收任意路径、不代表用户已保存到自选位置；桌面按钮/保存与显式容量整理继续。
 
 桌面历史工具现有导出按钮、状态/取消和受管理文件完整路径（可选中复制），固定任务目标独立于活动连接/历史选择。成功路径只在精确作用域及终态计数校验后显示；请求错误保持原ID，仅查询而不自动Start。sessionStorage单槽只存作用域，重载后主动查询；NotFound明确本次服务无回执，可显式新建新ID，不覆盖旧目录。关闭面板只请求停止未完成导出，可能已发布，不撤销文件；终端捕获不停止。自选另存位置/打开目录和显式容量整理尚未实施。
+
+## Windows显式整理预览（文件库阶段）
+
+ManagedRoot/ExportStore::preview_cleanup只针对其受管理根下非空UUID，无调用者文件名或递归删除。CleanupPreview持有目录DELETE/不允许delete共享及各文件DELETE/share=0句柄；活动logger/ArchiveReader的pin或文件占用会拒绝预览，预览也阻止同范围新pin。拒绝reparse/子目录/只读/未知项；日志最多34个固定分段/完成文件，导出最多2个固定产物/partial，空目录允许。只取元数据，不读取或宣称内容有效；已知名称坏/超大完成标志仍可显式整理。
+
+CleanupInfo为kind/id/files(name,bytes)/logical_bytes，不是可序列化授权。丢弃预览不删除，apply须调用方先明确确认，消费持有句柄一次；提交前核对名字集合，Changed则零删除。通过FileDispositionInfo逐项处理精确句柄，不重新按路径删除；中途错误或最后目录仍非空时返回Storage、OS码和精确removed_files/removed_logical_bytes/directory_removed=false。新增未知文件保留，已删项不可恢复、不能重试旧预览。逻辑字节不是实际释放分配空间或安全擦除证明。详情见ADR-031；尚无整理IPC/GUI、预览期限/权限和回执治理，不从文件库通过推断产品整理已启用。

@@ -1,5 +1,7 @@
 //! Opt-in bounded journals. Callers must authorize and route an exact generation.
 mod archive;
+#[cfg(windows)]
+mod cleanup;
 mod directory;
 mod export;
 mod export_store;
@@ -7,6 +9,10 @@ mod format;
 mod paired;
 mod storage;
 pub use archive::{ArchiveInfo, ArchivePage, ArchiveReader, Completion};
+#[cfg(windows)]
+pub use cleanup::{
+    CleanupFailure, CleanupFile, CleanupInfo, CleanupKind, CleanupPreview, CleanupReport,
+};
 pub use directory::ManagedRoot;
 pub use export::{ExportSummary, export_jsonl};
 pub use export_store::{ExportArtifact, ExportStore, MAX_EXPORT_BYTES};
