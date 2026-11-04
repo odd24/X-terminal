@@ -8,15 +8,27 @@ export type HistoryPage = { connection: ConnectionRef; log_id: string; read_id: 
 export type ExportScope = { connection: ConnectionRef; log_id: string; request_id: string };
 export type ExportInfo = ExportScope & { phase: 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'COMPLETED' | 'CANCELLED' | 'FAILED' | 'REMOVED'; failure: 'INVALID_SOURCE' | 'CAPACITY' | 'TOO_LARGE' | 'STORAGE' | 'WORKER_FAILED' | null; bytes: number | null; retained_records: number | null; retained_raw_bytes: number | null; retained_gap_bytes: number | null; next_cursor: number | null };
 type HistoryScope = { connection: ConnectionRef; log_id: string; read_id: string };
+export type CleanupKind = 'LOG' | 'EXPORT';
+export type CleanupScope = { kind: CleanupKind; id: string; preview_id: string };
+export type CleanupInfo = CleanupScope & { phase: 'PREVIEW' | 'CANCELLED' | 'EXPIRED' | 'APPLIED'; expires_at_ms: number; confirmation: string | null; files: { name: string; bytes: number }[]; logical_bytes: number; report: { removed_files: number; removed_logical_bytes: number; directory_removed: boolean; failure: 'CHANGED' | 'STORAGE' | null; os_code: number | null } | null };
+type CleanupRequest = { op: 'cleanup_list'; kind: CleanupKind } | ({ op: 'cleanup_preview' | 'cleanup_status' | 'cleanup_cancel' } & CleanupScope) | ({ op: 'cleanup_commit'; confirmation: string } & CleanupScope);
 type Request = { op: 'start'; connection: ConnectionRef; request_id: string; limits: LogInfo['limits'] } | { op: 'list'; connection: ConnectionRef } | { op: 'status' | 'stop'; connection: ConnectionRef; log_id: string } | { op: 'history_list' } | ({ op: 'history_open' | 'history_close' } & HistoryScope) | ({ op: 'history_read'; cursor: number; max_records: number; max_bytes: number } & HistoryScope) | ({ op: 'export_start' | 'export_status' | 'export_cancel' } & ExportScope);
 type Reply = ({ result: 'info' } & LogInfo) | { result: 'list'; logs: LogInfo[] } | { result: 'history_list'; logs: HistoryEntry[] } | { result: 'history_opened'; read_id: string; info: ArchiveInfo } | ({ result: 'history_page' } & HistoryPage) | { result: 'history_closed'; read_id: string } | ({ result: 'export' } & ExportInfo);
+export class CleanupRequestError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) { super(message); this.code = code; }
+}
 export class ExportRequestError extends Error {
   readonly code: string;
   constructor(code: string, message: string) { super(message); this.code = code; }
 }
-export async function logging(request: Request): Promise<Reply> {
-  try { return await invoke<Reply>('logging_request', { request }); }
+export async function logging(request: Request | CleanupRequest): Promise<Reply | ({ result: 'cleanup' } & CleanupInfo) | { result: 'cleanup_list'; kind: CleanupKind; ids: string[] }> {
+  try { return await invoke('logging_request', { request }); }
   catch (error) {
+    if (request.op.startsWith('cleanup_')) {
+      const messages: Record<string, string> = { InvalidArgument: '清理目标或确认编号不匹配。', InvalidState: '目标正在使用、含未知文件、不可访问，或有其他预览/导出占用；请先关闭历史读取或停止记录。', NotFound: '本次服务没有该清理预览；不能据此确认文件是否已删除。', RequestExpired: '该预览编号已退休；旧确认不会重新执行。', CapacityExceeded: '清理队列或回执已满。', PermissionDenied: '当前客户端无文件清理权限。', LOG_CHANNEL_UNAVAILABLE: '清理通道不可用，操作结果可能未知。' };
+      throw new CleanupRequestError(String(error), messages[String(error)] ?? '清理请求失败，操作结果可能未知。');
+    }
     if (request.op.startsWith('export_')) {
       const messages: Record<string, string> = { InvalidArgument: '导出目标或任务编号不匹配。', InvalidState: '导出服务或目录不可用。', NotFound: '本次服务没有该导出任务；服务重启后不会恢复旧回执。', RequestExpired: '该导出编号已退休；旧任务不会重新执行。', CapacityExceeded: '导出队列或回执已达上限；未删除已有产物。', PermissionDenied: '当前客户端无日志导出权限。', LOG_CHANNEL_UNAVAILABLE: '导出通道不可用，请求结果可能未知。' };
       throw new ExportRequestError(String(error), messages[String(error)] ?? '导出请求失败，结果可能未知。');
