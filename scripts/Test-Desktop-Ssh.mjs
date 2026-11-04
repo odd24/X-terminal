@@ -63,6 +63,45 @@ try {
   const sizes=(await control({op:'metrics'})).sizes; assert.ok(sizes.length>=2);assert.notDeepEqual(sizes[0],sizes.at(-1));
   await ui.click('屏幕快照'); await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('firstsecond')`);
   await ui.screenshot('desktop-ssh2-connected.png');
+  await ui.click('exec 任务');
+  const runExec = async (command, end, timeout=30000, limit=1048576) => {
+    const previous=await ui.evaluate(`document.querySelector('[aria-label="exec 任务列表"]').value`);
+    await ui.fill('exec 命令',command);await ui.fill('exec 超时毫秒',timeout);await ui.fill('exec 输出上限',limit);
+    await ui.click('启动 exec 任务');
+    await ui.waitFor(`document.querySelector('[aria-label="exec 命令"]').value === ''`);
+    await ui.waitFor(`document.querySelector('[aria-label="exec 任务列表"]').value !== ${JSON.stringify(previous)} && document.querySelector('[aria-label="exec 任务状态"]')?.textContent.startsWith(document.querySelector('[aria-label="exec 任务列表"]').value) && document.querySelector('[aria-label="exec 任务状态"]').textContent.includes(${JSON.stringify(end)})`);
+    return ui.evaluate(`document.querySelector('[aria-label="exec 任务列表"]').value`);
+  };
+  const failedTask=await runExec('fail','COMPLETED');
+  await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]').textContent.includes('退出码 7')`);
+  await ui.waitFor(`document.querySelector('[aria-label="exec 输出"]').textContent.includes('failure')`);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="exec 输出"] [data-stream="stderr"]').textContent.includes('err|')`),true);
+  await ui.click('屏幕快照');
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="屏幕快照"]').textContent.includes('failure')`),false,'exec output isolated from shell');
+  await ui.screenshot('desktop-ssh2-exec.png');
+  await runExec('signal','REMOTE_SIGNAL');await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]').textContent.includes('信号 TERM')`);
+  await runExec('no-status','MISSING_EXIT_STATUS');
+  await runExec('no-ack','TIMEOUT',350);
+  await ui.waitFor(`document.querySelector('[aria-label="exec 输出"]').textContent.includes('early|')`);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="exec 任务状态"]').textContent.includes('退出码 未提供')`),true);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="exec 任务状态"]').textContent.includes('未观察到接受')`),true,'missing ack is not a rejection');
+  await runExec('utf8','COMPLETED');
+  await ui.waitFor(`Array.from(document.querySelectorAll('[aria-label="exec 输出"] [data-stream="stdout"]')).map(item=>item.textContent).join('').includes('中') && Array.from(document.querySelectorAll('[aria-label="exec 输出"] [data-stream="stderr"]')).map(item=>item.textContent).join('').includes('测')`);
+  await ui.fill('exec 命令','stall');await ui.fill('exec 超时毫秒',30000);await ui.click('启动 exec 任务');
+  await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.includes('RUNNING')`);
+  await ui.click('取消选中 exec 任务');
+  await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.includes('CANCELLED')`);
+  await runExec('big','COMPLETED');
+  await ui.waitFor(`document.querySelector('.exec-panel [role="alert"]')?.textContent.includes('输出缺口')`);
+  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="exec 输出"]').textContent.length`))<=65536);
+  await runExec('overflow','OUTPUT_LIMIT',30000,65536);
+  await ui.waitFor(`document.querySelector('.exec-panel').textContent.includes('总输出上限')`);
+  const beforeLookup=(await control({op:'metrics'})).exec_calls.length;
+  await ui.fill('查询 exec 任务 ID',failedTask);await ui.click('查询 exec 任务');
+  await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.startsWith(${JSON.stringify(failedTask)})`);
+  assert.equal((await control({op:'metrics'})).exec_calls.length,beforeLookup,'query cannot rerun a command');
+  await ui.click('exec 任务');
+
   await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
   await ui.command('Input.insertText',{text:'x'.repeat(65537)});
   await ui.waitFor(`document.querySelector('.status').textContent.includes('超过 64 KiB')`);
@@ -91,17 +130,30 @@ try {
   await ui.fill('SSH2 认证回答 1',server.password);await ui.click('提交 SSH2 认证回答');await state('CONNECTED');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="SSH2 认证回答 1"]') === null`),true);
   connection=(await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
+  await ui.click('exec 任务');
+  const reloadTask=await runExec('stall','RUNNING');
+  const beforeTaskReload=(await control({op:'metrics'})).exec_calls.length;
   const pid=(await ui.invoke('service_status')).pid;
   const beforeReload=(await control({op:'metrics'})).sizes.at(-1);
   await ui.evaluate(`window.__sshReloadProbe = true`);
   await ui.command('Page.reload'); await ui.waitFor(`window.__sshReloadProbe === undefined && document.querySelector('footer')?.textContent.includes('服务 ')`);
   assert.equal((await ui.invoke('service_status')).pid,pid);
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value === ${JSON.stringify(connection.connection_id)})`);
   await ui.fill('会话',connection.connection_id);
   for(let attempt=0;attempt<100;attempt++){const size=(await control({op:'metrics'})).sizes.at(-1);if(JSON.stringify(size)!==JSON.stringify(beforeReload))break;await delay(50);}
   assert.notDeepEqual((await control({op:'metrics'})).sizes.at(-1),beforeReload,'reload/new selection must synchronize the fresh terminal dimensions');
   assert.ok((await ui.invoke('service_list')).some(item=>item.connection_id===connection.connection_id && item.generation===connection.generation && item.state==='CONNECTED'));
+  await ui.click('exec 任务');
+  await ui.fill('查询 exec 任务 ID',reloadTask);await ui.click('查询 exec 任务');
+  await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.includes('RUNNING')`);
+  assert.equal((await control({op:'metrics'})).exec_calls.length,beforeTaskReload,'reload/query cannot restart exec');
+  await ui.click('取消选中 exec 任务');await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.includes('CANCELLED')`);
   await ui.close();ui=null;
-  console.log('PASS SSH2 native WebView: trust/reject/changed key, wrong/temporary password, DPAPI key, keyboard challenge, FIFO input/resize, exit/disconnect, reload without reconnect');
+  console.log('PASS SSH2 native WebView: trust/reject/changed key, wrong/temporary password, DPAPI key, keyboard challenge, FIFO input/resize, bounded exec/exit/signal/timeout/cancel/gaps, exit/disconnect, reload/query without reconnect/replay');
+} catch (error) {
+  console.error('SSH status at failure:', await ui?.evaluate(`JSON.stringify({ssh:document.querySelector('[aria-label="SSH2 状态"]')?.textContent,message:document.querySelector('.ssh-panel [role="status"]')?.textContent,main:document.querySelector('.status')?.textContent})`));
+  if(ui)console.error('authoritative connections:',await ui.invoke('service_list').catch(()=> 'unavailable'));
+  throw error;
 } finally {
   await ui?.close(); fixture.stdin.end();if(fixture.exitCode===null)fixture.kill();
   for(let attempt=0;attempt<100 && fixture.exitCode===null && fixture.signalCode===null;attempt++)await delay(50);

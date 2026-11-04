@@ -423,6 +423,12 @@ async fn incremental_timeout_cancel_and_output_limit_preserve_explicit_results()
         status.connection.state == State::Connected
     })
     .await;
+    remote.end(7).await;
+    let ended = ssh_status(&mut client, connection, |status| {
+        status.connection.state == State::Disconnected
+    })
+    .await;
+    assert_eq!(ended.shell_exit_status, Some(7));
     service.stop(&mut client).await;
 }
 #[tokio::test]

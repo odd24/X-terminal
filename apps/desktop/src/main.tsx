@@ -7,6 +7,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { TerminalWriter } from './terminal-writer';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
+import { ExecPanel } from './exec-panel';
 import { InputQueue } from './input-queue';
 import { ssh, dimensions, type Receipt } from './ssh-api';
 import '@xterm/xterm/css/xterm.css';
@@ -21,6 +22,7 @@ const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文�
 function App() {
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [sshOpen, setSshOpen] = useState(false);
+  const [execOpen, setExecOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<{ term: Terminal; fit: FitAddon; writer: TerminalWriter; connection?: Ref; fixture: boolean; inputs: number; protocol: string; writable: boolean } | null>(null);
   const [service, setService] = useState<Status>();
@@ -113,12 +115,25 @@ function App() {
         const sessions = await invoke<Connection[]>('service_list');
         if (disposed) return;
         setConnections(sessions);
-        const connection = sessions.find(item => item.connection_id === selectedRef.current) ?? sessions[0];
+        const wanted = selectedRef.current;
+        const connection = sessions.find(item => item.connection_id === wanted) ?? (!wanted ? sessions[0] : undefined);
+        if (!connection && wanted) {
+          current.writable = false;
+          setStatus('正在刷新所选会话；输入尚未发送');
+          timer = window.setTimeout(() => void poll(), 100);
+          return;
+        }
         if (connection && (connection.connection_id !== current.connection?.connection_id || connection.generation !== current.connection?.generation)) {
           current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
           current.writer.close();
           await new Promise<void>(resolve => term.write(new Uint8Array(), resolve));
           if (disposed) return;
+          if (selectedRef.current !== wanted) {
+            // A newer user selection wins over a poll suspended in xterm.write.
+            current.connection = undefined;
+            timer = window.setTimeout(() => void poll(), 0);
+            return;
+          }
           term.reset();
           current.writer = new TerminalWriter(term);
           current.connection = { connection_id: connection.connection_id, generation: connection.generation };
@@ -195,6 +210,7 @@ function App() {
     <nav aria-label="会话控制">
       <button onClick={() => setConfigurationOpen(open => !open)}>连接配置</button>
       <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
+      <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
       <select aria-label="会话" value={selected} onChange={event => { selectedRef.current = event.target.value; setSelected(event.target.value); }}>
         {!connections.length && <option value="">尚无会话</option>}
         {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
@@ -206,6 +222,7 @@ function App() {
     </nav>
     {configurationOpen && <ConfigPanel close={() => setConfigurationOpen(false)} />}
     {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={id => { selectedRef.current = id; setSelected(id); }} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
+    <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || inputFailure || status}</div>
     <div className="input-status">{connections.find(item => item.connection_id === selected)?.protocol === 'SSH2' ? 'SSH2 输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>

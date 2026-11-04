@@ -40,3 +40,7 @@ h2 { font-size: 20px; margin: 0; }
 @media (max-width: 850px) { .config-layout { grid-template-columns: 1fr; } .form-grid { grid-template-columns: 1fr; } }
 .fingerprint { display: block; overflow-wrap: anywhere; color: #b9e9df; padding-top: 8px; }
 .host-keys [role="status"] { color: #84d9ca; font-size: 13px; margin: 8px 0; }
+
+.exec-stderr { color: #ffb3a7; }
+.exec-stdout { color: #e7edf5; }
+.exec-panel small, .exec-panel [aria-label="exec 任务状态"] { overflow-wrap: anywhere; }

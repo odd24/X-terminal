@@ -6,6 +6,7 @@ use russh::{
 };
 use std::{
     borrow::Cow,
+    collections::HashMap,
     net::SocketAddr,
     sync::{
         Arc, Mutex,
@@ -15,6 +16,8 @@ use std::{
 };
 #[derive(Clone)]
 struct Server {
+    writers: HashMap<ChannelId, Arc<russh::ChannelWriteHalf<server::Msg>>>,
+    producers: HashMap<ChannelId, Arc<Producer>>,
     exec_calls: Arc<Mutex<Vec<Vec<u8>>>>,
     observations: Arc<Mutex<Vec<Observation>>>,
     received: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -24,6 +27,12 @@ struct Server {
     password: Arc<String>,
     attempts: Arc<AtomicUsize>,
     shell: Arc<Mutex<Option<(server::Handle, ChannelId)>>>,
+}
+struct Producer(tokio::task::AbortHandle);
+impl Drop for Producer {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 impl server::Server for Server {
     type Handler = Self;
@@ -86,10 +95,13 @@ impl server::Handler for Server {
     }
     async fn channel_open_session(
         &mut self,
-        _: Channel<server::Msg>,
+        channel: Channel<server::Msg>,
         reply: server::ChannelOpenHandle,
         _: &mut Session,
     ) -> Result<(), Self::Error> {
+        let id = channel.id();
+        let (_, writer) = channel.split();
+        self.writers.insert(id, Arc::new(writer));
         reply.accept().await;
         Ok(())
     }
@@ -154,6 +166,15 @@ impl server::Handler for Server {
             .push(Observation::Resize(cols, rows));
         Ok(())
     }
+    async fn channel_close(
+        &mut self,
+        channel: ChannelId,
+        _: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.producers.remove(&channel);
+        self.writers.remove(&channel);
+        Ok(())
+    }
     async fn exec_request(
         &mut self,
         channel: ChannelId,
@@ -165,6 +186,39 @@ impl server::Handler for Server {
             session.channel_failure(channel)?;
             return Ok(());
         }
+        if command == b"big" || command == b"overflow" {
+            // All producer bytes use the same window-aware writer, including
+            // the prefix/stderr. Session::data bypasses that writer's credit
+            // accounting; queuing megabytes there can strand global pending
+            // output after close and block unrelated Handle control messages.
+            session.channel_success(channel)?;
+            let writer = self.writers.get(&channel).unwrap().clone();
+            let handle = session.handle();
+            let mut remaining = if command == b"big" { 131072 } else { 1048577 };
+            let task = tokio::spawn(async move {
+                if writer.data_bytes(b"early|".to_vec()).await.is_err()
+                    || writer
+                        .extended_data_bytes(1, b"err|".to_vec())
+                        .await
+                        .is_err()
+                {
+                    return;
+                }
+                while remaining > 0 {
+                    let size = remaining.min(4096);
+                    if writer.data_bytes(vec![b'x'; size]).await.is_err() {
+                        return;
+                    }
+                    remaining -= size;
+                }
+                let _ = handle.exit_status_request(channel, 0).await;
+                let _ = writer.eof().await;
+                let _ = writer.close().await;
+            });
+            self.producers
+                .insert(channel, Arc::new(Producer(task.abort_handle())));
+            return Ok(());
+        }
         session.data(channel, b"early|".to_vec())?;
         session.extended_data(channel, 1, b"err|".to_vec())?;
         if command == b"no-ack" {
@@ -174,6 +228,13 @@ impl server::Handler for Server {
         match command {
             b"stall" => return Ok(()),
             b"disconnect" => return Err(russh::Error::Disconnect),
+            b"utf8" => {
+                session.data(channel, vec![0xe4])?;
+                session.extended_data(channel, 1, vec![0xe6, 0xb5])?;
+                session.data(channel, vec![0xb8, 0xad])?;
+                session.extended_data(channel, 1, vec![0x8b])?;
+                session.exit_status_request(channel, 0)?;
+            }
             b"signal" => {
                 session.exit_signal_request(channel, russh::Sig::TERM, false, "", "")?;
             }
@@ -183,16 +244,7 @@ impl server::Handler for Server {
                 session.exit_status_request(channel, 7)?;
             }
             _ => {
-                session.data(
-                    channel,
-                    if command == b"big" {
-                        vec![b'x'; 131072]
-                    } else if command == b"overflow" {
-                        vec![b'x'; 1048577]
-                    } else {
-                        b"fresh-exec-channel".to_vec()
-                    },
-                )?;
+                session.data(channel, b"fresh-exec-channel".to_vec())?;
                 session.exit_status_request(channel, 0)?;
             }
         }
@@ -238,6 +290,8 @@ impl Fixture {
         let observations = Arc::new(Mutex::new(Vec::new()));
         let exec_calls = Arc::new(Mutex::new(Vec::new()));
         let mut server = Server {
+            writers: HashMap::new(),
+            producers: HashMap::new(),
             exec_calls: exec_calls.clone(),
             observations: observations.clone(),
             received: received.clone(),

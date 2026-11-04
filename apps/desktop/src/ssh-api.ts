@@ -8,7 +8,13 @@ export type Challenge =
   | { kind: 'interactive'; id: string; name: string; instructions: string; prompts: { text: string; echo: boolean }[] };
 export type SshStatus = { connection: Connection; profile_id: string; challenge: Challenge | null; failure: string | null; shell_exit_status: number | null; shell_exit_signal: string | null };
 export type Receipt = { request_id: string; state: 'PENDING' | 'DISPATCHING' | 'PIPELINE_QUEUED' | 'UNKNOWN' | 'CANCELLED_BEFORE_DISPATCH'; pipeline_bytes: number | null; failure: string | null };
+export type ExecSummary = { end: string; exit_status: number | null; exit_signal: string | null; request_accepted: boolean | null; output_truncated: boolean; stdout_bytes: number; stderr_bytes: number };
+export type TaskStatus = { task_id: string; connection: ConnectionRef; phase: 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'FINISHED'; summary: ExecSummary | null };
+export type ExecPage = { events: { seq: number; stderr: boolean; bytes: number[] }[]; next_cursor: number; available_from: number; truncated: boolean; completed: boolean };
 type Request =
+  | { op: 'exec'; connection: ConnectionRef; request_id: string; command: string; timeout_ms: number; max_output_bytes: number }
+  | { op: 'exec_status' | 'exec_cancel'; connection: ConnectionRef; task_id: string }
+  | { op: 'exec_read'; connection: ConnectionRef; task_id: string; cursor: number; max_bytes: number }
   | { op: 'start'; profile_id: string; request_id: string; cols: number; rows: number }
   | { op: 'reconnect'; connection: ConnectionRef; request_id: string; cols: number; rows: number }
   | { op: 'status' | 'close'; connection: ConnectionRef }
@@ -18,7 +24,7 @@ type Request =
   | { op: 'write'; connection: ConnectionRef; request_id: string; bytes: number[] }
   | { op: 'resize'; connection: ConnectionRef; request_id: string; cols: number; rows: number }
   | { op: 'input_status'; connection: ConnectionRef; request_id: string };
-export type SshReply = { result: 'started'; connection: Connection } | ({ result: 'status' } & SshStatus) | ({ result: 'input' } & Receipt) | { result: 'accepted' };
+export type SshReply = ({ result: 'exec' } & TaskStatus) | { result: 'exec_output'; connection: ConnectionRef; task_id: string; output: ExecPage } | { result: 'started'; connection: Connection } | ({ result: 'status' } & SshStatus) | ({ result: 'input' } & Receipt) | { result: 'accepted' };
 export async function ssh(request: Request): Promise<SshReply> {
   try { return await invoke<SshReply>('ssh_request', { request }); }
   catch (error) {

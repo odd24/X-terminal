@@ -1,6 +1,6 @@
 # 执行台账
 
-更新：2026-11-04（Asia/Shanghai）。P01/P02/P06/P07 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。P08 三个子步骤及汇总完成，已追加运行中 schema 写保护；P09 服务建立/认证/读写/resize/exec/显式重连已接入，桌面连接/认证/终端输入/尺寸已接入，继续 exec GUI 及长期容量。
+更新：2026-11-04（Asia/Shanghai）。P01/P02/P06/P07 完成；P03–P05 软件阶段成果已提交、完整验收仍阻塞。按用户“后续验收”及 [CR-001](changes/CR-001.md)，继续独立软件工作，G0 完整验收未通过。P08 三个子步骤及汇总完成，已追加运行中 schema 写保护；P09 服务建立/认证/读写/resize/exec/显式重连已接入，桌面连接/认证/终端输入/尺寸已接入，exec 桌面任务已接入，继续长期容量及故障补证。
 
 DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变更管理](CHANGE_CONTROL.md)。Pxx 记录在开始该步骤时创建，不预填产品测试结果。
 
@@ -23,7 +23,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P08.1 | 配置模型与 SQLite 迁移 | DONE | [P08.1](records/P08.1.md) | Step-ID: P08.1 |
 | P08.2 | Windows 保护凭据 | DONE | [P08.2](records/P08.2.md) | Step-ID: P08.2 |
 | P08.3 | 配置服务/编辑器/主机密钥/备份恢复/凭据整理 | DONE | [P08.3](records/P08.3.md) | Step-ID: P08.3 |
-| P09 | SSH2 正式接入（服务与连接/认证/终端 GUI；任务 GUI 继续） | IN_PROGRESS | [P09](records/P09.md) | Step-ID: P09 |
+| P09 | SSH2 正式接入（服务/连接/终端/任务 GUI；容量与故障继续） | IN_PROGRESS | [P09](records/P09.md) | Step-ID: P09 |
 | P10 | 串口正式接入 | TODO | 待创建 | — |
 | P11 | 编码/日志/终端行为 | TODO | 待创建 | — |
 | P12 | 基础桌面体验 | TODO | 待创建 | — |
@@ -53,4 +53,4 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 
 ## 当前问题
 
-真实设备/服务器参数、SSH1 样本、UNIX 范围和 Codex 客户端策略待核对。P03 真实端点测试未执行；P04 还缺少可传递 resize/安全凭据的完整 Windows SSH1 适配器，原版 Plink 管道不能满足。P07 的协议中立服务/桌面合成会话已验证，配置/凭据已完成软件范围；真实传输、后台选择、完整 Agent 授权仍留后续步骤。按 CR-001 继续 P09 独立软件实现，G0 完整验收仍未通过。
+真实设备/服务器参数、SSH1 样本、UNIX 范围和 Codex 客户端策略待核对。P03 真实端点测试未执行；P04 还缺少可传递 resize/安全凭据的完整 Windows SSH1 适配器，原版 Plink 管道不能满足。P07 的协议中立服务/桌面合成会话已验证，P08 配置/凭据已完成软件范围；P09 已有 SSH2 服务与 GUI 软件证据，SSH2 实机、SSH1/SERIAL 正式接入、后台选择和完整 Agent 授权仍待后续步骤。按 CR-001 继续 P09 独立软件实现，G0 完整验收仍未通过。
