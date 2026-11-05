@@ -3,10 +3,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-recovery-ui-中文-'));
 let ui;
 const request = value => ui.invoke('logging_request', { request: value });
+const native = (action, target) => new Promise((resolve,reject) => {
+  const child=spawn('pwsh',['-NoProfile','-File','scripts/lib/NativeSaveDialog.ps1','-TargetProcessId',String(ui.app.pid),'-Action',action,...(target?['-TargetPath',target]:[])],{windowsHide:true});
+  let output='';child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>output+=chunk);
+  child.on('error',reject);child.on('exit',code=>code===0?resolve(output):reject(new Error(output)));
+});
 const ref = connection => ({ connection_id: connection.connection_id, generation: connection.generation });
 const file = (id, name) => path.join(directory, 'terminal-logs', id, name);
 const textFile = id => file(id, '0000000000000001.text.jsonl');
@@ -84,9 +90,22 @@ try {
   assert.deepEqual(await request({op:'recovery_export_cancel',...exportScope}),exported);
   await assert.rejects(request({op:'export_status',...exportScope}));
   const forbiddenSaveId=crypto.randomUUID();
-  const saveResult=async op=>ui.evaluate(`window.__TAURI_INTERNALS__.invoke('export_save_request',${JSON.stringify({request:{op,scope:exportScope,save_id:forbiddenSaveId}})}).then(()=>({ok:true}),error=>({error:String(error)}))`);
+  const saveResult=async op=>ui.evaluate(`window.__TAURI_INTERNALS__.invoke('export_save_request',${JSON.stringify({request:{op,scope:{...exportScope,mode:'NORMAL'},save_id:forbiddenSaveId}})}).then(()=>({ok:true}),error=>({error:String(error)}))`);
   assert.deepEqual(await saveResult('start'),{error:'InvalidArgument'},'ordinary save cannot accept a recovery source');
   assert.deepEqual(await saveResult('status'),{error:'NOT_FOUND'},'rejected source must not reserve a save job or open the picker');
+  assert.deepEqual(await request({op:'recovery_export_status',...exportScope}),exported);
+  const nativeScope={...exportScope,mode:'RECOVERY'};
+  const saveId=crypto.randomUUID();
+  const nativeSave=(op,scope=nativeScope,extra={})=>ui.invoke('export_save_request',{request:{op,scope,save_id:saveId,...extra}});
+  assert.equal((await nativeSave('start')).phase,'CHOOSING');
+  assert.equal((await nativeSave('start')).scope.mode,'RECOVERY');
+  for(const op of ['start','status','cancel','confirm','open_directory']) {
+    await assert.rejects(nativeSave(op,{...nativeScope,mode:'NORMAL'},op==='confirm'?{confirmation:crypto.randomUUID()}:{}));
+  }
+  assert.equal((await nativeSave('status')).cancel_requested,false,'cross-mode cancellation must not affect recovery save');
+  await nativeSave('cancel');await native('cancel');
+  for(let n=0;n<100;n++){if((await nativeSave('status')).phase==='CANCELLED')break;await delay(30);}
+  assert.equal((await nativeSave('start')).phase,'CANCELLED','duplicate does not reopen a cancelled picker');
   assert.deepEqual(await request({op:'recovery_export_status',...exportScope}),exported);
   await panel();
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="恢复日志选择"]').value`),'','refresh must not choose target');

@@ -43,48 +43,13 @@ async fn export_save_request(
             if let Some(info) = manager.duplicate(&scope, save_id)? {
                 return Ok(info);
             }
-            let reply = logging_request(
-                state,
-                session_protocol::logging::Request::ExportStatus {
-                    connection: scope.connection,
-                    log_id: scope.log_id,
-                    request_id: scope.request_id,
-                },
-            )
-            .await?;
-            let session_protocol::logging::Reply::Export(info) = reply else {
-                return Err("INVALID_SOURCE".into());
-            };
-            if info.connection != scope.connection
-                || info.log_id != scope.log_id
-                || info.request_id != scope.request_id
-                || info.phase != session_protocol::logging::ExportPhase::Completed
-            {
-                return Err("SOURCE_NOT_READY".into());
-            }
-            let bytes = info
-                .bytes
-                .filter(|v| *v > 0 && *v <= terminal_log::MAX_EXPORT_BYTES)
-                .ok_or("INVALID_SOURCE")?;
-            let hash = info
-                .sha256
-                .as_deref()
-                .filter(|v| {
-                    v.len() == 64
-                        && v.bytes()
-                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                })
-                .ok_or("INVALID_SOURCE")?;
-            let mut sha256 = [0u8; 32];
-            for (i, value) in sha256.iter_mut().enumerate() {
-                *value = u8::from_str_radix(&hash[i * 2..i * 2 + 2], 16)
-                    .map_err(|_| "INVALID_SOURCE")?;
-            }
+            let reply = logging_request(state, scope.source_status()).await?;
+            let fingerprint = scope.fingerprint(reply)?;
             manager.start(
                 scope,
                 save_id,
                 window.hwnd().map_err(|_| "WINDOW_UNAVAILABLE")?.0 as usize,
-                terminal_log::ExportFingerprint { bytes, sha256 },
+                fingerprint,
             )
         }
     }

@@ -43,7 +43,7 @@ export function LogSavePanel({ source }: { source?: ExportInfo }) {
   useEffect(() => { if (task?.last?.phase !== 'AWAITING_CONFIRMATION') return; const timer = setInterval(() => { const t = Date.now(); setNow(t); if (t >= (current.current?.last?.expires_at_ms ?? 0)) { setReviewed(false); if (document.activeElement === check.current || document.activeElement === confirm.current) query.current?.focus(); } }, 1000); return () => clearInterval(timer); }, [task]);
   function start() {
     if (!source || source.phase !== 'COMPLETED' || busy.current || (current.current && !missing && (!current.current.last || !terminalSave(current.current.last) || uncertain))) return;
-    const target: Task = { scope: { connection: { ...source.connection }, log_id: source.log_id, request_id: source.request_id }, save_id: requestId() };
+    const target: Task = { scope: { mode: 'NORMAL', connection: { ...source.connection }, log_id: source.log_id, request_id: source.request_id }, save_id: requestId() };
     current.current = target; setTask(target); setReviewed(false); setMissing(false); setUncertain(false); try { sessionStorage.setItem(key, JSON.stringify(target)); } catch { /* visible task ID remains usable */ } void run(target, 'start');
   }
   const info = task?.last; const active = !!task && !missing && (!info || !terminalSave(info) || uncertain);

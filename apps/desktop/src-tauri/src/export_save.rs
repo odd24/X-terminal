@@ -34,14 +34,90 @@ use windows::{
     core::{HSTRING, PCWSTR, w},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SourceMode {
+    Normal,
+    Recovery,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scope {
+    pub mode: SourceMode,
     pub connection: ConnectionRef,
     pub log_id: Uuid,
     pub request_id: Uuid,
 }
 impl Scope {
+    pub fn source_status(&self) -> session_protocol::logging::Request {
+        use session_protocol::logging::Request;
+        match self.mode {
+            SourceMode::Normal => Request::ExportStatus {
+                connection: self.connection,
+                log_id: self.log_id,
+                request_id: self.request_id,
+            },
+            SourceMode::Recovery => Request::RecoveryExportStatus {
+                connection: self.connection,
+                log_id: self.log_id,
+                request_id: self.request_id,
+            },
+        }
+    }
+    // Only the mode-specific trusted service reply may authorize the copy.
+    pub fn fingerprint(
+        &self,
+        reply: session_protocol::logging::Reply,
+    ) -> Result<ExportFingerprint, String> {
+        use session_protocol::logging::{ExportPhase, Reply};
+        let (connection, log_id, request_id, phase, bytes, hash) = match (self.mode, reply) {
+            (SourceMode::Normal, Reply::Export(info)) => (
+                info.connection,
+                info.log_id,
+                info.request_id,
+                info.phase,
+                info.bytes,
+                info.sha256,
+            ),
+            (SourceMode::Recovery, Reply::RecoveryExport(info))
+                if info.incomplete && info.recovered.is_some() =>
+            {
+                (
+                    info.connection,
+                    info.log_id,
+                    info.request_id,
+                    info.phase,
+                    info.bytes,
+                    info.sha256,
+                )
+            }
+            _ => return Err("INVALID_SOURCE".into()),
+        };
+        if connection != self.connection
+            || log_id != self.log_id
+            || request_id != self.request_id
+            || phase != ExportPhase::Completed
+        {
+            return Err("SOURCE_NOT_READY".into());
+        }
+        let bytes = bytes
+            .filter(|v| *v > 0 && *v <= terminal_log::MAX_EXPORT_BYTES)
+            .ok_or("INVALID_SOURCE")?;
+        let hash = hash
+            .filter(|v| {
+                v.len() == 64
+                    && v.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+            .ok_or("INVALID_SOURCE")?;
+        let mut sha256 = [0u8; 32];
+        for (i, value) in sha256.iter_mut().enumerate() {
+            *value =
+                u8::from_str_radix(&hash[i * 2..i * 2 + 2], 16).map_err(|_| "INVALID_SOURCE")?;
+        }
+        Ok(ExportFingerprint { bytes, sha256 })
+    }
     pub fn valid(&self) -> bool {
         self.connection.generation > 0
             && !self.connection.connection_id.0.is_nil()
@@ -550,6 +626,7 @@ mod tests {
     use session_core::session::ConnectionId;
     fn scope() -> Scope {
         Scope {
+            mode: SourceMode::Normal,
             connection: ConnectionRef {
                 connection_id: ConnectionId(Uuid::new_v4()),
                 generation: 3,
@@ -638,6 +715,97 @@ mod tests {
             "SAVE_STOPPING"
         );
         assert!(receiver.try_recv().is_err());
+    }
+    #[test]
+    fn modes_are_fixed_for_all_operations_and_share_one_picker_slot() {
+        let normal = scope();
+        let mut recovery = normal.clone();
+        recovery.mode = SourceMode::Recovery;
+        let (manager, receiver) = manager();
+        let id = ordered(12);
+        let fingerprint = ExportFingerprint {
+            bytes: 10,
+            sha256: [1; 32],
+        };
+        manager.start(recovery.clone(), id, 0, fingerprint).unwrap();
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            Message::Start { .. }
+        ));
+        assert!(manager.start(normal.clone(), id, 0, fingerprint).is_err());
+        assert!(manager.status(&normal, id).is_err());
+        assert!(manager.cancel(&normal, id).is_err());
+        assert!(manager.confirm(&normal, id, Uuid::new_v4()).is_err());
+        assert_eq!(
+            manager
+                .start(normal, ordered(13), 0, fingerprint)
+                .unwrap_err(),
+            "SAVE_BUSY"
+        );
+        assert!(!manager.status(&recovery, id).unwrap().cancel_requested);
+        manager.start(recovery.clone(), id, 0, fingerprint).unwrap();
+        assert!(receiver.try_recv().is_err());
+        manager.cancel(&recovery, id).unwrap();
+    }
+    #[test]
+    fn trusted_fingerprints_require_matching_mode_scope_completion_and_explicit_incomplete() {
+        use session_protocol::logging::{Reply, Request};
+        let normal = scope();
+        let mut recovery = normal.clone();
+        recovery.mode = SourceMode::Recovery;
+        assert!(matches!(
+            normal.source_status(),
+            Request::ExportStatus { .. }
+        ));
+        assert!(matches!(
+            recovery.source_status(),
+            Request::RecoveryExportStatus { .. }
+        ));
+        let value = serde_json::json!({"result":"recovery_export", "connection":normal.connection,"log_id":normal.log_id,"request_id":normal.request_id,"phase":"COMPLETED","failure":null,"incomplete":true,"bytes":123,"sha256":"ab".repeat(32),"recovered":{"recovered_records":2,"recovered_raw_bytes":10,"recovered_gap_bytes":0,"next_cursor":3,"stop":{"kind":"TRUNCATED_RECORD","segment":1,"next_cursor":3}}});
+        let decode = |v| serde_json::from_value::<Reply>(v).unwrap();
+        assert_eq!(
+            recovery.fingerprint(decode(value.clone())).unwrap().sha256,
+            [0xab; 32]
+        );
+        assert!(normal.fingerprint(decode(value.clone())).is_err());
+        for (key, bad) in [
+            ("incomplete", serde_json::json!(false)),
+            ("recovered", serde_json::Value::Null),
+            ("phase", serde_json::json!("REMOVED")),
+            ("sha256", serde_json::json!("AB".repeat(32))),
+            ("bytes", serde_json::json!(0)),
+            ("request_id", serde_json::json!(Uuid::new_v4())),
+        ] {
+            let mut changed = value.clone();
+            changed[key] = bad;
+            assert!(recovery.fingerprint(decode(changed)).is_err(), "{key}");
+        }
+        let mut ordinary = value;
+        let obj = ordinary.as_object_mut().unwrap();
+        obj.remove("incomplete");
+        obj.remove("recovered");
+        obj.insert("result".into(), serde_json::json!("export"));
+        for key in [
+            "retained_records",
+            "retained_raw_bytes",
+            "retained_gap_bytes",
+            "next_cursor",
+        ] {
+            obj.insert(key.into(), serde_json::Value::Null);
+        }
+        assert_eq!(
+            normal.fingerprint(decode(ordinary.clone())).unwrap().bytes,
+            123
+        );
+        assert!(recovery.fingerprint(decode(ordinary)).is_err());
+        for mode in [serde_json::Value::Null, serde_json::json!("OTHER")] {
+            let mut v = serde_json::to_value(&normal).unwrap();
+            v["mode"] = mode;
+            assert!(serde_json::from_value::<Scope>(v).is_err());
+        }
+        let mut v = serde_json::to_value(&normal).unwrap();
+        v.as_object_mut().unwrap().remove("mode");
+        assert!(serde_json::from_value::<Scope>(v).is_err());
     }
     #[test]
     fn native_receipts_retire_closed_ordered_ids_and_never_reopen_them_or_remove_opaque_ids() {
