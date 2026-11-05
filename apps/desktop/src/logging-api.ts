@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ConnectionRef } from './ssh-api';
 import type { RecoveryRequest, RecoveryReply } from './log-recovery';
+import type { RecoveryExportRequest, RecoveryExportInfo } from './log-recovery-export';
 export type LogInfo = { log_id: string; connection: ConnectionRef; protocol: string; encoding: string; started_at_ms: number; source_cursor: number; text_cursor: number; limits: { segment_bytes: number; segments: number }; phase: 'OPENING' | 'RECORDING' | 'STOPPING' | 'STOPPED' | 'FAILED' | 'REMOVED' | 'RELEASED'; failure: string | null; active: boolean; accepted_records: number; written_records: number; accepted_raw_bytes: number; written_raw_bytes: number; rejected_records: number; rejected_raw_bytes: number; source_gap_bytes: number; first_retained_segment: number; last_segment: number; retired_segments: number; natural_end: boolean; durable: boolean; worker_finished: boolean };
 export type ArchiveInfo = Pick<LogInfo, 'log_id' | 'connection' | 'protocol' | 'encoding' | 'started_at_ms' | 'source_cursor' | 'text_cursor' | 'limits' | 'first_retained_segment' | 'last_segment' | 'written_records' | 'written_raw_bytes' | 'natural_end'> & { available_from: number; source_available_from: number; source_gap_bytes: number | null };
 export type HistoryEntry = { log_id: string; state: 'HEADER_CHECKED' | 'UNFINISHED' | 'INVALID' | 'UNAVAILABLE'; info: ArchiveInfo | null };
@@ -23,14 +24,14 @@ export class ExportRequestError extends Error {
   readonly code: string;
   constructor(code: string, message: string) { super(message); this.code = code; }
 }
-export async function logging(request: Request | CleanupRequest): Promise<Reply | ({ result: 'cleanup' } & CleanupInfo) | { result: 'cleanup_list'; kind: CleanupKind; ids: string[] }> {
+export async function logging(request: Request | CleanupRequest | RecoveryExportRequest): Promise<Reply | ({ result: 'recovery_export' } & RecoveryExportInfo) | ({ result: 'cleanup' } & CleanupInfo) | { result: 'cleanup_list'; kind: CleanupKind; ids: string[] }> {
   try { return await invoke('logging_request', { request }); }
   catch (error) {
     if (request.op.startsWith('cleanup_')) {
       const messages: Record<string, string> = { InvalidArgument: '清理目标或确认编号不匹配。', InvalidState: '目标正在使用、含未知文件、不可访问，或有其他预览/导出占用；请先关闭历史读取或停止记录。', NotFound: '本次服务没有该清理预览；不能据此确认文件是否已删除。', RequestExpired: '该预览编号已退休；旧确认不会重新执行。', CapacityExceeded: '清理队列或回执已满。', PermissionDenied: '当前客户端无文件清理权限。', LOG_CHANNEL_UNAVAILABLE: '清理通道不可用，操作结果可能未知。' };
       throw new CleanupRequestError(String(error), messages[String(error)] ?? '清理请求失败，操作结果可能未知。');
     }
-    if (request.op.startsWith('export_')) {
+    if (request.op.startsWith('export_') || request.op.startsWith('recovery_export_')) {
       const messages: Record<string, string> = { InvalidArgument: '导出目标或任务编号不匹配。', InvalidState: '导出服务或目录不可用。', NotFound: '本次服务没有该导出任务；服务重启后不会恢复旧回执。', RequestExpired: '该导出编号已退休；旧任务不会重新执行。', CapacityExceeded: '导出队列或回执已达上限；未删除已有产物。', PermissionDenied: '当前客户端无日志导出权限。', LOG_CHANNEL_UNAVAILABLE: '导出通道不可用，请求结果可能未知。' };
       throw new ExportRequestError(String(error), messages[String(error)] ?? '导出请求失败，结果可能未知。');
     }
