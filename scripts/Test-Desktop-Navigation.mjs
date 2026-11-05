@@ -95,7 +95,42 @@ try {
   await ui.command('Page.reload');
   await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===13`);
   assert.equal((await ui.invoke('service_list')).length, 13, 'reload reopens views without recreating service connections');
-  console.log('PASS navigation native WebView: Profile single/double click, same-Profile independent instances, search, tab selection/reorder/overflow, close cancel/hide/reopen/exact close, exit confirmation, terminal-first native layout and reload service identity; synthetic only');
+  const tabFor = id => `Array.from(document.querySelectorAll('[role="tab"]')).find(item=>item.dataset.connectionId===${JSON.stringify(id)})`;
+  await ui.waitFor(`(${tabFor(first.connection_id)})?.textContent.includes(${JSON.stringify(profile.name)}) && (${tabFor(second.connection_id)})?.textContent.includes(${JSON.stringify(profile.name)})`);
+  await ui.click('SSH2 连接');
+  await ui.waitFor(`!!document.querySelector('[aria-label="SSH2 配置"] option[value="${profile.id}"]')`);
+  await ui.fill('SSH2 配置',profile.id);
+  await ui.click('建立 SSH2 连接');
+  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===14`);
+  const panelTarget=(await ui.invoke('service_list')).find(item=>!([first.connection_id,second.connection_id].includes(item.connection_id)) && item.protocol==='SSH2');
+  assert.ok(panelTarget);
+  await ui.waitFor(`(${tabFor(panelTarget.connection_id)})?.textContent.includes(${JSON.stringify(profile.name)})`);
+  const renamed={...profile,name:'更新名称 中文 <b>仅文本</b>'};
+  await ui.invoke('config_request',{request:{op:'save_profile',profile:renamed,credential:{action:'keep'}}});
+  await ui.click('刷新会话树');
+  for(const target of [first,second,panelTarget]) {
+    await ui.waitFor(`(${tabFor(target.connection_id)})?.textContent.includes(${JSON.stringify(renamed.name)})`);
+    assert.equal(await ui.evaluate(`(${tabFor(target.connection_id)}).querySelector('b')===null`),true,'Profile names remain text');
+  }
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),panelTarget.connection_id,'renaming cannot select a different target');
+  await ui.click('关闭 SSH2 连接');
+  await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(button=>button.textContent==='移除连接记录' && !button.matches(':disabled'))`);
+  await ui.click('移除连接记录');
+  await ui.waitFor(`!(${tabFor(panelTarget.connection_id)}) && !document.querySelector('[aria-label="会话"] option[value="${panelTarget.connection_id}"]')`);
+  await ui.invoke('config_request',{request:{op:'delete_profile',id:profile.id}});
+  await ui.click('刷新会话树');
+  for(const target of [first,second]) {
+    await ui.waitFor(`!(${tabFor(target.connection_id)})?.textContent.includes(${JSON.stringify(renamed.name)})`);
+    assert.ok((await ui.evaluate(`(${tabFor(target.connection_id)}).title`)).includes(target.connection_id),'missing configuration retains exact connection identity');
+  }
+  await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(item=>item.getAttribute('aria-label')===${JSON.stringify('关闭标签 '+first.connection_id)}).click()`);
+  await ui.click('保留连接隐藏标签');
+  await ui.invoke('ssh_request',{request:{op:'forget',connection:{connection_id:first.connection_id,generation:first.generation}}});
+  await ui.waitFor(`!document.querySelector('[aria-label="会话"] option[value="${first.connection_id}"]')`);
+  await ui.fill('会话',second.connection_id);
+  await ui.waitFor(`(${tabFor(second.connection_id)})?.getAttribute('aria-selected')==='true'`);
+  await ui.screenshot('desktop-navigation-identities-native.png');
+  console.log('PASS navigation native WebView: Profile single/double click, independent instances, search, tab selection/reorder/overflow/close/hide, exit confirmation, terminal-first layout, reload/panel-created names, rename/delete text-only identity preservation, forget including hidden target; synthetic only');
 } finally {
   await ui?.close(); fixture.kill(); await delay(200);
   assert.equal(path.dirname(path.resolve(directory)), path.resolve(tmpdir()));

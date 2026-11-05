@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { readConfiguration, type Folder, type Profile } from './config-api';
 
-export function SessionTree({ revision, connect, configure }: { revision: number; connect(profile: Profile): void; configure(): void }) {
+export function SessionTree({ revision, connect, configure, loaded }: { revision: number; connect(profile: Profile): void; configure(): void; loaded(profiles: Profile[]): void }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selected, setSelected] = useState('');
@@ -15,7 +15,7 @@ export function SessionTree({ revision, connect, configure }: { revision: number
     loading.current = true; setBusy(true);
     try {
       const result = await readConfiguration();
-      if (mounted.current) { setFolders(result.folders); setProfiles(result.profiles); setMessage(''); }
+      if (mounted.current) { setFolders(result.folders); setProfiles(result.profiles); loaded(result.profiles); setMessage(''); }
     } catch (error) { if (mounted.current) setMessage((error as Error).message); }
     finally { loading.current = false; if (mounted.current) setBusy(false); }
   }

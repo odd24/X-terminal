@@ -14,6 +14,7 @@ import { AppearancePanel } from './appearance-panel';
 import { ComposePanel } from './compose-panel';
 import { ComposeDrafts, type ComposeTarget } from './compose-drafts';
 import { SessionTree } from './session-tree';
+import { ConnectionCatalog } from './connection-catalog';
 import { config, type DesktopPreferences, type Profile } from './config-api';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
@@ -48,7 +49,9 @@ function App() {
   const [tabOrder, setTabOrder] = useState<string[]>([]);
   const [hiddenTabs, setHiddenTabs] = useState<string[]>([]);
   const hiddenRef = useRef<string[]>([]);
-  const [tabNames, setTabNames] = useState<Record<string, string>>({});
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const catalog = useRef(new ConnectionCatalog());
+  const [, setCatalogEpoch] = useState(0);
   const [closing, setClosing] = useState<Connection>();
   const [tabMessage, setTabMessage] = useState('');
   const [tabBusy, setTabBusy] = useState(false);
@@ -122,6 +125,33 @@ function App() {
   const [serviceScreen, setServiceScreen] = useState<ServiceScreen>();
   const [busy, setBusy] = useState(false);
   const stopped = useRef(false);
+  const connectionIdentities = JSON.stringify(connections.map(({ connection_id, generation, protocol }) => ({ connection_id, generation, protocol })));
+
+  useEffect(() => {
+    const owner = service?.service_id ?? '';
+    const retained: Connection[] = JSON.parse(connectionIdentities);
+    catalog.current.retain(owner, retained);
+    const ids = new Set(retained.map(item => item.connection_id));
+    setTabOrder(previous => previous.filter(id => ids.has(id)));
+    hiddenRef.current = hiddenRef.current.filter(id => ids.has(id)); setHiddenTabs(hiddenRef.current);
+    setCatalogEpoch(value => value + 1);
+    let disposed = false, timer = 0;
+    async function readDetails() {
+      for (const connection of retained) {
+        if (disposed) return;
+        if (!['SSH2', 'SERIAL'].includes(connection.protocol) || catalog.current.get(connection)) continue;
+        try {
+          const request = { op: 'status', connection: { connection_id: connection.connection_id, generation: connection.generation } };
+          const reply = await invoke<SshReply | SerialStatus>(connection.protocol === 'SSH2' ? 'ssh_request' : 'serial_request', { request });
+          if (disposed) return;
+          if (reply.result === 'status' && reply.connection.connection_id === connection.connection_id && reply.connection.generation === connection.generation && reply.connection.protocol === connection.protocol && catalog.current.put(owner, connection, reply)) setCatalogEpoch(value => value + 1);
+        } catch { /* Display metadata may race removal; output polling owns service failures. */ }
+      }
+      if (!disposed) timer = window.setTimeout(() => void readDetails(), 2000);
+    }
+    if (owner) void readDetails();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [service?.service_id, connectionIdentities]);
 
   useEffect(() => {
     if (!service?.service_id) return;
@@ -454,7 +484,11 @@ function App() {
     return rank(a.connection_id) - rank(b.connection_id);
   });
   const active = connections.find(item => item.connection_id === selected);
-  const tabName = (connection: Connection) => tabNames[connection.connection_id] ?? `${connection.protocol} · ${connection.connection_id.slice(0, 8)}`;
+  const tabName = (connection: Connection) => {
+    const details = catalog.current.get(connection);
+    const profile = details && profiles.find(item => item.id === details.profile_id && item.settings.protocol.toUpperCase() === connection.protocol);
+    return profile?.name ?? `${connection.protocol} · ${connection.connection_id.slice(0, 8)}`;
+  };
   function moveTab(offset: number) {
     const ids = tabs.map(item => item.connection_id); const index = ids.indexOf(selected);
     if (index < 0 || index + offset < 0 || index + offset >= ids.length) return;
@@ -488,7 +522,6 @@ function App() {
     try {
       const reply = await ssh({ op: 'start', profile_id: profile.id, request_id: requestId(), ...dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24) });
       if (reply.result !== 'started') throw new Error('连接响应不匹配；请在连接面板核对。');
-      setTabNames(values => ({ ...values, [reply.connection.connection_id]: profile.name }));
       selectConnection(reply.connection.connection_id); setTabMessage('已建立独立连接实例；请在 SSH2 面板核对身份与认证。');
     } catch (error) { setTabMessage((error as Error).message); }
     finally { setTabBusy(false); }
@@ -505,7 +538,7 @@ function App() {
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
       <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
         <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
-        {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
+        {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{tabName(connection)} · {connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
       </select>
       {service?.fixture && <><button disabled={busy || !!failure} onClick={() => void createFixture()}>新建合成会话</button><button disabled={busy || !selected || !!failure} onClick={() => void stress()}>高输出回放</button><button onClick={() => { stopped.current = true; }}>停止后续回放</button></>}
       <button onClick={() => void clipboard.current?.copy()}>复制选区</button>
@@ -517,7 +550,7 @@ function App() {
       <label>字号 <input aria-label="字号" disabled={preferencesBusy} type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
     </nav>
     <div className={`desktop-body${sidebarOpen ? '' : ' sidebar-hidden'}`}>
-    <aside className="session-sidebar" aria-label="会话导航"><SessionTree revision={treeRevision} connect={profile => void connectProfile(profile)} configure={() => setConfigurationOpen(true)} /><label>导航宽度<input aria-label="导航宽度" type="range" min="210" max="360" value={navigationWidth} onChange={event => setNavigationWidth(Number(event.target.value))} /></label></aside>
+    <aside className="session-sidebar" aria-label="会话导航"><SessionTree revision={treeRevision} loaded={setProfiles} connect={profile => void connectProfile(profile)} configure={() => setConfigurationOpen(true)} /><label>导航宽度<input aria-label="导航宽度" type="range" min="210" max="360" value={navigationWidth} onChange={event => setNavigationWidth(Number(event.target.value))} /></label></aside>
     <section className="terminal-workspace" aria-label="终端工作区">
     <div className="tab-tools"><div role="tablist" aria-label="连接标签" ref={tabList}>{tabs.map(connection => <div className="connection-tab" key={connection.connection_id}><button role="tab" data-connection-id={connection.connection_id} tabIndex={selected === connection.connection_id ? 0 : -1} onKeyDown={event => {
       const index = tabs.findIndex(item => item.connection_id === connection.connection_id);
