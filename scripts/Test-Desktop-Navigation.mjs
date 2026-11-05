@@ -129,6 +129,19 @@ try {
   await ui.waitFor(`!document.querySelector('[aria-label="会话"] option[value="${first.connection_id}"]')`);
   await ui.fill('会话',second.connection_id);
   await ui.waitFor(`(${tabFor(second.connection_id)})?.getAttribute('aria-selected')==='true'`);
+  await ui.waitFor(`document.querySelector('[aria-label="活动编码"]')?.textContent==='编码：UTF-8'`);
+  await ui.waitFor(`document.querySelector('[aria-label="权限状态"]')?.textContent.includes('桌面输入未就绪')`);
+  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="活动连接摘要"]').textContent`)).includes('SSH2'));
+  const localSize=await ui.evaluate(`document.querySelector('[aria-label="终端视口尺寸"]').textContent`);
+  assert.match(localSize,/视口：[1-9]\d*×[1-9]\d*/);
+  const [localCols,localRows]=localSize.match(/\d+/g).map(Number);
+  await ui.fill('字号',28);
+  await ui.waitFor(`(()=>{const size=document.querySelector('[aria-label="终端视口尺寸"]').textContent.match(/\\d+/g).map(Number);return size[0]<${localCols} && size[1]<${localRows}})()`);
+  await ui.fill('字号',15);
+  await ui.waitFor(`document.querySelector('[aria-label="终端视口尺寸"]').textContent===${JSON.stringify(localSize)}`);
+  await ui.evaluate(`document.querySelector('.connection-details').open=true`);
+  assert.ok((await ui.evaluate(`document.querySelector('.connection-details').textContent`)).includes(second.connection_id));
+  await ui.screenshot('desktop-status-native.png');
   await ui.screenshot('desktop-navigation-identities-native.png');
   console.log('PASS navigation native WebView: Profile single/double click, independent instances, search, tab selection/reorder/overflow/close/hide, exit confirmation, terminal-first layout, reload/panel-created names, rename/delete text-only identity preservation, forget including hidden target; synthetic only');
 } finally {

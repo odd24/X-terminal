@@ -107,7 +107,9 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 .auxiliary-panels { min-height: 0; min-width: 0; overflow: auto; background: var(--page); }
 .auxiliary-panels > .config-panel { padding: var(--space-3); margin-bottom: var(--space-3); }
 .auxiliary-panels .config-layout { grid-template-columns: minmax(0, 1fr); }
-.desktop-shell footer { margin: 0; max-height: calc(var(--line-height) * var(--text-sm) * 2); overflow: auto; }
+.desktop-shell footer { margin: 0; max-height: calc(var(--line-height) * var(--text-sm) * 4); overflow: auto; }
+.connection-summary { display: flex; flex-wrap: wrap; column-gap: var(--space-4); row-gap: var(--space-1); }
+.connection-details summary { padding-block: var(--space-1); }
 @media (max-width: 1100px) {
   .desktop-body:has(.auxiliary-panels:not(:empty)), .desktop-body.sidebar-hidden:has(.auxiliary-panels:not(:empty)) { grid-template-columns: minmax(0, 1fr) minmax(0, var(--auxiliary-width)); }
   .desktop-body:has(.auxiliary-panels:not(:empty)) .session-sidebar { display: none; }

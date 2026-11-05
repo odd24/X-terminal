@@ -20,7 +20,7 @@ import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
-import { LoggingPanel } from './logging-panel';
+import { LoggingPanel, type LoggingSummary } from './logging-panel';
 import { serial, serialResult, type SerialStatus } from './serial-api';
 import { InputQueue } from './input-queue';
 import { requestId } from './request-id';
@@ -100,6 +100,8 @@ function App() {
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
   const [loggingOpen,setLoggingOpen] = useState(false);
+  const [loggingSummary, setLoggingSummary] = useState<LoggingSummary>();
+  const [viewport, setViewport] = useState({ cols: 80, rows: 24 });
   const [searchOpen, setSearchOpen] = useState(false);
   const clipboard = useRef<TerminalClipboard | undefined>(undefined);
   const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
@@ -183,6 +185,7 @@ function App() {
     term.loadAddon(fit);
     term.open(host.current!);
     fit.fit();
+    setViewport({ cols: term.cols, rows: term.rows });
     const current = { term, fit, writer: new TerminalWriter(term), connection: undefined as Ref | undefined, fixture: false, inputs: 0, protocol: '', writable: false };
     runtime.current = current;
     let disposed = false;
@@ -307,7 +310,8 @@ function App() {
       return receiveInput(text, true);
     };
     const input = term.onData(data => receiveInput(data));
-    const resize = term.onResize(() => {
+    const resize = term.onResize(({ cols, rows }) => {
+      setViewport({ cols, rows });
       clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         const size = dimensions(term.cols, term.rows);
@@ -484,11 +488,16 @@ function App() {
     return rank(a.connection_id) - rank(b.connection_id);
   });
   const active = connections.find(item => item.connection_id === selected);
-  const tabName = (connection: Connection) => {
+  const activeDetails = active && catalog.current.get(active);
+  const activeLog = active && loggingSummary?.connection.connection_id === active.connection_id && loggingSummary.connection.generation === active.generation ? loggingSummary.text : active ? '正在查询本次日志状态' : '尚无活动连接';
+  const inputReady = !!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure;
+  const profileName = (connection: Connection) => {
     const details = catalog.current.get(connection);
     const profile = details && profiles.find(item => item.id === details.profile_id && item.settings.protocol.toUpperCase() === connection.protocol);
-    return profile?.name ?? `${connection.protocol} · ${connection.connection_id.slice(0, 8)}`;
+    return profile?.name;
   };
+  const tabName = (connection: Connection) => profileName(connection) ?? `${connection.protocol} · ${connection.connection_id.slice(0, 8)}`;
+  const connectionLabel = (connection: Connection) => profileName(connection) ? `${profileName(connection)} · ${connection.protocol}` : tabName(connection);
   function moveTab(offset: number) {
     const ids = tabs.map(item => item.connection_id); const index = ids.indexOf(selected);
     if (index < 0 || index + offset < 0 || index + offset >= ids.length) return;
@@ -538,7 +547,7 @@ function App() {
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
       <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
         <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
-        {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{tabName(connection)} · {connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
+        {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connectionLabel(connection)}{profileName(connection) ? ` · ${connection.connection_id.slice(0, 8)}` : ''} · 代次 {connection.generation}</option>)}
       </select>
       {service?.fixture && <><button disabled={busy || !!failure} onClick={() => void createFixture()}>新建合成会话</button><button disabled={busy || !selected || !!failure} onClick={() => void stress()}>高输出回放</button><button onClick={() => { stopped.current = true; }}>停止后续回放</button></>}
       <button onClick={() => void clipboard.current?.copy()}>复制选区</button>
@@ -584,11 +593,20 @@ function App() {
       <pre aria-label="粘贴内容预览">{visibleControls(JSON.stringify(pasteProposal.text.slice(0,8192)))}{pasteProposal.text.length > 8192 && ' …预览已截断'}</pre>
       <div className="config-actions"><button onClick={() => clipboard.current?.confirm(pasteProposal)}>确认发送粘贴</button><button autoFocus onClick={() => { clipboard.current?.invalidate(); setClipboardMessage('已取消粘贴；未发送'); runtime.current?.term.focus(); }}>取消粘贴</button></div>
     </section>}
-    <LoggingPanel connection={connections.find(item=>item.connection_id===selected)} open={loggingOpen} close={()=>setLoggingOpen(false)} />
+    <LoggingPanel connection={active} open={loggingOpen} close={()=>setLoggingOpen(false)} onStatus={setLoggingSummary} />
     {snapshot && <section className="config-panel"><button onClick={() => setSnapshot('')}>关闭屏幕快照</button><pre aria-label="屏幕快照">{snapshot}</pre></section>}
     {serviceScreen && <details open><summary>服务端屏幕快照</summary><button onClick={() => setServiceScreen(undefined)}>关闭服务端快照</button><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · {serviceScreen.resize_reflow ? '普通屏支持重排；复杂调整可能与桌面不同' : '宽度变化不重排，可能与桌面显示不同'} · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></details>}
     </aside></div>
-    <footer>{active && <span>{tabName(active)} · {active.protocol} · {active.state} · {active.connection_id} / {active.generation} · </span>}{service && <span>服务 {service.service_id} · </span>}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</footer>
+    <footer>
+      <div className="connection-summary" aria-label="活动连接摘要">
+        <span title={active ? `${active.connection_id} / ${active.generation}` : undefined}>{active ? `${connectionLabel(active)} · ${active.state} · 代次 ${active.generation}` : '尚无活动连接'}</span>
+        <span aria-label="活动编码">编码：{activeDetails?.encoding === 'utf8' ? 'UTF-8' : activeDetails?.encoding.toUpperCase() ?? (active?.protocol === 'FIXTURE' ? 'UTF-8（合成）' : active ? '读取中' : '—')}</span>
+        <span aria-label="终端视口尺寸" title="本地终端列×行；SSH PTY请求有上限，串口没有远端PTY">视口：{viewport.cols}×{viewport.rows}</span>
+        <span aria-label="日志状态" role="status">日志：{activeLog}</span>
+        <span aria-label="权限状态">{failure || inputFailure ? '桌面输入已停止' : inputReady && ['SSH2', 'SERIAL'].includes(active?.protocol ?? '') ? '桌面输入可用' : inputReady && active?.protocol === 'FIXTURE' ? '合成输入（仅测试）' : '桌面输入未就绪'} · Agent 写入未开放</span>
+      </div>
+      <details className="connection-details"><summary>连接与服务详情</summary><span>{active && `${active.connection_id} / ${active.generation} · `}{service && `服务 ${service.service_id} · `}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</span></details>
+    </footer>
   </main>;
 }
 

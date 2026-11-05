@@ -6,7 +6,12 @@ import { LogHistoryPanel } from './log-history-panel';
 import { LogCapturePanel } from './log-capture-panel';
 import { capturePhases as phases } from './log-captures';
 const failures: Record<string, string> = { QUEUE_FULL: '写盘队列已满', DISK_FULL: '磁盘空间不足', STORAGE: '文件存储故障', INVALID_RECORD: '输出序号或代次异常', COUNTER_EXHAUSTED: '计数容量已耗尽', WORKER_PANICKED: '文件线程异常' };
-export function LoggingPanel({ connection, open, close }: { connection?: Connection; open: boolean; close: () => void }) {
+export type LoggingSummary = { connection: Pick<Connection, 'connection_id' | 'generation'>; text: string };
+function summary(logs: LogInfo[]) {
+  const latest = logs.find(log => log.active) ?? logs[0];
+  return latest ? `${phases[latest.phase]}${latest.failure ? ` · ${failures[latest.failure] ?? latest.failure}，后续输出未记录` : ''} · 源缺口 ${latest.source_gap_bytes} 字节 · 拒绝 ${latest.rejected_records} 条${latest.durable ? ' · 保留窗口同步完成' : ''}` : '未启用记录（本次服务）';
+}
+export function LoggingPanel({ connection, open, close, onStatus }: { connection?: Connection; open: boolean; close: () => void; onStatus(value: LoggingSummary | undefined): void }) {
   const [logs, setLogs] = useState<LogInfo[]>([]);
   const [selected, setSelected] = useState('');
   const [message, setMessage] = useState('');
@@ -22,18 +27,21 @@ export function LoggingPanel({ connection, open, close }: { connection?: Connect
     let disposed = false; let timer = 0;
     const target = connection && reference(connection);
     setLogs([]); setSelected(''); setMessage(''); setMonitorError('');
+    onStatus(target ? { connection: target, text: '正在查询本次日志状态' } : undefined);
     async function poll() {
       if (!target) return;
       try {
         const reply = await logging({ op: 'list', connection: target });
-        if (disposed || reply.result !== 'list') return;
+        if (disposed) return;
+        if (reply.result !== 'list' || reply.logs.some(log => log.connection.connection_id !== target.connection_id || log.connection.generation !== target.generation)) throw new Error('日志状态目标不匹配');
         setLogs(reply.logs); setMonitorError('');
-      } catch { if (!disposed) setMonitorError('日志状态暂不可用；未重新启动记录。'); }
+        onStatus({ connection: target, text: summary(reply.logs) });
+      } catch { if (!disposed) { setMonitorError('日志状态暂不可用；未重新启动记录。'); onStatus({ connection: target, text: '状态暂不可用；未重新启动记录' }); } }
       if (!disposed) timer = window.setTimeout(() => void poll(), 500);
     }
     void poll();
     return () => { disposed = true; clearTimeout(timer); };
-  }, [connection?.connection_id, connection?.generation]);
+  }, [connection?.connection_id, connection?.generation, onStatus]);
   const visibleLogs = logs.filter(log => log.connection.connection_id === connection?.connection_id && log.connection.generation === connection?.generation);
   const latest = visibleLogs.find(log => log.active) ?? visibleLogs[0];
   const shown = visibleLogs.find(log => log.log_id === selected) ?? latest;
@@ -50,16 +58,17 @@ export function LoggingPanel({ connection, open, close }: { connection?: Connect
       if (reply.result !== 'info' || reply.connection.connection_id !== frozen.connection_id || reply.connection.generation !== frozen.generation || (action !== 'start' && reply.log_id !== logId)) throw new Error('日志响应目标或状态不匹配；请查询原目标，未自动重试。');
       if (mounted.current && current.current?.connection_id === frozen.connection_id && current.current.generation === frozen.generation && reply.result === 'info') {
         setSelected(reply.log_id); setLogs(old => [reply, ...old.filter(log => log.log_id !== reply.log_id)]);
+        onStatus({ connection: frozen, text: summary([reply]) });
         setMessage(action === 'start' ? '已接受记录请求；打开、写盘和同步结果见状态。' : '已停止接收新输出；停止前已提交的内容不会撤回，最终结果见日志状态。');
       }
     } catch (error) { if (mounted.current && current.current?.connection_id === frozen.connection_id && current.current.generation === frozen.generation) setMessage(String(error)); }
     finally { if (mounted.current) setBusy(false); }
   }
   return <>
-    {(latest || monitorError) && <div className="input-status" aria-label="日志状态" role="status">日志：{monitorError || (latest && `${phases[latest.phase]}${latest.failure ? ` · ${failures[latest.failure] ?? latest.failure}，后续输出未记录` : ''} · 源缺口 ${latest.source_gap_bytes} 字节 · 拒绝 ${latest.rejected_records} 条${latest.durable ? ' · 保留窗口同步完成' : ''}`)}</div>}
     {open && <section className="config-panel" aria-label="终端日志面板">
       <div className="config-heading"><h2>终端日志</h2><button onClick={close}>关闭日志面板</button></div>
       <p aria-label="日志目标">目标 {targetText}</p>
+      {monitorError && <p role="status">{monitorError}</p>}
       <small>仅记录启动后的终端新输出，原始字节与解码文本分开保存；不补写历史，可能从字符或控制序列中间开始。不包含独立 exec 任务或认证表单。关闭本面板不停止记录。</small>
       {!connection && <p>先选择或建立连接，再开始记录。</p>}
       <details><summary>下次启动的轮转限额</summary><div className="form-grid"><label>每段合计 MiB<input aria-label="日志每段MiB" type="number" min="0.125" max="100" step="0.125" value={size} onChange={event => setSize(Number(event.target.value))} /></label><label>保留段数<input aria-label="日志保留段数" type="number" min="1" max="16" value={segments} onChange={event => setSegments(Number(event.target.value))} /></label></div><small>不修改正在运行的记录。达到限额会覆盖该份日志最早的分段；两文件合计最多 {size * segments} MiB。失败不会自动扩容或重新记录。</small></details>

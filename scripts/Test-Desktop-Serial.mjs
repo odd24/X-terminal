@@ -40,6 +40,8 @@ try {
   await ui.fill('串口设备',device);assert.equal(await buttonDisabled('打开串口'),true);
   await ui.evaluate(`document.querySelector('[aria-label="确认串口设备与控制线"]').click()`);await ui.click('打开串口');await state('CONNECTED');
   let connection=(await ui.invoke('service_list')).find(item=>item.protocol==='SERIAL');assert.equal(connection.generation,1);
+  await ui.waitFor(`document.querySelector('footer [aria-label="活动编码"]')?.textContent==='编码：UTF-8' && document.querySelector('footer [aria-label="权限状态"]')?.textContent.includes('桌面输入可用')`);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端视口尺寸"]').title.includes('串口没有远端PTY')`),true);
   await ui.fill('串口发送格式','hex');await ui.fill('串口发送换行','cr_lf');await ui.fill('串口发送内容','00 ff');await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
   let expected=[0,255,13,10];await waitRaw(connection,expected);
   await ui.waitFor(`document.querySelector('[aria-label="串口HEX接收"]')?.textContent.includes('00 FF 0D 0A')`);
@@ -72,6 +74,7 @@ try {
   const freshDevice=await ui.evaluate(`document.querySelector('[aria-label="串口设备"]').options[1].value`);
   await ui.fill('串口设备',freshDevice);await ui.evaluate(`document.querySelector('[aria-label="确认串口设备与控制线"]').click()`);await ui.click('打开串口');
   await state('CONNECTED');connection=(await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
+  await ui.waitFor(`document.querySelector('footer [aria-label="活动编码"]')?.textContent==='编码：GBK'`);
   const serialLog=await ui.invoke('logging_request',{request:{op:'start',connection:ref(connection),request_id:crypto.randomUUID(),limits:{segment_bytes:131072,segments:2}}});
   assert.equal(serialLog.encoding,'gbk');
   assert.equal(await buttonDisabled('RTS 开启'),true);assert.equal(await buttonDisabled('RTS 关闭'),true);
@@ -129,6 +132,7 @@ try {
   await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('\u{10000}'))`);
   const gb18030Screen=await ui.invoke('service_screen',{connection:ref(connection)});
   assert.equal(gb18030Screen.encoding,'gb18030');assert.ok(gb18030Screen.contents.includes('\u{10000}'));
+  await ui.waitFor(`document.querySelector('footer [aria-label="活动编码"]')?.textContent==='编码：GB18030'`);
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="接收解码提示"]')`),false);
   await ui.click('串口连接');await state('CONNECTED');await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
   for(const item of await ui.invoke('service_list')) {

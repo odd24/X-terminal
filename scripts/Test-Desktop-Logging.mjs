@@ -21,6 +21,7 @@ try {
     throw new Error('synthetic log status did not settle');
   };
   assert.deepEqual(await list(), []);
+  await ui.waitFor(`document.querySelector('footer [aria-label="日志状态"]')?.textContent.includes('未启用记录')`);
   await ui.click('终端日志');
   await ui.waitFor(`document.querySelector('[aria-label="终端日志面板"]')?.textContent.includes(${JSON.stringify(connection.connection_id)})`);
   await ui.evaluate(`document.querySelector('[aria-label="终端日志面板"] details').open=true`);
@@ -35,6 +36,8 @@ try {
   await waitStatus(first.log_id, value => value.written_records === 1);
   await ui.click('关闭日志面板');
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="终端日志面板"]')`), false);
+  await ui.waitFor(`document.querySelector('footer [aria-label="日志状态"]')?.textContent.includes('正在记录')`);
+  assert.equal(await ui.evaluate(`document.querySelector('.auxiliary-panels').matches(':empty')`),true,'closed log tool must not reserve terminal width just for its status');
   await ui.invoke('fixture_append', { connection: target, bytes: [...Buffer.from('panel-closed\r\n')] });
   await waitStatus(first.log_id, value => value.written_records === 2);
   const pid = (await ui.invoke('service_status')).pid;
@@ -140,10 +143,12 @@ try {
   const failed = await waitStatus(info.log_id, value => value.worker_finished);
   assert.equal(failed.phase, 'FAILED');assert.equal(failed.failure, 'STORAGE');assert.equal(failed.durable, false);
   await ui.waitFor(`document.querySelector('[aria-label="日志状态"]')?.textContent.includes('文件存储故障')`);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="日志状态"]').closest('footer')!==null`),true,'log failures remain in the common status bar');
   const failedDirectory=path.join(directory,'terminal-logs',info.log_id);
   const retained=new Map();for(const name of await readdir(failedDirectory))retained.set(name,await readFile(path.join(failedDirectory,name)));
   const renewed=ref(await ui.invoke('fixture_lifecycle',{connection:target,action:'reconnect'}));
   await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes('/ '+${renewed.generation})`);
+  await ui.waitFor(`document.querySelector('footer [aria-label="日志状态"]')?.textContent.includes('未启用记录')`);
   await ui.evaluate(`document.querySelector('[aria-label="捕获记录维护"]').open=true`);
   await ui.click('刷新捕获维护清单');
   await ui.waitFor(`!document.querySelector('[aria-label="捕获维护选择"]').disabled`);
