@@ -10,6 +10,17 @@ struct Fixture {
     text: String,
     chunk_sizes: Vec<usize>,
     resize: Option<Dimensions>,
+    #[serde(default)]
+    steps: Vec<Action>,
+    #[serde(default)]
+    physical: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum Action {
+    Write { text: String },
+    Resize { rows: u16, cols: u16 },
 }
 
 #[derive(Deserialize)]
@@ -37,8 +48,19 @@ fn main() {
         if let Some(size) = fixture.resize {
             screen.resize(size.rows, size.cols).unwrap();
         }
+        for step in fixture.steps {
+            match step {
+                Action::Write { text } => screen.push(text.as_bytes()).unwrap(),
+                Action::Resize { rows, cols } => screen.resize(rows, cols).unwrap(),
+            }
+        }
+        let contents = if fixture.physical {
+            screen.physical_contents()
+        } else {
+            screen.contents()
+        };
         results.push(serde_json::json!({
-            "name": fixture.name, "contents": screen.contents(),
+            "name": fixture.name, "contents": contents,
             "cursor": screen.cursor(), "alternate": screen.alternate(),
         }));
     }

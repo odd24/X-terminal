@@ -235,6 +235,15 @@
 - 验收：R04/R15/R16、T06及受影响T22/T23；真实vim/top/less/tmux、BUG-001和全局字体/DPI矩阵另验。
 - 提交：搜索与剪贴板分别提交，正文Step-ID: P11.6；父步骤不标完成。
 
+### P11.7 服务屏幕 resize/reflow
+
+- 状态：IN_PROGRESS；BUG-001未关闭，P11/G1不变。
+- 依赖：P02、P11.2及P09/P10软件链路、CR-001。
+- 动作：先固定xterm/vt100连续resize的物理视口基线，再实现有界重排及服务/桌面复验；当前差异不能算兼容通过。
+- 产物：[P11.7](records/P11.7.md)、[ADR-038](decisions/ADR-038.md)和修复前后可查询证据。
+- 验收：R04/R12、T06/T13/T15；npm run test:screen、实质Rust及Windows IPC/桌面测试。真实程序及全局UI矩阵另验。
+- 提交：差分调查与解析器修复分别提交，正文Step-ID: P11.7。
+
 ### P12 基础桌面体验
 
 - 依赖：P08–P11。

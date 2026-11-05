@@ -34,6 +34,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.4 | 日志服务与桌面入口 | IN_PROGRESS | [P11.4](records/P11.4.md) | Step-ID: P11.4 |
 | P11.5 | SSH编码完整链路 | DONE | [P11.5](records/P11.5.md) | Step-ID: P11.5 |
 | P11.6 | 终端查找与受控剪贴板 | DONE | [P11.6](records/P11.6.md) | Step-ID: P11.6 |
+| P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验 | TODO | 待创建 | — |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权与调度 | TODO | 待创建 | — |
@@ -102,3 +103,5 @@ P11.5服务阶段：冻结SSH代次编码与任务元数据、严格WriteText/ex
 P11.6查找阶段：当前buffer有界字面搜索/滚屏定位/回底已接入，36项前端与实际桌面构建、output原生专项PASS，默认截图已核对；Git关联Step-ID: P11.6。剪贴板下一独立提交，P11/G1不变。
 
 2026-11-05 P11.6软件范围DONE：搜索提交cfe8012，剪贴板按Step-ID: P11.6定位。40项前端、6项宿主、宿主严格clippy/全Rust fmt及最终桌面构建/剪贴板/SSH专项/完整桌面回归PASS；串口finally普通服务恢复实际成功7.78秒。Windows显式有界读取/真实系统复制回贴与Ctrl+C选区/无选区0x03、固定目标预览/模式/迟到读取接管均已核对。最初浏览器读取未完成和clippy失败/补正记录见P11.6。P11/P11.4/G1、BUG-001、实机/长稳及全局UI矩阵保持开放；每两实质提交后接续对话继续，不制造空提交。
+
+2026-11-05 P11.7开始：基线d8dd622；15项连续resize物理视口调查固定修复前证据，2项匹配/13项差异。活动光标逻辑行和替代屏不重排与xterm默认一致；普通历史/前行重排仍需实现。差分工具通过只表示基线可复现，不表示BUG-001通过。

@@ -1,0 +1,317 @@
+[
+  {
+    "xterm": {
+      "name": "normal-shrink-hard-newline",
+      "contents": "abcdef\nghijkl\nmnop\nnext",
+      "cursor": [
+        3,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nnext",
+      "cursor": [
+        2,
+        4
+      ],
+      "name": "normal-shrink-hard-newline"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-cursor-line",
+      "contents": "abcdef\nmnop",
+      "cursor": [
+        1,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop",
+      "cursor": [
+        1,
+        4
+      ],
+      "name": "normal-shrink-cursor-line"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-wide-padding",
+      "contents": "abcde\n中文Z\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcde\nend",
+      "cursor": [
+        1,
+        3
+      ],
+      "name": "normal-shrink-wide-padding"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-combining",
+      "contents": "ÁBCDEF\nGHIJKL\nMN\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ÁBCDEF\nMN\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "normal-shrink-combining"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-spaces",
+      "contents": "ab   c\nd     \n ef\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ab   c\n ef\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "normal-shrink-spaces"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-colored",
+      "contents": "abcdef\nghijkl\nmnop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "normal-shrink-colored"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-grow-soft",
+      "contents": "abcdefghijkl\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nghijkl\nmnop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "normal-grow-soft"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-roundtrip",
+      "contents": "abcdefghijkl\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "normal-roundtrip"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-history",
+      "contents": "cdefgh\nijklmn\nop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ijklmn\n009-ab\nijklmn\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "normal-history"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-height-and-width",
+      "contents": "ghijkl\nmnop\nnext",
+      "cursor": [
+        2,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nnext",
+      "cursor": [
+        2,
+        4
+      ],
+      "name": "normal-height-and-width"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "alternate-no-reflow",
+      "contents": "abcdef\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": true
+    },
+    "vt100": {
+      "alternate": true,
+      "contents": "abcdef\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "alternate-no-reflow"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-resize-while-alternate",
+      "contents": "abcdef\nghijkl\nmnop\nnext",
+      "cursor": [
+        3,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nnext",
+      "cursor": [
+        2,
+        4
+      ],
+      "name": "normal-resize-while-alternate"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-saved-cursor",
+      "contents": "abcdef\nghijkl\nmnop\nnext!",
+      "cursor": [
+        3,
+        5
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nnext!",
+      "cursor": [
+        2,
+        5
+      ],
+      "name": "normal-saved-cursor"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-narrow-then-output",
+      "contents": "abcdef\nghijkl\nmnop\nnext\nAFTER\n中文",
+      "cursor": [
+        5,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nnext\nAFTER\n中文",
+      "cursor": [
+        4,
+        4
+      ],
+      "name": "normal-narrow-then-output"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  },
+  {
+    "xterm": {
+      "name": "normal-history-capacity",
+      "contents": "cdefgh\nijklmn\nop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ijklmn\n599-ab\nijklmn\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "normal-history-capacity"
+    },
+    "result": "KNOWN_DIFFERENCE"
+  }
+]

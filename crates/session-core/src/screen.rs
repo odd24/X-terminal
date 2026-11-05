@@ -34,6 +34,19 @@ impl Screen {
         self.parser.screen().contents()
     }
 
+    /// Physical viewport rows, preserving soft-wrap boundaries for screen consumers.
+    pub fn physical_contents(&self) -> String {
+        let mut lines: Vec<String> = self
+            .parser
+            .screen()
+            .rows(0, self.parser.screen().size().1.get())
+            .collect();
+        while lines.last().is_some_and(String::is_empty) {
+            lines.pop();
+        }
+        lines.join("\n")
+    }
+
     pub fn resize(&mut self, rows: u16, cols: u16) -> Result<(), &'static str> {
         if !(1..=200).contains(&rows) || !(2..=500).contains(&cols) {
             return Err("screen dimensions out of bounds");
