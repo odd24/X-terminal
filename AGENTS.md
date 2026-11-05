@@ -139,3 +139,6 @@ P12共享设计入口tokens.css/style.css，terminalAppearance从CSS读取终端
 
 
 P12导航新增npm run test:desktop:navigation（前置desktop:build及已有gui_ssh_fixture），纳入完整桌面回归第16入口。仅shared-terminal-navigation-ui-中文-自建根/合成SSH夹具与合成会话，验证配置选中/独立实例、标签排序/溢出/关闭/隐藏重开、退出确认、后台保留输出和reload身份。主窗口onCloseRequested放行需要既有main的allow-destroy，仍停止服务；隐藏标签不forget/不扩大保留容量。原生默认窗口面积与CSS探测不能替代真实DPI/全局矩阵。
+
+
+P12基础撰写新增npm run test:desktop:compose（前置desktop:build，自建gui_ssh_fixture），纳入完整回归第17入口；只shared-terminal-compose-ui-中文-自建根/实际合成SSH服务。双实例草稿、精确换行/一次性确认、键盘接管/切换与真实write_text应答丢失命中/不重试、重开与reload清空均须实测；串口专项另验证共享输入队列的精确文本/CRLF，不当COM验收。草稿仅窗口内64份，不持久化正文/同意；预览须等终端实际绑定完整ConnectionRef，发送前再核对。

@@ -98,6 +98,7 @@ try {
   console.log('PASS navigation native WebView: Profile single/double click, same-Profile independent instances, search, tab selection/reorder/overflow, close cancel/hide/reopen/exact close, exit confirmation, terminal-first native layout and reload service identity; synthetic only');
 } finally {
   await ui?.close(); fixture.kill(); await delay(200);
+  assert.equal(path.dirname(path.resolve(directory)), path.resolve(tmpdir()));
   assert.ok(path.basename(directory).startsWith('shared-terminal-navigation-ui-中文-'));
   await rm(directory, { recursive: true, force: true });
 }

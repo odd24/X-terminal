@@ -49,6 +49,9 @@ try {
   await ui.fill('串口发送内容','GG');await ui.click('发送串口内容');await message('无效');await waitRaw(connection,expected);
   await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);await ui.command('Input.insertText',{text:'keyboard'});
   expected.push(...Buffer.from('keyboard'));await waitRaw(connection,expected);
+  await ui.click('基础撰写');await ui.fill('撰写正文','串口撰写\nnext');await ui.fill('撰写末尾换行','crlf');await ui.click('预览撰写发送');await ui.click('确认发送撰写');
+  expected.push(...Buffer.from('串口撰写\nnext\r\n'));await waitRaw(connection,expected);await ui.click('关闭撰写');
+
   await ui.fill('串口发送格式','text');await ui.fill('串口发送换行','lf');await ui.fill('串口每段字节',1);await ui.fill('串口段间隔',25);await ui.fill('串口发送内容','abc');await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
   expected.push(...Buffer.from('abc\n'));await waitRaw(connection,expected);
   const pid=(await ui.invoke('service_status')).pid;

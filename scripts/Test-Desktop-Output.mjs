@@ -8,8 +8,13 @@ const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-output-ui-'
 let ui;
 try {
   ui = await launchDesktop(directory, { fixture: true });
+  await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(item=>item.textContent==='新建合成会话'&&!item.disabled)`);
   await ui.click('新建合成会话');
-  await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
+  try { await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`); }
+  catch(error) {
+    console.error('initial output checkpoint:',await ui.evaluate(`JSON.stringify({main:document.querySelector('.status')?.textContent,selection:document.querySelector('[aria-label="会话"]')?.value,create:[...document.querySelectorAll('button')].filter(item=>item.textContent==='新建合成会话').map(item=>({disabled:item.disabled}))})`));
+    console.error('initial output service:',await ui.invoke('service_list'));await ui.screenshot('desktop-output-initial-failure.png');throw error;
+  }
   const [connection] = await ui.invoke('service_list');
   const ref = { connection_id: connection.connection_id, generation: connection.generation };
   await ui.click('服务端屏幕');await ui.waitFor(`document.querySelector('[aria-label="服务端屏幕快照"]')?.textContent.includes('中文宽字')`);

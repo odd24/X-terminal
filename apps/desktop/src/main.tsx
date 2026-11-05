@@ -11,6 +11,8 @@ import { TerminalWriter } from './terminal-writer';
 import { OutputDecoder } from './output-decoder';
 import { terminalAppearance, type ThemeChoice, type TerminalFont } from './appearance';
 import { AppearancePanel } from './appearance-panel';
+import { ComposePanel } from './compose-panel';
+import { ComposeDrafts, type ComposeTarget } from './compose-drafts';
 import { SessionTree } from './session-tree';
 import type { Profile } from './config-api';
 import { ConfigPanel } from './config-panel';
@@ -33,6 +35,11 @@ type Page = { connection: Ref; events: { seq: number; bytes: number[]; gap_bytes
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
 
 function App() {
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeEpoch, setComposeEpoch] = useState(0);
+  const [renderedTarget, setRenderedTarget] = useState<ComposeTarget>();
+  const drafts = useRef(new ComposeDrafts());
+  const composeSend = useRef<((target: ComposeTarget, text: string) => boolean) | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [navigationWidth, setNavigationWidth] = useState(260);
   const tabList = useRef<HTMLDivElement>(null);
@@ -61,8 +68,9 @@ function App() {
   const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
   const [clipboardMessage, setClipboardMessage] = useState('');
   function selectConnection(id: string) {
+    setRenderedTarget(undefined);
     hiddenRef.current = hiddenRef.current.filter(item => item !== id); setHiddenTabs(hiddenRef.current);
-    clipboard.current?.invalidate(); selectedRef.current = id; setSelected(id);
+    drafts.current.invalidate(); clipboard.current?.invalidate(); selectedRef.current = id; setSelected(id);
   }
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<{ term: Terminal; fit: FitAddon; writer: TerminalWriter; connection?: Ref; fixture: boolean; inputs: number; protocol: string; writable: boolean } | null>(null);
@@ -84,7 +92,10 @@ function App() {
 
   useEffect(() => {
     const tab = Array.from(tabList.current?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []).find(item => item.dataset.connectionId === selected);
-    tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const reveal = () => tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    reveal(); const observer = new ResizeObserver(reveal);
+    if (tabList.current) observer.observe(tabList.current);
+    return () => observer.disconnect();
   }, [selected, tabOrder]);
 
   useEffect(() => {
@@ -134,7 +145,7 @@ function App() {
     function submit(action: { bytes: number[] } | { cols: number; rows: number } | { text: string }) {
       const target = current.connection;
       const protocol = current.protocol;
-      if (!target || !['SSH2','SERIAL'].includes(protocol) || !current.writable || selectedRef.current !== target.connection_id) return;
+      if (!target || !['SSH2','SERIAL'].includes(protocol) || !current.writable || selectedRef.current !== target.connection_id) return false;
       const id = requestId();
       const accepted = queue.enqueue(async () => {
         // A selection change drops unsent input rather than retargeting it.
@@ -169,6 +180,7 @@ function App() {
       // Error text can resize the terminal, enqueueing another resize against a
       // stopped queue. Keep the original dispatch failure visible.
       if (!accepted) setInputFailure(previous => previous || '输入队列已满或已停止；此次输入未发送。');
+      return accepted;
     }
     const clip = new TerminalClipboard({
       target: () => current.connection && selectedRef.current === current.connection.connection_id && (current.writable || (current.fixture && current.protocol === 'FIXTURE')) ? { ...current.connection, protocol: current.protocol } : undefined,
@@ -191,30 +203,35 @@ function App() {
       if (event.key.toLowerCase() === 'f' && event.shiftKey) { event.preventDefault(); setSearchOpen(true); return false; }
       return true;
     });
-    function receiveInput(data: string) {
-      clip.invalidate();
+    function receiveInput(data: string, compose = false): boolean {
+      if (!compose) setComposeEpoch(value => value + 1);
+      drafts.current.invalidate(); clip.invalidate();
       if (current.protocol === 'SERIAL') {
-        if (!current.writable || selectedRef.current !== current.connection?.connection_id) { setLastInput('串口当前不可写，此次输入未发送'); return; }
-        if (new TextEncoder().encode(data).length > 65536) { setInputFailure('单次输入超过 64 KiB；此次输入未发送'); return; }
-        setLastInput('串口键盘输入已收到，内容不显示；Enter 按终端 CR 发送'); submit({ text: data }); return;
+        if (!current.writable || selectedRef.current !== current.connection?.connection_id) { setLastInput('串口当前不可写，此次输入未发送'); return false; }
+        if (new TextEncoder().encode(data).length > 65536) { setInputFailure('单次输入超过 64 KiB；此次输入未发送'); return false; }
+        setLastInput('串口键盘输入已收到，内容不显示；Enter 按终端 CR 发送'); return submit({ text: data });
       }
       if (current.protocol === 'SSH2') {
-        if (!current.writable || selectedRef.current !== current.connection?.connection_id) { setLastInput('连接当前不可写；此次输入未发送'); return; }
-        if (/[\uD800-\uDFFF]/u.test(data)) { setInputFailure('输入包含不完整 Unicode 字符；此次输入未发送'); return; }
-        if (new TextEncoder().encode(data).length > 196608) { setInputFailure('单次文本超过输入上限；此次输入未发送'); return; }
+        if (!current.writable || selectedRef.current !== current.connection?.connection_id) { setLastInput('连接当前不可写；此次输入未发送'); return false; }
+        if (/[\uD800-\uDFFF]/u.test(data)) { setInputFailure('输入包含不完整 Unicode 字符；此次输入未发送'); return false; }
+        if (new TextEncoder().encode(data).length > 196608) { setInputFailure('单次文本超过输入上限；此次输入未发送'); return false; }
         setLastInput('SSH 键盘输入已收到，按连接编码发送；内容不显示');
-        submit({ text: data });
-        return;
+        return submit({ text: data });
       }
-      if (!current.fixture || current.protocol !== 'FIXTURE' || !current.connection) return;
+      if (!current.fixture || current.protocol !== 'FIXTURE' || !current.connection) return false;
       setLastInput(JSON.stringify(data));
-      if (current.inputs >= 16) { setStatus('合成输入队列已满；此次输入未发送'); return; }
+      if (current.inputs >= 16) { setStatus('合成输入队列已满；此次输入未发送'); return false; }
       current.inputs++;
-      void invoke('fixture_append', { connection: current.connection, bytes: Array.from(new TextEncoder().encode(data === '\r' ? '\r\n' : data)) })
+      void invoke('fixture_append', { connection: current.connection, bytes: Array.from(new TextEncoder().encode(!compose && data === '\r' ? '\r\n' : data)) })
         .catch(() => { if (!disposed) setFailure('合成输入失败；未重试'); })
         .finally(() => current.inputs--);
+      return true;
     }
-    const input = term.onData(receiveInput);
+    composeSend.current = (target, text) => {
+      if (disposed || !current.connection || selectedRef.current !== target.connection_id || current.connection.connection_id !== target.connection_id || current.connection.generation !== target.generation || current.protocol !== target.protocol || !current.writable) return false;
+      return receiveInput(text, true);
+    };
+    const input = term.onData(data => receiveInput(data));
     const resize = term.onResize(() => {
       clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
@@ -243,7 +260,7 @@ function App() {
           return;
         }
         if (!connection && current.connection) {
-          clip.invalidate(); current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
+          drafts.current.invalidate(); clip.invalidate(); current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
           current.writer.close();
           current.connection = undefined; current.protocol = '';
           await resetParser();
@@ -271,7 +288,7 @@ function App() {
             if (metadata.result !== 'status' || metadata.connection.connection_id !== connection.connection_id || metadata.connection.generation !== connection.generation) throw new Error('Invalid SSH encoding status');
             encoding = metadata.encoding;
           }
-          clip.invalidate(); current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
+          drafts.current.invalidate(); clip.invalidate(); current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
           current.writer.close();
           await resetParser();
           if (disposed) return;
@@ -309,6 +326,7 @@ function App() {
           if (page.disconnected && page.events.length === 0) display(decoder.finish());
           cursor = page.next_cursor;
           await current.writer.drain();
+          if (!disposed && current.connection && selectedRef.current === current.connection.connection_id) setRenderedTarget({ ...current.connection, protocol: current.protocol });
           if (!disposed && !gap) setStatus(page.disconnected ? '会话已断开' : '服务输出已同步');
         } else setStatus('服务就绪 · 尚无活动连接');
         if (!disposed) timer = window.setTimeout(() => void poll(), 100);
@@ -323,7 +341,7 @@ function App() {
     }
     let timer = 0;
     void poll();
-    return () => { clip.invalidate(); clipboard.current = undefined; element.removeEventListener('paste', paste, true); disposed = true; stopped.current = true; clearTimeout(timer); runtime.current = null; queue.close(); clearTimeout(resizeTimer); resize.dispose(); observer.disconnect(); input.dispose(); current.writer.close(); term.dispose(); };
+    return () => { composeSend.current = undefined; drafts.current.invalidate(); clip.invalidate(); clipboard.current = undefined; element.removeEventListener('paste', paste, true); disposed = true; stopped.current = true; clearTimeout(timer); runtime.current = null; queue.close(); clearTimeout(resizeTimer); resize.dispose(); observer.disconnect(); input.dispose(); current.writer.close(); term.dispose(); };
   }, []);
 
   useEffect(() => {
@@ -438,9 +456,10 @@ function App() {
       <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
       <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
       <button onClick={() => setSerialOpen(open => !open)}>串口连接</button>
+      <button onClick={() => { drafts.current.invalidate(); setComposeOpen(open => !open); }}>基础撰写</button>
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
       <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
-        {!connections.length && <option value="">尚无会话</option>}
+        <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
         {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
       </select>
       {service?.fixture && <><button disabled={busy || !!failure} onClick={() => void createFixture()}>新建合成会话</button><button disabled={busy || !selected || !!failure} onClick={() => void stress()}>高输出回放</button><button onClick={() => { stopped.current = true; }}>停止后续回放</button></>}
@@ -472,6 +491,7 @@ function App() {
     <aside className="auxiliary-panels" aria-label="辅助工具">
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {closing && <section className="config-panel" aria-label="关闭标签确认"><h2>关闭连接标签</h2><p>{tabName(closing)} · {closing.protocol} · {closing.connection_id} / 代次 {closing.generation}</p><p>关闭连接会停止未发送输入；已发送动作不会撤销。保留连接仅隐藏标签，输出仍由服务有界保留，之后可从完整列表重新打开。</p><button disabled={tabBusy} onClick={() => void confirmClose()}>关闭连接并隐藏标签</button><button disabled={tabBusy} onClick={() => { hideTab(closing); setClosing(undefined); }}>保留连接隐藏标签</button><button disabled={tabBusy} autoFocus onClick={() => setClosing(undefined)}>取消关闭标签</button></section>}
+    {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
     {appearanceOpen && <AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} close={() => setAppearanceOpen(false)} />}
     {configurationOpen && <ConfigPanel close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} />}
     {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}

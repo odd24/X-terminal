@@ -43,7 +43,7 @@ try {
   for(const text of ['prefix中','文😀tail\0\x1b[31m<img id="HISTORY_LITERAL" src="x">\u202eend']) await ui.invoke('fixture_append',{connection:target,bytes:[...Buffer.from(text)]});
   await stopped(target,first.log_id);
   await ui.click('新建合成会话');
-  await ui.waitFor(`document.querySelector('[aria-label="会话"]').options.length===2&&!Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='新建合成会话').disabled`);
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).filter(option=>option.value).length===2&&!Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='新建合成会话').disabled`);
   const other=(await ui.invoke('service_list')).find(item=>item.connection_id!==connection.connection_id);
   await ui.fill('会话',other.connection_id);
   const otherBefore=await ui.invoke('service_read',{connection:ref(other),cursor:1});

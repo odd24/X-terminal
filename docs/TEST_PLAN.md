@@ -195,3 +195,6 @@ npm run test:desktop:appearance（前置desktop:build，纳入完整桌面回归
 
 
 P12导航专项npm run test:desktop:navigation（前置最终desktop:build及gui_ssh_fixture）纳入完整桌面回归第16入口。只在shared-terminal-navigation-ui-中文-自建根验证真实WebView：Profile选中不连接/显式与双击新实例、同Profile独立ID、搜索、标签排序/键盘/溢出、取消/隐藏重开/固定代次关闭、后台保留输出、退出确认、导航调宽/折叠及重载服务身份。实际结果见P12/ADR-040；普通关闭/崩溃Job仍由生命周期专项独立验证，不把DOM默认截图当T22/T23全矩阵或实机通过。
+
+
+P12基础撰写4项状态/边界测试加至44项前端；新增test:desktop:compose（第17入口）通过真实合成SSH验证独立实例草稿、固定目标、精确Unicode/LF/CRLF、双击一次、切走再回不恢复同意、键盘接管、实际write_text应答丢失命中/不重发、面板重开与reload。串口专项追加共享队列的实际内存回环精确文本/CRLF。前置最终产品构建；初次未等待实际绑定的失败与最终结果见P12/ADR-041。T22/T23全局矩阵与P19完整撰写不由该子步推断通过。

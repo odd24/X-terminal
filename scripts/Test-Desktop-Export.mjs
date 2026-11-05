@@ -50,7 +50,7 @@ try {
   const parts=[Buffer.from('中文😀\0\x1b[31m<img id="EXPORT_LITERAL">\r\n'),Buffer.from([0,255,13,10])];
   const first=await capture(target,parts);
   await ui.click('新建合成会话');
-  await ui.waitFor(`document.querySelector('[aria-label="会话"]').options.length===2&&!Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='新建合成会话').disabled`);
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).filter(option=>option.value).length===2&&!Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='新建合成会话').disabled`);
   const other=(await ui.invoke('service_list')).find(item=>item.connection_id!==target.connection_id);
   await ui.fill('会话',other.connection_id);
   const before=await ui.invoke('service_read',{connection:ref(other),cursor:1});

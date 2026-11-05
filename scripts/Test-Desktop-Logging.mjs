@@ -151,7 +151,7 @@ try {
   await ui.waitFor(`document.querySelector('[aria-label="捕获维护目标"]')?.textContent.includes(${JSON.stringify(info.log_id)})`);
   assert.ok((await ui.evaluate(`document.querySelector('[aria-label="捕获维护目标"]').textContent`)).includes('/ 1'));
   await ui.click('新建合成会话');
-  await ui.waitFor(`document.querySelector('[aria-label="会话"]').options.length===2`);
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).filter(option=>option.value).length===2`);
   const other=ref((await ui.invoke('service_list')).find(item=>item.connection_id!==target.connection_id));
   await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes(${JSON.stringify(other.connection_id)})`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="捕获维护选择"]').value`),info.log_id,'switching active connections cannot change the maintenance target');
