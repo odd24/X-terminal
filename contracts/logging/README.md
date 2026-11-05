@@ -100,3 +100,5 @@ export_recovery_jsonl仅显式恢复模式，重新从ManagedRoot/log_id/Connect
 checked_add计数，写/flush失败、取消或计数溢出传播Err，Err可能已有部分/全部字节及终止行，调用方不得发布。Ok只表示恢复格式流及停止报告写入/flush，不包含sync/指纹发布或用户覆盖授权。源读取错误转为未完整stop，打开失败不写首行；源文件保持，普通export_jsonl不自动降级。库调用只接受私有新暂存sink/有界阻塞线程，受管理发布、模式化服务任务与桌面保存仍待接入，不能从文件流通过推断产品已可恢复导出。详见ADR-035及P11.4记录。
 
 ADR-035的ExportStore::create_recovery现复用普通导出私有暂存/生产指纹/同步/不覆盖发布，RecoveryArtifact携带独立RecoverySummary，普通ExportArtifact默认类型保持ExportSummary。共用8项尝试含失败/每份256MiB上限，固定export.partial/export.jsonl及清理白名单不变，同UUID跨模式不覆盖。错误范围/无效ID/开始前取消不保留尝试；晚取消/冲突partial保留。VerifiedExport可基于可信生产指纹验证/复制显式未完整产物，不能从文件名或渲染器声明推断来源完整或保存授权。服务模式化回执/GUI仍待接入；详见ADR-035/P11.4。
+
+ADR-035恢复服务增加专用recovery_export_start/status/cancel：首请求模式/精确范围冻结，普通和恢复共用8队列/64回执；COMPLETED仍incomplete=true并保留确切恢复统计/stop/生产指纹。跨模式启动/查询/取消拒绝，清理REMOVED撤下全部产物字段，旧请求不重跑，重启不覆盖残留目录。普通ExportInfo形状保持，原生另存当前只支持普通来源，恢复任务/保存控件继续；详见IPC说明/P11.4。

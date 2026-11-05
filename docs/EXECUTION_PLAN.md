@@ -212,6 +212,7 @@
 - 失败前缀恢复：按ADR-034新增独立RecoveryReader，只读固定UUID/精确连接，逐条校验并在首处错误停止，保留同页已验证前缀；EndOfAvailable不代表完成。文件库66项与相关三包169项测试通过，Desktop专用recovery_list/open/read/close接入history独立文件线程，恢复独立4reader/64回执/120秒租期及分页重试；桌面独立选择/分页/文本HEX/停止原因与迟到释放已通过test:desktop:recovery原生专项，新增3项、共27项前端测试通过。恢复导出及全局UI/长稳继续，不能自动降低普通历史/导出的完整性要求。
 - 恢复导出文件流：ADR-035独立shared-terminal-recovery-export v1，始终incomplete=true，recovery_stopped尾行包含确切前缀统计/stop，没有verified；写/flush失败与取消不允许发布。日志库72项通过，受管理发布/模式化任务/桌面保存继续，不从流成功推断完整源日志或用户位置已保存。
 - 恢复受管理发布：ADR-035的create_recovery与普通导出共用8尝试/256MiB、指纹及不覆盖发布，返回独立RecoverySummary；76项日志库通过，VerifiedExport复制和清理互斥保持。模式化服务任务/桌面保存继续，不把产物COMPLETED解释成源日志完整。
+- 恢复服务任务：ADR-035新增Desktop专用recovery_export_start/status/cancel，和普通任务共用8队列/64回执，首请求冻结模式/范围，跨模式Start/查询/取消均拒绝。COMPLETED仍incomplete=true、含确切恢复统计/stop及生产指纹，REMOVED撤下全部产物字段；182项相关Rust测试通过，原生通道与完整回归结果见P11.4，桌面导出/另存控件继续。
 - 验收：全部传输同路径、观察者不能启停日志、重连不继承记录、磁盘故障与缺口可见；R12完整范围仍含后续搜索/导出及P22压力。
 - 提交：`feat(P11.4): integrate scoped terminal logging controls`。
 

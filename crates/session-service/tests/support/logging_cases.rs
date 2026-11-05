@@ -1,6 +1,365 @@
 use super::*;
 use session_protocol::logging::{self as log, Request as L};
 
+fn recovery_export_info(reply: log::Reply) -> log::RecoveryExportInfo {
+    match reply {
+        log::Reply::RecoveryExport(info) => *info,
+        _ => panic!("expected recovery export receipt"),
+    }
+}
+async fn recovery_export_done(
+    client: &mut Client,
+    connection: ConnectionRef,
+    log_id: Uuid,
+    request_id: Uuid,
+) -> log::RecoveryExportInfo {
+    timeout(Duration::from_secs(10), async {
+        loop {
+            let info = recovery_export_info(
+                call(
+                    client,
+                    L::RecoveryExportStatus {
+                        connection,
+                        log_id,
+                        request_id,
+                    },
+                )
+                .await,
+            );
+            assert!(info.incomplete);
+            if matches!(
+                info.phase,
+                log::ExportPhase::Completed
+                    | log::ExportPhase::Failed
+                    | log::ExportPhase::Cancelled
+                    | log::ExportPhase::Removed
+            ) {
+                return info;
+            }
+            assert!(info.bytes.is_none() && info.sha256.is_none() && info.recovered.is_none());
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+#[tokio::test]
+async fn recovery_export_ipc_freezes_mode_and_scope_publishes_exact_prefix_and_retires_on_cleanup()
+{
+    let path = std::env::temp_dir().join(format!(
+        "shared-terminal-recovery-export-ipc-中文-{}",
+        Uuid::new_v4()
+    ));
+    std::fs::create_dir(&path).unwrap();
+    let temp = ConfigTemp(path);
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let (connection, capture) = captured_fixture(&mut client).await;
+    service.stop(&mut client).await;
+    let log_id = capture.log_id;
+    let source = temp.0.join("terminal-logs").join(log_id.to_string());
+    std::fs::remove_file(source.join("completion.json")).unwrap();
+    let text_path = source.join("0000000000000001.text.jsonl");
+    let text = std::fs::read(&text_path).unwrap();
+    std::fs::write(&text_path, &text[..text.len() - 1]).unwrap();
+    let original_raw = std::fs::read(source.join("0000000000000001.rawlog")).unwrap();
+    let original_text = std::fs::read(&text_path).unwrap();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let fresh = reference(ok(client.request(Request::CreateFixture {}).await.unwrap()));
+    let Reply::ReadTicket { token, .. } = ok(client
+        .request(Request::IssueRead {
+            scopes: vec![fresh],
+            lifetime_ms: 60000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    let request_id = Uuid::new_v4();
+    for request in [
+        L::RecoveryExportStart {
+            connection,
+            log_id,
+            request_id,
+        },
+        L::RecoveryExportStatus {
+            connection,
+            log_id,
+            request_id,
+        },
+        L::RecoveryExportCancel {
+            connection,
+            log_id,
+            request_id,
+        },
+    ] {
+        assert_eq!(
+            error(
+                observer
+                    .request(Request::Logging { request })
+                    .await
+                    .unwrap()
+            ),
+            ErrorCode::PermissionDenied
+        );
+    }
+    for _ in 0..2 {
+        let started = recovery_export_info(
+            call(
+                &mut client,
+                L::RecoveryExportStart {
+                    connection,
+                    log_id,
+                    request_id,
+                },
+            )
+            .await,
+        );
+        assert!(started.incomplete);
+        assert_eq!(started.connection, connection);
+    }
+    let done = recovery_export_done(&mut client, connection, log_id, request_id).await;
+    assert_eq!(done.phase, log::ExportPhase::Completed);
+    let summary = done.recovered.as_ref().unwrap();
+    assert_eq!(summary.recovered_records, 2);
+    assert_eq!(summary.recovered_raw_bytes, 10);
+    assert_eq!(summary.recovered_gap_bytes, 0);
+    assert_eq!(summary.next_cursor, capture.text_cursor + 2);
+    assert_eq!(summary.stop.kind, log::RecoveryStopKind::TruncatedRecord);
+    assert_eq!(summary.stop.next_cursor, summary.next_cursor);
+    let hash = done.sha256.as_ref().unwrap();
+    assert_eq!(hash.len(), 64);
+    assert!(
+        hash.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    );
+    let directory = temp
+        .0
+        .join("terminal-log-exports")
+        .join(request_id.to_string());
+    let bytes = std::fs::read(directory.join("export.jsonl")).unwrap();
+    assert_eq!(done.bytes, Some(bytes.len() as u64));
+    let rows: Vec<serde_json::Value> = std::str::from_utf8(&bytes)
+        .unwrap()
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    assert_eq!(rows[0]["format"], "shared-terminal-recovery-export");
+    assert_eq!(rows[0]["incomplete"], true);
+    assert_eq!(rows[1]["raw"]["bytes"], serde_json::json!([0, 255, 13, 10]));
+    assert_eq!(
+        rows[2]["raw"]["bytes"],
+        serde_json::json!(b"second".to_vec())
+    );
+    assert_eq!(rows.last().unwrap()["type"], "recovery_stopped");
+    assert!(rows.iter().all(|row| row["type"] != "verified"));
+    let fingerprint = terminal_log::ExportFingerprint {
+        bytes: done.bytes.unwrap(),
+        sha256: std::array::from_fn(|n| u8::from_str_radix(&hash[n * 2..n * 2 + 2], 16).unwrap()),
+    };
+    let mut verified =
+        terminal_log::VerifiedExport::open(&temp.0, request_id, fingerprint, || false).unwrap();
+    let mut copy = Vec::new();
+    verified.copy_to(&mut copy, || false).unwrap();
+    assert_eq!(copy, bytes);
+    drop(verified);
+    for request in [
+        L::ExportStart {
+            connection,
+            log_id,
+            request_id,
+        },
+        L::ExportStatus {
+            connection,
+            log_id,
+            request_id,
+        },
+        L::ExportCancel {
+            connection,
+            log_id,
+            request_id,
+        },
+        L::RecoveryExportCancel {
+            connection: fresh,
+            log_id,
+            request_id,
+        },
+    ] {
+        assert_eq!(
+            error(client.request(Request::Logging { request }).await.unwrap()),
+            ErrorCode::InvalidArgument
+        );
+    }
+    let duplicate = recovery_export_info(
+        call(
+            &mut client,
+            L::RecoveryExportCancel {
+                connection,
+                log_id,
+                request_id,
+            },
+        )
+        .await,
+    );
+    assert_eq!(
+        serde_json::to_value(duplicate).unwrap(),
+        serde_json::to_value(&done).unwrap()
+    );
+    let ordinary = Uuid::new_v4();
+    call(
+        &mut client,
+        L::ExportStart {
+            connection,
+            log_id,
+            request_id: ordinary,
+        },
+    )
+    .await;
+    assert_eq!(
+        export_done(&mut client, connection, log_id, ordinary)
+            .await
+            .failure,
+        Some(log::ExportFailure::InvalidSource)
+    );
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::RecoveryExportStart {
+                        connection,
+                        log_id,
+                        request_id: ordinary
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidArgument
+    );
+    let invalid = Uuid::new_v4();
+    let wrong = ConnectionRef {
+        generation: connection.generation + 1,
+        ..connection
+    };
+    call(
+        &mut client,
+        L::RecoveryExportStart {
+            connection: wrong,
+            log_id,
+            request_id: invalid,
+        },
+    )
+    .await;
+    let failed = recovery_export_done(&mut client, wrong, log_id, invalid).await;
+    assert_eq!(failed.failure, Some(log::ExportFailure::InvalidSource));
+    assert!(failed.recovered.is_none() && failed.sha256.is_none());
+    assert!(
+        !temp
+            .0
+            .join("terminal-log-exports")
+            .join(invalid.to_string())
+            .exists()
+    );
+    let preview_id = Uuid::new_v4();
+    let log::Reply::Cleanup(info) = call(
+        &mut client,
+        L::CleanupPreview {
+            kind: log::CleanupKind::Export,
+            id: request_id,
+            preview_id,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    let log::Reply::Cleanup(applied) = call(
+        &mut client,
+        L::CleanupCommit {
+            kind: log::CleanupKind::Export,
+            id: request_id,
+            preview_id,
+            confirmation: info.confirmation.unwrap(),
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    let report = applied.report.unwrap();
+    assert!(report.directory_removed && report.failure.is_none());
+    assert_eq!(report.removed_files, 1);
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::write(directory.join("sentinel"), b"preserve recreated directory").unwrap();
+    let removed = recovery_export_info(
+        call(
+            &mut client,
+            L::RecoveryExportStart {
+                connection,
+                log_id,
+                request_id,
+            },
+        )
+        .await,
+    );
+    assert_eq!(removed.phase, log::ExportPhase::Removed);
+    assert!(removed.incomplete);
+    assert!(removed.recovered.is_none() && removed.bytes.is_none() && removed.sha256.is_none());
+    assert_eq!(
+        std::fs::read(directory.join("sentinel")).unwrap(),
+        b"preserve recreated directory"
+    );
+    assert_eq!(
+        std::fs::read(source.join("0000000000000001.rawlog")).unwrap(),
+        original_raw
+    );
+    assert_eq!(std::fs::read(&text_path).unwrap(), original_text);
+    service.stop(&mut client).await;
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::RecoveryExportStatus {
+                        connection,
+                        log_id,
+                        request_id
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::NotFound
+    );
+    call(
+        &mut client,
+        L::RecoveryExportStart {
+            connection,
+            log_id,
+            request_id,
+        },
+    )
+    .await;
+    assert_eq!(
+        recovery_export_done(&mut client, connection, log_id, request_id)
+            .await
+            .phase,
+        log::ExportPhase::Failed
+    );
+    assert_eq!(
+        std::fs::read(directory.join("sentinel")).unwrap(),
+        b"preserve recreated directory"
+    );
+    service.stop(&mut client).await;
+}
+
 #[tokio::test]
 async fn recovery_ipc_reads_only_verified_prefix_after_restart_with_desktop_scope_and_retry() {
     let path = std::env::temp_dir().join(format!(
@@ -695,6 +1054,21 @@ async fn logging_is_desktop_only_deduplicated_and_bound_to_exact_output_windows(
         .unwrap();
     for request in [
         L::List { connection },
+        L::RecoveryExportStart {
+            connection,
+            log_id: first.log_id,
+            request_id: Uuid::new_v4(),
+        },
+        L::RecoveryExportStatus {
+            connection,
+            log_id: first.log_id,
+            request_id: Uuid::new_v4(),
+        },
+        L::RecoveryExportCancel {
+            connection,
+            log_id: first.log_id,
+            request_id: Uuid::new_v4(),
+        },
         L::HistoryList {},
         L::HistoryOpen {
             connection,

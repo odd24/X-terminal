@@ -91,3 +91,11 @@ Desktop专用logging增加recovery_list/open/read/close，不能由Observer只�
 Open/Read/Close均要求connection/log_id/read_id；Read另要求cursor>0、1–128条、32–64KiB逻辑页，无任意路径/角色/修复/跳坏行参数。同ID不同scope拒绝，同Open不重开，最后一页相同参数可精确重试，旧页/改变参数拒绝。RecoveryPage包含原scope、请求及下一游标、可见起点、records和可空stop(kind/segment/next_cursor)，没有finished；首处错误保留本页此前已验证记录，EndOfAvailable也不表示完成/同步。
 
 复用history独立文件线程16消息队列，恢复单独4reader/64回执，普通历史8/128保持，合计12/192上限。120秒单调空闲回收或显式close释放所有句柄/缓存但保留ID；有序关闭回执可按时间水位退休，不透明ID不自动删，旧ID不能重开。服务重启只保留源文件，不恢复本次reader/回执/授权；新ID须显式新开。整理预留拒绝恢复list/open，句柄占用拒绝实际整理；恢复不会接管/写入当前会话。普通History/Export完整性检查不会自动降级，恢复GUI/未完整导出另行实现。
+
+## 显式恢复导出服务任务（ADR-035）
+
+Desktop专用logging增加recovery_export_start/status/cancel，请求只含connection/log_id/request_id，无mode/path/role/sha256/恢复统计等参数。操作名固定任务Mode，首请求绑定模式和精确作用域；同ID不同模式/范围的Start/状态/取消均InvalidArgument，普通导出失败不自动降级。Observer即使持匹配源的只读票据也PermissionDenied。
+
+返回result=recovery_export，包含connection/log_id/request_id/phase/failure/incomplete/bytes/sha256/recovered，incomplete始终true；仅COMPLETED有长度、64位小写生产SHA-256及RecoveryExportSummary（recovered_records/recovered_raw_bytes/recovered_gap_bytes/next_cursor/stop）。COMPLETED只证明显式未完整产物同步发布，END_OF_AVAILABLE也不表示源完整；QUEUED/RUNNING/CANCELLING/CANCELLED/FAILED/REMOVED产物字段为null。原普通ExportInfo形状保持，不能把恢复ID经普通export_status取得“完整”回执。
+
+两种模式共用原export worker/8队列/64回执/有序退休水位与磁盘8项/256MiB尝试，不增加容量；状态/取消不等待磁盘。晚取消以已经发布为准；清理共享注册将恢复任务标REMOVED，撤下恢复统计/长度/指纹，保留模式，旧Start不重跑/不转模式。不透明ID不自动回收；重启不恢复回执，也不覆盖同UUID残留目录。真实Windows IPC和原生通道证据见P11.4；恢复导出/另存按钮尚未从通道测试推断完成。

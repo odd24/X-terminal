@@ -2,6 +2,7 @@ import { mkdtemp, open, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-recovery-ui-中文-'));
 let ui;
@@ -58,6 +59,35 @@ try {
   await ui.click('新建合成会话');
   const [active] = await ui.invoke('service_list');
   const before = await ui.invoke('service_read',{connection:ref(active),cursor:1});
+  // Dedicated Tauri logging channel, with real service publication; the UI
+  // recovery export/save controls are not inferred from this channel check.
+  const exportId=crypto.randomUUID();
+  const exportScope={connection:target,log_id:first.log_id,request_id:exportId};
+  await request({op:'recovery_export_start',...exportScope});
+  let exported;
+  for(let n=0;n<200;n++){
+    exported=await request({op:'recovery_export_status',...exportScope});
+    assert.equal(exported.result,'recovery_export');assert.equal(exported.incomplete,true);
+    if(exported.phase==='COMPLETED')break;
+    assert.ok(['QUEUED','RUNNING','CANCELLING'].includes(exported.phase));await delay(20);
+  }
+  assert.equal(exported.phase,'COMPLETED');assert.equal(exported.recovered.recovered_records,2);
+  assert.equal(exported.recovered.stop.kind,'TRUNCATED_RECORD');
+  const recoveredBytes=await readFile(path.join(directory,'terminal-log-exports',exportId,'export.jsonl'));
+  assert.equal(exported.bytes,recoveredBytes.length);
+  assert.equal(exported.sha256,createHash('sha256').update(recoveredBytes).digest('hex'));
+  const exportedRows=recoveredBytes.toString('utf8').trimEnd().split('\n').map(line=>JSON.parse(line));
+  assert.equal(exportedRows[0].format,'shared-terminal-recovery-export');
+  assert.equal(exportedRows.at(-1).type,'recovery_stopped');assert.equal(exportedRows.at(-1).incomplete,true);
+  assert.ok(exportedRows.every(row=>row.type!=='verified'));
+  assert.deepEqual(await request({op:'recovery_export_start',...exportScope}),exported);
+  assert.deepEqual(await request({op:'recovery_export_cancel',...exportScope}),exported);
+  await assert.rejects(request({op:'export_status',...exportScope}));
+  const forbiddenSaveId=crypto.randomUUID();
+  const saveResult=async op=>ui.evaluate(`window.__TAURI_INTERNALS__.invoke('export_save_request',${JSON.stringify({request:{op,scope:exportScope,save_id:forbiddenSaveId}})}).then(()=>({ok:true}),error=>({error:String(error)}))`);
+  assert.deepEqual(await saveResult('start'),{error:'InvalidArgument'},'ordinary save cannot accept a recovery source');
+  assert.deepEqual(await saveResult('status'),{error:'NOT_FOUND'},'rejected source must not reserve a save job or open the picker');
+  assert.deepEqual(await request({op:'recovery_export_status',...exportScope}),exported);
   await panel();
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="恢复日志选择"]').value`),'','refresh must not choose target');
   await select(invalid.log_id);

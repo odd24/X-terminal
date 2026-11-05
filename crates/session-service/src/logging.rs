@@ -214,17 +214,34 @@ impl Manager {
                 };
                 self.cleanup.request(directory, request).await
             }
-            Request::ExportStart {
+            request @ (Request::ExportStart {
                 connection,
                 log_id,
                 request_id,
-            } => {
-                if let Some(info) = self.export.duplicate(connection, log_id, request_id)? {
-                    return Ok(Reply::Export(Box::new(info)));
+            }
+            | Request::RecoveryExportStart {
+                connection,
+                log_id,
+                request_id,
+            }) => {
+                let recovery = matches!(request, Request::RecoveryExportStart { .. });
+                let duplicate = || {
+                    if recovery {
+                        self.export
+                            .recovery_duplicate(connection, log_id, request_id)
+                            .map(|info| info.map(|info| Reply::RecoveryExport(Box::new(info))))
+                    } else {
+                        self.export
+                            .duplicate(connection, log_id, request_id)
+                            .map(|info| info.map(|info| Reply::Export(Box::new(info))))
+                    }
+                };
+                if let Some(reply) = duplicate()? {
+                    return Ok(reply);
                 }
                 let _gate = self.gate.lock().await;
-                if let Some(info) = self.export.duplicate(connection, log_id, request_id)? {
-                    return Ok(Reply::Export(Box::new(info)));
+                if let Some(reply) = duplicate()? {
+                    return Ok(reply);
                 }
                 if self.cleanup.reserved() {
                     return Err(ErrorCode::InvalidState);
@@ -237,11 +254,27 @@ impl Manager {
                 else {
                     return Err(ErrorCode::InvalidState);
                 };
-                self.export
-                    .submit(directory, connection, log_id, request_id)
-                    .map(|info| Reply::Export(Box::new(info)))
+                if recovery {
+                    self.export
+                        .recovery_submit(directory, connection, log_id, request_id)
+                        .map(|info| Reply::RecoveryExport(Box::new(info)))
+                } else {
+                    self.export
+                        .submit(directory, connection, log_id, request_id)
+                        .map(|info| Reply::Export(Box::new(info)))
+                }
             }
-            Request::ExportStatus {
+            request @ (Request::RecoveryExportStatus {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Request::RecoveryExportCancel {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Request::ExportStatus {
                 connection,
                 log_id,
                 request_id,
@@ -250,15 +283,30 @@ impl Manager {
                 connection,
                 log_id,
                 request_id,
-            } => self
-                .export
-                .status(
-                    connection,
-                    log_id,
-                    request_id,
-                    matches!(request, Request::ExportCancel { .. }),
-                )
-                .map(|info| Reply::Export(Box::new(info))),
+            }) => {
+                if matches!(
+                    request,
+                    Request::RecoveryExportStatus { .. } | Request::RecoveryExportCancel { .. }
+                ) {
+                    self.export
+                        .recovery_status(
+                            connection,
+                            log_id,
+                            request_id,
+                            matches!(request, Request::RecoveryExportCancel { .. }),
+                        )
+                        .map(|info| Reply::RecoveryExport(Box::new(info)))
+                } else {
+                    self.export
+                        .status(
+                            connection,
+                            log_id,
+                            request_id,
+                            matches!(request, Request::ExportCancel { .. }),
+                        )
+                        .map(|info| Reply::Export(Box::new(info)))
+                }
+            }
             request @ (Request::HistoryList {}
             | Request::RecoveryList {}
             | Request::RecoveryOpen { .. }

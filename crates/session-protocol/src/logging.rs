@@ -92,6 +92,21 @@ pub enum Request {
         log_id: Uuid,
         request_id: Uuid,
     },
+    RecoveryExportStart {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
+    RecoveryExportStatus {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
+    RecoveryExportCancel {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
     ExportStatus {
         connection: ConnectionRef,
         log_id: Uuid,
@@ -138,7 +153,22 @@ impl Request {
                 ..
             } => return !id.is_nil() && !preview_id.is_nil() && !confirmation.is_nil(),
             Self::HistoryList {} | Self::RecoveryList {} => return true,
-            Self::ExportStart {
+            Self::RecoveryExportStart {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Self::RecoveryExportStatus {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Self::RecoveryExportCancel {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Self::ExportStart {
                 connection,
                 log_id,
                 request_id,
@@ -385,6 +415,7 @@ pub enum Reply {
     },
     Cleanup(Box<CleanupInfo>),
     Export(Box<ExportInfo>),
+    RecoveryExport(Box<RecoveryExportInfo>),
     Info(Box<Info>),
     List {
         logs: Vec<Info>,

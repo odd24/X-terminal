@@ -163,3 +163,5 @@ P11.4桌面只读恢复新增test:desktop:recovery（前置desktop:build，已�
 P11.4恢复导出文件流按ADR-035新增6项实质测试，日志库72项/strict clippy/fmt PASS。验证真实轮转的缺标志坏尾精确前缀、raw/text分离及源文件保持、始终incomplete/无verified/普通导出不降级；空/原本正常源也不声明完整，短写/部分写/flush失败、初始/记录中/最终flush后取消、错误范围/坏首头与合成缺口累计溢出均有断言。文件流Ok只表示内容和停止报告已写/flush，Err可能已有终止行；未接受管理发布/服务/GUI或用户位置保存，不能由此宣称T16完整恢复导出通过。详见P11.4/ADR-035。
 
 P11.4恢复导出受管理发布新增4项实质测试、日志库76项/strict clippy/fmt PASS。覆盖同一8项含失败/256MiB预算、坏尾产物实际SHA-256与VerifiedExport复制/清理互斥、混合普通恢复共享容量/未知项/同ID不覆盖、最后同步检查取消保留partial和发布竞争保持外来目标、错误范围无输出目录；全部只用带中文前缀自建临时根，原始日志保持。库成功只证明显式未完整产物发布，不代替模式化服务任务/用户保存/真实磁盘耗尽/长稳；见P11.4/ADR-035。
+
+P11.4模式化恢复导出服务新增1协议/1单元/1 IPC，相关三包19+29+58+76=182项PASS。实际worker固定混合8队列及跨模式Start/查询/取消拒绝，错误取消保持Queued、真实Queued取消不保留尝试；IPC覆盖旧服务精确scope/坏尾前缀实际文件/VerifiedExport复制、所有Observer拒绝、普通失败不降级/错误代次失败无目录、清理后REMOVED撤统计/指纹、重建sentinel时旧Start不重跑/重启不覆盖。另在匹配源只读票据Observer上扩展三op拒绝专项并复验PASS。原生recovery专项追加logging_request及Node crypto独立落盘核对，结果以P11.4为准；恢复导出/保存控件、实机/长稳与全局UI矩阵继续。

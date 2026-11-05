@@ -58,9 +58,69 @@ pub struct RecoveryPage {
     pub records: Vec<HistoryRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryExportSummary {
+    pub recovered_records: u64,
+    pub recovered_raw_bytes: u64,
+    pub recovered_gap_bytes: u64,
+    pub next_cursor: u64,
+    pub stop: RecoveryStop,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryExportInfo {
+    pub connection: ConnectionRef,
+    pub log_id: Uuid,
+    pub request_id: Uuid,
+    pub phase: ExportPhase,
+    pub failure: Option<ExportFailure>,
+    /// Always true, including after successful artifact publication.
+    pub incomplete: bool,
+    pub bytes: Option<u64>,
+    pub sha256: Option<String>,
+    pub recovered: Option<RecoveryExportSummary>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_export_requests_require_explicit_operations_and_cannot_supply_artifact_details() {
+        for op in [
+            "recovery_export_start",
+            "recovery_export_status",
+            "recovery_export_cancel",
+        ] {
+            let value = serde_json::json!({"op":op,"connection":{"connection_id":Uuid::new_v4(),"generation":2},"log_id":Uuid::new_v4(),"request_id":Uuid::new_v4()});
+            assert!(
+                serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            for field in [
+                "path",
+                "role",
+                "mode",
+                "sha256",
+                "recovered",
+                "incomplete",
+                "read_id",
+            ] {
+                let mut bad = value.clone();
+                bad[field] = true.into();
+                assert!(serde_json::from_value::<Request>(bad).is_err());
+            }
+            for field in ["log_id", "request_id"] {
+                let mut bad = value.clone();
+                bad[field] = Uuid::nil().to_string().into();
+                assert!(!serde_json::from_value::<Request>(bad).unwrap().validate());
+            }
+            let mut bad = value;
+            bad["connection"]["generation"] = 0.into();
+            assert!(!serde_json::from_value::<Request>(bad).unwrap().validate());
+        }
+    }
     #[test]
     fn recovery_contract_is_explicit_scoped_bounded_and_cannot_take_paths_or_roles() {
         assert!(Request::RecoveryList {}.validate());
