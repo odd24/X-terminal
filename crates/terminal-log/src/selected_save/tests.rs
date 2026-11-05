@@ -388,3 +388,68 @@ fn late_backup_collision_keeps_original_and_cleans_only_owned_staging() {
     assert_eq!(fs::read(backup).unwrap(), b"late backup occupant");
     assert!(!staging.exists());
 }
+
+#[test]
+fn system_and_offline_targets_are_rejected_without_changing_their_attributes_or_bytes() {
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_SYSTEM, SetFileAttributesW,
+    };
+    let temp = Temp::new();
+    let (data, _source) = source(&temp);
+    for attribute in [FILE_ATTRIBUTE_SYSTEM, FILE_ATTRIBUTE_OFFLINE] {
+        let path = temp.0.join(format!("特殊属性-{attribute}.jsonl"));
+        fs::write(&path, b"special attribute sentinel").unwrap();
+        let original = fs::metadata(&path).unwrap().file_attributes();
+        let wide: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        assert_ne!(
+            unsafe { SetFileAttributesW(wide.as_ptr(), original | attribute) },
+            0
+        );
+        let observed = fs::metadata(&path).unwrap().file_attributes();
+        let before = entries(&temp.0);
+        let result = SaveTarget::prepare(&path, &data, Uuid::new_v4());
+        let after = fs::metadata(&path).unwrap().file_attributes();
+        let bytes = fs::read(&path).unwrap();
+        // Restore only this fixture's attributes before assertions/cleanup.
+        assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), original) }, 0);
+        assert_ne!(
+            observed & attribute,
+            0,
+            "OS must really apply the attribute"
+        );
+        assert_eq!(result.err().unwrap().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(after, observed);
+        assert_eq!(bytes, b"special attribute sentinel");
+        assert_eq!(entries(&temp.0), before);
+    }
+}
+
+#[test]
+fn cancellation_after_copy_and_sync_keeps_original_and_removes_the_owned_staging() {
+    let temp = Temp::new();
+    let (data, mut source) = source(&temp);
+    let path = temp.0.join("复制后取消.jsonl");
+    fs::write(&path, b"original before confirmation").unwrap();
+    let target = SaveTarget::prepare(&path, &data, Uuid::new_v4()).unwrap();
+    let staging = target.staging.clone();
+    let backup = target.backup.clone();
+    let cancel = std::cell::Cell::new(false);
+    let hooks = std::cell::Cell::new(0);
+    let report = target.run(&mut source, &mut || cancel.get(), |after, _| {
+        assert!(!after, "cancel must stop before the backup rename");
+        assert!(staging.is_file(), "copy must have created actual staging");
+        assert_eq!(fs::metadata(&staging).unwrap().len(), 16);
+        hooks.set(hooks.get() + 1);
+        cancel.set(true);
+    });
+    assert_eq!(hooks.get(), 1);
+    assert_eq!(report.phase, "CANCELLED");
+    assert_eq!(report.failure, Some("CANCELLED"));
+    assert!(report.backup.is_none() && report.staging.is_none());
+    assert!(!staging.exists() && !backup.exists());
+    assert_eq!(fs::read(&path).unwrap(), b"original before confirmation");
+    // The managed source remains usable after cancellation, without reopening it.
+    let mut bytes = Vec::new();
+    source.copy_to(&mut bytes, || false).unwrap();
+    assert_eq!(bytes, b"synthetic bytes\n");
+}
