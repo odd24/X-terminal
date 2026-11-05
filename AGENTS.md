@@ -142,3 +142,6 @@ P12导航新增npm run test:desktop:navigation（前置desktop:build及已有gui
 
 
 P12基础撰写新增npm run test:desktop:compose（前置desktop:build，自建gui_ssh_fixture），纳入完整回归第17入口；只shared-terminal-compose-ui-中文-自建根/实际合成SSH服务。双实例草稿、精确换行/一次性确认、键盘接管/切换与真实write_text应答丢失命中/不重试、重开与reload清空均须实测；串口专项另验证共享输入队列的精确文本/CRLF，不当COM验收。草稿仅窗口内64份，不持久化正文/同意；预览须等终端实际绑定完整ConnectionRef，发送前再核对。
+
+
+P12偏好按ADR-042使用配置schema3/单例及Desktop专用preferences/save_preferences，迁移前备份、schema2备份只读默认；备份摘要/事务恢复含偏好，便携配置排除。新增npm run test:desktop:preferences（前置desktop:build，完整回归第18入口），只shared-terminal-preferences-ui-中文-根，实际WebView保存/重载/服务重启/目录隔离、键盘/系统复制/右键精确合成字节、旧revision与真实fetch丢应答命中/不重试。字体/习惯保存不代表草稿/正文/同意或P17工作区已持久化，仍不等于全局DPI/实机/跨版本恢复验收。

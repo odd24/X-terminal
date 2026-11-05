@@ -87,12 +87,16 @@ try {
   await ui.waitFor(`document.querySelector('[aria-label="撰写正文"]').value==='重载不保存'`);
   await ui.screenshot('desktop-compose-native.png');
   await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(second.connection_id)})`);
   await ui.fill('会话',second.connection_id);await ui.click('基础撰写');
   await ui.waitFor(`document.querySelector('[aria-label="撰写目标"]').textContent.includes(${JSON.stringify(second.connection_id)})`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="撰写正文"]').value`),'');
   assert.equal((await ui.invoke('service_list')).length,2);
   await waitRaw(first,[...firstTyped,...Buffer.from('第一草稿')]);await waitRaw(second,secondExpected);
   console.log('PASS compose native SSH: independent same-Profile drafts, exact Unicode/LF/CRLF/literal shell text, switch-away/back discards approval, single-use double click, keyboard takeover, lost real write response hit=1/no retry, panel reopen preserves draft, reload clears content and consent without recreating connections; synthetic only');
+} catch(error) {
+  if(ui){console.error('compose failure:',await ui.evaluate(`JSON.stringify({main:document.querySelector('.status')?.textContent,selected:document.querySelector('[aria-label="会话"]')?.value,target:document.querySelector('[aria-label="撰写目标"]')?.textContent})`));console.error('compose connections:',await ui.invoke('service_list').catch(()=> 'unavailable'));await ui.screenshot('desktop-compose-failure.png');}
+  throw error;
 } finally {
   await ui?.close();fixture.stdin.end();if(fixture.exitCode===null)fixture.kill();
   for(let attempt=0;attempt<100&&fixture.exitCode===null&&fixture.signalCode===null;attempt++)await delay(50);

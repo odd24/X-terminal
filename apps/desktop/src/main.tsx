@@ -14,7 +14,7 @@ import { AppearancePanel } from './appearance-panel';
 import { ComposePanel } from './compose-panel';
 import { ComposeDrafts, type ComposeTarget } from './compose-drafts';
 import { SessionTree } from './session-tree';
-import type { Profile } from './config-api';
+import { config, type DesktopPreferences, type Profile } from './config-api';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { ExecPanel } from './exec-panel';
@@ -56,8 +56,42 @@ function App() {
   const allowExit = useRef(false);
   const liveConnections = useRef<Connection[]>([]);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
-  const [theme, setTheme] = useState<ThemeChoice>('dark');
-  const [terminalFont, setTerminalFont] = useState<TerminalFont>('consolas');
+  const [preferences, setPreferences] = useState<DesktopPreferences>({ theme: 'dark', terminal_font: 'consolas', font_size: 15, ctrl_c_copy: true, ctrl_v_paste: false, right_click_paste: false });
+  const preferenceRef = useRef(preferences); preferenceRef.current = preferences;
+  const theme: ThemeChoice = preferences.theme, terminalFont: TerminalFont = preferences.terminal_font;
+  const fontSize = preferences.font_size;
+  const [preferencesBusy, setPreferencesBusy] = useState(true);
+  const preferenceFlight = useRef(false), preferenceEpoch = useRef(0);
+  const [preferenceRevision, setPreferenceRevision] = useState<string>();
+  const [preferenceMessage, setPreferenceMessage] = useState('正在读取本数据目录偏好');
+  function updatePreferences(patch: Partial<DesktopPreferences>) {
+    if (preferenceFlight.current) return;
+    clipboard.current?.invalidate();
+    setPreferences(previous => ({ ...previous, ...patch }));
+    setPreferenceMessage('本窗口调整尚未保存；关闭或重载会丢弃未保存的调整');
+  }
+  const setTheme = (theme: ThemeChoice) => updatePreferences({ theme });
+  const setTerminalFont = (terminal_font: TerminalFont) => updatePreferences({ terminal_font });
+  const setFontSize = (font_size: number) => updatePreferences({ font_size });
+  async function preferenceOperation(save: boolean) {
+    if (preferenceFlight.current || (save && !preferenceRevision)) return;
+    preferenceFlight.current = true; setPreferencesBusy(true);
+    const epoch = ++preferenceEpoch.current;
+    setPreferenceMessage(save ? '正在保存本数据目录偏好' : '正在读取本数据目录偏好');
+    try {
+      const reply = await config(save ? { op: 'save_preferences', preferences: preferenceRef.current, revision: preferenceRevision! } : { op: 'preferences' });
+      if (epoch !== preferenceEpoch.current) return;
+      if (reply.result !== 'preferences') throw new Error('偏好响应不匹配');
+      clipboard.current?.invalidate(); setPreferences(reply.preferences); setPreferenceRevision(reply.revision);
+      setPreferenceMessage(save ? '已保存到本数据目录；重载或下次启动自动读取' : '已读取本数据目录偏好；未发送任何终端输入');
+    } catch (error) {
+      if (epoch !== preferenceEpoch.current) return;
+      setPreferenceRevision(undefined);
+      setPreferenceMessage(`${error instanceof Error ? error.message : '偏好请求失败'} ${save ? '保存结果可能未知；请重新读取核对，未自动重试。' : '当前显示保留，未覆盖存储；可重新读取。'}`);
+    } finally {
+      if (epoch === preferenceEpoch.current) { preferenceFlight.current = false; setPreferencesBusy(false); }
+    }
+  }
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [sshOpen, setSshOpen] = useState(false);
   const [execOpen, setExecOpen] = useState(false);
@@ -83,12 +117,18 @@ function App() {
   const [failure, setFailure] = useState('');
   const [lastInput, setLastInput] = useState('尚无输入');
   const [inputFailure, setInputFailure] = useState('');
-  const [fontSize, setFontSize] = useState(15);
   const [snapshot, setSnapshot] = useState('');
   const [decodeWarning, setDecodeWarning] = useState('');
   const [serviceScreen, setServiceScreen] = useState<ServiceScreen>();
   const [busy, setBusy] = useState(false);
   const stopped = useRef(false);
+
+  useEffect(() => {
+    if (!service?.service_id) return;
+    preferenceFlight.current = false;
+    void preferenceOperation(false);
+    return () => { preferenceEpoch.current++; preferenceFlight.current = false; };
+  }, [service?.service_id]);
 
   useEffect(() => {
     const tab = Array.from(tabList.current?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []).find(item => item.dataset.connectionId === selected);
@@ -195,11 +235,16 @@ function App() {
       else setClipboardMessage('剪贴板没有可读取文字；未发送');
     };
     const element = host.current!;
+    const contextMenu = (event: MouseEvent) => {
+      if (!preferenceRef.current.right_click_paste) return;
+      event.preventDefault(); event.stopImmediatePropagation(); void clip.paste();
+    };
     element.addEventListener('paste', paste, true);
+    element.addEventListener('contextmenu', contextMenu, true);
     term.attachCustomKeyEventHandler(event => {
       if (event.type !== 'keydown' || !event.ctrlKey || event.altKey || event.metaKey) return true;
-      if (event.key.toLowerCase() === 'c' && (term.hasSelection() || event.shiftKey)) { event.preventDefault(); void clip.copy(); return false; }
-      if (event.key.toLowerCase() === 'v' && event.shiftKey) { event.preventDefault(); void clip.paste(); return false; }
+      if (event.key.toLowerCase() === 'c' && ((preferenceRef.current.ctrl_c_copy && term.hasSelection()) || event.shiftKey)) { event.preventDefault(); void clip.copy(); return false; }
+      if (event.key.toLowerCase() === 'v' && (event.shiftKey || preferenceRef.current.ctrl_v_paste)) { event.preventDefault(); void clip.paste(); return false; }
       if (event.key.toLowerCase() === 'f' && event.shiftKey) { event.preventDefault(); setSearchOpen(true); return false; }
       return true;
     });
@@ -341,7 +386,7 @@ function App() {
     }
     let timer = 0;
     void poll();
-    return () => { composeSend.current = undefined; drafts.current.invalidate(); clip.invalidate(); clipboard.current = undefined; element.removeEventListener('paste', paste, true); disposed = true; stopped.current = true; clearTimeout(timer); runtime.current = null; queue.close(); clearTimeout(resizeTimer); resize.dispose(); observer.disconnect(); input.dispose(); current.writer.close(); term.dispose(); };
+    return () => { composeSend.current = undefined; drafts.current.invalidate(); clip.invalidate(); clipboard.current = undefined; element.removeEventListener('paste', paste, true); element.removeEventListener('contextmenu', contextMenu, true); disposed = true; stopped.current = true; clearTimeout(timer); runtime.current = null; queue.close(); clearTimeout(resizeTimer); resize.dispose(); observer.disconnect(); input.dispose(); current.writer.close(); term.dispose(); };
   }, []);
 
   useEffect(() => {
@@ -469,7 +514,7 @@ function App() {
       <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
       <button onClick={() => setAppearanceOpen(open => !open)}>外观</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
-      <label>字号 <input aria-label="字号" type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
+      <label>字号 <input aria-label="字号" disabled={preferencesBusy} type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
     </nav>
     <div className={`desktop-body${sidebarOpen ? '' : ' sidebar-hidden'}`}>
     <aside className="session-sidebar" aria-label="会话导航"><SessionTree revision={treeRevision} connect={profile => void connectProfile(profile)} configure={() => setConfigurationOpen(true)} /><label>导航宽度<input aria-label="导航宽度" type="range" min="210" max="360" value={navigationWidth} onChange={event => setNavigationWidth(Number(event.target.value))} /></label></aside>
@@ -492,8 +537,8 @@ function App() {
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {closing && <section className="config-panel" aria-label="关闭标签确认"><h2>关闭连接标签</h2><p>{tabName(closing)} · {closing.protocol} · {closing.connection_id} / 代次 {closing.generation}</p><p>关闭连接会停止未发送输入；已发送动作不会撤销。保留连接仅隐藏标签，输出仍由服务有界保留，之后可从完整列表重新打开。</p><button disabled={tabBusy} onClick={() => void confirmClose()}>关闭连接并隐藏标签</button><button disabled={tabBusy} onClick={() => { hideTab(closing); setClosing(undefined); }}>保留连接隐藏标签</button><button disabled={tabBusy} autoFocus onClick={() => setClosing(undefined)}>取消关闭标签</button></section>}
     {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
-    {appearanceOpen && <AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} close={() => setAppearanceOpen(false)} />}
-    {configurationOpen && <ConfigPanel close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} />}
+    {appearanceOpen && <AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} />}
+    {configurationOpen && <ConfigPanel onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} />}
     {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
     <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />
     {serialOpen && <SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} />}

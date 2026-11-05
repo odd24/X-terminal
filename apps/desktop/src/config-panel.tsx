@@ -22,7 +22,7 @@ function settings(draft: Draft): Settings {
   const common = { host: draft.host.trim(), port: draft.port, username: draft.username, encoding: draft.encoding };
   return draft.protocol === 'ssh2' ? { ...common, protocol: 'ssh2', auth: draft.auth } : { ...common, protocol: 'ssh1', explicitly_enabled: draft.ssh1 };
 }
-export function ConfigPanel({ close }: { close(): void }) {
+export function ConfigPanel({ close, onRestored }: { close(): void; onRestored(): Promise<void> }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [filter, setFilter] = useState('*');
@@ -129,7 +129,7 @@ export function ConfigPanel({ close }: { close(): void }) {
     </div>
     <HostKeysPanel key={managementEpoch} />
     <CredentialsPanel key={`credentials-${managementEpoch}`} />
-    <ArchivesPanel directory={location} usable={ready} restored={async () => { clearSecrets();setDraft(blank());setFolderDraft({id:crypto.randomUUID(),parent_id:null,name:''});await reload();setManagementEpoch(value=>value+1);setMessage('配置已从备份恢复；没有连接或重放输入。'); }} />
+    <ArchivesPanel directory={location} usable={ready} restored={async () => { clearSecrets();setDraft(blank());setFolderDraft({id:crypto.randomUUID(),parent_id:null,name:''});await reload();setManagementEpoch(value=>value+1);setMessage('配置已从备份恢复；没有连接或重放输入。');await onRestored(); }} />
     <p className="data-location">数据目录：{location || '读取失败时请重新启动检查启动目录'}</p>
   </section>;
 }

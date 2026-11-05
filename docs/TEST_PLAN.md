@@ -201,3 +201,6 @@ P12基础撰写4项状态/边界测试加至44项前端；新增test:desktop:com
 
 
 P12偏好存储新增4项真实SQLite测试和1项严格协议/1项Windows IPC测试：v2只读原文件保持与迁移/失败回滚、目录隔离/重开、镜像摘要/安全副本、偏好恢复UPDATE失败使全部配置回滚、字段/字号/枚举/版本拒绝、真实Desktop保存/旧revision拒绝/备份恢复/服务重启；Observer专项追加preferences/save_preferences拒绝。原生archives专项追加非默认偏好备份预览/恢复/新目录及便携导出排除检查；实际结果见P12，不由库通过推断主窗口设置应用或完整T22/T23。
+
+
+P12新增test:desktop:preferences（前置desktop:build，第18入口）以中文临时根实际WebView验证明确保存前后、Page.reload新页面、真正服务退出/再启动、跨目录默认隔离、真实键盘Ctrl+C/Shift+C/V/Shift+V与右键的精确合成字节、偏好变化撤预览、过期revision拒绝及真实save_preferences fetch应答丢失/延迟命中不重试，延迟保存期间GUI恢复后迟到应答不能覆盖窗口。仅合成软件验证，实际完整回归/失败与补正见P12，不等于全局DPI/实机通过。

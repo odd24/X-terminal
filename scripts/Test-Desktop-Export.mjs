@@ -45,6 +45,7 @@ async function completed(id) {
 async function count() { return (await readdir(path.join(directory,'terminal-log-exports'))).filter(name=>name!=='exports.lock').length; }
 try {
   ui=await launchDesktop(directory,{fixture:true});
+  await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='新建合成会话'&&!b.disabled)`);
   await ui.click('新建合成会话');await ui.waitFor(`document.querySelector('.status')?.textContent==='服务输出已同步'`);
   const [connection]=await ui.invoke('service_list');const target=ref(connection);
   const parts=[Buffer.from('中文😀\0\x1b[31m<img id="EXPORT_LITERAL">\r\n'),Buffer.from([0,255,13,10])];
@@ -134,7 +135,7 @@ try {
   }
   console.log('PASS export native WebView: frozen independent target, real JSONL bytes/path/retained range, reload ID query without restart, lost real start reply recovered by status, corrupt source never claims saved, restart NotFound permits explicit fresh export, close/in-flight response cannot retarget or undo published files; cleanup invalidates saved paths; synthetic only');
 } catch(error) {
-  if(ui){console.error(await snapshot());await ui.screenshot('desktop-export-failure-synthetic.png');}
+  if(ui){console.error(await snapshot());console.error('export failure state:',await ui.evaluate(`JSON.stringify({main:document.querySelector('.status')?.textContent,selection:document.querySelector('[aria-label="会话"]')?.value,create:[...document.querySelectorAll('button')].filter(b=>b.textContent==='新建合成会话').map(b=>({disabled:b.disabled}))})`));console.error('export failure connections:',await ui.invoke('service_list').catch(()=> 'unavailable'));await ui.screenshot('desktop-export-failure-synthetic.png');}
   throw error;
 } finally {
   await ui?.close();

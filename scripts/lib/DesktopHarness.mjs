@@ -56,7 +56,9 @@ export async function launchDesktop(directory, {fixture = false} = {}) {
     const click = label => evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === ${JSON.stringify(label)})?.click()`);
     const fill = (label, value) => evaluate(`(() => { const control = document.querySelector('[aria-label=' + JSON.stringify(${JSON.stringify(label)}) + ']'); const proto = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(control, ${JSON.stringify(String(value))}); control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input', {bubbles:true})); })()`);
     await waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
-    pid = (await invoke('service_status')).pid;
+    const nativeStatus = await invoke('service_status'); pid = nativeStatus.pid;
+    // Static exit-policy prose also contains '服务 '; wait for this exact owner.
+    await waitFor(`document.querySelector('footer')?.textContent.includes(${JSON.stringify(nativeStatus.service_id)})`);
     const screenshot = async name => {
       await mkdir('artifacts', { recursive: true });
       const shot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
@@ -66,11 +68,11 @@ export async function launchDesktop(directory, {fixture = false} = {}) {
     // response instead; never replace service data with a fabricated success.
     // Assert interception counts in callers so an inactive hook cannot pass.
     const interceptIpc = async ({ op, mode = 'delay', delayMs = 200, command: interceptedCommand = 'logging_request' }) => {
-      assert.ok(['delay', 'error'].includes(mode));
+      assert.ok(['delay', 'error', 'hold'].includes(mode));
       await evaluate(`(() => {
         if(window.__desktopIpcResponseTest)throw new Error('IPC hook already installed');
         const original=window.fetch;
-        const hook={original,count:0};window.__desktopIpcResponseTest=hook;
+        const hook={original,count:0,releases:[]};window.__desktopIpcResponseTest=hook;
         window.fetch=async function(input,init){
           const response=await original.call(this,input,init);
           let operation;try{operation=JSON.parse(init?.body).request?.op;}catch{}
@@ -80,7 +82,8 @@ export async function launchDesktop(directory, {fixture = false} = {}) {
               const headers=new Headers(response.headers);headers.set('Tauri-Response','error');headers.set('content-type','application/json');headers.delete('content-length');
               return new Response(JSON.stringify('synthetic lost IPC reply after service response'),{status:response.status,headers});
             }
-            await new Promise(resolve=>setTimeout(resolve,${JSON.stringify(delayMs)}));
+            if(${JSON.stringify(mode)}==='hold')await new Promise(resolve=>hook.releases.push(resolve));
+            else await new Promise(resolve=>setTimeout(resolve,${JSON.stringify(delayMs)}));
           }
           return response;
         };
@@ -88,9 +91,17 @@ export async function launchDesktop(directory, {fixture = false} = {}) {
       })()`);
       return {
         count: () => evaluate('window.__desktopIpcResponseTest?.count'),
-        restore: () => evaluate('window.fetch=window.__desktopIpcResponseTest.original;delete window.__desktopIpcResponseTest'),
+        release: () => evaluate('window.__desktopIpcResponseTest.releases.splice(0).forEach(release=>release())'),
+        restore: () => evaluate('window.__desktopIpcResponseTest.releases.splice(0).forEach(release=>release());window.fetch=window.__desktopIpcResponseTest.original;delete window.__desktopIpcResponseTest'),
       };
     };
-    return { app, invoke, evaluate, command, waitFor, click, fill, screenshot, interceptIpc, close: cleanup };
+    const publicCommand = async (method, params = {}) => {
+      if (method !== 'Page.reload') return command(method, params);
+      await evaluate('window.__desktopHarnessBeforeReload=true');
+      const reply = await command(method, params);
+      await waitFor(`!window.__desktopHarnessBeforeReload && document.querySelector('footer')?.textContent.includes(${JSON.stringify(nativeStatus.service_id)})`);
+      return reply;
+    };
+    return { app, invoke, evaluate, command: publicCommand, waitFor, click, fill, screenshot, interceptIpc, close: cleanup };
   } catch (error) { await cleanup(); throw error; }
 }
