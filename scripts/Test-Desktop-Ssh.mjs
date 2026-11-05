@@ -84,7 +84,7 @@ try {
   // Actual font/fit resize drives the existing FIFO resize service path.
   const screenRef = {connection_id:connection.connection_id,generation:connection.generation};
   const oldScreen = await ui.invoke('service_screen',{connection:screenRef});
-  const reflowText = 'abcdefghijklmnopqrstuvwxyz'.repeat(Math.ceil(oldScreen.cols*2/26)).slice(0,oldScreen.cols*2-4)+'\r\nREFLOW_END';
+  let reflowText = 'abcdefghijklmnopqrstuvwxyz'.repeat(Math.ceil(oldScreen.cols*2/26)).slice(0,oldScreen.cols*2-4)+'\r\nREFLOW_END';
   await control({op:'push',text:'\x1bc\x1b[3J'+reflowText});
   await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.endsWith('REFLOW_END'))`);
   const verifyReflow = async font => {
@@ -96,7 +96,7 @@ try {
       if(font==='28' ? screen.cols < oldScreen.cols : screen.cols===oldScreen.cols) break;
     }
     assert.ok(font==='28' ? screen.cols < oldScreen.cols : screen.cols===oldScreen.cols,'real font fit must resize service');
-    assert.equal(screen.parser,'vt100-0.18.1+local.2');assert.equal(screen.resize_reflow,true);
+    assert.equal(screen.parser,'vt100-0.18.1+local.3');assert.equal(screen.resize_reflow,true);
     const {default:{Terminal}} = await import('@xterm/headless');
     const reference = new Terminal({cols:oldScreen.cols,rows:oldScreen.rows,scrollback:512,allowProposedApi:true});
     await new Promise(resolve=>reference.write(reflowText,resolve));reference.resize(screen.cols,screen.rows);
@@ -110,6 +110,12 @@ try {
     await ui.waitFor(`document.querySelector('[aria-label="服务端屏幕快照"]')?.textContent===${JSON.stringify(screen.contents)}`);
   };
   await verifyReflow('28');await ui.screenshot('desktop-ssh2-reflow-synthetic.png');await verifyReflow('20');
+  // A wide character arriving with exactly one column left must remain part
+  // of the same logical line through real font/fit/FIFO resize operations.
+  reflowText = 'a'.repeat(oldScreen.cols-1)+'中中文\r\nREFLOW_END';
+  await control({op:'push',text:'\x1bc\x1b[3J'+reflowText});
+  await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('中中') && document.querySelector('[aria-label="屏幕快照"]')?.textContent.endsWith('REFLOW_END'))`);
+  await verifyReflow('28');await ui.screenshot('desktop-ssh2-wide-reflow-synthetic.png');await verifyReflow('20');
 
   await ui.click('exec 任务');
   const runExec = async (command, end, timeout=30000, limit=1048576) => {

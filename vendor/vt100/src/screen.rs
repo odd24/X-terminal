@@ -886,15 +886,12 @@ impl Screen {
         let pos = self.grid().pos();
         let size = self.grid().size();
 
-        // it doesn't make any sense to wrap if the last column in a row
-        // didn't already have contents. don't try to handle the case
-        // where a character wraps because there was only one column left
-        // in the previous row - literally everything handles this case
-        // differently, and this is tmux behavior (and also the
-        // simplest). i'm open to reconsidering this behavior, but only
-        // with a really good reason (xterm handles this by introducing
-        // the concept of triple width cells, which i really don't want
-        // to do).
+        // A wide glyph with one column left continues the logical line even
+        // though the last cell is padding. Reflow recognizes that padding by
+        // its empty contents followed by a wide cell on the next row.
+        if width == 2 && pos.col == size.cols() - 1 {
+            return true;
+        }
         let mut wrap = false;
         if pos.col + width > size.cols() {
             let last_cell = self
@@ -987,6 +984,7 @@ impl Screen {
         }
 
         if !cell_was_wide && cell_is_wide {
+            let wide_attrs = *self.grid().drawing_cell(base_pos).unwrap().attrs();
             let next_cell = self
                 .grid_mut()
                 .drawing_cell_mut(crate::grid::Pos {
@@ -999,7 +997,7 @@ impl Screen {
                 // cell).
                 .unwrap();
             let next_cell_was_wide = next_cell.is_wide();
-            next_cell.clear(crate::attrs::Attrs::default());
+            next_cell.clear(wide_attrs);
             next_cell.set_wide_continuation(true);
             if next_cell_was_wide {
                 let next_next_cell = self
@@ -1081,6 +1079,12 @@ impl<CB: crate::Callbacks> WrappedScreen<CB> {
 
         if width > 0 {
             let wrap = screen.new_character_should_wrap(width);
+            if width == 2 && pos.col == screen.grid().size().cols() - 1 {
+                // The unused edge cell is padding, not a printable space.
+                // Keep the current rendition, as for a normal erased cell.
+                let attrs = screen.attrs;
+                screen.grid_mut().drawing_cell_mut(pos).unwrap().clear(attrs);
+            }
             let on_row = Self::on_row(screen, &mut self.callbacks);
             screen.grid_mut().col_wrap(width, wrap, on_row);
             // col_wrap always sets self.grid().pos() to a valid cell

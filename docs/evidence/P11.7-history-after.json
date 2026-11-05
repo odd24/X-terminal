@@ -1,0 +1,573 @@
+{
+  "schema": 1,
+  "reference": "@xterm/headless 6.0.0 (unmodified)",
+  "scrollback": 512,
+  "chunkBytes": 31,
+  "wrapConvention": "outgoing: next retained row isWrapped; final row has no successor",
+  "compared": [
+    "all retained rows",
+    "visible columns including empty cells",
+    "soft wrap",
+    "cell text/width",
+    "foreground/background",
+    "bold/dim/italic/underline/inverse",
+    "viewport dimensions/history/cursor/alternate"
+  ],
+  "fixturesSha256": "3d4af529797b8c0dddb9a345f4edd851dee838b70e39e6a6af05881ec3b0cb1a",
+  "report": [
+    {
+      "name": "empty-height-width-bounds",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "1a61ca9c3539b2d744cc9e72d54985d945027ee43b59dd68b2044c3da880be1f",
+          "vt100Sha256": "1a61ca9c3539b2d744cc9e72d54985d945027ee43b59dd68b2044c3da880be1f",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "117cfff4142e7b80caf76c012b8df996f66c25770a56408ec6ac8e498078f145",
+          "vt100Sha256": "117cfff4142e7b80caf76c012b8df996f66c25770a56408ec6ac8e498078f145",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "1a61ca9c3539b2d744cc9e72d54985d945027ee43b59dd68b2044c3da880be1f",
+          "vt100Sha256": "1a61ca9c3539b2d744cc9e72d54985d945027ee43b59dd68b2044c3da880be1f",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "styled-wide-combining",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "5d4ae491c5363ed140bd1d83bd0cd9596915e8196a31d94a83839def782d2320",
+          "vt100Sha256": "5d4ae491c5363ed140bd1d83bd0cd9596915e8196a31d94a83839def782d2320",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "bcaae100fa40abc45221314f162a8cc85108c4657aeafad4b8dfcb6deddc15b1",
+          "vt100Sha256": "bcaae100fa40abc45221314f162a8cc85108c4657aeafad4b8dfcb6deddc15b1",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "d3097a652e6e0d214d7eac5b6da26a7d5dfaddb9838bdb118d70bd5f53b168de",
+          "vt100Sha256": "d3097a652e6e0d214d7eac5b6da26a7d5dfaddb9838bdb118d70bd5f53b168de",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "b93cc87814521dc1b4be6d86c60b3739cccfcc48feb393e6486c813e3522b9ac",
+          "vt100Sha256": "b93cc87814521dc1b4be6d86c60b3739cccfcc48feb393e6486c813e3522b9ac",
+          "firstDifference": null
+        },
+        {
+          "step": 5,
+          "result": "MATCH",
+          "xtermSha256": "623d994cc72d830304b4795e18144fe6d35a21c3323e782c59a7515ef60b4182",
+          "vt100Sha256": "623d994cc72d830304b4795e18144fe6d35a21c3323e782c59a7515ef60b4182",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "explicit-spaces-and-hard-lines",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "fdc4c15da23a7cc23b708682ac91156a74c93b60988ce8ab0271f18a6ef6b9ee",
+          "vt100Sha256": "fdc4c15da23a7cc23b708682ac91156a74c93b60988ce8ab0271f18a6ef6b9ee",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "d8e6f6efcda45434fce42ba84c74bb28897db496f7c3282f4a4b96662d783089",
+          "vt100Sha256": "d8e6f6efcda45434fce42ba84c74bb28897db496f7c3282f4a4b96662d783089",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "f0f415e95543682fc80e104a525935fbd8fcb0ba8d0193aef9560a147799399a",
+          "vt100Sha256": "f0f415e95543682fc80e104a525935fbd8fcb0ba8d0193aef9560a147799399a",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "cd38ed404f18fe31567b2e86959a427f3868180958f5d3e2f5cb1524e8fcf3cc",
+          "vt100Sha256": "cd38ed404f18fe31567b2e86959a427f3868180958f5d3e2f5cb1524e8fcf3cc",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "5bd479b356a257082533da6d2e52ccb839b7906f4364bfb0f0a28f5af8529627",
+          "vt100Sha256": "5bd479b356a257082533da6d2e52ccb839b7906f4364bfb0f0a28f5af8529627",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "wide-edge-padding",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "262fd69f475c22ffebb8a9f01408230800a2f5a4a594bcd2ead461fc60d90b13",
+          "vt100Sha256": "262fd69f475c22ffebb8a9f01408230800a2f5a4a594bcd2ead461fc60d90b13",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "d4eba13a8988c1157a11bc0fec19cca4e33a804fc4511ccf0ce70220a68b771e",
+          "vt100Sha256": "d4eba13a8988c1157a11bc0fec19cca4e33a804fc4511ccf0ce70220a68b771e",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "e2a2149b998146cce16b6939b2037d0d0f44bc3285ee83884ba7d1eb8ba4654c",
+          "vt100Sha256": "e2a2149b998146cce16b6939b2037d0d0f44bc3285ee83884ba7d1eb8ba4654c",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "67309f14ad3ff5d314a846fe0560697b46fe9b0b969c6874fe9bdec74953b59b",
+          "vt100Sha256": "67309f14ad3ff5d314a846fe0560697b46fe9b0b969c6874fe9bdec74953b59b",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "47f785d7381606cb0ec92e3f9ea753d38d11134f20491919fc00d99e6a1aa602",
+          "vt100Sha256": "47f785d7381606cb0ec92e3f9ea753d38d11134f20491919fc00d99e6a1aa602",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "history-height-growth-shrink",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "4b3c726854aae49284aaef152c2c2f21e509ab80c33a789b0d2fc1606493e80a",
+          "vt100Sha256": "4b3c726854aae49284aaef152c2c2f21e509ab80c33a789b0d2fc1606493e80a",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "24e84ccf8b571c8867cea0549ba68eea55e46f79d871786d12f52b3e44d9e664",
+          "vt100Sha256": "24e84ccf8b571c8867cea0549ba68eea55e46f79d871786d12f52b3e44d9e664",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "a0425b91f58fa4cef921886760151c52678c32f9109e076d3706f90d37da1dbc",
+          "vt100Sha256": "a0425b91f58fa4cef921886760151c52678c32f9109e076d3706f90d37da1dbc",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "5ae50a5fbd0e9947073075fe9d7336e677232966f16cdd10613f95d02cf47cbb",
+          "vt100Sha256": "5ae50a5fbd0e9947073075fe9d7336e677232966f16cdd10613f95d02cf47cbb",
+          "firstDifference": null
+        },
+        {
+          "step": 5,
+          "result": "MATCH",
+          "xtermSha256": "9dde4881be9bfb0b379d422932d6b85d320968a721e1df90c0999bf3eacff76d",
+          "vt100Sha256": "9dde4881be9bfb0b379d422932d6b85d320968a721e1df90c0999bf3eacff76d",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "wide-history-height",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "92131fcbc32f1cca08c3e3cb6f25c36be95742f54990589dd4f6bc15c3000451",
+          "vt100Sha256": "92131fcbc32f1cca08c3e3cb6f25c36be95742f54990589dd4f6bc15c3000451",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "dce17a3ef72e789c654f5143f5f88d437e76cee3f6c626d1a74c65d20682eb24",
+          "vt100Sha256": "dce17a3ef72e789c654f5143f5f88d437e76cee3f6c626d1a74c65d20682eb24",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "2802e12ba5843833f775be718ba4baa136b89d3361ed2084e2e770494d8f30cb",
+          "vt100Sha256": "2802e12ba5843833f775be718ba4baa136b89d3361ed2084e2e770494d8f30cb",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "30b436c520618b6dcb76059000d0d8ac178d09eb5d442d4ae64a37cdfe09bc6a",
+          "vt100Sha256": "30b436c520618b6dcb76059000d0d8ac178d09eb5d442d4ae64a37cdfe09bc6a",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "capacity-before-ring-origin",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "5cc65500f3e5ea186cf8f2ef7c8b0ab96b60d076b6ec6215c10001768e214851",
+          "vt100Sha256": "5cc65500f3e5ea186cf8f2ef7c8b0ab96b60d076b6ec6215c10001768e214851",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "49bed00feba285d2be627e1b2a8dccbee02da0546d9e761d4fb4f5a784a91a03",
+          "vt100Sha256": "49bed00feba285d2be627e1b2a8dccbee02da0546d9e761d4fb4f5a784a91a03",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "87e34dcd33d4eb74799ecb2b59378d602e70b2ed4e3c62019fde767c7f76a59c",
+          "vt100Sha256": "87e34dcd33d4eb74799ecb2b59378d602e70b2ed4e3c62019fde767c7f76a59c",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "22c14ace77430d83dd15083b302415b20f2f2f94035b63f540f83d3364fa5516",
+          "vt100Sha256": "22c14ace77430d83dd15083b302415b20f2f2f94035b63f540f83d3364fa5516",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "capacity-nonzero-ring-origin",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "c330880e8925b9e53c90034debeabb62577a2f1e6d12b0229fec933b39667b7e",
+          "vt100Sha256": "c330880e8925b9e53c90034debeabb62577a2f1e6d12b0229fec933b39667b7e",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "9814077a67f949262b8e0db567268f94c5f27205316d97cdc46d84756bce25c6",
+          "vt100Sha256": "9814077a67f949262b8e0db567268f94c5f27205316d97cdc46d84756bce25c6",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "KNOWN_DIFFERENCE",
+          "xtermSha256": "acbc6f691943f19a165b258f4d24e017193f5a53254fd386279f6c1fa986ef46",
+          "vt100Sha256": "8d4ed235ff266af0d062acfd3c1afff626da798801d9184905dade329a5338c3",
+          "firstDifference": {
+            "path": "/lines/514/wrapsToNext",
+            "xterm": true,
+            "vt100": false
+          },
+          "reason": "BUG-001: locked reference negative-index capacity behavior"
+        },
+        {
+          "step": 4,
+          "result": "KNOWN_DIFFERENCE",
+          "xtermSha256": "6337b80d3981fa856787df8ed3129306f63edcbd2629a942c30f86c1a9382f6e",
+          "vt100Sha256": "f0a7bfa6a68e9027a4c5714312b296ea5dbf687251e2163622cdc17a0f7c8a12",
+          "firstDifference": {
+            "path": "/history",
+            "xterm": 58,
+            "vt100": 49
+          },
+          "reason": "BUG-001: locked reference negative-index capacity behavior"
+        }
+      ]
+    },
+    {
+      "name": "retired-history-and-height",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "a15d6447f90c4ab7acf17b4f49e333cf01ab46ca3f39e3cd9f7ef17a6169d1aa",
+          "vt100Sha256": "a15d6447f90c4ab7acf17b4f49e333cf01ab46ca3f39e3cd9f7ef17a6169d1aa",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "1667dc1ed3b76d0aad74658362c54018cc36d58619a2b866dbe12471ec4e8df6",
+          "vt100Sha256": "1667dc1ed3b76d0aad74658362c54018cc36d58619a2b866dbe12471ec4e8df6",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "e5eb106ea0c01fcf2179aaacda99ce9f26c78c80ac8a477465746038f60b911a",
+          "vt100Sha256": "e5eb106ea0c01fcf2179aaacda99ce9f26c78c80ac8a477465746038f60b911a",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "9a4697ad8e28614c6b2ac0def38a8f3ba26e12b511b778fbd3682ce240c1e87a",
+          "vt100Sha256": "9a4697ad8e28614c6b2ac0def38a8f3ba26e12b511b778fbd3682ce240c1e87a",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "wide-capacity",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "a74b7ca45035cf663755463cadbacfa928b3c3b9e937a06ce18bfe895471550f",
+          "vt100Sha256": "a74b7ca45035cf663755463cadbacfa928b3c3b9e937a06ce18bfe895471550f",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "f5c1e128058b566e0910d812a20a95a35e697b3e3d89de14c4fcbcfc90b61cdd",
+          "vt100Sha256": "f5c1e128058b566e0910d812a20a95a35e697b3e3d89de14c4fcbcfc90b61cdd",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "a841ca8a38543b294558d520fe98549ed9b4c7c10e667ccdc35e30a85f244cac",
+          "vt100Sha256": "a841ca8a38543b294558d520fe98549ed9b4c7c10e667ccdc35e30a85f244cac",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "e1c4fea979067d0a55a8a46507d831a471c504802597d5a032d3b998509c715a",
+          "vt100Sha256": "e1c4fea979067d0a55a8a46507d831a471c504802597d5a032d3b998509c715a",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "33ee566993e9b34331d3c2fc7f5f7e6c98a943cf6d507bb44d7b2862f8dcc946",
+          "vt100Sha256": "33ee566993e9b34331d3c2fc7f5f7e6c98a943cf6d507bb44d7b2862f8dcc946",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "maximum-column-roundtrip",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "d911e7a8b35ee31bf61d651cf3581695bfe26d7e4c37dc5b52650d5f394bc134",
+          "vt100Sha256": "d911e7a8b35ee31bf61d651cf3581695bfe26d7e4c37dc5b52650d5f394bc134",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "65d1f2b7ee757d1b482e2f682037a9d9965dd388a977aee90ef603a54ba616aa",
+          "vt100Sha256": "65d1f2b7ee757d1b482e2f682037a9d9965dd388a977aee90ef603a54ba616aa",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "c26adabd959b17f12b304039bc0b1f27051aa4e92cf88c8d04aa00ffda72d031",
+          "vt100Sha256": "c26adabd959b17f12b304039bc0b1f27051aa4e92cf88c8d04aa00ffda72d031",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "6a663b9620a3a80bc9167c2f04347fb18491cb30e9a34e51a92a0268d0f59644",
+          "vt100Sha256": "6a663b9620a3a80bc9167c2f04347fb18491cb30e9a34e51a92a0268d0f59644",
+          "firstDifference": null
+        },
+        {
+          "step": 5,
+          "result": "MATCH",
+          "xtermSha256": "53cb67e873e6d2ba815b507d7242f12352a4ce5d0f34075899d207e1097e6a4c",
+          "vt100Sha256": "53cb67e873e6d2ba815b507d7242f12352a4ce5d0f34075899d207e1097e6a4c",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "alternate-and-background-history",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "f94035deac317bd1833f798bee364a2525442ccfd7beb614daada12b566b178c",
+          "vt100Sha256": "f94035deac317bd1833f798bee364a2525442ccfd7beb614daada12b566b178c",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "KNOWN_DIFFERENCE",
+          "xtermSha256": "e3598b6597242e124da02d3329b792acb7a6737ce4bfd76638bb0746ba7b7ba7",
+          "vt100Sha256": "af6ac98dbe014e775f4901bcce4a125ab80d3ebf172aa731148473a6c565393f",
+          "firstDifference": {
+            "path": "/cursor/0",
+            "xterm": 3,
+            "vt100": 1
+          },
+          "reason": "BUG-002: alternate entry does not inherit normal cursor"
+        },
+        {
+          "step": 3,
+          "result": "KNOWN_DIFFERENCE",
+          "xtermSha256": "17da04ebbb5b6678019408ccaf53b30c5107b0a31e84de898ef1f8dee5138b74",
+          "vt100Sha256": "a0ee108d68aae029758045de42b90821c0643efde0cc74a840708b75d4dd12d2",
+          "firstDifference": {
+            "path": "/cursor/0",
+            "xterm": 3,
+            "vt100": 1
+          },
+          "reason": "BUG-002: alternate entry cursor differs through resize"
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "6bdd49c7a480f7d47731bd065fc663681c78a0970ed4ae9659d6bd41eceb8b86",
+          "vt100Sha256": "6bdd49c7a480f7d47731bd065fc663681c78a0970ed4ae9659d6bd41eceb8b86",
+          "firstDifference": null
+        },
+        {
+          "step": 5,
+          "result": "MATCH",
+          "xtermSha256": "5333d169b31c0e26bac94e594e50cf47acb33c88d6d3609aa94dfad74f9ebc64",
+          "vt100Sha256": "5333d169b31c0e26bac94e594e50cf47acb33c88d6d3609aa94dfad74f9ebc64",
+          "firstDifference": null
+        }
+      ]
+    },
+    {
+      "name": "saved-cursor-after-height",
+      "steps": [
+        {
+          "step": 0,
+          "result": "MATCH",
+          "xtermSha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "vt100Sha256": "afefbbed30f934bd9c93110fa68fd71f693422df88ca09a54a71ba19b5127ae5",
+          "firstDifference": null
+        },
+        {
+          "step": 1,
+          "result": "MATCH",
+          "xtermSha256": "2e18b40fbdb61fcc1d1799637c7a2705c8685df2ff000a562ce73ec59ee09881",
+          "vt100Sha256": "2e18b40fbdb61fcc1d1799637c7a2705c8685df2ff000a562ce73ec59ee09881",
+          "firstDifference": null
+        },
+        {
+          "step": 2,
+          "result": "MATCH",
+          "xtermSha256": "a93cc94e3ad44da8d0e540c2109ac61ea97d3b951cc03d103e456eef68d693fa",
+          "vt100Sha256": "a93cc94e3ad44da8d0e540c2109ac61ea97d3b951cc03d103e456eef68d693fa",
+          "firstDifference": null
+        },
+        {
+          "step": 3,
+          "result": "MATCH",
+          "xtermSha256": "473c682ec39dfbb586458650e0d31877ba0202ab2860ba83904cd1c5cd7b2680",
+          "vt100Sha256": "473c682ec39dfbb586458650e0d31877ba0202ab2860ba83904cd1c5cd7b2680",
+          "firstDifference": null
+        },
+        {
+          "step": 4,
+          "result": "MATCH",
+          "xtermSha256": "e27908563f22a2f4e911a16027d3d293b08c1cabc05fa70822acfdecd0f2ab45",
+          "vt100Sha256": "e27908563f22a2f4e911a16027d3d293b08c1cabc05fa70822acfdecd0f2ab45",
+          "firstDifference": null
+        }
+      ]
+    }
+  ]
+}

@@ -39,3 +39,14 @@ actual WebView font/fit resize evidence is recorded in docs/records/P11.7.md.
 The upstream full test suite is still not bundled/run. This is not a claim of full
 VT compatibility or identical Unicode width tables. The original MIT license and
 all source copyrights are unchanged; no xterm implementation was copied.
+
+P11.7 local.3 corrects wide-glyph edge wrapping: the unused final cell remains
+empty padding with the current rendition and the row continues logically.
+Wide continuation cells retain the glyph rendition. Reading trimmed history
+through set_scrollback preserves wrap flags while padding its stored columns.
+The independent history probe inspects a Screen clone, never the live parser.
+The original 67-snapshot full-history baseline is retained; 63 now match the
+unmodified reference in all compared fields, with four explicit differences
+(capacity negative-index behavior and alternate-entry cursor) still open.
+Core regressions exercise bytewise wide input, actual trimmed-history reading,
+reflow and rendition preservation. Parser identity is vt100-0.18.1+local.3.

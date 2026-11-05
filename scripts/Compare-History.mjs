@@ -55,6 +55,13 @@ function firstDifference(a, b, path = '') {
   return null;
 }
 const report = [];
+const before = JSON.parse(fs.readFileSync('docs/evidence/P11.7-history-baseline.json', 'utf8'));
+const remainingDifferences = new Map([
+  ['capacity-nonzero-ring-origin/3', 'BUG-001: locked reference negative-index capacity behavior'],
+  ['capacity-nonzero-ring-origin/4', 'BUG-001: locked reference negative-index capacity behavior'],
+  ['alternate-and-background-history/2', 'BUG-002: alternate entry does not inherit normal cursor'],
+  ['alternate-and-background-history/3', 'BUG-002: alternate entry cursor differs through resize'],
+]);
 for (const [index, fixture] of fixtures.entries()) {
   const term = new headless.Terminal({ rows: fixture.rows, cols: fixture.cols, scrollback: 512, allowProposedApi: true });
   try {
@@ -74,7 +81,11 @@ for (const [index, fixture] of fixtures.entries()) {
       const candidate = rust[index].snapshots[step];
       const difference = firstDifference(reference, candidate);
       assert.equal(difference === null, digest(reference) === digest(candidate), 'comparison and canonical digest must agree');
-      return { step, result: difference ? 'KNOWN_DIFFERENCE' : 'MATCH', xtermSha256: digest(reference), vt100Sha256: digest(candidate), firstDifference: difference };
+      assert.equal(digest(reference), before.report[index].steps[step].xtermSha256, 'locked reference must remain unchanged');
+      const reason = remainingDifferences.get(`${fixture.name}/${step}`);
+      if (!process.argv.includes('--before')) assert.equal(!!difference, !!reason, `${fixture.name}/${step}: unexpected compatibility change`);
+      return { step, result: difference ? 'KNOWN_DIFFERENCE' : 'MATCH', xtermSha256: digest(reference), vt100Sha256: digest(candidate), firstDifference: difference,
+        ...(!process.argv.includes('--before') && reason ? { reason } : {}) };
     });
     fs.writeFileSync(`artifacts/P11.7-history-${fixture.name}.json`, JSON.stringify({ fixture, xterm: snapshots, vt100: rust[index].snapshots }));
     report.push({ name: fixture.name, steps });
@@ -83,7 +94,7 @@ for (const [index, fixture] of fixtures.entries()) {
 const evidence = { schema: 1, reference: '@xterm/headless 6.0.0 (unmodified)', scrollback: 512, chunkBytes: 31,
   wrapConvention: 'outgoing: next retained row isWrapped; final row has no successor', compared: ['all retained rows', 'visible columns including empty cells', 'soft wrap', 'cell text/width', 'foreground/background', 'bold/dim/italic/underline/inverse', 'viewport dimensions/history/cursor/alternate'], fixturesSha256: digest(fixtures), report };
 fs.writeFileSync('artifacts/P11.7-history-comparison.json', JSON.stringify(evidence, null, 2) + '\n');
-const baselinePath = 'docs/evidence/P11.7-history-baseline.json';
+const baselinePath = process.argv.includes('--before') ? 'docs/evidence/P11.7-history-baseline.json' : 'docs/evidence/P11.7-history-after.json';
 if (process.argv.includes('--record')) fs.writeFileSync(baselinePath, JSON.stringify(evidence, null, 2) + '\n');
 else assert.deepEqual(evidence, JSON.parse(fs.readFileSync(baselinePath, 'utf8')), 'full history evidence changed: investigate before updating');
 const steps = report.flatMap(row => row.steps);

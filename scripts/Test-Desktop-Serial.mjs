@@ -76,7 +76,15 @@ try {
   assert.equal(await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('serial_request',{request:${JSON.stringify(forbidden)}}).then(()=>'unexpected',error=>String(error))`),'InvalidArgument');
   await ui.click('DTR 开启');await message('DTR 开启：CONTROL_APPLIED');await ui.click('BREAK 开启');await message('BREAK 开启：CONTROL_APPLIED');await ui.click('BREAK 关闭');await message('BREAK 关闭：CONTROL_APPLIED');
   await ui.fill('串口发送内容','中');await ui.fill('串口发送换行','cr_lf');await ui.fill('串口每段字节',1024);await ui.fill('串口段间隔',0);await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');await waitRaw(connection,[0xd6,0xd0,13,10]);
-  await ui.click('屏幕快照');await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('中')`);
+  // Raw echo can precede the renderer's polling/write callback. capture() is
+  // an explicit point-in-time snapshot, so waiting on its old text cannot
+  // observe a later render. Re-sample the real button without resending input.
+  await ui.click('屏幕快照');
+  const firstGbkSnapshot=await ui.evaluate(`document.querySelector('[aria-label="屏幕快照"]')?.textContent ?? ''`);
+  const firstGbkService=await ui.invoke('service_screen',{connection:ref(connection)});
+  assert.equal(firstGbkService.encoding,'gbk');assert.ok(firstGbkService.contents.includes('中'));
+  console.log('GBK snapshot checkpoint:',JSON.stringify({firstSnapshot:firstGbkSnapshot,serviceContents:firstGbkService.contents}));
+  await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('中'))`);
   // Each byte arrives in a separate poll, exercising the actual WebView decoder.
   await ui.fill('串口发送格式','hex');await ui.fill('串口发送内容','CE C4');await ui.fill('串口发送换行','none');await ui.fill('串口每段字节',1);await ui.fill('串口段间隔',250);await ui.click('发送串口内容');await message('DRIVER_ACCEPTED');
   await waitRaw(connection,[0xd6,0xd0,13,10,0xce,0xc4]);

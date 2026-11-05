@@ -427,7 +427,9 @@ impl Grid {
             .skip(scrollback_len - scrollback.offset)
             .take(size.rows().into())
             .for_each(|row| {
+                let wrapped = row.wrapped();
                 row.grow(size.cols(), crate::cell::Cell::new());
+                row.wrap(wrapped);
             });
     }
 

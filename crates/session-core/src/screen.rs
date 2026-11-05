@@ -108,6 +108,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn wide_edge_wrap_survives_history_inspection_and_reflow() {
+        let mut screen = Screen::new(3, 5).unwrap();
+        for byte in "abcd中中文\r\nend".as_bytes() {
+            screen.push(&[*byte]).unwrap();
+        }
+        assert_eq!(screen.parser.screen().scrollback_len(), 1);
+        // This history row is trimmed to four stored cells. Reading it must
+        // pad to five columns without losing its logical continuation.
+        screen.parser.screen_mut().set_scrollback(1);
+        assert!(screen.parser.screen().row_wrapped(0));
+        assert_eq!(screen.parser.screen().cell(0, 4).unwrap().contents(), "");
+        screen.parser.screen_mut().set_scrollback(0);
+        screen.resize(3, 3).unwrap();
+        assert_eq!(screen.parser.screen().scrollback_len(), 2);
+        assert_eq!(screen.contents(), "中\n文\nend");
+        assert_eq!(screen.cursor(), (2, 2));
+        screen.resize(4, 12).unwrap();
+        assert_eq!(screen.contents(), "abcd中中文\nend");
+        assert_eq!(screen.parser.screen().scrollback_len(), 0);
+    }
+
+    #[test]
+    fn wide_continuation_and_edge_padding_keep_the_glyph_rendition() {
+        let mut screen = Screen::new(4, 5).unwrap();
+        screen
+            .push("\x1b[1;2;3;4;7;38;2;12;34;56;48;5;123mabcd中\r\nend".as_bytes())
+            .unwrap();
+        let parsed = screen.parser.screen();
+        let glyph = parsed.cell(1, 0).unwrap();
+        let continuation = parsed.cell(1, 1).unwrap();
+        let padding = parsed.cell(0, 4).unwrap();
+        assert!(parsed.row_wrapped(0));
+        assert!(continuation.is_wide_continuation());
+        assert_eq!(padding.contents(), "");
+        for cell in [glyph, continuation, padding] {
+            assert_eq!(cell.fgcolor(), vt100::Color::Rgb(12, 34, 56));
+            assert_eq!(cell.bgcolor(), vt100::Color::Idx(123));
+            assert!(cell.dim() && cell.italic() && cell.underline() && cell.inverse());
+        }
+        screen.resize(4, 12).unwrap();
+        assert_eq!(screen.contents(), "abcd中\nend");
+        assert!(
+            screen
+                .parser
+                .screen()
+                .cell(0, 5)
+                .unwrap()
+                .is_wide_continuation()
+        );
+        assert_eq!(
+            screen.parser.screen().cell(0, 5).unwrap().fgcolor(),
+            vt100::Color::Rgb(12, 34, 56)
+        );
+    }
+
+    #[test]
     fn reflow_preserves_physical_rows_attributes_and_input_stream_state() {
         let mut screen = Screen::new(6, 12).unwrap();
         screen

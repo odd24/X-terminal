@@ -43,7 +43,7 @@ async fn derived_views_survive_clients_but_never_cross_scope_revocation_or_gener
     {
         Reply::Screen(screen) => {
             assert_eq!(screen.contents, "共享屏幕");
-            assert_eq!(screen.parser, "vt100-0.18.1+local.2");
+            assert_eq!(screen.parser, "vt100-0.18.1+local.3");
             assert!(screen.resize_reflow);
         }
         _ => panic!(),
@@ -324,7 +324,7 @@ async fn ssh_resize_reflows_physical_screen_over_ipc_without_rewriting_output() 
                 ),
                 (6, 6, 3, 4)
             );
-            assert_eq!(screen.parser, "vt100-0.18.1+local.2");
+            assert_eq!(screen.parser, "vt100-0.18.1+local.3");
             assert!(screen.resize_reflow);
             assert_eq!((screen.gap_bytes, screen.decode_error_events), (0, 0));
         }
@@ -389,6 +389,40 @@ async fn ssh_resize_reflows_physical_screen_over_ipc_without_rewriting_output() 
         Reply::Screen(screen) => {
             assert!(screen.alternate);
             assert_eq!(screen.contents, "abcdef\nmnop\nend");
+        }
+        _ => panic!(),
+    }
+    resize(&mut client, connection, 5).await;
+    remote
+        .push("\x1bc\x1b[3Jabcd中中文\r\nend".as_bytes())
+        .await;
+    timeout(Duration::from_secs(4), async {
+        loop {
+            if let Reply::Screen(screen) = ok(client
+                .request(Request::Screen { connection })
+                .await
+                .unwrap())
+                && !screen.alternate
+                && screen.contents == "abcd\n中中\n文\nend"
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    resize(&mut client, connection, 3).await;
+    resize(&mut client, connection, 12).await;
+    match ok(client
+        .request(Request::Screen { connection })
+        .await
+        .unwrap())
+    {
+        Reply::Screen(screen) => {
+            assert_eq!(screen.contents, "abcd中中文\nend");
+            assert_eq!((screen.cursor_row, screen.cursor_col), (1, 2));
+            assert_eq!((screen.gap_bytes, screen.decode_error_events), (0, 0));
         }
         _ => panic!(),
     }

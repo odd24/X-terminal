@@ -37,7 +37,10 @@ fn color(value: vt100::Color) -> Value {
 }
 
 fn snapshot(parser: &mut vt100::Parser, production: &Screen) -> Value {
-    let screen = parser.screen_mut();
+    // set_scrollback can grow old rows, so inspect a clone. Never let the
+    // observer alter the layout used by a later resize in this sequence.
+    let mut inspected = parser.screen().clone();
+    let screen = &mut inspected;
     let (rows, cols) = screen.size();
     let history = screen.scrollback_len();
     assert!(history <= 512);
