@@ -35,6 +35,11 @@ pub enum Request {
         connection: ConnectionRef,
         task_id: Uuid,
     },
+    WriteText {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        text: Sensitive,
+    },
     Write {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -129,6 +134,16 @@ impl Request {
                     && !task_id.is_nil()
                     && *cursor > 0
                     && (4096..=65536).contains(max_bytes)
+            }
+            Self::WriteText {
+                connection,
+                request_id,
+                text,
+            } => {
+                valid(*connection)
+                    && !request_id.is_nil()
+                    && !text.expose().is_empty()
+                    && text.expose().len() <= 196608
             }
             Self::Write {
                 connection,
@@ -263,6 +278,7 @@ pub enum Failure {
 pub struct Status {
     pub connection: ConnectionInfo,
     pub profile_id: Uuid,
+    pub encoding: config_model::Encoding,
     pub challenge: Option<Challenge>,
     pub failure: Option<Failure>,
     pub shell_exit_status: Option<u32>,
@@ -324,12 +340,48 @@ pub struct TaskStatus {
     pub task_id: Uuid,
     pub connection: ConnectionRef,
     pub phase: TaskPhase,
+    pub encoding: config_model::Encoding,
     pub summary: Option<ExecSummary>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn text_input_is_bounded_scoped_sensitive_and_strict_unicode() {
+        let connection = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        for (text, expected) in [
+            ("中文".into(), true),
+            (String::new(), false),
+            ("中".repeat(65536), true),
+            ("中".repeat(65537), false),
+        ] {
+            let request = Request::WriteText {
+                connection,
+                request_id: Uuid::new_v4(),
+                text: Sensitive::new(text),
+            };
+            assert_eq!(request.validate(), expected);
+            assert!(!format!("{request:?}").contains("中文"));
+        }
+        let mut value = serde_json::to_value(Request::WriteText {
+            connection,
+            request_id: Uuid::new_v4(),
+            text: Sensitive::new("synthetic".into()),
+        })
+        .unwrap();
+        value["encoding"] = serde_json::json!("utf8");
+        assert!(serde_json::from_value::<Request>(value).is_err());
+        let json = format!(
+            r#"{{"op":"write_text","connection":{},"request_id":"{}","text":"\ud800"}}"#,
+            serde_json::to_string(&connection).unwrap(),
+            Uuid::new_v4()
+        );
+        assert!(serde_json::from_str::<Request>(&json).is_err());
+    }
     #[test]
     fn reconnect_contract_requires_source_generation_request_id_and_valid_size() {
         let connection = ConnectionRef {

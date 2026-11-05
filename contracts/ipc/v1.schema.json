@@ -2048,6 +2048,32 @@
           {
             "additionalProperties": false,
             "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "write_text",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "text": {
+                "$ref": "#/$defs/Sensitive"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "bytes": {
                 "$ref": "#/$defs/SensitiveBytes"
               },
@@ -5273,6 +5299,9 @@
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
               "phase": {
                 "$ref": "#/$defs/TaskPhase"
               },
@@ -5299,7 +5328,8 @@
               "result",
               "task_id",
               "connection",
-              "phase"
+              "phase",
+              "encoding"
             ],
             "type": "object"
           },
@@ -5402,6 +5432,9 @@
               "connection": {
                 "$ref": "#/$defs/ConnectionInfo"
               },
+              "encoding": {
+                "$ref": "#/$defs/Encoding"
+              },
               "failure": {
                 "anyOf": [
                   {
@@ -5438,7 +5471,8 @@
             "required": [
               "result",
               "connection",
-              "profile_id"
+              "profile_id",
+              "encoding"
             ],
             "type": "object"
           },

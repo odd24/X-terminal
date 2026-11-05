@@ -4012,6 +4012,7 @@ version = "0.1.0"
 dependencies = [
  "config-store",
  "credential-vault",
+ "encoding_rs",
  "rand",
  "rusqlite",
  "russh",

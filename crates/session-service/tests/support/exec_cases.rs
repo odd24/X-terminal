@@ -782,3 +782,129 @@ async fn ordered_finished_tasks_reclaim_local_and_global_capacity_without_reexec
         ssh_call(&mut client, S::Close { connection }).await;
     }
 }
+
+#[tokio::test]
+async fn legacy_encoding_is_frozen_for_strict_input_exec_and_metadata() {
+    use config_store::Encoding;
+    for encoding in [Encoding::Gbk, Encoding::Gb18030] {
+        let remote = ssh_fixture::Fixture::start().await;
+        let temp = ConfigTemp::new();
+        let mut service = temp.start().await;
+        let mut client = service.connect().await;
+        let (connection, mut profile) =
+            ssh_connected_encoded_fixture(&mut client, &remote, Uuid::new_v4(), encoding.clone())
+                .await;
+        if let config_store::Settings::Ssh2 { encoding, .. } = &mut profile.settings {
+            *encoding = Encoding::Utf8;
+        }
+        config_call(
+            &mut client,
+            config::ConfigRequest::SaveProfile {
+                profile,
+                credential: config::CredentialEdit::Keep {},
+            },
+        )
+        .await;
+        assert_eq!(
+            ssh_status(&mut client, connection, |_| true).await.encoding,
+            encoding
+        );
+        let text = if encoding == Encoding::Gbk {
+            "中文\r"
+        } else {
+            "中文𠀀\r"
+        };
+        let codec = if encoding == Encoding::Gbk {
+            encoding_rs::GBK
+        } else {
+            encoding_rs::GB18030
+        };
+        let (expected, _, replaced) = codec.encode(text);
+        assert!(!replaced);
+        let id = Uuid::new_v4();
+        for _ in 0..2 {
+            assert!(matches!(
+                ssh_call(
+                    &mut client,
+                    S::WriteText {
+                        connection,
+                        request_id: id,
+                        text: Sensitive::new(text.into())
+                    }
+                )
+                .await,
+                ssh::Reply::Input(_)
+            ));
+        }
+        input_status(&mut client, connection, id, |r| {
+            r.state == session_core::input::InputState::PipelineQueued
+        })
+        .await;
+        timeout(Duration::from_secs(4), async {
+            loop {
+                if remote.received.lock().unwrap().concat() == expected.as_ref() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let task = start(&mut client, connection, Uuid::new_v4(), text, 2000, 65536).await;
+        assert_eq!(task.encoding, encoding);
+        finished(&mut client, connection, task.task_id).await;
+        assert_eq!(
+            remote.exec_calls.lock().unwrap().as_slice(),
+            &[expected.to_vec()]
+        );
+        if encoding == Encoding::Gbk {
+            for request in [
+                S::WriteText {
+                    connection,
+                    request_id: Uuid::new_v4(),
+                    text: Sensitive::new("𠀀".into()),
+                },
+                S::Exec {
+                    connection,
+                    request_id: Uuid::new_v4(),
+                    command: Sensitive::new("𠀀".into()),
+                    timeout_ms: 1000,
+                    max_output_bytes: 4096,
+                },
+                S::WriteText {
+                    connection,
+                    request_id: id,
+                    text: Sensitive::new("不同".into()),
+                },
+            ] {
+                assert!(matches!(
+                    client.request(Request::Ssh { request }).await.unwrap(),
+                    Response::Error {
+                        code: ErrorCode::InvalidArgument,
+                        ..
+                    }
+                ));
+            }
+            assert_eq!(remote.exec_calls.lock().unwrap().len(), 1);
+        }
+        let mut stale = connection;
+        stale.generation += 1;
+        assert!(matches!(
+            client
+                .request(Request::Ssh {
+                    request: S::WriteText {
+                        connection: stale,
+                        request_id: Uuid::new_v4(),
+                        text: Sensitive::new("中文".into())
+                    }
+                })
+                .await
+                .unwrap(),
+            Response::Error {
+                code: ErrorCode::StaleGeneration,
+                ..
+            }
+        ));
+        service.stop(&mut client).await;
+    }
+}

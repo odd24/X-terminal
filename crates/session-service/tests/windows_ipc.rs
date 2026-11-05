@@ -2596,8 +2596,24 @@ async fn ssh_connected_fixture_with_request(
     remote: &ssh_fixture::Fixture,
     request_id: Uuid,
 ) -> ConnectionRef {
+    ssh_connected_encoded_fixture(client, remote, request_id, config_store::Encoding::Utf8)
+        .await
+        .0
+}
+async fn ssh_connected_encoded_fixture(
+    client: &mut Client,
+    remote: &ssh_fixture::Fixture,
+    request_id: Uuid,
+    encoding: config_store::Encoding,
+) -> (ConnectionRef, config_store::PortableProfile) {
     use ssh::{Challenge as H, Request as S};
-    let profile = ssh_profile(remote, config_store::Auth::Password);
+    let mut profile = ssh_profile(remote, config_store::Auth::Password);
+    if let config_store::Settings::Ssh2 {
+        encoding: value, ..
+    } = &mut profile.settings
+    {
+        *value = encoding;
+    }
     config_call(
         client,
         config::ConfigRequest::SaveProfile {
@@ -2638,7 +2654,7 @@ async fn ssh_connected_fixture_with_request(
         status.connection.state == State::Connected
     })
     .await;
-    connection
+    (connection, profile)
 }
 async fn input_status(
     client: &mut Client,

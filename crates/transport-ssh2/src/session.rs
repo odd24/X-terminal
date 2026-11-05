@@ -895,11 +895,12 @@ impl Ssh2Session {
     /// Incremental variant used by service tasks. Output can precede the server's request acknowledgement.
     pub async fn exec_streaming(
         &self,
-        command: &str,
+        command: impl AsRef<[u8]>,
         options: ExecOptions,
         cancel: &Cancellation,
         output: mpsc::Sender<ExecChunk>,
     ) -> Result<ExecOutcome> {
+        let command = command.as_ref();
         if command.len() > 65536
             || options.timeout.is_zero()
             || options.timeout > Duration::from_secs(86400)

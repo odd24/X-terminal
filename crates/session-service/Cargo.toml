@@ -9,6 +9,7 @@ license.workspace = true
 serial-ui-fixture = ["transport-serial/test-backend"]
 
 [dependencies]
+encoding_rs = "=0.8.44"
 config-store = { path = "../config-store" }
 transport-ssh2 = { path = "../transport-ssh2" }
 transport-serial = { path = "../transport-serial" }

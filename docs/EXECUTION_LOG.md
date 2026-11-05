@@ -32,6 +32,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.2 | 服务派生文本与屏幕 | DONE | [P11.2](records/P11.2.md) | Step-ID: P11.2 |
 | P11.3 | 有界持久日志引擎 | DONE | [P11.3](records/P11.3.md) | Step-ID: P11.3 |
 | P11.4 | 日志服务与桌面入口 | IN_PROGRESS | [P11.4](records/P11.4.md) | Step-ID: P11.4 |
+| P11.5 | SSH编码完整链路 | IN_PROGRESS | [P11.5](records/P11.5.md) | Step-ID: P11.5 |
 | P12 | 基础桌面体验 | TODO | 待创建 | — |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权与调度 | TODO | 待创建 | — |
@@ -88,3 +89,7 @@ P11.4恢复导出桌面契约：独立请求/回执校验、显式RECOVERY编号
 2026-11-05恢复另存GUI阶段：前置cbc4e97，恢复独立RECOVERY槽和共享保存控件已接入，32项前端/lint、桌面构建及最终恢复原生专项PASS；真实系统选择器、逐字节/生产SHA-256、明确替换/备份、重载不恢复同意、Start/Status丢应答只查询、同长源篡改拒绝和迟到折叠均有证据。首轮脚本漏刷新失败如实保留，完整桌面回归结果见P11.4；父步骤/G1仍未完成。
 
 恢复另存GUI最终完整npm run test:desktop全部PASS（artifacts/P11.4-recovery-save-ui-regression.txt），串口普通服务恢复实际成功，最终恢复选择器/丢应答/重载/迟到与普通保存均通过。文档/Git检查PASS，当前Git关联Step-ID: P11.4；本轮第二提交后新对话继续SSH旧编码等P11余项，不将父步骤或G1标完成。
+
+2026-11-05开始P11.5：基线3bf0a45，SSH文本输入/exec严格编码与快照元数据先行，桌面随后；不继续重复已完成日志子步，父步骤与G1保持开放。
+
+P11.5服务阶段：冻结SSH代次编码与任务元数据、严格WriteText/exec转换和原始字节边界已实现，相关三包124项及严格clippy通过；schema已重生。Git关联Step-ID: P11.5，桌面验证继续。

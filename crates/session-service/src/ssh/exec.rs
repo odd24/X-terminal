@@ -19,6 +19,7 @@ struct Task {
 pub(super) struct Queued {
     pub(super) task_id: Uuid,
     pub(super) command: Sensitive,
+    pub(super) encoded: session_protocol::SensitiveBytes,
     pub(super) options: transport::ExecOptions,
 }
 impl Queued {
@@ -69,6 +70,7 @@ impl Manager {
                 Err(ErrorCode::InvalidArgument)
             };
         }
+        let encoded = encode_text(&entry.encoding, command.expose())?;
         entry.receipts.check_available(request_id)?;
         if info.state != State::Connected {
             return Err(ErrorCode::NotConnected);
@@ -142,6 +144,7 @@ impl Manager {
             task_id,
             connection,
             phase: TaskPhase::Queued,
+            encoding: entry.encoding.clone(),
             summary: None,
         };
         entry
@@ -164,6 +167,7 @@ impl Manager {
             input: Input::Exec(Queued {
                 task_id,
                 command,
+                encoded: session_protocol::SensitiveBytes::new(encoded),
                 options: transport::ExecOptions {
                     timeout: Duration::from_millis(timeout_ms),
                     max_output_bytes,
@@ -318,7 +322,7 @@ pub(super) fn launch(
     };
     jobs.spawn(async move {
         let (output, mut receiver) = mpsc::channel(8);
-        let work = session.exec_streaming(queued.command.expose(), queued.options, &cancel, output);
+        let work = session.exec_streaming(queued.encoded.expose(), queued.options, &cancel, output);
         let drain = async {
             while let Some(chunk) = receiver.recv().await {
                 let mut all = inner.lock().unwrap();
@@ -422,6 +426,7 @@ mod retention_tests {
                         task_id: id,
                         connection,
                         phase: TaskPhase::Queued,
+                        encoding: config_store::Encoding::Utf8,
                         summary: None,
                     },
                     output: Buffer::default(),

@@ -137,6 +137,7 @@ impl Manager {
                 commands: None,
                 receipts: Receipts::default(),
                 profile_id,
+                encoding: profile_encoding(&profile)?,
                 cancel: cancel.clone(),
                 challenge: None,
                 answer: None,

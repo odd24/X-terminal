@@ -42,6 +42,7 @@ struct Entry {
     commands: Option<mpsc::Sender<QueuedInput>>,
     receipts: Receipts,
     profile_id: Uuid,
+    encoding: config_store::Encoding,
     cancel: Cancellation,
     challenge: Option<Challenge>,
     answer: Option<oneshot::Sender<Answer>>,
@@ -145,6 +146,32 @@ impl Manager {
                 cursor,
                 max_bytes,
             } => self.exec_read(connection, task_id, cursor, max_bytes),
+            ssh::Request::WriteText {
+                connection,
+                request_id,
+                text,
+            } => {
+                let encoding = {
+                    let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    self.store
+                        .lock()
+                        .map_err(|_| ErrorCode::InvalidState)?
+                        .sessions
+                        .info(connection)?;
+                    inner
+                        .entries
+                        .get(&connection.connection_id)
+                        .ok_or(ErrorCode::NotFound)?
+                        .encoding
+                        .clone()
+                };
+                let bytes = encode_text(&encoding, text.expose())?;
+                self.enqueue(
+                    connection,
+                    request_id,
+                    Input::Write(session_protocol::SensitiveBytes::new(bytes)),
+                )
+            }
             ssh::Request::Write {
                 connection,
                 request_id,
@@ -233,6 +260,7 @@ impl Manager {
                         commands: None,
                         receipts: Receipts::default(),
                         profile_id,
+                        encoding: profile_encoding(&profile)?,
                         cancel: cancel.clone(),
                         challenge: None,
                         answer: None,
@@ -278,6 +306,7 @@ impl Manager {
                 Ok(ssh::Reply::Status(Box::new(ssh::Status {
                     connection: info,
                     profile_id: entry.profile_id,
+                    encoding: entry.encoding.clone(),
                     challenge: entry.challenge.clone(),
                     failure: entry.failure,
                     shell_exit_status: entry.exit,
@@ -968,5 +997,46 @@ fn map_error(error: transport::Error) -> Failure {
         transport::Error::Limit => Failure::ProtocolLimit,
         transport::Error::InvalidKey => Failure::CredentialUnavailable,
         _ => Failure::Transport,
+    }
+}
+
+fn profile_encoding(profile: &Profile) -> Result<config_store::Encoding, ErrorCode> {
+    match &profile.settings {
+        Settings::Ssh2 { encoding, .. } => Ok(encoding.clone()),
+        _ => Err(ErrorCode::Unsupported),
+    }
+}
+fn encode_text(encoding: &config_store::Encoding, text: &str) -> Result<Vec<u8>, ErrorCode> {
+    let codec = encoding_rs::Encoding::for_label(crate::encoding_label(encoding).as_bytes())
+        .ok_or(ErrorCode::InvalidArgument)?;
+    let (bytes, _, replaced) = codec.encode(text);
+    if replaced || bytes.is_empty() || bytes.len() > 65536 {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    Ok(bytes.into_owned())
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+    #[test]
+    fn strict_encoding_never_substitutes_or_exceeds_wire_budget() {
+        use config_store::Encoding::*;
+        assert_eq!(
+            encode_text(&Gbk, "中文\r").unwrap(),
+            [0xd6, 0xd0, 0xce, 0xc4, 13]
+        );
+        assert_eq!(
+            encode_text(&Gb18030, "𠀀").unwrap(),
+            [0x95, 0x32, 0x82, 0x36]
+        );
+        assert_eq!(encode_text(&Utf8, "𠀀").unwrap(), "𠀀".as_bytes());
+        assert_eq!(encode_text(&Gbk, "𠀀"), Err(ErrorCode::InvalidArgument));
+        assert_eq!(encode_text(&Utf8, ""), Err(ErrorCode::InvalidArgument));
+        assert!(encode_text(&Gbk, &"中".repeat(32768)).is_ok());
+        assert_eq!(
+            encode_text(&Gbk, &"中".repeat(32769)),
+            Err(ErrorCode::InvalidArgument)
+        );
     }
 }
