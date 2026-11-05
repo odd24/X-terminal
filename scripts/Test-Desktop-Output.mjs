@@ -14,8 +14,8 @@ try {
   const ref = { connection_id: connection.connection_id, generation: connection.generation };
   await ui.click('服务端屏幕');await ui.waitFor(`document.querySelector('[aria-label="服务端屏幕快照"]')?.textContent.includes('中文宽字')`);
   const initialScreen=await ui.invoke('service_screen',{connection:ref});
-  assert.equal(initialScreen.encoding,'utf-8');assert.equal(initialScreen.resize_reflow,false);
-  assert.equal(initialScreen.parser,'vt100-0.18.1+local.1');
+  assert.equal(initialScreen.encoding,'utf-8');assert.equal(initialScreen.resize_reflow,true);
+  assert.equal(initialScreen.parser,'vt100-0.18.1+local.2');
   const text=await ui.invoke('service_read_text',{connection:ref,cursor:1});
   assert.ok(text.events.map(event=>event.text).join('').includes('中文宽字'));
   assert.equal(text.truncated,false);assert.equal(text.completed,false);

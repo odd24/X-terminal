@@ -43,8 +43,8 @@ async fn derived_views_survive_clients_but_never_cross_scope_revocation_or_gener
     {
         Reply::Screen(screen) => {
             assert_eq!(screen.contents, "共享屏幕");
-            assert_eq!(screen.parser, "vt100-0.18.1+local.1");
-            assert!(!screen.resize_reflow);
+            assert_eq!(screen.parser, "vt100-0.18.1+local.2");
+            assert!(screen.resize_reflow);
         }
         _ => panic!(),
     }
@@ -244,6 +244,151 @@ async fn ssh_transport_updates_service_screen_size_and_incremental_text_without_
                     .contains('中')
             );
             assert!(page.events.iter().all(|e| !e.decode_error));
+        }
+        _ => panic!(),
+    }
+    fixture.stop(&mut client).await;
+}
+
+#[tokio::test]
+async fn ssh_resize_reflows_physical_screen_over_ipc_without_rewriting_output() {
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut fixture = temp.start().await;
+    let mut client = fixture.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    async fn resize(client: &mut Client, connection: ConnectionRef, cols: u32) {
+        let id = Uuid::new_v4();
+        ssh_call(
+            client,
+            ssh::Request::Resize {
+                connection,
+                request_id: id,
+                cols,
+                rows: 6,
+            },
+        )
+        .await;
+        input_status(client, connection, id, |r| {
+            r.state == session_core::input::InputState::PipelineQueued
+        })
+        .await;
+    }
+    resize(&mut client, connection, 12).await;
+    remote.push(b"\x1bc\x1b[3Jabcdefghijklmnop\r\nnext").await;
+    timeout(Duration::from_secs(4), async {
+        loop {
+            if let Reply::Screen(screen) = ok(client
+                .request(Request::Screen { connection })
+                .await
+                .unwrap())
+                && screen.contents.ends_with("next")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let raw_before = ok(client
+        .request(Request::Read {
+            connection,
+            cursor: 1,
+            max_bytes: MAX_APPEND,
+        })
+        .await
+        .unwrap());
+    let text_before = ok(client
+        .request(Request::ReadText {
+            connection,
+            cursor: 1,
+            max_bytes: MAX_APPEND,
+        })
+        .await
+        .unwrap());
+    resize(&mut client, connection, 6).await;
+    match ok(client
+        .request(Request::Screen { connection })
+        .await
+        .unwrap())
+    {
+        Reply::Screen(screen) => {
+            assert_eq!(screen.contents, "abcdef\nghijkl\nmnop\nnext");
+            assert_eq!(
+                (
+                    screen.rows,
+                    screen.cols,
+                    screen.cursor_row,
+                    screen.cursor_col
+                ),
+                (6, 6, 3, 4)
+            );
+            assert_eq!(screen.parser, "vt100-0.18.1+local.2");
+            assert!(screen.resize_reflow);
+            assert_eq!((screen.gap_bytes, screen.decode_error_events), (0, 0));
+        }
+        _ => panic!(),
+    }
+    assert_eq!(
+        serde_json::to_value(ok(client
+            .request(Request::Read {
+                connection,
+                cursor: 1,
+                max_bytes: MAX_APPEND
+            })
+            .await
+            .unwrap()))
+        .unwrap(),
+        serde_json::to_value(raw_before).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(ok(client
+            .request(Request::ReadText {
+                connection,
+                cursor: 1,
+                max_bytes: MAX_APPEND
+            })
+            .await
+            .unwrap()))
+        .unwrap(),
+        serde_json::to_value(text_before).unwrap()
+    );
+    resize(&mut client, connection, 12).await;
+    match ok(client
+        .request(Request::Screen { connection })
+        .await
+        .unwrap())
+    {
+        Reply::Screen(screen) => assert_eq!(screen.contents, "abcdefghijkl\nmnop\nnext"),
+        _ => panic!(),
+    }
+    remote.push(b"\x1b[?1049habcdefghijklmnop\r\nend").await;
+    timeout(Duration::from_secs(4), async {
+        loop {
+            if let Reply::Screen(screen) = ok(client
+                .request(Request::Screen { connection })
+                .await
+                .unwrap())
+                && screen.alternate
+                && screen.contents.ends_with("end")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    resize(&mut client, connection, 6).await;
+    match ok(client
+        .request(Request::Screen { connection })
+        .await
+        .unwrap())
+    {
+        Reply::Screen(screen) => {
+            assert!(screen.alternate);
+            assert_eq!(screen.contents, "abcdef\nmnop\nend");
         }
         _ => panic!(),
     }

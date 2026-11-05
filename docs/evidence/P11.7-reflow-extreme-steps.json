@@ -1,0 +1,122 @@
+[
+  {
+    "name": "extreme-step-1",
+    "cols": 6,
+    "xterm": {
+      "contents": "cdefgh\nijklmn\nop\nend",
+      "cursor": [
+        3,
+        3
+      ]
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "cdefgh\nijklmn\nop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "extreme-step-1"
+    }
+  },
+  {
+    "name": "extreme-step-2",
+    "cols": 2,
+    "xterm": {
+      "contents": "kl\nmn\nop\nef",
+      "cursor": [
+        3,
+        1
+      ]
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "kl\nmn\nop\nen",
+      "cursor": [
+        3,
+        1
+      ],
+      "name": "extreme-step-2"
+    }
+  },
+  {
+    "name": "extreme-step-3",
+    "cols": 500,
+    "xterm": {
+      "contents": "kl\nmn\nop\nef",
+      "cursor": [
+        3,
+        1
+      ]
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "597-abcdefghijklmnop\n598-abcdefghijklmnop\n599-abcdefghijklmnop\nen",
+      "cursor": [
+        3,
+        1
+      ],
+      "name": "extreme-step-3"
+    }
+  },
+  {
+    "name": "extreme-step-4",
+    "cols": 2,
+    "xterm": {
+      "contents": "kl\nmn\nop\nef",
+      "cursor": [
+        3,
+        1
+      ]
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "kl\nmn\nop\nen",
+      "cursor": [
+        3,
+        1
+      ],
+      "name": "extreme-step-4"
+    }
+  },
+  {
+    "name": "extreme-step-5",
+    "cols": 500,
+    "xterm": {
+      "contents": "kl\nmn\nop\nef",
+      "cursor": [
+        3,
+        1
+      ]
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "597-abcdefghijklmnop\n598-abcdefghijklmnop\n599-abcdefghijklmnop\nen",
+      "cursor": [
+        3,
+        1
+      ],
+      "name": "extreme-step-5"
+    }
+  },
+  {
+    "name": "extreme-step-6",
+    "cols": 12,
+    "xterm": {
+      "contents": "kl\nmn\nop\nef",
+      "cursor": [
+        3,
+        1
+      ]
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ijklmnop\n599-abcdefgh\nijklmnop\nen",
+      "cursor": [
+        3,
+        1
+      ],
+      "name": "extreme-step-6"
+    }
+  }
+]

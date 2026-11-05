@@ -81,6 +81,36 @@ try {
   const sizes=(await control({op:'metrics'})).sizes; assert.ok(sizes.length>=2);assert.notDeepEqual(sizes[0],sizes.at(-1));
   await ui.click('屏幕快照'); await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('firstsecond')`);
   await ui.screenshot('desktop-ssh2-connected.png');
+  // Actual font/fit resize drives the existing FIFO resize service path.
+  const screenRef = {connection_id:connection.connection_id,generation:connection.generation};
+  const oldScreen = await ui.invoke('service_screen',{connection:screenRef});
+  const reflowText = 'abcdefghijklmnopqrstuvwxyz'.repeat(Math.ceil(oldScreen.cols*2/26)).slice(0,oldScreen.cols*2-4)+'\r\nREFLOW_END';
+  await control({op:'push',text:'\x1bc\x1b[3J'+reflowText});
+  await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.endsWith('REFLOW_END'))`);
+  const verifyReflow = async font => {
+    await ui.fill('字号',font);
+    let screen;
+    for(let attempt=0;attempt<100;attempt++) {
+      await delay(50);
+      screen = await ui.invoke('service_screen',{connection:screenRef});
+      if(font==='28' ? screen.cols < oldScreen.cols : screen.cols===oldScreen.cols) break;
+    }
+    assert.ok(font==='28' ? screen.cols < oldScreen.cols : screen.cols===oldScreen.cols,'real font fit must resize service');
+    assert.equal(screen.parser,'vt100-0.18.1+local.2');assert.equal(screen.resize_reflow,true);
+    const {default:{Terminal}} = await import('@xterm/headless');
+    const reference = new Terminal({cols:oldScreen.cols,rows:oldScreen.rows,scrollback:512,allowProposedApi:true});
+    await new Promise(resolve=>reference.write(reflowText,resolve));reference.resize(screen.cols,screen.rows);
+    const b=reference.buffer.active;
+    const rows=Array.from({length:reference.rows},(_,i)=>b.getLine(b.baseY+i)?.translateToString(true,0,reference.cols)??'');
+    while(rows.at(-1)==='') rows.pop();
+    assert.equal(screen.contents,rows.join('\n'));
+    assert.deepEqual([screen.cursor_row,screen.cursor_col],[b.cursorY,b.cursorX]);reference.dispose();
+    await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent===${JSON.stringify(screen.contents)})`);
+    await ui.click('服务端屏幕');
+    await ui.waitFor(`document.querySelector('[aria-label="服务端屏幕快照"]')?.textContent===${JSON.stringify(screen.contents)}`);
+  };
+  await verifyReflow('28');await ui.screenshot('desktop-ssh2-reflow-synthetic.png');await verifyReflow('20');
+
   await ui.click('exec 任务');
   const runExec = async (command, end, timeout=30000, limit=1048576) => {
     const previous=await ui.evaluate(`document.querySelector('[aria-label="exec 任务列表"]').value`);

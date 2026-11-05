@@ -37,12 +37,19 @@ for (const fixture of fixtures) {
   if (reflow) {
     if (baseline) {
       const previous = baseline.find(result => result.xterm.name === fixture.name);
-      assert.deepEqual(snapshot, previous.xterm, `${fixture.name}: reference changed`);
-      assert.deepEqual(expected, previous.vt100, `${fixture.name}: candidate changed`);
+      if (previous) assert.deepEqual(snapshot, previous.xterm, `${fixture.name}: reference changed`);
     }
-  } else if (fixture.expectDifference) assert.notDeepEqual(snapshot, expected, fixture.name);
-  else assert.deepEqual(snapshot, expected, fixture.name);
-  report.push({ xterm: snapshot, vt100: expected, result: isDeepStrictEqual(snapshot, expected) ? 'PASS' : 'KNOWN_DIFFERENCE' });
+    if (fixture.knownDifference) {
+      const {name: referenceName, ...referenceView} = snapshot;
+      const {name: candidateName, ...candidateView} = expected;
+      assert.equal(referenceName, candidateName);
+      assert.ok(fixture.knownDifference.reason.startsWith('BUG-001'));
+      assert.deepEqual(referenceView, fixture.knownDifference.xterm, `${fixture.name}: reference difference changed`);
+      assert.deepEqual(candidateView, fixture.knownDifference.vt100, `${fixture.name}: candidate difference changed`);
+      assert.notDeepEqual(expected, snapshot, fixture.name);
+    } else assert.deepEqual(expected, snapshot, `${fixture.name}: reflow must match reference`);
+  } else assert.deepEqual(snapshot, expected, fixture.name);
+  report.push({ xterm: snapshot, vt100: expected, result: isDeepStrictEqual(snapshot, expected) ? 'PASS' : 'KNOWN_DIFFERENCE', ...(fixture.knownDifference ? { reason: fixture.knownDifference.reason } : {}) });
   term.dispose();
 }
 fs.mkdirSync('artifacts', { recursive: true });

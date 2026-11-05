@@ -47,9 +47,11 @@ pub struct ScreenSnapshot {
     pub connection: ConnectionRef,
     pub encoding: String,
     pub parser: String,
+    /// Normal-buffer reflow capability; cursor group and alternate buffer follow xterm defaults.
     pub resize_reflow: bool,
     pub rows: u16,
     pub cols: u16,
+    /// Physical viewport rows separated by LF; trailing empty rows omitted.
     pub contents: String,
     pub contents_truncated: bool,
     pub cursor_row: u16,
@@ -249,8 +251,8 @@ impl Presentation {
         ScreenSnapshot {
             connection,
             encoding: self.encoding.clone(),
-            parser: "vt100-0.18.1+local.1".into(),
-            resize_reflow: false,
+            parser: "vt100-0.18.1+local.2".into(),
+            resize_reflow: true,
             rows: self.rows,
             cols: self.cols,
             contents,

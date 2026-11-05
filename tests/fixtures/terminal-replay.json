@@ -5,5 +5,5 @@
   { "name": "alternate-active", "cols": 40, "rows": 8, "text": "normal\u001b[?1049h\u001b[2J\u001b[Halternate中文", "chunkSizes": [1, 4, 2], "contains": "alternate中文" },
   { "name": "alternate-restored", "cols": 40, "rows": 8, "text": "normal\u001b[?1049h\u001b[2J\u001b[Htemporary\u001b[?1049l", "chunkSizes": [1], "contains": "normal" },
   { "name": "wrapping-scroll", "cols": 12, "rows": 4, "text": "12345678901234\r\n中文ABCD\r\nthird\r\nfourth\r\nfifth", "chunkSizes": [3, 2, 1], "contains": "fifth" },
-  { "name": "resize-reflow-gap", "cols": 12, "rows": 4, "text": "abcdefghijklmnop\r\nnext", "chunkSizes": [1], "contains": "abcdef", "resize": { "rows": 4, "cols": 6 }, "expectDifference": true }
+  { "name": "resize-reflow-gap", "cols": 12, "rows": 4, "text": "abcdefghijklmnop\r\nnext", "chunkSizes": [1], "contains": "abcdef", "resize": { "rows": 4, "cols": 6 }, "physical": true }
 ]

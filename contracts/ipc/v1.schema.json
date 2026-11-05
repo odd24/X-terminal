@@ -5510,6 +5510,7 @@
             "$ref": "#/$defs/ConnectionRef"
           },
           "contents": {
+            "description": "Physical viewport rows separated by LF; trailing empty rows omitted.",
             "type": "string"
           },
           "contents_truncated": {
@@ -5544,6 +5545,7 @@
             "type": "string"
           },
           "resize_reflow": {
+            "description": "Normal-buffer reflow capability; cursor group and alternate buffer follow xterm defaults.",
             "type": "boolean"
           },
           "rows": {

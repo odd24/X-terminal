@@ -313,7 +313,9 @@ function App() {
     const term = runtime.current?.term;
     if (!term) return;
     const buffer = term.buffer.active;
-    setSnapshot(Array.from({ length: term.rows }, (_, row) => buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? '').join('\n').trimEnd());
+    const lines = Array.from({ length: term.rows }, (_, row) => buffer.getLine(buffer.baseY + row)?.translateToString(true, 0, term.cols) ?? '');
+    while (lines.at(-1) === '') lines.pop();
+    setSnapshot(lines.join('\n'));
   }
 
   async function captureServiceScreen() {
@@ -366,7 +368,7 @@ function App() {
     <div className="input-status">{connections.find(item => item.connection_id === selected)?.protocol === 'SSH2' ? 'SSH2 输入' : connections.find(item => item.connection_id === selected)?.protocol === 'SERIAL' ? '串口输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>
     <LoggingPanel connection={connections.find(item=>item.connection_id===selected)} open={loggingOpen} close={()=>setLoggingOpen(false)} />
     {snapshot && <pre aria-label="屏幕快照">{snapshot}</pre>}
-    {serviceScreen && <details open><summary>服务端屏幕快照</summary><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · 宽度变化不重排，可能与桌面显示不同 · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></details>}
+    {serviceScreen && <details open><summary>服务端屏幕快照</summary><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · {serviceScreen.resize_reflow ? '普通屏支持重排；复杂调整可能与桌面不同' : '宽度变化不重排，可能与桌面显示不同'} · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></details>}
     <footer>{service && <span>服务 {service.service_id} · </span>}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</footer>
   </main>;
 }

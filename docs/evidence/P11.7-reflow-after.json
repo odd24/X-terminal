@@ -1,0 +1,591 @@
+[
+  {
+    "xterm": {
+      "name": "normal-shrink-hard-newline",
+      "contents": "abcdef\nghijkl\nmnop\nnext",
+      "cursor": [
+        3,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nghijkl\nmnop\nnext",
+      "cursor": [
+        3,
+        4
+      ],
+      "name": "normal-shrink-hard-newline"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-cursor-line",
+      "contents": "abcdef\nmnop",
+      "cursor": [
+        1,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop",
+      "cursor": [
+        1,
+        4
+      ],
+      "name": "normal-shrink-cursor-line"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-wide-padding",
+      "contents": "abcde\n中文Z\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcde\n中文Z\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "normal-shrink-wide-padding"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-combining",
+      "contents": "ÁBCDEF\nGHIJKL\nMN\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ÁBCDEF\nGHIJKL\nMN\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "normal-shrink-combining"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-spaces",
+      "contents": "ab   c\nd     \n ef\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ab   c\nd     \n ef\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "normal-shrink-spaces"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-shrink-colored",
+      "contents": "abcdef\nghijkl\nmnop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nghijkl\nmnop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "normal-shrink-colored"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-grow-soft",
+      "contents": "abcdefghijkl\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdefghijkl\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "normal-grow-soft"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-roundtrip",
+      "contents": "abcdefghijkl\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdefghijkl\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "normal-roundtrip"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-history",
+      "contents": "cdefgh\nijklmn\nop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "cdefgh\nijklmn\nop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "normal-history"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-height-and-width",
+      "contents": "ghijkl\nmnop\nnext",
+      "cursor": [
+        2,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ghijkl\nmnop\nnext",
+      "cursor": [
+        2,
+        4
+      ],
+      "name": "normal-height-and-width"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "alternate-no-reflow",
+      "contents": "abcdef\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": true
+    },
+    "vt100": {
+      "alternate": true,
+      "contents": "abcdef\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "alternate-no-reflow"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-resize-while-alternate",
+      "contents": "abcdef\nghijkl\nmnop\nnext",
+      "cursor": [
+        3,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nghijkl\nmnop\nnext",
+      "cursor": [
+        3,
+        4
+      ],
+      "name": "normal-resize-while-alternate"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-saved-cursor",
+      "contents": "abcdef\nghijkl\nmnop\nnext!",
+      "cursor": [
+        3,
+        5
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nghijkl\nmnop\nnext!",
+      "cursor": [
+        3,
+        5
+      ],
+      "name": "normal-saved-cursor"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-narrow-then-output",
+      "contents": "abcdef\nghijkl\nmnop\nnext\nAFTER\n中文",
+      "cursor": [
+        5,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nghijkl\nmnop\nnext\nAFTER\n中文",
+      "cursor": [
+        5,
+        4
+      ],
+      "name": "normal-narrow-then-output"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-history-capacity",
+      "contents": "cdefgh\nijklmn\nop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "cdefgh\nijklmn\nop\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "name": "normal-history-capacity"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "wide-pad-roundtrip",
+      "contents": "abcde中文中\n文中文Z\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcde中文中\n文中文Z\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "wide-pad-roundtrip"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "resize-cursor-above-output",
+      "contents": "abcdef\nmnop\nsecond\n-longl\nine\nend",
+      "cursor": [
+        1,
+        0
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nmnop\nsecond\n-longl\nine\nend",
+      "cursor": [
+        1,
+        0
+      ],
+      "name": "resize-cursor-above-output"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "grow-cursor-above-output",
+      "contents": "abcdef\nghijkl\nmnop\nsecond-longl\nine\nend",
+      "cursor": [
+        0,
+        0
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcdef\nghijkl\nmnop\nsecond-longl\nine\nend",
+      "cursor": [
+        0,
+        0
+      ],
+      "name": "grow-cursor-above-output"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "saved-cursor-history",
+      "contents": "9-abcd\nefghij\nklmnop\nend!",
+      "cursor": [
+        3,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "9-abcd\nefghij\nklmnop\nend!",
+      "cursor": [
+        3,
+        4
+      ],
+      "name": "saved-cursor-history"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "alternate-roundtrip-hidden-columns",
+      "contents": "abcdefghijkl\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "alternate": true
+    },
+    "vt100": {
+      "alternate": true,
+      "contents": "abcdefghijkl\nmnop\nend",
+      "cursor": [
+        2,
+        3
+      ],
+      "name": "alternate-roundtrip-hidden-columns"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-height-growth-history",
+      "contents": "ijklmnop\n501-abcdefgh\nijklmnop\n502-abcdefgh\nijklmnop\n503-abcdefgh\nijklmnop\n504-abcdefgh\nijklmnop\n505-abcdefgh\nijklmnop\n506-abcdefgh\nijklmnop\n507-abcdefgh\nijklmnop\n508-abcdefgh\nijklmnop\n509-abcdefgh\nijklmnop\n510-abcdefgh\nijklmnop\n511-abcdefgh\nijklmnop\n512-abcdefgh\nijklmnop\n513-abcdefgh\nijklmnop\n514-abcdefgh\nijklmnop\n515-abcdefgh\nijklmnop\n516-abcdefgh\nijklmnop\n517-abcdefgh\nijklmnop\n518-abcdefgh\nijklmnop\n519-abcdefgh\nijklmnop\n520-abcdefgh\nijklmnop\n521-abcdefgh\nijklmnop\n522-abcdefgh\nijklmnop\n523-abcdefgh\nijklmnop\n524-abcdefgh\nijklmnop\n525-abcdefgh\nijklmnop\n526-abcdefgh\nijklmnop\n527-abcdefgh\nijklmnop\n528-abcdefgh\nijklmnop\n529-abcdefgh\nijklmnop\n530-abcdefgh\nijklmnop\n531-abcdefgh\nijklmnop\n532-abcdefgh\nijklmnop\n533-abcdefgh\nijklmnop\n534-abcdefgh\nijklmnop\n535-abcdefgh\nijklmnop\n536-abcdefgh\nijklmnop\n537-abcdefgh\nijklmnop\n538-abcdefgh\nijklmnop\n539-abcdefgh\nijklmnop\n540-abcdefgh\nijklmnop\n541-abcdefgh\nijklmnop\n542-abcdefgh\nijklmnop\n543-abcdefgh\nijklmnop\n544-abcdefgh\nijklmnop\n545-abcdefgh\nijklmnop\n546-abcdefgh\nijklmnop\n547-abcdefgh\nijklmnop\n548-abcdefgh\nijklmnop\n549-abcdefgh\nijklmnop\n550-abcdefgh\nijklmnop\n551-abcdefgh\nijklmnop\n552-abcdefgh\nijklmnop\n553-abcdefgh\nijklmnop\n554-abcdefgh\nijklmnop\n555-abcdefgh\nijklmnop\n556-abcdefgh\nijklmnop\n557-abcdefgh\nijklmnop\n558-abcdefgh\nijklmnop\n559-abcdefgh\nijklmnop\n560-abcdefgh\nijklmnop\n561-abcdefgh\nijklmnop\n562-abcdefgh\nijklmnop\n563-abcdefgh\nijklmnop\n564-abcdefgh\nijklmnop\n565-abcdefgh\nijklmnop\n566-abcdefgh\nijklmnop\n567-abcdefgh\nijklmnop\n568-abcdefgh\nijklmnop\n569-abcdefgh\nijklmnop\n570-abcdefgh\nijklmnop\n571-abcdefgh\nijklmnop\n572-abcdefgh\nijklmnop\n573-abcdefgh\nijklmnop\n574-abcdefgh\nijklmnop\n575-abcdefgh\nijklmnop\n576-abcdefgh\nijklmnop\n577-abcdefgh\nijklmnop\n578-abcdefgh\nijklmnop\n579-abcdefgh\nijklmnop\n580-abcdefgh\nijklmnop\n581-abcdefgh\nijklmnop\n582-abcdefgh\nijklmnop\n583-abcdefgh\nijklmnop\n584-abcdefgh\nijklmnop\n585-abcdefgh\nijklmnop\n586-abcdefgh\nijklmnop\n587-abcdefgh\nijklmnop\n588-abcdefgh\nijklmnop\n589-abcdefgh\nijklmnop\n590-abcdefgh\nijklmnop\n591-abcdefgh\nijklmnop\n592-abcdefgh\nijklmnop\n593-abcdefgh\nijklmnop\n594-abcdefgh\nijklmnop\n595-abcdefgh\nijklmnop\n596-abcdefgh\nijklmnop\n597-abcdefgh\nijklmnop\n598-abcdefgh\nijklmnop\n599-abcdefgh\nijklmnop\nend",
+      "cursor": [
+        199,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ijklmnop\n501-abcdefgh\nijklmnop\n502-abcdefgh\nijklmnop\n503-abcdefgh\nijklmnop\n504-abcdefgh\nijklmnop\n505-abcdefgh\nijklmnop\n506-abcdefgh\nijklmnop\n507-abcdefgh\nijklmnop\n508-abcdefgh\nijklmnop\n509-abcdefgh\nijklmnop\n510-abcdefgh\nijklmnop\n511-abcdefgh\nijklmnop\n512-abcdefgh\nijklmnop\n513-abcdefgh\nijklmnop\n514-abcdefgh\nijklmnop\n515-abcdefgh\nijklmnop\n516-abcdefgh\nijklmnop\n517-abcdefgh\nijklmnop\n518-abcdefgh\nijklmnop\n519-abcdefgh\nijklmnop\n520-abcdefgh\nijklmnop\n521-abcdefgh\nijklmnop\n522-abcdefgh\nijklmnop\n523-abcdefgh\nijklmnop\n524-abcdefgh\nijklmnop\n525-abcdefgh\nijklmnop\n526-abcdefgh\nijklmnop\n527-abcdefgh\nijklmnop\n528-abcdefgh\nijklmnop\n529-abcdefgh\nijklmnop\n530-abcdefgh\nijklmnop\n531-abcdefgh\nijklmnop\n532-abcdefgh\nijklmnop\n533-abcdefgh\nijklmnop\n534-abcdefgh\nijklmnop\n535-abcdefgh\nijklmnop\n536-abcdefgh\nijklmnop\n537-abcdefgh\nijklmnop\n538-abcdefgh\nijklmnop\n539-abcdefgh\nijklmnop\n540-abcdefgh\nijklmnop\n541-abcdefgh\nijklmnop\n542-abcdefgh\nijklmnop\n543-abcdefgh\nijklmnop\n544-abcdefgh\nijklmnop\n545-abcdefgh\nijklmnop\n546-abcdefgh\nijklmnop\n547-abcdefgh\nijklmnop\n548-abcdefgh\nijklmnop\n549-abcdefgh\nijklmnop\n550-abcdefgh\nijklmnop\n551-abcdefgh\nijklmnop\n552-abcdefgh\nijklmnop\n553-abcdefgh\nijklmnop\n554-abcdefgh\nijklmnop\n555-abcdefgh\nijklmnop\n556-abcdefgh\nijklmnop\n557-abcdefgh\nijklmnop\n558-abcdefgh\nijklmnop\n559-abcdefgh\nijklmnop\n560-abcdefgh\nijklmnop\n561-abcdefgh\nijklmnop\n562-abcdefgh\nijklmnop\n563-abcdefgh\nijklmnop\n564-abcdefgh\nijklmnop\n565-abcdefgh\nijklmnop\n566-abcdefgh\nijklmnop\n567-abcdefgh\nijklmnop\n568-abcdefgh\nijklmnop\n569-abcdefgh\nijklmnop\n570-abcdefgh\nijklmnop\n571-abcdefgh\nijklmnop\n572-abcdefgh\nijklmnop\n573-abcdefgh\nijklmnop\n574-abcdefgh\nijklmnop\n575-abcdefgh\nijklmnop\n576-abcdefgh\nijklmnop\n577-abcdefgh\nijklmnop\n578-abcdefgh\nijklmnop\n579-abcdefgh\nijklmnop\n580-abcdefgh\nijklmnop\n581-abcdefgh\nijklmnop\n582-abcdefgh\nijklmnop\n583-abcdefgh\nijklmnop\n584-abcdefgh\nijklmnop\n585-abcdefgh\nijklmnop\n586-abcdefgh\nijklmnop\n587-abcdefgh\nijklmnop\n588-abcdefgh\nijklmnop\n589-abcdefgh\nijklmnop\n590-abcdefgh\nijklmnop\n591-abcdefgh\nijklmnop\n592-abcdefgh\nijklmnop\n593-abcdefgh\nijklmnop\n594-abcdefgh\nijklmnop\n595-abcdefgh\nijklmnop\n596-abcdefgh\nijklmnop\n597-abcdefgh\nijklmnop\n598-abcdefgh\nijklmnop\n599-abcdefgh\nijklmnop\nend",
+      "cursor": [
+        199,
+        3
+      ],
+      "name": "normal-height-growth-history"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "normal-scroll-region",
+      "contents": "mnop\nnext\n\n\nx\ny",
+      "cursor": [
+        5,
+        1
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "mnop\nnext\n\n\nx\ny",
+      "cursor": [
+        5,
+        1
+      ],
+      "name": "normal-scroll-region"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "width-two-wide-cells",
+      "contents": "中文中文中文\n中文\nen",
+      "cursor": [
+        2,
+        1
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "中文中文中文\n中文\nen",
+      "cursor": [
+        2,
+        1
+      ],
+      "name": "width-two-wide-cells"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "null-gap-versus-explicit-space",
+      "contents": "ab         Z\nend",
+      "cursor": [
+        1,
+        3
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ab         Z\nend",
+      "cursor": [
+        1,
+        3
+      ],
+      "name": "null-gap-versus-explicit-space"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "repeat-resize-mixed-wide",
+      "contents": "abcde中文Z\n123456789012\n345\nen",
+      "cursor": [
+        3,
+        1
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "abcde中文Z\n123456789012\n345\nen",
+      "cursor": [
+        3,
+        1
+      ],
+      "name": "repeat-resize-mixed-wide"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "saved-cursor-history-grow",
+      "contents": "klmnop\n9-abcdefghij\nklmnop\nend!",
+      "cursor": [
+        3,
+        4
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "klmnop\n9-abcdefghij\nklmnop\nend!",
+      "cursor": [
+        3,
+        4
+      ],
+      "name": "saved-cursor-history-grow"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "saved-cursor-before-scrolling-shrink",
+      "contents": "k!\nmn\nop\nen",
+      "cursor": [
+        0,
+        2
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "k!\nmn\nop\nen",
+      "cursor": [
+        0,
+        2
+      ],
+      "name": "saved-cursor-before-scrolling-shrink"
+    },
+    "result": "PASS"
+  },
+  {
+    "xterm": {
+      "name": "capacity-extreme-roundtrip-cursor-clipping",
+      "contents": "kl\nmn\nop\nef",
+      "cursor": [
+        3,
+        1
+      ],
+      "alternate": false
+    },
+    "vt100": {
+      "alternate": false,
+      "contents": "ijklmnop\n599-abcdefgh\nijklmnop\nen",
+      "cursor": [
+        3,
+        1
+      ],
+      "name": "capacity-extreme-roundtrip-cursor-clipping"
+    },
+    "result": "KNOWN_DIFFERENCE",
+    "reason": "BUG-001 extreme capacity 2/500 roundtrip: xterm and service viewport differ; service retains clipped cursor text; not a compatibility pass"
+  }
+]

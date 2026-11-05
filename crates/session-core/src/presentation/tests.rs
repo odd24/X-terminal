@@ -220,8 +220,8 @@ fn read_bounds_resize_limits_and_snapshot_frame_budget_are_explicit() {
     let snapshot = sessions.screen(reference).unwrap();
     assert!(snapshot.contents_truncated);
     assert_eq!(snapshot.contents.len(), SCREEN_BYTES);
-    assert_eq!(snapshot.parser, "vt100-0.18.1+local.1");
-    assert!(!snapshot.resize_reflow, "BUG-001 remains explicit");
+    assert_eq!(snapshot.parser, "vt100-0.18.1+local.2");
+    assert!(snapshot.resize_reflow);
     sessions.resize_screen(reference, 8, 40).unwrap();
     let snapshot = sessions.screen(reference).unwrap();
     assert_eq!((snapshot.rows, snapshot.cols), (8, 40));
@@ -253,4 +253,29 @@ fn text_counter_reserves_eof_and_rejected_input_does_not_mutate_view() {
         Err(ErrorCode::InvalidArgument)
     );
     assert_eq!(sessions.screen(reference).unwrap(), before);
+}
+
+#[test]
+fn screen_reflow_changes_only_layout_not_raw_text_source_or_generation() {
+    let mut sessions = Sessions::default();
+    let reference = connected(&mut sessions, "utf-8", 6, 12);
+    let bytes = b"abcdefghijklmnop\r\nnext";
+    sessions.append(reference, bytes, 123).unwrap();
+    let before = sessions.screen(reference).unwrap();
+    let raw = sessions.read(reference, 1, MAX_APPEND).unwrap();
+    let text = sessions.read_text(reference, 1, MAX_APPEND).unwrap();
+    sessions.resize_screen(reference, 6, 6).unwrap();
+    let after = sessions.screen(reference).unwrap();
+    assert_eq!(after.contents, "abcdef\nghijkl\nmnop\nnext");
+    assert_eq!((after.cursor_row, after.cursor_col), (3, 4));
+    assert_eq!(after.connection, reference);
+    assert_eq!(after.source_cursor, before.source_cursor);
+    assert_eq!((after.gap_bytes, after.decode_error_events), (0, 0));
+    assert_eq!(sessions.read(reference, 1, MAX_APPEND).unwrap(), raw);
+    assert_eq!(sessions.read_text(reference, 1, MAX_APPEND).unwrap(), text);
+    sessions.resize_screen(reference, 6, 12).unwrap();
+    assert_eq!(
+        sessions.screen(reference).unwrap().contents,
+        before.contents
+    );
 }

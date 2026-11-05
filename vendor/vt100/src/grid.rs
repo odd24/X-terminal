@@ -78,7 +78,7 @@ impl Grid {
         self.size
     }
 
-    pub fn set_size<F>(&mut self, size: Size, on_row: F)
+    pub fn set_size<F>(&mut self, size: Size, mut on_row: F)
     where
         F: FnMut(&crate::row::Row),
     {
@@ -104,7 +104,7 @@ impl Grid {
         } else if size.rows() < self.size.rows() {
             let num_excess_bottom = self.size.rows() - self.pos.row - 1;
             let num_pushed = diff.saturating_sub(num_excess_bottom);
-            self.scroll_up(num_pushed, on_row);
+            self.scroll_up(num_pushed, &mut on_row);
             self.rows.truncate(size.rows().into());
             num_pushed
         } else if let Some(scrollback) = &mut self.scrollback {
@@ -112,19 +112,18 @@ impl Grid {
                 .unwrap_or(u16::MAX)
                 .min(diff);
             // Number of rows actually pulled from scrollback.
-            let num_pulled_scrollback =
-                scrollback.rows.len().min(num_pulled.into());
+            let num_pulled_scrollback = scrollback.rows.len().min(num_pulled.into());
             // Number of blank rows inserted at the top, because our scrollback
             // buffer isn't as large as the theoretical amount of scrollback
             // an unbounded terminal would have.
-            let num_pulled_blank =
-                usize::from(num_pulled) - num_pulled_scrollback;
-            let pulled =
-                core::iter::repeat_with(new_row)
-                    .take(num_pulled_blank)
-                    .chain(scrollback.rows.drain(
-                        scrollback.rows.len() - num_pulled_scrollback..,
-                    ));
+            let num_pulled_blank = usize::from(num_pulled) - num_pulled_scrollback;
+            let pulled = core::iter::repeat_with(new_row)
+                .take(num_pulled_blank)
+                .chain(
+                    scrollback
+                        .rows
+                        .drain(scrollback.rows.len() - num_pulled_scrollback..),
+                );
             self.rows.splice(0..0, pulled);
             self.rows.resize_with(size.rows().into(), new_row);
             scrollback.unbounded_len -= usize::from(num_pulled);
@@ -137,9 +136,6 @@ impl Grid {
         if let Some(row) = self.rows.last_mut() {
             // The last row is maintained to always be a valid row
             row.wrap(false);
-        }
-        for row in &mut self.rows {
-            row.resize(size.cols(), crate::Cell::new());
         }
 
         // Maintain the cursor position relative to the bottom-left corner of
@@ -156,6 +152,26 @@ impl Grid {
             self.saved_pos.row += pos_diff;
         }
 
+        if !is_empty
+            && size.cols() >= 2
+            && size.cols() != self.size.cols()
+            && self.scrollback.is_some()
+        {
+            self.reflow(size, &mut on_row);
+        } else {
+            for row in &mut self.rows {
+                let wrapped = row.wrapped();
+                if self.scrollback.is_some() {
+                    row.resize(size.cols(), crate::Cell::new());
+                } else {
+                    // Like xterm's alternate buffer, keep hidden columns for a
+                    // later expansion but never include them in viewport reads.
+                    row.grow(size.cols(), crate::Cell::new());
+                }
+                row.wrap(wrapped);
+            }
+        }
+
         self.pos.col = self.pos.col.min(size.cols() - 1);
         self.saved_pos.col = self.saved_pos.col.min(size.cols() - 1);
         self.scroll_bottom = size.rows() - 1;
@@ -168,6 +184,147 @@ impl Grid {
         debug_assert!(self.pos.col < self.size.cols());
         debug_assert!(self.saved_pos.row < self.size.rows());
         debug_assert!(self.saved_pos.col < self.size.cols());
+    }
+
+    /// Reflow the bounded normal buffer. Rows mark a wrap *to* the next
+    /// row (xterm marks a wrap *from* the previous row). The current cursor
+    /// group is deliberately left to the terminal application, as in xterm's
+    /// default reflowCursorLine=false mode.
+    fn reflow<F>(&mut self, size: Size, on_row: &mut F)
+    where
+        F: FnMut(&crate::row::Row),
+    {
+        use alloc::collections::VecDeque;
+        let scrollback = self.scrollback.as_mut().unwrap();
+        let old_base = scrollback.rows.len();
+        let cursor = old_base + usize::from(self.pos.row);
+        let old_cols = self.size.cols();
+        let new_cols = size.cols();
+        let height = usize::from(size.rows());
+        let capacity = scrollback.capacity + height;
+        let mut source: Vec<_> = scrollback.rows.drain(..).collect();
+        source.append(&mut self.rows);
+        let old_len = source.len();
+        // At most one extra viewport is retained temporarily, since shrink can
+        // consume blank rows below the cursor. Never expand to old_cells/new_cols
+        // allocated rows before applying the history bound.
+        let mut output = VecDeque::new();
+        let mut emitted = 0usize;
+        let mut discarded = 0usize;
+        let mut start = 0;
+        while start < source.len() {
+            let mut end = start + 1;
+            while end < source.len() && source[end - 1].wrapped() {
+                end += 1;
+            }
+            let group = &source[start..end];
+            let skip =
+                (cursor >= start && cursor < end) || (new_cols > old_cols && group.len() == 1);
+            let mut emit = |row: crate::row::Row| {
+                output.push_back(row);
+                emitted += 1;
+                if output.len() > capacity + height {
+                    on_row(&output.pop_front().unwrap());
+                    discarded += 1;
+                }
+            };
+            if skip {
+                for row in group {
+                    let mut row = row.clone();
+                    let wrapped = row.wrapped();
+                    row.resize(new_cols, crate::Cell::new());
+                    row.wrap(wrapped);
+                    emit(row);
+                }
+            } else {
+                let mut row = crate::row::Row::new(new_cols);
+                let mut col = 0;
+                for (index, original) in group.iter().enumerate() {
+                    let last = index + 1 == group.len();
+                    let len = if last {
+                        (0..old_cols)
+                            .rev()
+                            .find(|&c| {
+                                original.get(c).is_some_and(|cell| {
+                                    cell.has_contents() || cell.is_wide_continuation()
+                                })
+                            })
+                            .map_or(0, |c| c + 1)
+                    } else if !original
+                        .get(old_cols - 1)
+                        .is_some_and(crate::Cell::has_contents)
+                        && group[index + 1].get(0).is_some_and(crate::Cell::is_wide)
+                    {
+                        old_cols - 1
+                    } else {
+                        old_cols
+                    };
+                    let mut src_col = 0;
+                    while src_col < len {
+                        let cell = original
+                            .get(src_col)
+                            .cloned()
+                            .unwrap_or_else(crate::Cell::new);
+                        let width = if cell.is_wide() { 2 } else { 1 };
+                        if width > new_cols - col {
+                            row.wrap(true);
+                            emit(row);
+                            row = crate::row::Row::new(new_cols);
+                            col = 0;
+                        }
+                        *row.get_mut(col).unwrap() = cell;
+                        if width == 2 {
+                            *row.get_mut(col + 1).unwrap() = original
+                                .get(src_col + 1)
+                                .cloned()
+                                .unwrap_or_else(crate::Cell::new);
+                        }
+                        col += width;
+                        src_col += width;
+                    }
+                }
+                emit(row);
+            }
+            start = end;
+        }
+        if emitted > old_len {
+            let added = emitted - old_len;
+            let consume = if old_base == 0 {
+                added.min(height - 1 - usize::from(self.pos.row))
+            } else {
+                0
+            };
+            for _ in 0..consume {
+                output.pop_back();
+            }
+            self.pos.row += u16::try_from(consume).unwrap();
+            self.saved_pos.row = self
+                .saved_pos
+                .row
+                .saturating_add(u16::try_from(consume).unwrap())
+                .min(size.rows() - 1);
+        } else {
+            let removed = old_len - emitted;
+            self.pos.row = self.pos.row.saturating_sub(
+                u16::try_from(removed.saturating_sub(old_base)).unwrap_or(u16::MAX),
+            );
+            self.saved_pos.row = self
+                .saved_pos
+                .row
+                .saturating_sub(u16::try_from(removed.saturating_sub(old_base)).unwrap_or(u16::MAX));
+        }
+        while output.len() > capacity {
+            on_row(&output.pop_front().unwrap());
+            discarded += 1;
+        }
+        while output.len() < height {
+            output.push_back(crate::row::Row::new(new_cols));
+        }
+        let base = output.len() - height;
+        scrollback.rows = output.drain(..base).collect();
+        scrollback.unbounded_len = base.saturating_add(discarded);
+        scrollback.offset = 0;
+        self.rows = output.into_iter().collect();
     }
 
     pub fn pos(&self) -> Pos {
