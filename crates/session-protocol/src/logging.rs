@@ -4,6 +4,8 @@ use session_core::session::*;
 use uuid::Uuid;
 mod cleanup;
 pub use cleanup::*;
+mod recovery;
+pub use recovery::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +44,25 @@ pub enum Request {
         log_id: Uuid,
     },
     HistoryList {},
+    RecoveryList {},
+    RecoveryOpen {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        read_id: Uuid,
+    },
+    RecoveryRead {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        read_id: Uuid,
+        cursor: u64,
+        max_records: u32,
+        max_bytes: u32,
+    },
+    RecoveryClose {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        read_id: Uuid,
+    },
     CleanupList {
         kind: CleanupKind,
     },
@@ -116,7 +137,7 @@ impl Request {
                 confirmation,
                 ..
             } => return !id.is_nil() && !preview_id.is_nil() && !confirmation.is_nil(),
-            Self::HistoryList {} => return true,
+            Self::HistoryList {} | Self::RecoveryList {} => return true,
             Self::ExportStart {
                 connection,
                 log_id,
@@ -137,7 +158,15 @@ impl Request {
                 }
                 connection
             }
-            Self::HistoryRead {
+            Self::RecoveryRead {
+                connection,
+                log_id,
+                read_id,
+                cursor,
+                max_records,
+                max_bytes,
+            }
+            | Self::HistoryRead {
                 connection,
                 log_id,
                 read_id,
@@ -155,7 +184,17 @@ impl Request {
                 }
                 connection
             }
-            Self::HistoryOpen {
+            Self::RecoveryOpen {
+                connection,
+                log_id,
+                read_id,
+            }
+            | Self::RecoveryClose {
+                connection,
+                log_id,
+                read_id,
+            }
+            | Self::HistoryOpen {
                 connection,
                 log_id,
                 read_id,
@@ -352,6 +391,17 @@ pub enum Reply {
     },
     HistoryList {
         logs: Vec<HistoryEntry>,
+    },
+    RecoveryList {
+        logs: Vec<RecoveryEntry>,
+    },
+    RecoveryOpened {
+        read_id: Uuid,
+        info: Box<RecoveryInfo>,
+    },
+    RecoveryPage(Box<RecoveryPage>),
+    RecoveryClosed {
+        read_id: Uuid,
     },
     HistoryOpened {
         read_id: Uuid,

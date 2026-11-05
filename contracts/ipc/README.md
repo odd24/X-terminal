@@ -83,3 +83,11 @@ P11.4增加logging/cleanup_list(kind)、cleanup_preview/status/cancel(kind,id,pr
 后续已接入桌面显式清理确认与本次服务失败维护。logging/capture_list为严格无参、active Desktop专用的内存清单，最多64项Info/List，包含旧代次/已移除连接而不扫描目录；Observer持read票据仍无权。logging/release_failed要求原ConnectionRef/log_id，仅FAILED且worker_finished可幂等解除关联并标RELEASED，失败计数/文件保留，不表示已清理；有序回执退休和REMOVED优先规则见ADR-031。服务重启清单为空，不自动恢复旧注册或启动记录。
 
 P11.4导出Info新增sha256：仅COMPLETED为64位小写十六进制SHA-256，其余阶段（含REMOVED）为null。指纹在实际JSONL生产写入时累计，最终flush/sync/发布成功后才返回，不写入文件自身、不改变JSONL v1。它绑定同一可信本次服务导出scope及bytes，不能作为读取票据、任意路径授权或用户目标已保存证明。前端缺失/非法指纹拒绝成功结果；后续原生保存通过固定源句柄和两遍核验使用它，方案与边界见[ADR-032](../../docs/decisions/ADR-032.md)。本阶段尚无目标路径/自选保存RPC，不扩大Observer/Agent权限。
+
+## 显式恢复读取（ADR-034）
+
+Desktop专用logging增加recovery_list/open/read/close，不能由Observer只读票据调用，也未向MCP开放。列表只检查最多64项受管理UUID目录的文件政策/首配对头，返回log_id及可空RecoveryInfo（含精确ConnectionRef、捕获起点、可见起点/段范围、标志是否存在）；info=null不可拼接范围发读，头部通过不代表记录已全检。
+
+Open/Read/Close均要求connection/log_id/read_id；Read另要求cursor>0、1–128条、32–64KiB逻辑页，无任意路径/角色/修复/跳坏行参数。同ID不同scope拒绝，同Open不重开，最后一页相同参数可精确重试，旧页/改变参数拒绝。RecoveryPage包含原scope、请求及下一游标、可见起点、records和可空stop(kind/segment/next_cursor)，没有finished；首处错误保留本页此前已验证记录，EndOfAvailable也不表示完成/同步。
+
+复用history独立文件线程16消息队列，恢复单独4reader/64回执，普通历史8/128保持，合计12/192上限。120秒单调空闲回收或显式close释放所有句柄/缓存但保留ID；有序关闭回执可按时间水位退休，不透明ID不自动删，旧ID不能重开。服务重启只保留源文件，不恢复本次reader/回执/授权；新ID须显式新开。整理预留拒绝恢复list/open，句柄占用拒绝实际整理；恢复不会接管/写入当前会话。普通History/Export完整性检查不会自动降级，恢复GUI/未完整导出另行实现。

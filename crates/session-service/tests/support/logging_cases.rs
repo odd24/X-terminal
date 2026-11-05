@@ -1,6 +1,237 @@
 use super::*;
 use session_protocol::logging::{self as log, Request as L};
 
+#[tokio::test]
+async fn recovery_ipc_reads_only_verified_prefix_after_restart_with_desktop_scope_and_retry() {
+    let path = std::env::temp_dir().join(format!(
+        "shared-terminal-service-config-中文-recovery-{}",
+        Uuid::new_v4()
+    ));
+    std::fs::create_dir(&path).unwrap();
+    let temp = ConfigTemp(path);
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let (connection, captured) = captured_fixture(&mut client).await;
+    service.stop(&mut client).await;
+    let log_id = captured.log_id;
+    let dir = temp.0.join("terminal-logs").join(log_id.to_string());
+    std::fs::remove_file(dir.join("completion.json")).unwrap();
+    let text_path = dir.join("0000000000000001.text.jsonl");
+    let bytes = std::fs::read(&text_path).unwrap();
+    std::fs::write(&text_path, &bytes[..bytes.len() - 1]).unwrap();
+    let raw_path = dir.join("0000000000000001.rawlog");
+    let before_raw = std::fs::read(&raw_path).unwrap();
+    let before_text = std::fs::read(&text_path).unwrap();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let fresh = reference(ok(client.request(Request::CreateFixture {}).await.unwrap()));
+    let Reply::ReadTicket { token, .. } = ok(client
+        .request(Request::IssueRead {
+            scopes: vec![fresh],
+            lifetime_ms: 60000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let mut observer = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap()
+        .0;
+    let read_id = Uuid::new_v4();
+    for request in [
+        L::RecoveryList {},
+        L::RecoveryOpen {
+            connection,
+            log_id,
+            read_id,
+        },
+        L::RecoveryRead {
+            connection,
+            log_id,
+            read_id,
+            cursor: 1,
+            max_records: 128,
+            max_bytes: 32768,
+        },
+        L::RecoveryClose {
+            connection,
+            log_id,
+            read_id,
+        },
+    ] {
+        assert_eq!(
+            error(
+                observer
+                    .request(Request::Logging { request })
+                    .await
+                    .unwrap()
+            ),
+            ErrorCode::PermissionDenied
+        );
+    }
+    let log::Reply::RecoveryList { logs } = call(&mut client, L::RecoveryList {}).await else {
+        panic!()
+    };
+    assert_eq!(logs.len(), 1);
+    let meta = logs[0].info.as_ref().unwrap();
+    assert_eq!(meta.connection, connection);
+    assert!(!meta.completion_present);
+    assert_eq!(meta.available_from, 1);
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::HistoryOpen {
+                        connection,
+                        log_id,
+                        read_id: Uuid::new_v4(),
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::NotFound
+    );
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::RecoveryOpen {
+                        connection: ConnectionRef {
+                            generation: connection.generation + 1,
+                            ..connection
+                        },
+                        log_id,
+                        read_id,
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    for _ in 0..2 {
+        assert!(matches!(
+            call(
+                &mut client,
+                L::RecoveryOpen {
+                    connection,
+                    log_id,
+                    read_id
+                }
+            )
+            .await,
+            log::Reply::RecoveryOpened { .. }
+        ));
+    }
+    let mut pages = Vec::new();
+    for _ in 0..2 {
+        let log::Reply::RecoveryPage(page) = call(
+            &mut client,
+            L::RecoveryRead {
+                connection,
+                log_id,
+                read_id,
+                cursor: 1,
+                max_records: 128,
+                max_bytes: 32768,
+            },
+        )
+        .await
+        else {
+            panic!()
+        };
+        assert_eq!(page.records.len(), 2);
+        assert_eq!(
+            page.records[0].raw.as_ref().unwrap().bytes,
+            [0, 255, 13, 10]
+        );
+        assert_eq!(page.next_cursor, 3);
+        let stop = page.stop.as_ref().unwrap();
+        assert_eq!(stop.kind, log::RecoveryStopKind::TruncatedRecord);
+        assert_eq!((stop.segment, stop.next_cursor), (1, 3));
+        pages.push(serde_json::to_value(&page).unwrap());
+    }
+    assert_eq!(pages[0], pages[1]);
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::CleanupPreview {
+                        kind: log::CleanupKind::Log,
+                        id: log_id,
+                        preview_id: Uuid::new_v4(),
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    assert!(
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&raw_path)
+            .is_err()
+    );
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::RecoveryRead {
+                        connection: fresh,
+                        log_id,
+                        read_id,
+                        cursor: 3,
+                        max_records: 128,
+                        max_bytes: 32768,
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidArgument
+    );
+    for _ in 0..2 {
+        call(
+            &mut client,
+            L::RecoveryClose {
+                connection,
+                log_id,
+                read_id,
+            },
+        )
+        .await;
+    }
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: L::RecoveryOpen {
+                        connection,
+                        log_id,
+                        read_id,
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::RequestExpired
+    );
+    assert!(
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&raw_path)
+            .is_ok()
+    );
+    assert_eq!(std::fs::read(&raw_path).unwrap(), before_raw);
+    assert_eq!(std::fs::read(&text_path).unwrap(), before_text);
+    assert!(!dir.join("completion.json").exists());
+    service.stop(&mut client).await;
+}
+
 fn export_info(reply: log::Reply) -> log::ExportInfo {
     match reply {
         log::Reply::Export(info) => *info,

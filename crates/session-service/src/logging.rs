@@ -260,19 +260,29 @@ impl Manager {
                 )
                 .map(|info| Reply::Export(Box::new(info))),
             request @ (Request::HistoryList {}
+            | Request::RecoveryList {}
+            | Request::RecoveryOpen { .. }
+            | Request::RecoveryRead { .. }
+            | Request::RecoveryClose { .. }
             | Request::HistoryOpen { .. }
             | Request::HistoryRead { .. }
             | Request::HistoryClose { .. }) => {
                 if matches!(
                     request,
-                    Request::HistoryList {} | Request::HistoryOpen { .. }
+                    Request::HistoryList {}
+                        | Request::HistoryOpen { .. }
+                        | Request::RecoveryList {}
+                        | Request::RecoveryOpen { .. }
                 ) && self.cleanup.reserved()
                 {
                     return Err(ErrorCode::InvalidState);
                 }
                 let directory = if matches!(
                     request,
-                    Request::HistoryList {} | Request::HistoryOpen { .. }
+                    Request::HistoryList {}
+                        | Request::HistoryOpen { .. }
+                        | Request::RecoveryList {}
+                        | Request::RecoveryOpen { .. }
                 ) {
                     let Value::LoggingDirectory(directory) = self
                         .config

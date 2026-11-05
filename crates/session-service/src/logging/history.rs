@@ -13,6 +13,7 @@ use tokio::sync::oneshot;
 const READERS: usize = 8;
 const RECEIPTS: usize = 128;
 const IDLE: Duration = Duration::from_secs(120);
+mod recovery;
 struct Message {
     directory: Option<PathBuf>,
     request: Request,
@@ -100,6 +101,7 @@ impl Entry {
 struct State {
     entries: HashMap<Uuid, Entry>,
     window: RequestWindow,
+    recovery: recovery::State,
 }
 fn info(value: &terminal_log::ArchiveInfo) -> wire::ArchiveInfo {
     let meta = &value.metadata;
@@ -135,6 +137,7 @@ fn file_error(error: io::Error) -> ErrorCode {
 }
 impl State {
     fn reap(&mut self, now: Instant) {
+        self.recovery.reap(now);
         for entry in self.entries.values_mut() {
             if now.saturating_duration_since(entry.touched) >= IDLE {
                 entry.release();
@@ -174,6 +177,10 @@ impl State {
     fn handle(&mut self, directory: Option<PathBuf>, request: Request) -> Result<Reply, ErrorCode> {
         self.reap(Instant::now());
         match request {
+            request @ (Request::RecoveryList {}
+            | Request::RecoveryOpen { .. }
+            | Request::RecoveryRead { .. }
+            | Request::RecoveryClose { .. }) => self.recovery.handle(directory, request),
             Request::HistoryList {} => {
                 let root = ManagedRoot::open(&directory.ok_or(ErrorCode::InvalidState)?)
                     .map_err(file_error)?;

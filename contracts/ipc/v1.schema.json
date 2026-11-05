@@ -1174,6 +1174,118 @@
           {
             "additionalProperties": false,
             "properties": {
+              "op": {
+                "const": "recovery_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "recovery_open",
+                "type": "string"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "read_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "max_bytes": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_records": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "recovery_read",
+                "type": "string"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "read_id",
+              "cursor",
+              "max_records",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "recovery_close",
+                "type": "string"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "read_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "kind": {
                 "$ref": "#/$defs/CleanupKind"
               },
@@ -3788,6 +3900,146 @@
         ],
         "type": "string"
       },
+      "RecoveryEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "info": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RecoveryInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "None means unavailable/unidentifiable; it does not authorize a read."
+          },
+          "log_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "log_id"
+        ],
+        "type": "object"
+      },
+      "RecoveryInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completion_present": {
+            "type": "boolean"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "first_segment": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_observed_segment": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limits": {
+            "$ref": "#/$defs/Limits"
+          },
+          "log_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "partial_present": {
+            "type": "boolean"
+          },
+          "protocol": {
+            "$ref": "#/$defs/Protocol"
+          },
+          "source_available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "started_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "log_id",
+          "connection",
+          "protocol",
+          "encoding",
+          "started_at_ms",
+          "source_cursor",
+          "text_cursor",
+          "limits",
+          "first_segment",
+          "last_observed_segment",
+          "available_from",
+          "source_available_from",
+          "completion_present",
+          "partial_present"
+        ],
+        "type": "object"
+      },
+      "RecoveryStop": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/$defs/RecoveryStopKind"
+          },
+          "next_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "segment": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "segment",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "RecoveryStopKind": {
+        "enum": [
+          "END_OF_AVAILABLE",
+          "MISSING_PARTNER",
+          "MISSING_SEGMENT",
+          "INVALID_HEADER",
+          "DISCONTINUITY",
+          "TRUNCATED_RECORD",
+          "INVALID_RECORD",
+          "STORAGE"
+        ],
+        "type": "string"
+      },
       "Reply": {
         "oneOf": [
           {
@@ -4408,6 +4660,134 @@
             "required": [
               "result",
               "logs"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "logs": {
+                "items": {
+                  "$ref": "#/$defs/RecoveryEntry"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "recovery_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "logs"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "info": {
+                "$ref": "#/$defs/RecoveryInfo"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "recovery_opened",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "read_id",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "available_from": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "next_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "records": {
+                "items": {
+                  "$ref": "#/$defs/HistoryRecord"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "recovery_page",
+                "type": "string"
+              },
+              "source_available_from": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/RecoveryStop"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "connection",
+              "log_id",
+              "read_id",
+              "cursor",
+              "next_cursor",
+              "available_from",
+              "source_available_from",
+              "records"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "read_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "recovery_closed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "read_id"
             ],
             "type": "object"
           },

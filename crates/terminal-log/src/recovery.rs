@@ -74,6 +74,20 @@ impl RecoveryReader {
         if id.is_nil() || connection.connection_id.0.is_nil() || connection.generation == 0 {
             return Err(invalid());
         }
+        Self::open_inner(root, id, Some(connection))
+    }
+    /// Header/file policy inspection only, never a payload or completion check.
+    pub fn inspect(root: &ManagedRoot, id: Uuid) -> io::Result<RecoveryInfo> {
+        Ok(Self::open_inner(root, id, None)?.info.clone())
+    }
+    fn open_inner(
+        root: &ManagedRoot,
+        id: Uuid,
+        expected: Option<ConnectionRef>,
+    ) -> io::Result<Self> {
+        if id.is_nil() {
+            return Err(invalid());
+        }
         let mut guards = crate::storage::guards(root.path())?;
         let directory = root.path().join(id.to_string());
         guards.push(crate::storage::pin(&directory)?);
@@ -123,7 +137,7 @@ impl RecoveryReader {
         let header = pair.header();
         if header.log_id != id
             || header.segment != segment
-            || header.metadata.connection != connection
+            || expected.is_some_and(|connection| header.metadata.connection != connection)
             || files.len() + 1 > header.limits.segments as usize
             || (segment == 1
                 && (header.source_cursor != header.metadata.source_cursor

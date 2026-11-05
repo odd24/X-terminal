@@ -1,9 +1,10 @@
 use super::*;
 use session_core::presentation::TextEvent;
-struct Temp(PathBuf);
+pub(super) struct Temp(pub(super) PathBuf);
 impl Temp {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("shared-terminal-history-{}", Uuid::new_v4()));
+    pub(super) fn new() -> Self {
+        let path =
+            std::env::temp_dir().join(format!("shared-terminal-history-中文-{}", Uuid::new_v4()));
         std::fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -22,7 +23,7 @@ impl Drop for Temp {
         std::fs::remove_dir_all(&self.0).unwrap();
     }
 }
-fn completed(temp: &Temp, huge: bool) -> (Uuid, ConnectionRef) {
+pub(super) fn completed(temp: &Temp, huge: bool) -> (Uuid, ConnectionRef) {
     let root = ManagedRoot::open(&temp.0).unwrap();
     let connection = ConnectionRef {
         connection_id: ConnectionId(Uuid::new_v4()),
