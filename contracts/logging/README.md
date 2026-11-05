@@ -92,3 +92,9 @@ RecoveryReader独立于ArchiveReader，接受ManagedRoot/log_id/精确Connection
 文件库追加RecoveryReader::inspect，为Desktop恢复清单提供首配对头的精确身份/起点，不扫描payload且不证明完整。服务新增显式recovery_list/open/read/close，受限Desktop通道、独立4reader/64回执、120秒租期及最后一页重试，详见IPC说明/ADR-034；源文件不变，普通ArchiveReader/完成导出不自动降级，恢复GUI和未完整导出继续。
 
 P11.4桌面已新增独立折叠恢复浏览：显式刷新/选择、精确元数据核对后打开、32KiB逻辑分页、文本/HEX与未完整停止位置。共享log-records北京时间与控制转义，不自动选择当前连接、不把数据写入终端；关闭/取消忽略迟到响应并再次释放原ID，日志整理后清空旧视图。所有读编号/正文不持久化，重载不恢复读者；未确认关闭保留闲置回收提示。test:desktop:recovery只在自建中文合成临时目录验证，未完整恢复导出与跨重启保存任务恢复继续。
+
+## 显式未完整恢复JSONL文件流（ADR-035）
+
+export_recovery_jsonl仅显式恢复模式，重新从ManagedRoot/log_id/ConnectionRef最早可见配对头读取，32KiB逻辑页/128条+单条有界JSON。首行type=recovery_header、format=shared-terminal-recovery-export、format_version=1、incomplete=true、source为RecoveryInfo（含metadata/limits/起点/段范围/标志有无）；record行仍raw/text分离，最终type=recovery_stopped、incomplete=true、recovered含recovered_records/recovered_raw_bytes/recovered_gap_bytes/next_cursor/stop。stop保持ADR-034名称/段/游标，END_OF_AVAILABLE也不表示完整；无verified或可信source_completion，不复原退休内容。
+
+checked_add计数，写/flush失败、取消或计数溢出传播Err，Err可能已有部分/全部字节及终止行，调用方不得发布。Ok只表示恢复格式流及停止报告写入/flush，不包含sync/指纹发布或用户覆盖授权。源读取错误转为未完整stop，打开失败不写首行；源文件保持，普通export_jsonl不自动降级。库调用只接受私有新暂存sink/有界阻塞线程，受管理发布、模式化服务任务与桌面保存仍待接入，不能从文件流通过推断产品已可恢复导出。详见ADR-035及P11.4记录。

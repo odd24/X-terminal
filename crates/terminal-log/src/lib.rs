@@ -16,7 +16,9 @@ pub use selected_save::{SaveReport, SaveTarget};
 mod format;
 mod paired;
 mod recovery;
+mod recovery_export;
 pub use recovery::{RecoveryInfo, RecoveryPage, RecoveryReader, RecoveryStop, RecoveryStopKind};
+pub use recovery_export::{RecoverySummary, export_recovery_jsonl};
 mod storage;
 pub use archive::{ArchiveInfo, ArchivePage, ArchiveReader, Completion};
 #[cfg(windows)]

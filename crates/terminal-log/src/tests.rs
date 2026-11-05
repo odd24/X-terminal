@@ -12,6 +12,7 @@ use std::{
 mod archive;
 mod export;
 mod recovery;
+mod recovery_export;
 
 struct Temp(PathBuf);
 impl Temp {

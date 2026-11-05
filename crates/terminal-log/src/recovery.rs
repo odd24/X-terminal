@@ -1,5 +1,6 @@
 //! Explicit read-only salvage. Never repairs a source or certifies completion.
 use crate::{Limits, ManagedRoot, Metadata, PairReader, Record, SegmentHeader};
+use serde::Serialize;
 use session_core::session::ConnectionRef;
 use std::{
     collections::BTreeMap,
@@ -8,7 +9,7 @@ use std::{
 };
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RecoveryInfo {
     pub log_id: Uuid,
     pub metadata: Metadata,
@@ -21,7 +22,8 @@ pub struct RecoveryInfo {
     pub completion_present: bool,
     pub partial_present: bool,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RecoveryStopKind {
     EndOfAvailable,
     MissingPartner,
@@ -32,7 +34,7 @@ pub enum RecoveryStopKind {
     InvalidRecord,
     Storage,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RecoveryStop {
     pub kind: RecoveryStopKind,
     pub segment: u64,

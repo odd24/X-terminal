@@ -2,7 +2,7 @@ use super::*;
 use sha2::Digest;
 use std::io::Write;
 
-fn capture(temp: &Temp, count: u64) -> (ManagedRoot, Metadata, Status) {
+pub(super) fn capture(temp: &Temp, count: u64) -> (ManagedRoot, Metadata, Status) {
     let root = ManagedRoot::open(&temp.0).unwrap();
     let meta = metadata();
     let mut logger = Logger::start(
@@ -29,7 +29,7 @@ fn capture(temp: &Temp, count: u64) -> (ManagedRoot, Metadata, Status) {
     assert!(status.durable);
     (root, meta, status)
 }
-fn lines(bytes: &[u8]) -> Vec<serde_json::Value> {
+pub(super) fn lines(bytes: &[u8]) -> Vec<serde_json::Value> {
     std::str::from_utf8(bytes)
         .unwrap()
         .lines()
