@@ -129,3 +129,5 @@ P11.4恢复导出扩展test:desktop:recovery的专用logging_request通道验证
 P11.4恢复导出GUI扩展test:desktop:recovery，真实按钮/IPC应答丢失及迟到折叠、Page.reload编号恢复、Node crypto落盘指纹和清理后撤下路径；仍只用shared-terminal-recovery-ui-中文-自建临时根。应用目录发布不等于恢复原生另存，后者须固定来源模式并从对应服务回执获取可信指纹，不得把恢复ID走普通查询或把未完整报告改成完整。
 
 P11.4恢复原生另存已按NORMAL/RECOVERY必填固定来源模式接入，对应服务回执取得生产指纹后才打开选择器；所有保存操作保持模式/精确scope/save_id。恢复GUI复用共享面板但独立编号槽，未完整说明持续显示，重载不恢复路径/替换同意，应答不明只查询。test:desktop:recovery使用恢复数据中文前缀根及另建shared-terminal-save-ui-中文-目标根操作真实选择器/自建Explorer窗口，核对逐字节/SHA-256/备份/丢应答/重载/迟到及清理后用户副本保持；特殊目标/跨重启/全局UI矩阵不从专项推断通过。
+
+P11.6新增npm run test:desktop:clipboard（前置desktop:build，纳入完整回归），只用shared-terminal-clipboard-ui-中文-自建根验证真实WebView的paste事件/预览与合成服务精确CR/LF。SSH专项另以真实Ctrl+C/系统复制/原生terminal_clipboard_read/鼠标按钮核对精确回环字节与无选区0x03；读取延迟在真实IPC fetch处注入并核对命中。Windows读取仅CF_UNICODETEXT，有界单worker/3秒前端等待，超时不取消已开始的OS读取、不自动重试；正文/同意不持久化。默认当前buffer查找、默认主题截图与合成回环不代表实机vim/top/less/tmux、BUG-001 reflow或T22/T23全局矩阵通过。

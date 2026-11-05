@@ -262,13 +262,53 @@ try {
     assert.equal((await ui.invoke('ssh_request',{request:{op:'status',connection:{connection_id:restarted.connection_id,generation:restarted.generation}}})).encoding,'utf8');
     const staleText=await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('ssh_request',${JSON.stringify({request:{op:'write_text',connection:scope,request_id:crypto.randomUUID(),text:'stale'}})}).then(()=>null,e=>String(e))`);
     assert.equal(staleText,'StaleGeneration');
+    if (encoding === 'gb18030') {
+      // P11.6: actual SSH bytes through the shared dispatcher, plus system clipboard.
+      await control({op:'push',text:'\r\nCOPY_中文_123\r\n'});
+      await legacySnapshot('COPY_中文_123');
+      const pasteEvent=text=>ui.evaluate(`(()=>{const data=new DataTransfer();data.setData('text/plain',${JSON.stringify(text)});document.querySelector('.xterm-helper-textarea').dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));})()`);
+      let before=(await control({op:'metrics'})).received.flat().length;
+      await pasteEvent('SSH甲\r\nSSH乙\n');await ui.waitFor(`!!document.querySelector('[aria-label="粘贴确认"]')`);
+      await delay(150);assert.equal((await control({op:'metrics'})).received.flat().length,before);
+      await ui.click('确认发送粘贴');
+      for(let i=0;i<100 && (await control({op:'metrics'})).received.flat().length===before;i++)await delay(30);
+      assert.equal(Buffer.from((await control({op:'metrics'})).received.flat().slice(before)).toString(),'SSH甲\r\nSSH乙\n');
+      before=(await control({op:'metrics'})).received.flat().length;
+      await ui.click('查找终端');await ui.fill('终端查找文字','COPY_中文_123');await ui.click('下一个匹配');
+      await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 1')`);
+      await ui.command('Page.bringToFront');await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
+      const ctrlC=async()=>{await ui.command('Input.dispatchKeyEvent',{type:'keyDown',modifiers:2,key:'c',code:'KeyC',windowsVirtualKeyCode:67});await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'c',code:'KeyC',windowsVirtualKeyCode:67});};
+      await ctrlC();await ui.waitFor(`document.querySelector('[aria-label="剪贴板状态"]').textContent==='终端选区已复制'`);
+      assert.equal((await control({op:'metrics'})).received.flat().length,before,'Ctrl+C with selection copies without interrupting');
+      const clickPaste=async()=>{
+      const pasteButton=await ui.evaluate(`(()=>{const b=Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='粘贴到终端');b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+      await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...pasteButton});
+      await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...pasteButton});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...pasteButton});
+      };
+      const lateRead=await ui.interceptIpc({command:'terminal_clipboard_read',op:undefined,mode:'delay',delayMs:700});
+      try {
+        await clickPaste();for(let i=0;i<100 && !(await lateRead.count());i++)await delay(20);
+        assert.equal(await lateRead.count(),1,'real native clipboard response must be delayed once');
+        await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);await ui.command('Input.insertText',{text:'z'});await delay(850);
+        assert.equal(Buffer.from((await control({op:'metrics'})).received.flat().slice(before)).toString(),'z','typed takeover discards late native read');
+      } finally { await lateRead.restore(); }
+      before=(await control({op:'metrics'})).received.flat().length;
+      await clickPaste();
+      for(let i=0;i<100 && (await control({op:'metrics'})).received.flat().length===before;i++)await delay(30);
+      assert.equal(Buffer.from((await control({op:'metrics'})).received.flat().slice(before)).toString(),'COPY_中文_123','system clipboard read uses the actual copied selection');
+      before=(await control({op:'metrics'})).received.flat().length;
+      await ui.click('关闭查找');await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);await ctrlC();
+      for(let i=0;i<100 && (await control({op:'metrics'})).received.flat().length===before;i++)await delay(30);
+      assert.deepEqual((await control({op:'metrics'})).received.flat().slice(before),[3],'Ctrl+C without selection preserves SSH interrupt byte');
+    }
+
     await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');await ui.click('移除连接记录');
     await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
   }
   await ui.close();ui=null;
   console.log('PASS SSH2 native WebView: trust/reject/changed key, wrong/temporary password, DPAPI key, keyboard challenge, FIFO input/resize, bounded exec/exit/signal/timeout/cancel/gaps, exit/disconnect, legacy GBK/GB18030 strict text and split exec streams, frozen codec/reload without replay');
 } catch (error) {
-  console.error('SSH status at failure:', await ui?.evaluate(`JSON.stringify({ssh:document.querySelector('[aria-label="SSH2 状态"]')?.textContent,message:document.querySelector('.ssh-panel [role="status"]')?.textContent,main:document.querySelector('.status')?.textContent})`));
+  console.error('SSH status at failure:', await ui?.evaluate(`JSON.stringify({ssh:document.querySelector('[aria-label="SSH2 状态"]')?.textContent,message:document.querySelector('.ssh-panel [role="status"]')?.textContent,main:document.querySelector('.status')?.textContent,clipboard:document.querySelector('[aria-label="剪贴板状态"]')?.textContent})`));
   if(ui)console.error('authoritative connections:',await ui.invoke('service_list').catch(()=> 'unavailable'));
   throw error;
 } finally {

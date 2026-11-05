@@ -61,3 +61,5 @@
 ## 设计参考
 
 2026-11-04 核对的参考：[Windows 设计原则](https://learn.microsoft.com/en-us/windows/apps/design/design-principles)、[Windows 导航基础](https://learn.microsoft.com/en-us/windows/apps/design/basics/navigation-basics)。参考其聚焦、层级、清晰导航方向；上述具体布局、字体候选与验收要求为本项目约定，不视作微软对本应用的认证或选库结论。
+
+P11.6受控剪贴板沿用公共config-panel/按钮与提示，默认Ctrl+C有选区复制、无选区保留终端中断，Ctrl+Shift+C/V为显式复制/粘贴，Ctrl+Shift+F打开终端查找。多行/控制字符/长粘贴显示固定完整目标、转义预览/截断与CR/LF计数、括号模式；CR/LF原样，不补尾换行，取消按钮优先焦点。切换/键盘输入取消预览，重载不恢复正文或同意；见[ADR-037](decisions/ADR-037.md)。习惯选项及全局布局/矩阵仍由P12验收。

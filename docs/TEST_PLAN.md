@@ -179,3 +179,5 @@ P11.5/T06按[ADR-036](decisions/ADR-036.md)验证SSH严格文本输入与exec、
 P11.5最终软件证据：124项相关Rust（含59真实Windows IPC）及33项前端、真实SSH WebView与完整桌面回归PASS；GBK拒绝不可表示文本、GB18030四字节、逐字节独立stdout/stderr、尾字节提示、Profile编辑/重载后冻结及重连换编码/旧代次拒绝均有断言。原始字节未转码，截图只核对本次默认视图，不宣称T06真实程序/字形矩阵、BUG-001或T22/T23全局通过。
 
 P11.6查找阶段：36项前端测试含真实headless宽字/补充/组合字符、软硬换行/替代屏与有界保留区；实际桌面构建和output原生专项PASS，真实WebView验证跨软换行中文查询、15次匹配/导航/未命中/回底，原输出缺口和跨连接解析隔离仍通过。仅当前buffer字面搜索，不替代日志全文搜索、实机程序、reflow及T22/T23全局矩阵。证据见[P11.6](records/P11.6.md)。
+
+P11.6受控剪贴板：新增test:desktop:clipboard并纳入完整回归，实际WebView paste事件/合成服务核对CRLF/LF/CR、未确认不发送、取消/键盘接管/切换返回/模式变化/重载。SSH原生专项核对真实多行字节、Ctrl+C选区复制/无选区0x03、实际系统复制→原生有界读取→真实鼠标粘贴；terminal_clipboard_read真实IPC应答延迟命中1次，键盘z接管后只收到z，迟到读不发送。最终专项PASS，40项前端/6项宿主与严格clippy PASS，完整回归结果见[P11.6](records/P11.6.md)。不以IPC延迟代替外部剪贴板owner卡死、真实UNIX中断效果或全局UI矩阵。

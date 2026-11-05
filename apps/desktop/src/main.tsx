@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { TerminalClipboard, type PasteProposal } from './terminal-clipboard';
+import { visibleControls } from './log-search';
 import { TerminalSearch } from './terminal-search-panel';
 import { TerminalWriter } from './terminal-writer';
 import { OutputDecoder } from './output-decoder';
@@ -33,6 +35,12 @@ function App() {
   const [serialOpen, setSerialOpen] = useState(false);
   const [loggingOpen,setLoggingOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const clipboard = useRef<TerminalClipboard | undefined>(undefined);
+  const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
+  const [clipboardMessage, setClipboardMessage] = useState('');
+  function selectConnection(id: string) {
+    clipboard.current?.invalidate(); selectedRef.current = id; setSelected(id);
+  }
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<{ term: Terminal; fit: FitAddon; writer: TerminalWriter; connection?: Ref; fixture: boolean; inputs: number; protocol: string; writable: boolean } | null>(null);
   const [service, setService] = useState<Status>();
@@ -122,7 +130,29 @@ function App() {
       });
       if (!accepted) setInputFailure('输入队列已满或已停止；此次输入未发送。');
     }
-    const input = term.onData(data => {
+    const clip = new TerminalClipboard({
+      target: () => current.connection && selectedRef.current === current.connection.connection_id && (current.writable || (current.fixture && current.protocol === 'FIXTURE')) ? { ...current.connection, protocol: current.protocol } : undefined,
+      bracketed: () => term.modes.bracketedPasteMode,
+      send: data => receiveInput(data), proposal: setPasteProposal, message: setClipboardMessage,
+      selection: () => term.getSelection(), read: () => invoke<string>('terminal_clipboard_read'), write: text => navigator.clipboard.writeText(text),
+    });
+    clipboard.current = clip;
+    const paste = (event: ClipboardEvent) => {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (event.clipboardData) void clip.paste(event.clipboardData.getData('text/plain'));
+      else setClipboardMessage('剪贴板没有可读取文字；未发送');
+    };
+    const element = host.current!;
+    element.addEventListener('paste', paste, true);
+    term.attachCustomKeyEventHandler(event => {
+      if (event.type !== 'keydown' || !event.ctrlKey || event.altKey || event.metaKey) return true;
+      if (event.key.toLowerCase() === 'c' && (term.hasSelection() || event.shiftKey)) { event.preventDefault(); void clip.copy(); return false; }
+      if (event.key.toLowerCase() === 'v' && event.shiftKey) { event.preventDefault(); void clip.paste(); return false; }
+      if (event.key.toLowerCase() === 'f' && event.shiftKey) { event.preventDefault(); setSearchOpen(true); return false; }
+      return true;
+    });
+    function receiveInput(data: string) {
+      clip.invalidate();
       if (current.protocol === 'SERIAL') {
         if (!current.writable || selectedRef.current !== current.connection?.connection_id) { setLastInput('串口当前不可写，此次输入未发送'); return; }
         if (new TextEncoder().encode(data).length > 65536) { setInputFailure('单次输入超过 64 KiB；此次输入未发送'); return; }
@@ -143,7 +173,8 @@ function App() {
       void invoke('fixture_append', { connection: current.connection, bytes: Array.from(new TextEncoder().encode(data === '\r' ? '\r\n' : data)) })
         .catch(() => { if (!disposed) setFailure('合成输入失败；未重试'); })
         .finally(() => current.inputs--);
-    });
+    }
+    const input = term.onData(receiveInput);
     const resize = term.onResize(() => {
       clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
@@ -172,7 +203,7 @@ function App() {
           return;
         }
         if (!connection && current.connection) {
-          current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
+          clip.invalidate(); current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
           current.writer.close();
           current.connection = undefined; current.protocol = '';
           await resetParser();
@@ -198,7 +229,7 @@ function App() {
             if (metadata.result !== 'status' || metadata.connection.connection_id !== connection.connection_id || metadata.connection.generation !== connection.generation) throw new Error('Invalid SSH encoding status');
             encoding = metadata.encoding;
           }
-          current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
+          clip.invalidate(); current.writable = false; queue.close(); queue = newQueue(); lastSize = '';
           current.writer.close();
           await resetParser();
           if (disposed) return;
@@ -217,6 +248,7 @@ function App() {
           selectedRef.current = connection.connection_id; setSelected(connection.connection_id);
         }
         current.protocol = connection?.protocol ?? '';
+        if (current.writable && connection?.state !== 'CONNECTED') clip.invalidate();
         current.writable = connection?.state === 'CONNECTED';
         if (current.protocol === 'SSH2' && current.writable && !lastSize) {
           const size = dimensions(term.cols, term.rows);
@@ -249,7 +281,7 @@ function App() {
     }
     let timer = 0;
     void poll();
-    return () => { disposed = true; stopped.current = true; clearTimeout(timer); runtime.current = null; queue.close(); clearTimeout(resizeTimer); resize.dispose(); observer.disconnect(); input.dispose(); current.writer.close(); term.dispose(); };
+    return () => { clip.invalidate(); clipboard.current = undefined; element.removeEventListener('paste', paste, true); disposed = true; stopped.current = true; clearTimeout(timer); runtime.current = null; queue.close(); clearTimeout(resizeTimer); resize.dispose(); observer.disconnect(); input.dispose(); current.writer.close(); term.dispose(); };
   }, []);
 
   useEffect(() => { if (runtime.current) { runtime.current.term.options.fontSize = fontSize; runtime.current.fit.fit(); } }, [fontSize]);
@@ -258,8 +290,7 @@ function App() {
     setBusy(true);
     try {
       const connection = await invoke<Connection>('fixture_create');
-      selectedRef.current = connection.connection_id;
-      setSelected(connection.connection_id);
+      selectConnection(connection.connection_id);
       await invoke('fixture_append', { connection: { connection_id: connection.connection_id, generation: connection.generation }, bytes: Array.from(new TextEncoder().encode(demo)) });
     } catch { setFailure('合成会话创建失败；未重试'); }
     finally { setBusy(false); }
@@ -302,11 +333,13 @@ function App() {
       <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
       <button onClick={() => setSerialOpen(open => !open)}>串口连接</button>
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
-      <select aria-label="会话" value={selected} onChange={event => { selectedRef.current = event.target.value; setSelected(event.target.value); }}>
+      <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
         {!connections.length && <option value="">尚无会话</option>}
         {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
       </select>
       {service?.fixture && <><button disabled={busy || !!failure} onClick={() => void createFixture()}>新建合成会话</button><button disabled={busy || !selected || !!failure} onClick={() => void stress()}>高输出回放</button><button onClick={() => { stopped.current = true; }}>停止后续回放</button></>}
+      <button onClick={() => void clipboard.current?.copy()}>复制选区</button>
+      <button disabled={!selected} onClick={() => void clipboard.current?.paste()}>粘贴到终端</button>
       <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
       <button onClick={capture}>屏幕快照</button>
       <button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button>
@@ -314,10 +347,19 @@ function App() {
       <label>字号 <input aria-label="字号" type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
     </nav>
     {configurationOpen && <ConfigPanel close={() => setConfigurationOpen(false)} />}
-    {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={id => { selectedRef.current = id; setSelected(id); }} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
+    {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
     <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />
-    {serialOpen && <SerialPanel connection={connections.find(item => item.connection_id === selected)} select={id => { selectedRef.current = id; setSelected(id); }} />}
+    {serialOpen && <SerialPanel connection={connections.find(item => item.connection_id === selected)} select={selectConnection} />}
     {searchOpen && <TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} />}
+    {pasteProposal && <section className="config-panel" aria-label="粘贴确认">
+      <h2>确认粘贴到终端</h2>
+      <small>目标 {pasteProposal.target.protocol} · {pasteProposal.target.connection_id} / 代次 {pasteProposal.target.generation}</small>
+      <p>内容可能执行多条命令。CR/LF按原样发送，不自动添加换行；{pasteProposal.bracketed ? '使用终端请求的括号粘贴模式，不能保证远端安全。' : '当前未启用括号粘贴模式。'}继续键盘输入或切换目标会取消此预览。</p>
+      <small>{pasteProposal.text.length} 个UTF-16单元 · CR {pasteProposal.text.split('\r').length - 1} · LF {pasteProposal.text.split('\n').length - 1} · 转义预览（最多8192个单元）</small>
+      <pre aria-label="粘贴内容预览">{visibleControls(JSON.stringify(pasteProposal.text.slice(0,8192)))}{pasteProposal.text.length > 8192 && ' …预览已截断'}</pre>
+      <div className="config-actions"><button onClick={() => clipboard.current?.confirm(pasteProposal)}>确认发送粘贴</button><button autoFocus onClick={() => { clipboard.current?.invalidate(); setClipboardMessage('已取消粘贴；未发送'); runtime.current?.term.focus(); }}>取消粘贴</button></div>
+    </section>}
+    {clipboardMessage && <div role="status" aria-label="剪贴板状态">{clipboardMessage}</div>}
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || inputFailure || status}</div>
     {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}

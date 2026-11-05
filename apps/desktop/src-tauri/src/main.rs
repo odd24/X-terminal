@@ -2,6 +2,7 @@
 
 mod export_save;
 mod service;
+mod terminal_clipboard;
 use session_core::session::{ConnectionInfo, ConnectionRef, OutputPage};
 use session_protocol::{Reply, Request};
 use std::{sync::Arc, time::Duration};
@@ -363,6 +364,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            terminal_clipboard::terminal_clipboard_read,
             service_status,
             service_list,
             service_read,

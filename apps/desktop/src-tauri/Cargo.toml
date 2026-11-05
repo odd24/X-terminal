@@ -19,7 +19,7 @@ windows = { version = "=0.62.2", features = ["Win32_UI_Shell", "Win32_UI_Shell_C
 tokio = { version = "=1.54.1", features = ["process", "sync", "time", "io-util"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 uuid = { version = "=1.29.0", features = ["v4", "serde"] }
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_DataExchange", "Win32_System_Memory"] }
 
 [dev-dependencies]
 serde_json = "=1.0.154"
