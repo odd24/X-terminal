@@ -11,6 +11,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | D03 | 实机后验收与独立开发准入 CR-001 | DONE | [D03](records/D03.md) | Step-ID: D03 |
 | D04 | 现代简洁界面与全局样式/字体统一规则 CR-002 | DONE | [D04](records/D04.md) | Step-ID: D04 |
 | D04.1 | 常用 Xshell 界面操作参考与验收细化 | DONE | [D04.1](records/D04.1.md) | Step-ID: D04.1 |
+| D05 | 多会话隔离开发与串行集成方案归档（未启动） | DONE | [D05](records/D05.md) | Step-ID: D05 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
@@ -61,6 +62,8 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | G4 | TODO | 尚未发布验收 |
 
 ## 当前问题
+
+2026-11-05 D05 / CR-003：已归档[多会话并行执行手册](PARALLEL_EXECUTION.md)。第一批拟由A统筹、B负责P11.7极限差异、C负责P11.4既定特殊目标拒绝/文件保持，worktree开发隔离、真实IPC/原生桌面串行验证。当前仅文档完成，未创建worktree/会话，B/C尚未启动；启动时从包含手册的实际HEAD核对共同基线，不固定使用调查基线d80f5b2。产品步骤/阶段门及开放问题不变，后续分工/资源时段/结果在本节追加真实记录。
 
 2026-11-05当前续行点：P11.4恢复导出与原生另存已接入固定RECOVERY来源/对应可信服务指纹、独立GUI槽和系统选择器，恢复保存专项最终PASS，完整回归结果见记录。SSH旧编码完整收发/exec已由P11.5补齐软件证据；终端复制粘贴/搜索现由P11.6完成软件证据，下一步核对P11剩余reflow/日志特殊目标与恢复等独立缺口；特殊目标/跨重启保存恢复、实机、长稳、全局UI矩阵和reflow保持开放。用户要求每两个提交后新建对话续行，后继对话从当时HEAD重新计数，不增加空提交。
 
