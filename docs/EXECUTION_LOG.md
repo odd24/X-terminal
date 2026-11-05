@@ -12,6 +12,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | D04 | 现代简洁界面与全局样式/字体统一规则 CR-002 | DONE | [D04](records/D04.md) | Step-ID: D04 |
 | D04.1 | 常用 Xshell 界面操作参考与验收细化 | DONE | [D04.1](records/D04.1.md) | Step-ID: D04.1 |
 | D05 | 多会话隔离开发与串行集成方案归档（未启动） | DONE | [D05](records/D05.md) | Step-ID: D05 |
+| D05.1 | 完整可复制启动与自动接续指令归档（未启动） | DONE | [D05.1](records/D05.1.md) | Step-ID: D05.1 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
@@ -62,6 +63,8 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | G4 | TODO | 尚未发布验收 |
 
 ## 当前问题
+
+2026-11-05 D05.1：已补齐[完整可复制启动指令](PARALLEL_START.md)，包含首批授权、A统一创建/核验B/C后继、A自身接续、冻结旧写入者与中断恢复。只有用户将指令作为新消息发送后才启动；本轮未创建worktree/会话，产品状态不变。上下文自动压缩不等于新建接续，工具/额度等失败按实际状态通知，不承诺无条件自动续行。
 
 2026-11-05 D05 / CR-003：已归档[多会话并行执行手册](PARALLEL_EXECUTION.md)。第一批拟由A统筹、B负责P11.7极限差异、C负责P11.4既定特殊目标拒绝/文件保持，worktree开发隔离、真实IPC/原生桌面串行验证。当前仅文档完成，未创建worktree/会话，B/C尚未启动；启动时从包含手册的实际HEAD核对共同基线，不固定使用调查基线d80f5b2。产品步骤/阶段门及开放问题不变，后续分工/资源时段/结果在本节追加真实记录。
 
