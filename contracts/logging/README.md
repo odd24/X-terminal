@@ -64,3 +64,9 @@ ManagedRoot/ExportStore::preview_cleanup只针对其受管理根下非空UUID，
 CleanupInfo为kind/id/files(name,bytes)/logical_bytes，不是可序列化授权。丢弃预览不删除，apply须调用方先明确确认，消费持有句柄一次；提交前核对名字集合，Changed则零删除。通过FileDispositionInfo逐项处理精确句柄，不重新按路径删除；中途错误或最后目录仍非空时返回Storage、OS码和精确removed_files/removed_logical_bytes/directory_removed=false。新增未知文件保留，已删项不可恢复、不能重试旧预览。逻辑字节不是实际释放分配空间或安全擦除证明。详情见ADR-031；尚无整理IPC/GUI、预览期限/权限和回执治理，不从文件库通过推断产品整理已启用。
 
 服务整理IPC已接入Desktop专用有界actor，作用域kind/id/preview_id+确认码、4快照/30秒、8队列/128回执，详见IPC说明及ADR-031。受影响的捕获/导出注册返回REMOVED，旧创建不重跑；捕获已清理和导出已清理/失败/取消的有序回执可退休，不透明回执不偷删。导出元数据只读枚举允许与现有exports.lock共存，缺失根返回空，不改变写入者8项配额。GUI整理确认/无目录失败捕获的显式维护继续，不能从原生RPC或REMOVED显示推断完整整理体验已验收。
+
+## 发布产物指纹与验证复制（ADR-032）
+
+ExportStore生产时对实际接受的全部JSONL字节累计SHA-256，只有原有最终flush/sync及不覆盖发布成功才返回ExportArtifact.sha256；指纹不写入JSONL，不迁移v1格式。服务的COMPLETED回执携带bytes和小写十六进制指纹，其他状态为null，REMOVED撤下旧值。哈希来自可信服务回执，不是文件自报值、签名或来源权限。
+
+Windows VerifiedExport固定读取可信应用目录下terminal-log-exports/非nil UUID/export.jsonl，逐级pin/拒绝reparse，只读文件句柄拒绝写/delete共享；不创建根/锁或取得导出owner。先完整检查正数/256MiB上限、长度和哈希，随后copy_to以64KiB缓冲重读并校验实际复制字节，传播取消/短写/flush失败。调用者只能使用全新私有暂存sink，Err可能已有部分或全部字节，不能发布；Ok还不包含目标sync/发布/覆盖授权或断电保证。它是自选保存的来源准备，不是已接入用户目标保存界面；后续原生任务须固定scope、目标由用户原生选择并单独处理发布及确认。详见[ADR-032](../../docs/decisions/ADR-032.md)。

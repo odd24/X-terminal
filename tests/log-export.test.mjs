@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { checkedExport, restoreExport, terminalExport } from '../apps/desktop/src/log-export.ts';
 const scope = { connection: { connection_id:'11111111-1111-4111-8111-111111111111', generation:3 }, log_id:'22222222-2222-4222-8222-222222222222', request_id:'33333333-3333-7333-8333-333333333333' };
-const pending = () => ({ result:'export', ...structuredClone(scope), phase:'RUNNING', failure:null, bytes:null, retained_records:null, retained_raw_bytes:null, retained_gap_bytes:null, next_cursor:null });
-const done = () => ({ ...pending(), phase:'COMPLETED', bytes:3000, retained_records:4, retained_raw_bytes:9, retained_gap_bytes:13, next_cursor:57 });
+const pending = () => ({ result:'export', ...structuredClone(scope), phase:'RUNNING', failure:null, bytes:null, sha256:null, retained_records:null, retained_raw_bytes:null, retained_gap_bytes:null, next_cursor:null });
+const done = () => ({ ...pending(), phase:'COMPLETED', bytes:3000, sha256:'ab'.repeat(32), retained_records:4, retained_raw_bytes:9, retained_gap_bytes:13, next_cursor:57 });
 
 test('export replies must match the exact frozen scope and completion before revealing paths or counters', () => {
   assert.equal(terminalExport(checkedExport(pending(),scope)),false);
@@ -25,6 +25,8 @@ test('export safety rejects unsafe integer totals, incomplete terminal shapes an
   for(const bytes of [0,256*1024*1024+1]) assert.throws(()=>checkedExport({...done(),bytes},scope));
   assert.throws(()=>checkedExport({...done(),next_cursor:0},scope));
   assert.throws(()=>checkedExport({...done(),failure:'STORAGE'},scope));
+  for (const sha256 of [null, undefined, 'f'.repeat(63), 'F'.repeat(64), 'x'.repeat(64), 3]) assert.throws(()=>checkedExport({...done(),sha256},scope));
+  assert.throws(()=>checkedExport({...pending(),sha256:'a'.repeat(64)},scope));
   assert.throws(()=>checkedExport({...pending(),phase:'FAILED'},scope));
   assert.equal(checkedExport({...pending(),phase:'FAILED',failure:'INVALID_SOURCE'},scope).bytes,null);
   assert.equal(checkedExport({...pending(),phase:'CANCELLED'},scope).failure,null);

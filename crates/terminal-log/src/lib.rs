@@ -5,6 +5,10 @@ mod cleanup;
 mod directory;
 mod export;
 mod export_store;
+#[cfg(windows)]
+mod verified_export;
+#[cfg(windows)]
+pub use verified_export::{ExportFingerprint, VerifiedExport};
 mod format;
 mod paired;
 mod storage;

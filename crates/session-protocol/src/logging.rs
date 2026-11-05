@@ -331,6 +331,7 @@ pub struct ExportInfo {
     pub failure: Option<ExportFailure>,
     // Present only after successful synchronized, no-overwrite publication.
     pub bytes: Option<u64>,
+    pub sha256: Option<String>,
     pub retained_records: Option<u64>,
     pub retained_raw_bytes: Option<u64>,
     pub retained_gap_bytes: Option<u64>,

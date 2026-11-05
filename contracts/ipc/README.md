@@ -79,3 +79,7 @@ P11.4增加logging/cleanup_list(kind)、cleanup_preview/status/cancel(kind,id,pr
 返回result=cleanup_list(kind,ids)或result=cleanup，后者含原kind/id/preview_id、phase=PREVIEW/CANCELLED/EXPIRED/APPLIED、expires_at_ms、confirmation（仅PREVIEW非空）、固定文件名/逻辑大小及report。独立8队列、4快照、128回执，快照30秒有效，查询不续租；取消/到期只释放。提交必须回传原确认码，作用域/码不符InvalidArgument，到期/取消后提交RequestExpired；相同已提交ID+码返回原报告不再次删除。APPLIED不等于清理成功：report包含removed_files/removed_logical_bytes/directory_removed/failure(CHANGED|STORAGE|null)/os_code，途中失败按实际前缀报告且不可回滚，新增未知项不删除。重启不恢复旧确认，不能用旧提交重建预览。
 
 快照或排队保留意图期间新的日志/导出Start及历史目录/新开读取明确InvalidState；其他终端输入/输出不受文件锁影响。存在排队/执行中导出时不接受新整理快照。受影响的本次捕获/导出状态新增REMOVED：捕获durable=false、active=false且计数为历史；导出成功计数全部null，不再返回可用路径。已结束且仍挂接的旧失败capture仅按精确ID解除。64条创建回执满额时只退休符合ADR-031条件的UUIDv7，旧编号RequestExpired；opaque不偷删；物理配额不扩大。schema与服务/桌面/桥接必须同构建。此阶段没有GUI整理确认入口，现有导出面板仅识别整理后的状态。
+
+后续已接入桌面显式清理确认与本次服务失败维护。logging/capture_list为严格无参、active Desktop专用的内存清单，最多64项Info/List，包含旧代次/已移除连接而不扫描目录；Observer持read票据仍无权。logging/release_failed要求原ConnectionRef/log_id，仅FAILED且worker_finished可幂等解除关联并标RELEASED，失败计数/文件保留，不表示已清理；有序回执退休和REMOVED优先规则见ADR-031。服务重启清单为空，不自动恢复旧注册或启动记录。
+
+P11.4导出Info新增sha256：仅COMPLETED为64位小写十六进制SHA-256，其余阶段（含REMOVED）为null。指纹在实际JSONL生产写入时累计，最终flush/sync/发布成功后才返回，不写入文件自身、不改变JSONL v1。它绑定同一可信本次服务导出scope及bytes，不能作为读取票据、任意路径授权或用户目标已保存证明。前端缺失/非法指纹拒绝成功结果；后续原生保存通过固定源句柄和两遍核验使用它，方案与边界见[ADR-032](../../docs/decisions/ADR-032.md)。本阶段尚无目标路径/自选保存RPC，不扩大Observer/Agent权限。

@@ -1,4 +1,5 @@
 use super::*;
+use sha2::Digest;
 use std::io::Write;
 
 fn capture(temp: &Temp, count: u64) -> (ManagedRoot, Metadata, Status) {
@@ -216,6 +217,26 @@ fn managed_export_syncs_and_publishes_once_without_overwriting_or_touching_sourc
     let bytes = fs::read(&ready).unwrap();
     assert_eq!(artifact.export_id, id);
     assert_eq!(artifact.bytes, bytes.len() as u64);
+    assert_eq!(
+        artifact.sha256,
+        <[u8; 32]>::from(sha2::Sha256::digest(&bytes))
+    );
+    #[cfg(windows)]
+    {
+        let mut verified = crate::VerifiedExport::open(
+            &temp.0,
+            id,
+            crate::ExportFingerprint {
+                bytes: artifact.bytes,
+                sha256: artifact.sha256,
+            },
+            || false,
+        )
+        .unwrap();
+        let mut copied = Vec::new();
+        verified.copy_to(&mut copied, || false).unwrap();
+        assert_eq!(copied, bytes);
+    }
     assert_eq!(artifact.summary.retained_records, 5);
     assert_eq!(lines(&bytes).last().unwrap()["type"], "verified");
     assert!(!directory.join("export.partial").exists());

@@ -1,6 +1,7 @@
 //! Single-owner managed export staging. Never accepts a caller-provided name.
 use crate::{ExportSummary, ManagedRoot, export_jsonl, storage};
 use session_core::session::ConnectionRef;
+use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, BufWriter, Write},
@@ -15,6 +16,7 @@ const MAX_EXPORTS: usize = 8;
 pub struct ExportArtifact {
     pub export_id: Uuid,
     pub bytes: u64,
+    pub sha256: [u8; 32],
     pub summary: ExportSummary,
 }
 pub struct ExportStore {
@@ -25,6 +27,7 @@ pub struct ExportStore {
 struct Limited<W> {
     inner: W,
     bytes: u64,
+    hash: Sha256,
 }
 impl<W: Write> Write for Limited<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -36,6 +39,7 @@ impl<W: Write> Write for Limited<W> {
             ));
         }
         let count = self.inner.write(bytes)?;
+        self.hash.update(&bytes[..count]);
         self.bytes += count as u64;
         Ok(count)
     }
@@ -156,6 +160,7 @@ impl ExportStore {
         let mut output = Limited {
             inner: BufWriter::with_capacity(32 * 1024, file),
             bytes: 0,
+            hash: Sha256::new(),
         };
         let summary = export_jsonl(source, log_id, connection, &mut output, &mut is_cancelled)?;
         output.inner.get_ref().sync_all()?;
@@ -166,11 +171,13 @@ impl ExportStore {
             ));
         }
         let bytes = output.bytes;
+        let sha256 = output.hash.clone().finalize().into();
         drop(output);
         storage::publish(&partial, &directory.join("export.jsonl"))?;
         Ok(ExportArtifact {
             export_id,
             bytes,
+            sha256,
             summary,
         })
     }
@@ -180,10 +187,42 @@ impl ExportStore {
 mod tests {
     use super::*;
     #[test]
+    fn fingerprint_counts_only_bytes_accepted_by_short_writes() {
+        struct Short(Vec<u8>);
+        impl Write for Short {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                let n = bytes.len().min(2);
+                self.0.extend_from_slice(&bytes[..n]);
+                Ok(n)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut output = Limited {
+            inner: Short(vec![]),
+            bytes: 0,
+            hash: Sha256::new(),
+        };
+        output.write_all(b"abc").unwrap();
+        assert_eq!(output.bytes, 3);
+        assert_eq!(output.inner.0, b"abc");
+        assert_eq!(
+            output
+                .hash
+                .finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+    #[test]
     fn byte_limit_rejects_before_forwarding_to_sink() {
         let mut limited = Limited {
             inner: Vec::new(),
             bytes: MAX_EXPORT_BYTES - 2,
+            hash: Sha256::new(),
         };
         limited.write_all(&[1, 2]).unwrap();
         assert_eq!(

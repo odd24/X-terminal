@@ -4212,6 +4212,12 @@
                   "integer",
                   "null"
                 ]
+              },
+              "sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [

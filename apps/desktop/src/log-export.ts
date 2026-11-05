@@ -27,5 +27,6 @@ export function checkedExport(value: unknown, target: ExportScope): ExportInfo {
     if (value.phase === 'COMPLETED' ? !Number.isSafeInteger(value[key]) || (value[key] as number) < 0 : value[key] !== null) throw invalid();
   }
   if (value.phase === 'COMPLETED' && ((value.bytes as number) < 1 || (value.bytes as number) > 256 * 1024 * 1024 || (value.next_cursor as number) < 1)) throw invalid();
+  if (value.phase === 'COMPLETED' ? typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256) : value.sha256 !== null) throw invalid();
   return value as unknown as ExportInfo;
 }

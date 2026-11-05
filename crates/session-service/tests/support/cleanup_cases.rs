@@ -809,6 +809,7 @@ async fn cleanup_export_preserves_source_and_marks_receipts_removed_without_recr
         .await,
     );
     assert_eq!(result.phase, log::ExportPhase::Removed);
+    assert!(result.sha256.is_none());
     assert!(result.bytes.is_none());
     assert_eq!(
         exportinfo(

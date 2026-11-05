@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 const directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-export-ui-中文-'));
 const key='terminal-log-export-task-v1';
@@ -35,6 +36,8 @@ async function completed(id) {
   assert.equal(path.resolve(location),path.resolve(savedPath(id)));
   assert.equal(await ui.evaluate(`(() => {const input=document.querySelector('[aria-label="日志导出文件路径"]');input.focus();return input.readOnly&&document.activeElement===input&&input.selectionStart===0&&input.selectionEnd===input.value.length;})()`),true,'the complete path is keyboard-focusable and selected for copying');
   const bytes=await readFile(location);
+  const receipt=await request({op:'export_status',...await scope()});
+  assert.equal(receipt.sha256,createHash('sha256').update(bytes).digest('hex'),'producer fingerprint matches the actual published bytes');
   const rows=bytes.toString().trimEnd().split('\n').map(line=>JSON.parse(line));
   assert.equal(rows[0].type,'header');assert.equal(rows.at(-1).type,'verified');
   return {bytes,rows};

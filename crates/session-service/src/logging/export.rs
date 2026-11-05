@@ -41,6 +41,7 @@ impl Access {
             entry.info.phase = P::Removed;
             entry.info.failure = None;
             entry.info.bytes = None;
+            entry.info.sha256 = None;
             entry.info.retained_records = None;
             entry.info.retained_raw_bytes = None;
             entry.info.retained_gap_bytes = None;
@@ -131,6 +132,13 @@ impl Worker {
                             // cancellation as if an already-created file disappeared.
                             info.phase = P::Completed;
                             info.bytes = Some(artifact.bytes);
+                            info.sha256 = Some(
+                                artifact
+                                    .sha256
+                                    .iter()
+                                    .map(|byte| format!("{byte:02x}"))
+                                    .collect(),
+                            );
                             info.retained_records = Some(artifact.summary.retained_records);
                             info.retained_raw_bytes = Some(artifact.summary.retained_raw_bytes);
                             info.retained_gap_bytes = Some(artifact.summary.retained_gap_bytes);
@@ -218,6 +226,7 @@ impl Worker {
             phase: P::Queued,
             failure: None,
             bytes: None,
+            sha256: None,
             retained_records: None,
             retained_raw_bytes: None,
             retained_gap_bytes: None,
@@ -328,6 +337,7 @@ mod tests {
                                 None
                             },
                             bytes: None,
+                            sha256: None,
                             retained_records: None,
                             retained_raw_bytes: None,
                             retained_gap_bytes: None,

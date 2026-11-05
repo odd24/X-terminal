@@ -110,6 +110,8 @@ P11.4清理界面新增 npm run test:desktop:cleanup（前置桌面构建），�
 
 P11.4失败关联维护使用release_failed与RELEASED，仅已结束FAILED，按ConnectionRef/log_id幂等解除，未删除任何文件。capture_list提供本次最多64项跨连接/旧代次清单，独立维护不跟随活动连接；重启不重建回执。不要把它当作REMOVED、失败前缀恢复或物理容量已释放；旧Start仍去重/退休，不因回收而重放。npm run test:desktop:logging覆盖实际维护入口与丢应答后原目标查询、重连/移除后无活动连接维护；无目录失败的确定性服务组合测试与已有目录失败的IPC/GUI证据分开记录。新增合成生命周期命令只在--test-fixture下有效，普通桌面专项必须逐项拒绝，不提供通用RPC。
 
+P11.4导出完成回执新增sha256，只有COMPLETED携带64位小写值，REMOVED及非完成为null。VerifiedExport仅Windows固定受管理UUID/文件读取，复制前后核对可信回执；copy_to只面向私有暂存sink，Err可能已写部分或全部字节，Ok不等于目标同步/发布/用户覆盖授权。新增样本仅中文前缀临时目录；原生test:desktop:export以Node crypto核对实际落盘指纹。原生保存与打开目录未接入时不得从库验证通过宣称自选位置已保存。
+
 P11.4受管理导出任务扩展test:desktop:logging：验证专用Tauri通道的export_start/status/cancel和真实暂存产物，不代表用户保存按钮/自选位置已完成。导出队列8/回执64，磁盘尝试8/每份256MiB；失败partial保留，不自动清理或覆盖。涉及格式/文件策略继续运行terminal-log测试及严格clippy，任务权限/去重须有真实Windows IPC证据。
 
 P11.4桌面导出新增npm run test:desktop:export（前置桌面构建），已纳入完整回归；受管理保存路径不等同自选另存位置/打开目录。应答故障/延迟注入在测试Harness的真实IPC fetch响应处执行并核对命中数，禁止靠重写不可写的Tauri invoke制造未生效的通过证据。只用合成临时日志，保留任务精确目标和应答不明语义。

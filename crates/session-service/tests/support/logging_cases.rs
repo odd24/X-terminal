@@ -26,6 +26,9 @@ async fn export_done(
                 )
                 .await,
             );
+            if result.phase != log::ExportPhase::Completed {
+                assert!(result.sha256.is_none());
+            }
             if matches!(
                 result.phase,
                 log::ExportPhase::Completed
@@ -106,6 +109,12 @@ async fn export_jobs_are_desktop_only_scoped_deduplicated_and_survive_source_res
     }
     let done = export_done(&mut client, connection, log_id, request_id).await;
     assert_eq!(done.phase, log::ExportPhase::Completed);
+    let hash = done.sha256.as_ref().unwrap();
+    assert_eq!(hash.len(), 64);
+    assert!(
+        hash.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    );
     assert_eq!(done.retained_records, Some(3));
     assert_eq!(done.retained_raw_bytes, Some(15));
     assert_eq!(done.retained_gap_bytes, Some(0));
