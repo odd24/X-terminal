@@ -127,3 +127,5 @@ P11.4桌面恢复新增npm run test:desktop:recovery（前置desktop:build），
 P11.4恢复导出扩展test:desktop:recovery的专用logging_request通道验证，以Node crypto独立核对真实JSONL的长度/SHA-256、精确两条前缀及未完整停止尾行，重复Start/晚Cancel保持，普通查询拒绝。原生构建与专项实际PASS，完整回归结果见P11.4；未接恢复导出/另存按钮时不得由通道通过宣称GUI保存完成。
 
 P11.4恢复导出GUI扩展test:desktop:recovery，真实按钮/IPC应答丢失及迟到折叠、Page.reload编号恢复、Node crypto落盘指纹和清理后撤下路径；仍只用shared-terminal-recovery-ui-中文-自建临时根。应用目录发布不等于恢复原生另存，后者须固定来源模式并从对应服务回执获取可信指纹，不得把恢复ID走普通查询或把未完整报告改成完整。
+
+P11.4恢复原生另存已按NORMAL/RECOVERY必填固定来源模式接入，对应服务回执取得生产指纹后才打开选择器；所有保存操作保持模式/精确scope/save_id。恢复GUI复用共享面板但独立编号槽，未完整说明持续显示，重载不恢复路径/替换同意，应答不明只查询。test:desktop:recovery使用恢复数据中文前缀根及另建shared-terminal-save-ui-中文-目标根操作真实选择器/自建Explorer窗口，核对逐字节/SHA-256/备份/丢应答/重载/迟到及清理后用户副本保持；特殊目标/跨重启/全局UI矩阵不从专项推断通过。

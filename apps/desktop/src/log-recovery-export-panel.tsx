@@ -4,6 +4,7 @@ import { logging, ExportRequestError, type ExportScope } from './logging-api';
 import { checkedRecoveryExport, restoreRecoveryExport, type RecoveryExportInfo, type RecoveryExportRequest } from './log-recovery-export';
 import { checkedRecoveryInfo, recoveryStopText, type RecoveryInfo } from './log-recovery';
 import { requestId } from './request-id';
+import { LogSavePanel } from './log-save-panel';
 
 const key = 'terminal-log-recovery-export-task-v1';
 const terminal = (info: RecoveryExportInfo) => ['COMPLETED', 'CANCELLED', 'FAILED', 'REMOVED'].includes(info.phase);
@@ -76,5 +77,6 @@ export function LogRecoveryExportPanel({ selected, disabled }: { selected?: Reco
     {task && <p className="data-location" aria-label="恢复导出任务目标">恢复模式 · 日志 {task.scope.log_id} · {task.scope.connection.connection_id} / {task.scope.connection.generation} · 任务 {task.scope.request_id}</p>}
     <p role="status" aria-label="恢复导出状态">{message}</p>
     {done?.recovered && <><p aria-label="恢复导出范围">未完整 · 已恢复 {done.recovered.recovered_records} 条 · 原始 {done.recovered.recovered_raw_bytes} 字节 · 源缺口 {done.recovered.recovered_gap_bytes} 字节 · 文件 {done.bytes} 字节 · {recoveryStopText(done.recovered.stop)}</p><label>恢复产物路径<input ref={path} aria-label="恢复导出文件路径" readOnly value={`${directory ? `${directory}\\` : ''}terminal-log-exports\\${done.request_id}\\export.jsonl`} onFocus={event => event.target.select()} /></label>{!directory && <small>应用目录暂不可用，以上为相对位置。</small>}</>}
+    <LogSavePanel mode="RECOVERY" source={done} />
   </fieldset>;
 }

@@ -36,3 +36,10 @@ test('reload restores identifiers only, never a destination, confirmation nonce 
      assert.throws(()=>checkedSave({...prepared(),scope:bad.scope},target));
    }
  });
+
+test('ordinary and recovery save slots cannot restore each other, including fabricated approval',()=>{
+  const recovery={...prepared(),scope:{...target.scope,mode:'RECOVERY'},reviewed:true};
+  assert.equal(restoreSave(JSON.stringify(recovery),'NORMAL'),undefined);
+  assert.equal(restoreSave(JSON.stringify(prepared()),'RECOVERY'),undefined);
+  assert.deepEqual(restoreSave(JSON.stringify(recovery),'RECOVERY'),{...target,scope:recovery.scope});
+});

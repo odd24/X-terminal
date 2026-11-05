@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-recovery-ui-中文-'));
+const saveDirectory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-save-ui-中文-'));
 let ui;
 const request = value => ui.invoke('logging_request', { request: value });
 const native = (action, target) => new Promise((resolve,reject) => {
@@ -156,6 +157,84 @@ try {
   assert.equal(guiRows[0].incomplete,true);assert.equal(guiRows.at(-1).type,'recovery_stopped');
   assert.equal(guiRows.at(-1).recovered.recovered_records,2);assert.equal(guiRows.at(-1).recovered.stop.kind,'TRUNCATED_RECORD');
   assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复导出范围"]').textContent`)).includes('未完整'));
+  // Recovery GUI uses its own ID-only slot and the real native picker. The
+  // selected path is confined to a separate self-created save-test root.
+  const saveKey='terminal-recovery-export-save-v1';
+  const savedTask=async()=>JSON.parse(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify(saveKey)})`));
+  const saveState=text=>ui.waitFor(`document.querySelector('[aria-label="恢复导出另存状态"]')?.textContent.includes(${JSON.stringify(text)})`);
+  const saveRequest=(op,task,extra={})=>ui.invoke('export_save_request',{request:{op,...task,...extra}});
+  const pickRecovery=async target=>{await ui.click('另存未完整恢复文件');await native('select',target);return savedTask();};
+  const savedPath=path.join(saveDirectory,'未完整前缀.jsonl');
+  const lostSave=await ui.interceptIpc({command:'export_save_request',op:'start',mode:'error'});
+  const saved=await pickRecovery(savedPath);await saveState('保留原任务编号');
+  assert.equal(await lostSave.count(),1);await lostSave.restore();
+  assert.equal(saved.scope.mode,'RECOVERY');assert.equal(saved.scope.request_id,guiScope.request_id);
+  assert.deepEqual(Object.keys(saved).sort(),['save_id','scope']);
+  assert.equal(await ui.evaluate(`sessionStorage.getItem('terminal-export-save-v1')`),null,'recovery must not overwrite ordinary slot');
+  for(const text of ['另存未完整恢复文件','恢复取消另存'])assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent===${JSON.stringify(text)}).disabled`),true);
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复另存文件路径"]')`),false);
+  await ui.click('恢复查询另存结果');await saveState('本次另存已完成');
+  assert.deepEqual(await readFile(savedPath),guiBytes);
+  assert.equal(createHash('sha256').update(await readFile(savedPath)).digest('hex'),guiReceipt.sha256);
+  assert.equal((await saveRequest('start',saved)).phase,'COMPLETED');
+  assert.equal((await saveRequest('cancel',saved)).phase,'COMPLETED','late cancel cannot undo publication');
+  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复导出另存状态"]').textContent`)).includes('未完整'));
+  await ui.evaluate(`document.querySelector('[aria-label="恢复导出另存"]').scrollIntoView({block:'end'})`);
+  await ui.screenshot('desktop-recovery-save-completed-synthetic.png');
+  await ui.click('恢复打开保存目录');await native('explorer',saveDirectory);
+  const replacement=path.join(saveDirectory,'保留原文件.jsonl');await writeFile(replacement,'original recovery-save target');
+  const replaceTask=await pickRecovery(replacement);await saveState('等待明确替换确认');
+  assert.equal(await readFile(replacement,'utf8'),'original recovery-save target');
+  assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='恢复确认替换并保存').disabled`),true);
+  await select(long.log_id);
+  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复另存固定目标"]').textContent`)).includes(first.log_id));
+  await ui.evaluate(`document.querySelector('[aria-label="恢复确认替换保存文件"]').click()`);
+  await ui.evaluate(`document.querySelector('[aria-label="恢复导出另存"]').scrollIntoView({block:'end'})`);
+  await ui.screenshot('desktop-recovery-save-confirm-synthetic.png');
+  await ui.click('恢复确认替换并保存');await saveState('本次另存已完成');
+  const replaced=await saveRequest('status',replaceTask);
+  assert.deepEqual(await readFile(replacement),guiBytes);assert.equal(await readFile(replaced.backup,'utf8'),'original recovery-save target');
+  // A real reload while a confirmation exists does not restore consent or path.
+  const reloadTask=await pickRecovery(replacement);await saveState('等待明确替换确认');
+  await ui.evaluate(`document.querySelector('[aria-label="恢复确认替换保存文件"]').click()`);
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);await panel();
+  await saveState('已恢复另存编号');
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复另存文件路径"]') || !!document.querySelector('[aria-label="恢复确认替换保存文件"]')`),false);
+  assert.deepEqual(await savedTask(),reloadTask);
+  await ui.click('恢复查询另存结果');
+  await ui.waitFor(`!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='恢复查询另存结果').disabled`);
+  const reloaded=await saveRequest('status',reloadTask);
+  assert.ok(['AWAITING_CONFIRMATION','CANCELLED'].includes(reloaded.phase));
+  if(reloaded.phase==='AWAITING_CONFIRMATION') {
+    assert.equal(await ui.evaluate(`document.querySelector('[aria-label="恢复确认替换保存文件"]').checked`),false);
+    await ui.click('恢复取消另存');await saveState('另存已取消');
+  }
+  assert.deepEqual(await readFile(replacement),guiBytes);
+  await ui.click('查询恢复导出结果');await exportReady();
+  // A lost status must hide the previously confirmed destination and allow only query.
+  const lostSaveStatus=await ui.interceptIpc({command:'export_save_request',op:'status',mode:'error'});
+  await ui.click('恢复查询另存结果');await saveState('保留原任务编号');
+  assert.equal(await lostSaveStatus.count(),1);await lostSaveStatus.restore();
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复另存文件路径"]')`),false);
+  assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='恢复取消另存').disabled`),true);
+  await ui.click('恢复查询另存结果');await saveState('另存已取消');
+  const tampered=Buffer.from(guiBytes);tampered[0]^=1;await writeFile(guiPath,tampered);
+  const refused=path.join(saveDirectory,'源变化不发布.jsonl');await pickRecovery(refused);await saveState('另存失败');
+  await assert.rejects(readFile(refused));await writeFile(guiPath,guiBytes);
+  // Start's real reply arrives after the recovery panel has been collapsed.
+  const lateSave=await ui.interceptIpc({command:'export_save_request',op:'start',delayMs:500});
+  await ui.click('另存未完整恢复文件');await ui.waitFor(`window.__desktopIpcResponseTest.count===1`);
+  const lateSaveTask=await savedTask();
+  await ui.evaluate(`document.querySelector('[aria-label="失败日志恢复工具"]').open=false`);
+  await native('cancel');await delay(650);assert.equal(await lateSave.count(),1);await lateSave.restore();
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复导出另存"]')`),false);
+  await ui.evaluate(`document.querySelector('[aria-label="失败日志恢复工具"]').open=true`);
+  await ui.waitFor(`!!document.querySelector('[aria-label="恢复导出另存"]')`);await ui.click('恢复查询另存结果');await saveState('另存已取消');
+  assert.deepEqual(await savedTask(),lateSaveTask);
+  await ui.click('查询恢复导出结果');await exportReady();
+  assert.deepEqual(await readFile(savedPath),guiBytes);
+  await ui.screenshot('desktop-recovery-save-synthetic.png');
+  await ui.click('刷新恢复目录');
   await select(long.log_id);
   assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复导出任务目标"]').textContent`)).includes(first.log_id),'selection cannot retarget completed task');
   await ui.screenshot('desktop-recovery-export-synthetic.png');
@@ -179,6 +258,8 @@ try {
   assert.equal(cleaned.report.directory_removed,true);assert.equal(cleaned.report.failure,null);
   await ui.click('查询恢复导出结果');await ui.waitFor(`document.querySelector('[aria-label="恢复导出状态"]')?.textContent.includes('不再可用')`);
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复导出文件路径"]') || !!document.querySelector('[aria-label="恢复导出范围"]')`),false);
+  assert.deepEqual(await readFile(savedPath),guiBytes,'managed cleanup must preserve the user-selected copy');
+  assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='另存未完整恢复文件').disabled`),true);
   // A late Start response after collapse must not resurrect UI or redirect a
   // cancellation. The same recovery ID remains queryable after reopening.
   await select(long.log_id);
@@ -258,7 +339,7 @@ try {
   assert.deepEqual(await readFile(file(first.log_id,'0000000000000001.rawlog')),rawBefore);
   assert.deepEqual(await readFile(textFile(first.log_id)),textBefore);
   assert.deepEqual(await ui.invoke('service_read',{connection:ref(active),cursor:1}),before);
-  console.log('PASS recovery native WebView: independent old-service target, missing marker/corrupt tail prefix, rejected header, text/HEX and escaped markup, bounded replacement pages, explicit incomplete end, stop/focus, GUI incomplete export with real fingerprint/stop report, lost Start/Status query-only recovery, reload IDs, removed paths, delayed export collapse, real lost/delayed reader responses and late close release; synthetic only');
+  console.log('PASS recovery native WebView: independent old-service target, missing marker/corrupt tail prefix, rejected header, text/HEX and escaped markup, bounded replacement pages, explicit incomplete end, stop/focus, GUI incomplete export and native recovery save/real picker/fingerprint/explicit backup/reload consent/lost responses/late collapse, lost Start/Status query-only recovery, reload IDs, removed paths, delayed export collapse, real lost/delayed reader responses and late close release; synthetic only');
 } catch (error) {
   if(ui){console.error(await ui.evaluate(`({status:document.querySelector('[aria-label="恢复读取状态"]')?.textContent,range:document.querySelector('[aria-label="恢复分页范围"]')?.textContent,export:document.querySelector('[aria-label="恢复导出状态"]')?.textContent})`));await ui.screenshot('desktop-recovery-failure-synthetic.png');}
   throw error;
@@ -266,4 +347,6 @@ try {
   await ui?.close();
   const target = path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-recovery-ui-中文-'));
   await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});
+  const saveRoot=path.resolve(saveDirectory);assert.equal(path.dirname(saveRoot),path.resolve(tmpdir()));assert.ok(path.basename(saveRoot).startsWith('shared-terminal-save-ui-中文-'));
+  await rm(saveRoot,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }

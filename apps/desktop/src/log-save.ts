@@ -5,9 +5,9 @@ export type SaveScope = { scope: ExportScope & { mode: SaveMode }; save_id: stri
 export type SaveInfo = SaveScope & { phase: 'CHOOSING' | 'AWAITING_CONFIRMATION' | 'COPYING' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED' | 'FAILED' | 'RECOVERY_REQUIRED'; cancel_requested: boolean; path: string | null; existing_bytes: string | null; confirmation: string | null; expires_at_ms: number | null; backup: string | null; staging: string | null; failure: string | null; os_code: number | null };
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v) && v !== '00000000-0000-0000-0000-000000000000';
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-export function restoreSave(raw: string | null): SaveScope | undefined {
+export function restoreSave(raw: string | null, mode?: SaveMode): SaveScope | undefined {
   if (!raw || raw.length > 4096) return;
-  try { const value: unknown = JSON.parse(raw); if (!object(value) || !uuid(value.save_id) || !object(value.scope) || !['NORMAL', 'RECOVERY'].includes(value.scope.mode as string)) return; const scope = restoreExport(JSON.stringify(value.scope)); if (scope) return { scope: { ...scope, mode: value.scope.mode as SaveMode }, save_id: value.save_id }; } catch { /* no implicit authorization from local storage */ }
+  try { const value: unknown = JSON.parse(raw); if (!object(value) || !uuid(value.save_id) || !object(value.scope) || !['NORMAL', 'RECOVERY'].includes(value.scope.mode as string) || (mode !== undefined && value.scope.mode !== mode)) return; const scope = restoreExport(JSON.stringify(value.scope)); if (scope) return { scope: { ...scope, mode: value.scope.mode as SaveMode }, save_id: value.save_id }; } catch { /* no implicit authorization from local storage */ }
 }
 export function terminalSave(info: SaveInfo) { return !['CHOOSING', 'AWAITING_CONFIRMATION', 'COPYING'].includes(info.phase); }
 export function checkedSave(value: unknown, target: SaveScope, previous?: SaveInfo): SaveInfo {
