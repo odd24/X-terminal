@@ -9,6 +9,10 @@ mod export_store;
 mod verified_export;
 #[cfg(windows)]
 pub use verified_export::{ExportFingerprint, VerifiedExport};
+#[cfg(windows)]
+mod selected_save;
+#[cfg(windows)]
+pub use selected_save::{SaveReport, SaveTarget};
 mod format;
 mod paired;
 mod storage;

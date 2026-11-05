@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { logging, ExportRequestError, type ArchiveInfo, type ExportInfo, type ExportScope } from './logging-api';
 import { checkedExport, restoreExport, terminalExport } from './log-export';
 import { requestId } from './request-id';
+import { LogSavePanel } from './log-save-panel';
 
 const storageKey = 'terminal-log-export-task-v1';
 const states: Record<ExportInfo['phase'], string> = { QUEUED: '等待导出', RUNNING: '正在校验并生成文件', CANCELLING: '已请求停止，等待服务确认', COMPLETED: '导出文件已保存到应用目录', CANCELLED: '导出已停止，未发布文件', FAILED: '导出失败，未发布文件', REMOVED: '导出产物已整理，文件不再可用' };
@@ -81,5 +82,6 @@ export function LogExportPanel({ selected, disabled }: { selected?: ArchiveInfo;
     {task && <p className="data-location" aria-label="导出任务目标">日志 {task.scope.log_id} · {task.scope.connection.connection_id} / {task.scope.connection.generation} · 任务 {task.scope.request_id}</p>}
     <p role="status" aria-label="日志导出状态">{message}</p>
     {done && <><p aria-label="日志导出范围">实际保留 {done.retained_records} 条 · 原始 {done.retained_raw_bytes} 字节 · 源缺口 {done.retained_gap_bytes} 字节 · 文本结束游标 {done.next_cursor} · 文件 {done.bytes} 字节</p><label>已保存文件路径<input ref={output} aria-label="日志导出文件路径" readOnly value={`${directory ? `${directory}\\` : ''}terminal-log-exports\\${done.request_id}\\export.jsonl`} onFocus={event => event.target.select()} /></label>{!directory && <small>应用目录路径暂不可用，以上为相对应用目录的位置。</small>}</>}
+    <LogSavePanel source={done} />
   </fieldset>;
 }

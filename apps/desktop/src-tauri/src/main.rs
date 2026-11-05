@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod export_save;
 mod service;
 use session_core::session::{ConnectionInfo, ConnectionRef, OutputPage};
 use session_protocol::{Reply, Request};
@@ -12,6 +13,82 @@ struct Desktop(
     Arc<Mutex<Option<session_service::client::Client>>>,
     std::path::PathBuf,
 );
+
+#[tauri::command]
+async fn export_save_request(
+    window: tauri::WebviewWindow,
+    state: State<'_, Desktop>,
+    manager: State<'_, export_save::Manager>,
+    request: export_save::Request,
+) -> Result<export_save::Info, String> {
+    use export_save::Request as R;
+    match request {
+        R::Status { scope, save_id } => manager.status(&scope, save_id),
+        R::Cancel { scope, save_id } => manager.cancel(&scope, save_id),
+        R::Confirm {
+            scope,
+            save_id,
+            confirmation,
+        } => manager.confirm(&scope, save_id, confirmation),
+        R::OpenDirectory { scope, save_id } => {
+            manager
+                .open(
+                    &scope,
+                    save_id,
+                    window.hwnd().map_err(|_| "WINDOW_UNAVAILABLE")?.0 as usize,
+                )
+                .await
+        }
+        R::Start { scope, save_id } => {
+            if let Some(info) = manager.duplicate(&scope, save_id)? {
+                return Ok(info);
+            }
+            let reply = logging_request(
+                state,
+                session_protocol::logging::Request::ExportStatus {
+                    connection: scope.connection,
+                    log_id: scope.log_id,
+                    request_id: scope.request_id,
+                },
+            )
+            .await?;
+            let session_protocol::logging::Reply::Export(info) = reply else {
+                return Err("INVALID_SOURCE".into());
+            };
+            if info.connection != scope.connection
+                || info.log_id != scope.log_id
+                || info.request_id != scope.request_id
+                || info.phase != session_protocol::logging::ExportPhase::Completed
+            {
+                return Err("SOURCE_NOT_READY".into());
+            }
+            let bytes = info
+                .bytes
+                .filter(|v| *v > 0 && *v <= terminal_log::MAX_EXPORT_BYTES)
+                .ok_or("INVALID_SOURCE")?;
+            let hash = info
+                .sha256
+                .as_deref()
+                .filter(|v| {
+                    v.len() == 64
+                        && v.bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                })
+                .ok_or("INVALID_SOURCE")?;
+            let mut sha256 = [0u8; 32];
+            for (i, value) in sha256.iter_mut().enumerate() {
+                *value = u8::from_str_radix(&hash[i * 2..i * 2 + 2], 16)
+                    .map_err(|_| "INVALID_SOURCE")?;
+            }
+            manager.start(
+                scope,
+                save_id,
+                window.hwnd().map_err(|_| "WINDOW_UNAVAILABLE")?.0 as usize,
+                terminal_log::ExportFingerprint { bytes, sha256 },
+            )
+        }
+    }
+}
 
 #[tauri::command]
 async fn config_request(
@@ -294,6 +371,7 @@ fn main() {
             let weak_config = Arc::downgrade(&configuration);
             let shared = Arc::new(Mutex::new(service));
             let weak = Arc::downgrade(&shared);
+            app.manage(export_save::Manager::new(directory.clone())?);
             app.manage(Desktop(shared, configuration, directory));
             // Renderer reload/suspension must not expire the native IPC client.
             // A failed heartbeat latches failure, never restarts or retries input.
@@ -332,12 +410,14 @@ fn main() {
             fixture_lifecycle,
             config_request,
             logging_request,
+            export_save_request,
             config_directory
         ])
         .build(tauri::generate_context!())
         .expect("desktop application failed");
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {
+            handle.state::<export_save::Manager>().cancel_all();
             let state = handle.state::<Desktop>();
             tauri::async_runtime::block_on(async {
                 if let Ok(service) = state.0.lock().await.as_mut() {

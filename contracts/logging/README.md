@@ -70,3 +70,13 @@ CleanupInfo为kind/id/files(name,bytes)/logical_bytes，不是可序列化授权
 ExportStore生产时对实际接受的全部JSONL字节累计SHA-256，只有原有最终flush/sync及不覆盖发布成功才返回ExportArtifact.sha256；指纹不写入JSONL，不迁移v1格式。服务的COMPLETED回执携带bytes和小写十六进制指纹，其他状态为null，REMOVED撤下旧值。哈希来自可信服务回执，不是文件自报值、签名或来源权限。
 
 Windows VerifiedExport固定读取可信应用目录下terminal-log-exports/非nil UUID/export.jsonl，逐级pin/拒绝reparse，只读文件句柄拒绝写/delete共享；不创建根/锁或取得导出owner。先完整检查正数/256MiB上限、长度和哈希，随后copy_to以64KiB缓冲重读并校验实际复制字节，传播取消/短写/flush失败。调用者只能使用全新私有暂存sink，Err可能已有部分或全部字节，不能发布；Ok还不包含目标sync/发布/覆盖授权或断电保证。它是自选保存的来源准备，不是已接入用户目标保存界面；后续原生任务须固定scope、目标由用户原生选择并单独处理发布及确认。详见[ADR-032](../../docs/decisions/ADR-032.md)。
+
+## 本机自选保存（ADR-033）
+
+桌面另存使用专用Tauri命令export_save_request，不是named-pipe logging协议或MCP工具。严格请求只含op(start/status/cancel/confirm/open_directory)、scope(ConnectionRef/log_id/request_id)、save_id，confirm额外要求confirmation；拒绝调用者path/role/fingerprint。Start先由Desktop服务通道核对原导出COMPLETED、长度及生产指纹，路径仅由IFileSaveDialog返回。独立worker为8队列/1活跃/32回执；重复ID返回原结果，旧有序回执退休后不重新选择，不透明ID保留。
+
+响应Info包括原scope/save_id、phase、cancel_requested，以及可空path/existing_bytes（十进制u64字符串）/confirmation/expires_at_ms/backup/staging/failure/os_code。CHOOSING无目标；已有文件AWAITING_CONFIRMATION持有原文件句柄并发出60秒一次确认；COPYING撤下公开确认码；COMPLETED/CANCELLED/EXPIRED/FAILED/RECOVERY_REQUIRED为本次终态。到期按单调时钟裁决，不因查询续期；取消请求不能撤销已开始的发布。
+
+SaveTarget限制本地普通文件，拒绝应用数据树/目录/流名/reparse及特殊属性替换。同目录全新partial经VerifiedExport校验、sync后，以句柄不覆盖rename发布；存在目标须另行确认，先保留原文件backup及DACL，再发布新文件。发布冲突尝试不覆盖恢复原名，无法恢复时准确报告RECOVERY_REQUIRED/backup；不删外来条目，不声称原子回滚。成功备份不自动删除，私有暂存清除失败报告staging。结果只是本次回执，不监控后来文件变化或保证断电持久。实现、兼容限制和回退见[ADR-033](../../docs/decisions/ADR-033.md)。
+
+前端重载只恢复编号，应答不明只查询原任务；目标与覆盖同意不持久化。打开目录只使用原生登记路径，系统Shell接受请求不等于目录一定已显示。源产物不移动、不修改，原生另存不继承当前活动会话或重放输入；异常退出的暂存/备份恢复仍在P24范围。
