@@ -15,6 +15,8 @@ mod selected_save;
 pub use selected_save::{SaveReport, SaveTarget};
 mod format;
 mod paired;
+mod recovery;
+pub use recovery::{RecoveryInfo, RecoveryPage, RecoveryReader, RecoveryStop, RecoveryStopKind};
 mod storage;
 pub use archive::{ArchiveInfo, ArchivePage, ArchiveReader, Completion};
 #[cfg(windows)]

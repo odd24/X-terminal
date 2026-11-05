@@ -53,7 +53,7 @@ fn required_segment(error: io::Error) -> io::Error {
         error
     }
 }
-fn read_file(path: &Path, limit: u64) -> io::Result<File> {
+pub(crate) fn read_file(path: &Path, limit: u64) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(windows)]
