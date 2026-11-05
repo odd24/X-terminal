@@ -261,7 +261,46 @@ try {
   await ui.click('SSH2 连接');await state('CONNECTED');
   assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='移除连接记录').disabled`),true);
   await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');
-  const retained=await ui.invoke('service_list');
+  let retained=await ui.invoke('service_list');
+  // Hold one real list response while the real UI removes its first entry.
+  // The next metadata lookup must see actual NotFound, then refresh the list.
+  assert.ok(retained.length>=2);
+  const removedDuringPoll=retained[0];
+  const currentBeforeRace=retained[1];
+  await ui.fill('会话',currentBeforeRace.connection_id);
+  await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='服务端屏幕').click(),document.querySelector('[aria-label="服务端屏幕快照"]')?.previousElementSibling?.textContent.includes(${JSON.stringify(currentBeforeRace.connection_id)}))`);
+  await ui.evaluate(`(() => {
+    const original=window.fetch;
+    const hook={original,held:0,notFound:0,release:null};window.__listRemovalRace=hook;
+    window.fetch=async function(input,init){
+      const response=await original.call(this,input,init);
+      const command=new URL(String(input)).pathname;
+      if(command==='/service_list' && hook.held===0){
+        hook.held++;
+        await new Promise(resolve=>{hook.release=resolve;});
+      }
+      if(command==='/ssh_request' && response.headers.get('Tauri-Response')==='error' && (await response.clone().text()).includes('NotFound'))hook.notFound++;
+      return response;
+    };
+    if(window.fetch===original)throw new Error('fetch hook did not install');
+  })()`);
+  try {
+    await ui.waitFor('window.__listRemovalRace.held===1');
+    await ui.fill('会话',removedDuringPoll.connection_id);
+    await ui.waitFor(`document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes(${JSON.stringify(removedDuringPoll.connection_id)})`);
+    await waitButton('移除连接记录');
+    await ui.click('移除连接记录');
+    await ui.waitFor(`document.querySelector('.ssh-panel [role="status"]')?.textContent.includes('已移除')`);
+    await ui.evaluate('window.__listRemovalRace.release()');
+    await ui.waitFor(`!Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(removedDuringPoll.connection_id)})`);
+    const race=await ui.evaluate('({held:window.__listRemovalRace.held,notFound:window.__listRemovalRace.notFound})');
+    assert.equal(race.held,1);assert.ok(race.notFound>=1,'actual removed-target metadata request must reject');
+    assert.equal(await ui.evaluate(`document.querySelector('.status').textContent.includes('会话服务不可用')`),false);
+    console.log('List/removal IPC race checkpoint:',JSON.stringify(race));
+  } finally {
+    await ui.evaluate('window.__listRemovalRace.release?.();window.fetch=window.__listRemovalRace.original;delete window.__listRemovalRace');
+  }
+  retained=retained.filter(item=>item.connection_id!==removedDuringPoll.connection_id);
   for(const item of retained){
     await ui.fill('会话',item.connection_id);
     await ui.waitFor(`document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);

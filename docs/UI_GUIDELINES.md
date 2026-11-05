@@ -63,3 +63,10 @@
 2026-11-04 核对的参考：[Windows 设计原则](https://learn.microsoft.com/en-us/windows/apps/design/design-principles)、[Windows 导航基础](https://learn.microsoft.com/en-us/windows/apps/design/basics/navigation-basics)。参考其聚焦、层级、清晰导航方向；上述具体布局、字体候选与验收要求为本项目约定，不视作微软对本应用的认证或选库结论。
 
 P11.6受控剪贴板沿用公共config-panel/按钮与提示，默认Ctrl+C有选区复制、无选区保留终端中断，Ctrl+Shift+C/V为显式复制/粘贴，Ctrl+Shift+F打开终端查找。多行/控制字符/长粘贴显示固定完整目标、转义预览/截断与CR/LF计数、括号模式；CR/LF原样，不补尾换行，取消按钮优先焦点。切换/键盘输入取消预览，重载不恢复正文或同意；见[ADR-037](decisions/ADR-037.md)。习惯选项及全局布局/矩阵仍由P12验收。
+
+
+## P12共享实现入口（2026-11-05）
+
+apps/desktop/src/tokens.css为唯一设计变量入口，style.css引用语义色/尺寸/层级及状态；appearance.ts从同一CSS读取xterm主题和字体，禁止新增JS独立色板。原生HTML按钮/输入/选择/文本域使用公共基样式，ui.tsx的Panel/Field用于统一面板标题/关闭入口与表单布局；新增导航、标签、提示继续复用。UI字体链Segoe UI→Microsoft YaHei UI→Microsoft YaHei；终端/快照/正文编辑器/指纹使用Consolas优先或Cascadia优先并系统中文回退，未安装Cascadia不安装字体。深浅/系统主题共用所有变量，焦点覆盖select/textarea/summary/链接，禁用悬停保持禁用状态，减少动效遵循系统偏好。
+
+当前外观设置只作用本窗口且重载恢复默认，按数据目录持久化及备份策略仍待P12后续，界面明确说明。实际WebView和有限CSS viewport证据见[P12](records/P12.md)，不是完整T22/T23或真实DPI验收。当前首步仅显示基础；终端优先布局、会话树/标签/按需辅助区域、基础撰写和习惯选项持续落实，不能以共享变量存在替代主流程验收。

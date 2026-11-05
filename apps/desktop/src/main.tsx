@@ -9,15 +9,17 @@ import { visibleControls } from './log-search';
 import { TerminalSearch } from './terminal-search-panel';
 import { TerminalWriter } from './terminal-writer';
 import { OutputDecoder } from './output-decoder';
+import { terminalAppearance, type ThemeChoice, type TerminalFont } from './appearance';
+import { AppearancePanel } from './appearance-panel';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { LoggingPanel } from './logging-panel';
-import { serial, serialResult } from './serial-api';
+import { serial, serialResult, type SerialStatus } from './serial-api';
 import { InputQueue } from './input-queue';
 import { requestId } from './request-id';
-import { ssh, dimensions, type Receipt } from './ssh-api';
+import { ssh, dimensions, type Receipt, type SshReply } from './ssh-api';
 import '@xterm/xterm/css/xterm.css';
 import './style.css';
 
@@ -29,6 +31,9 @@ type Page = { connection: Ref; events: { seq: number; bytes: number[]; gap_bytes
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
 
 function App() {
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [theme, setTheme] = useState<ThemeChoice>('dark');
+  const [terminalFont, setTerminalFont] = useState<TerminalFont>('consolas');
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [sshOpen, setSshOpen] = useState(false);
   const [execOpen, setExecOpen] = useState(false);
@@ -59,7 +64,7 @@ function App() {
   const stopped = useRef(false);
 
   useEffect(() => {
-    const term = new Terminal({ allowProposedApi: true, cursorBlink: true, fontFamily: 'Consolas, "Microsoft YaHei", monospace', fontSize: 15, scrollback: 512, theme: { background: '#101720', foreground: '#e7edf5' } });
+    const term = new Terminal({ allowProposedApi: true, cursorBlink: true, ...terminalAppearance(), fontSize: 15, scrollback: 512 });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host.current!);
@@ -218,13 +223,15 @@ function App() {
         if (connection && (connection.connection_id !== current.connection?.connection_id || connection.generation !== current.connection?.generation)) {
           let encoding = 'utf8';
           if (connection.protocol === 'SERIAL') {
-            const metadata = await serial({ op: 'status', connection: { connection_id: connection.connection_id, generation: connection.generation } });
+            // Keep structured read errors: removal/reconnect may race the list.
+            // The user-facing wrappers translate these codes into prose.
+            const metadata = await invoke<SerialStatus>('serial_request', { request: { op: 'status', connection: { connection_id: connection.connection_id, generation: connection.generation } } });
             if (disposed) return;
             if (metadata.result !== 'status') throw new Error('Invalid serial status');
             encoding = metadata.encoding;
           }
           if (connection.protocol === 'SSH2') {
-            const metadata = await ssh({ op: 'status', connection: { connection_id: connection.connection_id, generation: connection.generation } });
+            const metadata = await invoke<SshReply>('ssh_request', { request: { op: 'status', connection: { connection_id: connection.connection_id, generation: connection.generation } } });
             if (disposed) return;
             if (metadata.result !== 'status' || metadata.connection.connection_id !== connection.connection_id || metadata.connection.generation !== connection.generation) throw new Error('Invalid SSH encoding status');
             encoding = metadata.encoding;
@@ -283,6 +290,23 @@ function App() {
     void poll();
     return () => { clip.invalidate(); clipboard.current = undefined; element.removeEventListener('paste', paste, true); disposed = true; stopped.current = true; clearTimeout(timer); runtime.current = null; queue.close(); clearTimeout(resizeTimer); resize.dispose(); observer.disconnect(); input.dispose(); current.writer.close(); term.dispose(); };
   }, []);
+
+  useEffect(() => {
+    const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      document.documentElement.dataset.theme = theme === 'system' ? (systemTheme.matches ? 'dark' : 'light') : theme;
+      document.documentElement.dataset.terminalFont = terminalFont;
+      if (runtime.current) {
+        const appearance = terminalAppearance();
+        runtime.current.term.options.theme = appearance.theme;
+        runtime.current.term.options.fontFamily = appearance.fontFamily;
+        runtime.current.fit.fit();
+      }
+    };
+    apply();
+    systemTheme.addEventListener('change', apply);
+    return () => systemTheme.removeEventListener('change', apply);
+  }, [theme, terminalFont]);
 
   useEffect(() => { if (runtime.current) { runtime.current.term.options.fontSize = fontSize; runtime.current.fit.fit(); } }, [fontSize]);
 
@@ -345,9 +369,11 @@ function App() {
       <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
       <button onClick={capture}>屏幕快照</button>
       <button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button>
+      <button onClick={() => setAppearanceOpen(open => !open)}>外观</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
       <label>字号 <input aria-label="字号" type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
     </nav>
+    {appearanceOpen && <AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} close={() => setAppearanceOpen(false)} />}
     {configurationOpen && <ConfigPanel close={() => setConfigurationOpen(false)} />}
     {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
     <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />

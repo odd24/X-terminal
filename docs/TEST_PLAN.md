@@ -187,3 +187,8 @@ P11.6查找阶段：36项前端测试含真实headless宽字/补充/组合字符
 P11.6受控剪贴板：新增test:desktop:clipboard并纳入完整回归，实际WebView paste事件/合成服务核对CRLF/LF/CR、未确认不发送、取消/键盘接管/切换返回/模式变化/重载。SSH原生专项核对真实多行字节、Ctrl+C选区复制/无选区0x03、实际系统复制→原生有界读取→真实鼠标粘贴；terminal_clipboard_read真实IPC应答延迟命中1次，键盘z接管后只收到z，迟到读不发送。最终专项PASS，40项前端/6项宿主与严格clippy PASS，完整回归结果见[P11.6](records/P11.6.md)。不以IPC延迟代替外部剪贴板owner卡死、真实UNIX中断效果或全局UI矩阵。
 
 P11.7/T06在原P02七项外新增连续resize矩阵28项，物理视口比较受可见列限制；27项要求与headless完全相等，极限容量2↔500序列双向固定确切正文/光标并保留KNOWN_DIFFERENCE（不算兼容通过）。Rust实质测试核对宽字/属性/组合/OSC/历史上限/保存光标和原始/文本独立，真实Windows IPC及字号触发WebView fit的证据见[P11.7](records/P11.7.md)。原BUG-001最小复现修复，不等于BUG-001整体/真实程序/T22/T23矩阵通过。
+
+
+## P12共享显示专项
+
+npm run test:desktop:appearance（前置desktop:build，纳入完整桌面回归第15入口）使用shared-terminal-appearance-ui-中文-自建临时数据根。真实WebView验证配置/SSH/串口/exec/日志/查找/外观共享深浅主题与UI/等宽字体、实际Tab焦点、字号/字体更新、系统主题事件、来源文本/身份不变及重载默认；目视检查原生深浅截图。1280×720/1920×1080/720×480仅CDP CSS viewport探测，不计原生屏幕分辨率/真实DPI。实际结果和未执行项见[P12](records/P12.md)；后续T22/T23仍须完整导航/标签/全部弹窗状态/长文/中文输入法/真实100/150/200%DPI。没有用户设备输入。
