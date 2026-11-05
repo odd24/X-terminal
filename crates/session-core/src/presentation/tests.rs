@@ -220,7 +220,7 @@ fn read_bounds_resize_limits_and_snapshot_frame_budget_are_explicit() {
     let snapshot = sessions.screen(reference).unwrap();
     assert!(snapshot.contents_truncated);
     assert_eq!(snapshot.contents.len(), SCREEN_BYTES);
-    assert_eq!(snapshot.parser, "vt100-0.18.1+local.3");
+    assert_eq!(snapshot.parser, "vt100-0.18.1+local.4");
     assert!(snapshot.resize_reflow);
     sessions.resize_screen(reference, 8, 40).unwrap();
     let snapshot = sessions.screen(reference).unwrap();

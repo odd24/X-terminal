@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { snapshot, digest, firstDifference } from './Screen-Comparison.mjs';
 import headless from '@xterm/headless';
 
 // The unmodified locked reference is used throughout, including known bugs.
@@ -28,39 +28,11 @@ fs.mkdirSync('artifacts', { recursive: true });
 const fixturePath = 'artifacts/P11.7-history-fixtures.json';
 fs.writeFileSync(fixturePath, JSON.stringify(fixtures));
 const rust = JSON.parse(execFileSync('cargo', ['run', '--quiet', '--locked', '-p', 'session-core', '--example', 'history_probe', '--', fixturePath], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }));
-const color = (mode, value) => mode === 0 ? null : mode === 0x3000000 ? ['rgb', value >>> 16 & 255, value >>> 8 & 255, value & 255] : ['index', value];
-function snapshot(term) {
-  const buffer = term.buffer.active;
-  return { rows: term.rows, cols: term.cols, history: buffer.baseY, cursor: [buffer.cursorY, buffer.cursorX], alternate: buffer.type === 'alternate',
-    lines: Array.from({ length: buffer.length }, (_, index) => {
-      const line = buffer.getLine(index);
-      // Circular storage can return a retired slot beyond buffer.length.
-      // Only a retained successor defines the outgoing wrap relation.
-      return { wrapsToNext: index + 1 < buffer.length && !!buffer.getLine(index + 1)?.isWrapped, cells: Array.from({ length: term.cols }, (_, col) => {
-        const cell = line.getCell(col);
-        return { text: cell.getChars(), width: cell.getWidth(), fg: color(cell.getFgColorMode(), cell.getFgColor()), bg: color(cell.getBgColorMode(), cell.getBgColor()),
-          bold: !!cell.isBold(), dim: !!cell.isDim(), italic: !!cell.isItalic(), underline: !!cell.isUnderline(), inverse: !!cell.isInverse() };
-      }) };
-    }) };
-}
-const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
-  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
-const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
-function firstDifference(a, b, path = '') {
-  if (typeof a !== typeof b || a === null || b === null || typeof a !== 'object') return a === b ? null : { path, xterm: a, vt100: b };
-  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    const found = firstDifference(a[key], b[key], `${path}/${key}`);
-    if (found) return found;
-  }
-  return null;
-}
 const report = [];
 const before = JSON.parse(fs.readFileSync('docs/evidence/P11.7-history-baseline.json', 'utf8'));
 const remainingDifferences = new Map([
   ['capacity-nonzero-ring-origin/3', 'BUG-001: locked reference negative-index capacity behavior'],
   ['capacity-nonzero-ring-origin/4', 'BUG-001: locked reference negative-index capacity behavior'],
-  ['alternate-and-background-history/2', 'BUG-002: alternate entry does not inherit normal cursor'],
-  ['alternate-and-background-history/3', 'BUG-002: alternate entry cursor differs through resize'],
 ]);
 for (const [index, fixture] of fixtures.entries()) {
   const term = new headless.Terminal({ rows: fixture.rows, cols: fixture.cols, scrollback: 512, allowProposedApi: true });
@@ -94,7 +66,7 @@ for (const [index, fixture] of fixtures.entries()) {
 const evidence = { schema: 1, reference: '@xterm/headless 6.0.0 (unmodified)', scrollback: 512, chunkBytes: 31,
   wrapConvention: 'outgoing: next retained row isWrapped; final row has no successor', compared: ['all retained rows', 'visible columns including empty cells', 'soft wrap', 'cell text/width', 'foreground/background', 'bold/dim/italic/underline/inverse', 'viewport dimensions/history/cursor/alternate'], fixturesSha256: digest(fixtures), report };
 fs.writeFileSync('artifacts/P11.7-history-comparison.json', JSON.stringify(evidence, null, 2) + '\n');
-const baselinePath = process.argv.includes('--before') ? 'docs/evidence/P11.7-history-baseline.json' : 'docs/evidence/P11.7-history-after.json';
+const baselinePath = process.argv.includes('--before') ? 'docs/evidence/P11.7-history-baseline.json' : 'docs/evidence/P11.7-history-local4.json';
 if (process.argv.includes('--record')) fs.writeFileSync(baselinePath, JSON.stringify(evidence, null, 2) + '\n');
 else assert.deepEqual(evidence, JSON.parse(fs.readFileSync(baselinePath, 'utf8')), 'full history evidence changed: investigate before updating');
 const steps = report.flatMap(row => row.steps);

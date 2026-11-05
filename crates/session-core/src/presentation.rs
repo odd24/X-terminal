@@ -251,7 +251,7 @@ impl Presentation {
         ScreenSnapshot {
             connection,
             encoding: self.encoding.clone(),
-            parser: "vt100-0.18.1+local.3".into(),
+            parser: "vt100-0.18.1+local.4".into(),
             resize_reflow: true,
             rows: self.rows,
             cols: self.cols,

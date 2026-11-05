@@ -100,7 +100,7 @@ P11.1 新增 `npm run test:desktop:output`（前置桌面构建），以合成�
 
 P11.2 扩展公共 IPC 的 read_text/screen 与桌面专用 service_read_text/service_screen；受限只读票据沿用作用域/到期/撤销/代次。vt100 使用 vendor/vt100 最小补丁（替换字符显示），修改解析器时运行 npm run test:screen，已知 reflow 差异不能误报通过。
 
-P11.7增加npm run test:history，以生产512历史/尺寸上限逐步比较全部保留行/可见列/软换行及单元格属性；history_probe必须读取Screen克隆，set_scrollback可能扩展存储行。原始history-baseline与local.3的history-after分别保留，参考摘要不能改变；正常与--record均不允许增加未登记差异。63匹配/4已知差异不是全部VT兼容，BUG-001容量与BUG-002替代屏初始光标仍开放；解析器修改同时运行此命令、原test:screen及受影响服务/原生回归。
+P11.7增加npm run test:history，以生产512历史/尺寸上限逐步比较全部保留行/可见列/软换行及单元格属性；history_probe必须读取Screen克隆，set_scrollback可能扩展存储行。原始history-baseline与local.3的history-after分别保留，参考摘要不能改变；正常与--record均不允许增加未登记差异。local.3的63匹配/4已知差异保留；local.4独立history-local4为65匹配/2容量差异，新增Compare-Alternate（纳入test:history）9组84逐步快照须全部匹配，--record也不能新增豁免，alternate-before/after分别保留。BUG-002有限软件修复不等于全部VT兼容，BUG-001容量/真实程序仍开放；解析器修改同时运行此命令、原test:screen及受影响服务/原生回归。
 
 P11.3 新增独立terminal-log：cargo test -p terminal-log --locked、cargo clippy -p terminal-log --all-targets --locked -- -D warnings。测试只写带前缀的中文临时目录并清理自建junction，不记录真实设备；引擎通过不能冒充P11.4服务/GUI日志已启用。
 

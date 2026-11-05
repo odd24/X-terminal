@@ -43,7 +43,7 @@ async fn derived_views_survive_clients_but_never_cross_scope_revocation_or_gener
     {
         Reply::Screen(screen) => {
             assert_eq!(screen.contents, "共享屏幕");
-            assert_eq!(screen.parser, "vt100-0.18.1+local.3");
+            assert_eq!(screen.parser, "vt100-0.18.1+local.4");
             assert!(screen.resize_reflow);
         }
         _ => panic!(),
@@ -324,7 +324,7 @@ async fn ssh_resize_reflows_physical_screen_over_ipc_without_rewriting_output() 
                 ),
                 (6, 6, 3, 4)
             );
-            assert_eq!(screen.parser, "vt100-0.18.1+local.3");
+            assert_eq!(screen.parser, "vt100-0.18.1+local.4");
             assert!(screen.resize_reflow);
             assert_eq!((screen.gap_bytes, screen.decode_error_events), (0, 0));
         }
@@ -363,7 +363,9 @@ async fn ssh_resize_reflows_physical_screen_over_ipc_without_rewriting_output() 
         Reply::Screen(screen) => assert_eq!(screen.contents, "abcdefghijkl\nmnop\nnext"),
         _ => panic!(),
     }
-    remote.push(b"\x1b[?1049habcdefghijklmnop\r\nend").await;
+    remote
+        .push(b"\x1b[?1049h\x1b[Habcdefghijklmnop\r\nend")
+        .await;
     timeout(Duration::from_secs(4), async {
         loop {
             if let Reply::Screen(screen) = ok(client
@@ -425,6 +427,57 @@ async fn ssh_resize_reflows_physical_screen_over_ipc_without_rewriting_output() 
             assert_eq!((screen.gap_bytes, screen.decode_error_events), (0, 0));
         }
         _ => panic!(),
+    }
+    // Separate lifecycle coverage: no HOME after entry, so inherited cursor
+    // and repeated-entry content preservation are observable over real IPC.
+    for mode in [47, 1047, 1049] {
+        for (bytes, alternate, contents, cursor) in [
+            (
+                format!("\x1bcnormal\x1b[3;4H\x1b[?{mode}h中A\x1b[?{mode}hB"),
+                true,
+                "\n\n   中AB",
+                (2, 7),
+            ),
+            (
+                format!("\x1b[?{mode}l"),
+                false,
+                "normal",
+                (2, if mode == 1049 { 3 } else { 7 }),
+            ),
+            (
+                format!("\x1b[?{mode}h"),
+                true,
+                "",
+                (2, if mode == 1049 { 3 } else { 7 }),
+            ),
+            (
+                format!("\x1b[?{mode}l"),
+                false,
+                "normal",
+                (2, if mode == 1049 { 3 } else { 7 }),
+            ),
+        ] {
+            remote.push(bytes.as_bytes()).await;
+            timeout(Duration::from_secs(4), async {
+                loop {
+                    if let Reply::Screen(screen) = ok(client
+                        .request(Request::Screen { connection })
+                        .await
+                        .unwrap())
+                        && screen.alternate == alternate
+                        && screen.contents == contents
+                        && (screen.cursor_row, screen.cursor_col) == cursor
+                    {
+                        assert_eq!(screen.parser, "vt100-0.18.1+local.4");
+                        assert_eq!((screen.gap_bytes, screen.decode_error_events), (0, 0));
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
     }
     fixture.stop(&mut client).await;
 }

@@ -17,7 +17,7 @@
     "lint": "npm run lint --workspace apps/desktop",
     "test": "node --test tests/terminal-clipboard.test.mjs tests/terminal-search.test.mjs tests/terminal-writer.test.mjs tests/input-queue.test.mjs tests/request-id.test.mjs tests/output-decoder.test.mjs tests/log-search.test.mjs tests/log-export.test.mjs tests/log-cleanup.test.mjs tests/log-captures.test.mjs tests/log-save.test.mjs tests/log-recovery.test.mjs tests/log-recovery-export.test.mjs",
     "test:screen": "node scripts/Compare-Screens.mjs && node scripts/Compare-Screens.mjs tests/fixtures/terminal-reflow.json",
-    "test:history": "node scripts/Compare-History.mjs",
+    "test:history": "node scripts/Compare-History.mjs && node scripts/Compare-Alternate.mjs",
     "test:desktop": "node scripts/Test-Desktop-Service.mjs && node scripts/Test-Desktop-Config.mjs && node scripts/Test-Desktop-Archives.mjs && node scripts/Test-Desktop-Credentials.mjs && npm run test:desktop:ssh && npm run test:desktop:serial && npm run test:desktop:output && npm run test:desktop:clipboard && npm run test:desktop:logging && npm run test:desktop:history && npm run test:desktop:export && npm run test:desktop:cleanup && npm run test:desktop:save && npm run test:desktop:recovery",
     "test:desktop:archives": "node scripts/Test-Desktop-Archives.mjs",
     "test:desktop:credentials": "node scripts/Test-Desktop-Credentials.mjs",

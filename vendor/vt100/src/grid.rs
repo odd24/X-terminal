@@ -74,6 +74,14 @@ impl Grid {
         self.saved_origin_mode = false;
     }
 
+    pub fn clear_alternate(&mut self) {
+        let saved_pos = self.saved_pos;
+        let saved_origin_mode = self.saved_origin_mode;
+        self.clear();
+        self.saved_pos = saved_pos;
+        self.saved_origin_mode = saved_origin_mode;
+    }
+
     pub fn size(&self) -> Size {
         self.size
     }
@@ -329,6 +337,14 @@ impl Grid {
 
     pub fn pos(&self) -> Pos {
         self.pos
+    }
+
+    // Buffer switches transfer the physical cursor, including pending wrap.
+    // set_pos is a CUP operation and would apply origin mode / clamp columns.
+    pub fn inherit_cursor(&mut self, other: &Self) {
+        debug_assert_eq!(self.size.rows(), other.size.rows());
+        debug_assert_eq!(self.size.cols(), other.size.cols());
+        self.pos = other.pos;
     }
 
     pub fn set_pos(&mut self, mut pos: Pos) {

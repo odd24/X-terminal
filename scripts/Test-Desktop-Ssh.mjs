@@ -96,7 +96,7 @@ try {
       if(font==='28' ? screen.cols < oldScreen.cols : screen.cols===oldScreen.cols) break;
     }
     assert.ok(font==='28' ? screen.cols < oldScreen.cols : screen.cols===oldScreen.cols,'real font fit must resize service');
-    assert.equal(screen.parser,'vt100-0.18.1+local.3');assert.equal(screen.resize_reflow,true);
+    assert.equal(screen.parser,'vt100-0.18.1+local.4');assert.equal(screen.resize_reflow,true);
     const {default:{Terminal}} = await import('@xterm/headless');
     const reference = new Terminal({cols:oldScreen.cols,rows:oldScreen.rows,scrollback:512,allowProposedApi:true});
     await new Promise(resolve=>reference.write(reflowText,resolve));reference.resize(screen.cols,screen.rows);
@@ -116,6 +116,56 @@ try {
   await control({op:'push',text:'\x1bc\x1b[3J'+reflowText});
   await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('中中') && document.querySelector('[aria-label="屏幕快照"]')?.textContent.endsWith('REFLOW_END'))`);
   await verifyReflow('28');await ui.screenshot('desktop-ssh2-wide-reflow-synthetic.png');await verifyReflow('20');
+
+
+  // Real WebView/IPC and a separate locked reference observe each switch.
+  for (const mode of [47, 1047, 1049]) {
+    const {default:{Terminal}} = await import('@xterm/headless');
+    const reference = new Terminal({cols:oldScreen.cols,rows:oldScreen.rows,scrollback:512,allowProposedApi:true});
+    try {
+      const checkAlternate = async () => {
+        const b=reference.buffer.active;
+        const rows=Array.from({length:reference.rows},(_,i)=>b.getLine(b.baseY+i)?.translateToString(true,0,reference.cols)??'');
+        while(rows.at(-1)==='') rows.pop();
+        const expected=rows.join('\n');
+        let screen;
+        for(let attempt=0;attempt<100;attempt++) {
+          screen=await ui.invoke('service_screen',{connection:screenRef});
+          if(screen.contents===expected && screen.alternate===(b.type==='alternate') && screen.cursor_row===b.cursorY && screen.cursor_col===b.cursorX) break;
+          await delay(50);
+        }
+        assert.equal(screen.contents,expected,`mode ${mode} service contents`);
+        assert.equal(screen.alternate,b.type==='alternate');
+        assert.deepEqual([screen.cursor_row,screen.cursor_col],[b.cursorY,b.cursorX]);
+        assert.equal(screen.parser,'vt100-0.18.1+local.4');
+        await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),(document.querySelector('[aria-label="屏幕快照"]')?.textContent??'')===${JSON.stringify(expected)})`);
+        await ui.click('服务端屏幕');
+        await ui.waitFor(`document.querySelector('[aria-label="服务端屏幕快照"]')?.textContent===${JSON.stringify(expected || '空屏幕')}`);
+      };
+      for(const text of ['\x1bcnormal\x1b[3;4H', `\x1b[?${mode}h中A`, `\x1b[?${mode}hB`, `\x1b[?${mode}l`, `\x1b[?${mode}h`]) {
+        await control({op:'push',text});
+        await new Promise(resolve=>reference.write(text,resolve));
+        await checkAlternate();
+      }
+      for(const font of ['28','20']) {
+        await ui.fill('字号',font);
+        let screen;
+        for(let attempt=0;attempt<100;attempt++) {
+          screen=await ui.invoke('service_screen',{connection:screenRef});
+          if(font==='28'?screen.cols<oldScreen.cols:screen.cols===oldScreen.cols) break;
+          await delay(50);
+        }
+        assert.ok(font==='28'?screen.cols<oldScreen.cols:screen.cols===oldScreen.cols);
+        reference.resize(screen.cols,screen.rows);
+        await checkAlternate();
+      }
+      const exit=`\x1b[?${mode}l!`;
+      await control({op:'push',text:exit});
+      await new Promise(resolve=>reference.write(exit,resolve));
+      await checkAlternate();
+      if(mode===1049) await ui.screenshot('desktop-ssh2-alternate-lifecycle-synthetic.png');
+    } finally { reference.dispose(); }
+  }
 
   await ui.click('exec 任务');
   const runExec = async (command, end, timeout=30000, limit=1048576) => {

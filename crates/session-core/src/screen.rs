@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(screen.cursor(), (1, 4));
         let mut screen = Screen::new(6, 12).unwrap();
         screen
-            .push(b"abcdefghijklmnop\r\nnext\x1b[?1049habcdefghijklmnop\r\nend")
+            .push(b"abcdefghijklmnop\r\nnext\x1b[?1049h\x1b[Habcdefghijklmnop\r\nend")
             .unwrap();
         screen.resize(6, 6).unwrap();
         assert_eq!(screen.contents(), "abcdef\nmnop\nend");
@@ -307,6 +307,65 @@ mod tests {
         assert_eq!(screen.contents(), "abcdefghijkl\nmnop\nend");
         screen.push(b"\x1b[?1049l").unwrap();
         assert_eq!(screen.contents(), "abcdefghijkl\nmnop\nnext");
+    }
+
+    #[test]
+    fn alternate_modes_inherit_cursor_preserve_reentry_and_clear_on_exit() {
+        for mode in [47, 1047, 1049] {
+            let mut screen = Screen::new(4, 12).unwrap();
+            screen.push(b"normal\x1b[3;4H").unwrap();
+            screen.push(format!("\x1b[?{mode}h").as_bytes()).unwrap();
+            assert_eq!(screen.cursor(), (2, 3));
+            screen.push("中A".as_bytes()).unwrap();
+            screen.push(format!("\x1b[?{mode}hB").as_bytes()).unwrap();
+            assert_eq!(screen.cursor(), (2, 7));
+            assert_eq!(screen.physical_contents(), "\n\n   中AB");
+            screen.push(format!("\x1b[?{mode}l").as_bytes()).unwrap();
+            assert_eq!(screen.physical_contents(), "normal");
+            assert_eq!(screen.cursor(), (2, if mode == 1049 { 3 } else { 7 }));
+            screen.push(format!("\x1b[?{mode}h").as_bytes()).unwrap();
+            assert_eq!(screen.physical_contents(), "");
+        }
+    }
+
+    #[test]
+    fn alternate_saved_rendition_never_overwrites_normal_saved_cursor() {
+        let mut screen = Screen::new(4, 12).unwrap();
+        screen.push(b"\x1b[31mnormal\x1b[3;4H\x1b[?1049h\x1b[32m\x1b[2;2H\x1b7A\x1b[4;6H\x1b[34m\x1b[?1049hB\x1b8C\x1b[?1049l!").unwrap();
+        assert_eq!(screen.cursor(), (2, 4));
+        assert_eq!(screen.physical_contents(), "normal\n\n   !");
+        assert_eq!(
+            screen.parser.screen().cell(2, 3).unwrap().fgcolor(),
+            vt100::Color::Idx(1)
+        );
+        screen.push(b"\x1b[?1049h\x1b8D").unwrap();
+        assert_eq!(screen.cursor(), (3, 6));
+        assert_eq!(
+            screen.parser.screen().cell(3, 5).unwrap().fgcolor(),
+            vt100::Color::Idx(4)
+        );
+        screen.push(b"\x1b[?1049l?").unwrap();
+        assert_eq!(screen.physical_contents(), "normal\n\n   !?");
+        assert_eq!(
+            screen.parser.screen().cell(2, 4).unwrap().fgcolor(),
+            vt100::Color::Idx(1)
+        );
+    }
+
+    #[test]
+    fn buffer_switch_preserves_pending_wrap_and_fills_only_background() {
+        let mut screen = Screen::new(3, 5).unwrap();
+        screen.push(b"\x1b[1;31;44mabcde\x1b[?47h").unwrap();
+        assert_eq!(screen.cursor(), (0, 5));
+        let blank = screen.parser.screen().cell(0, 0).unwrap();
+        assert_eq!(blank.bgcolor(), vt100::Color::Idx(4));
+        assert_eq!(blank.fgcolor(), vt100::Color::Default);
+        assert!(!blank.bold());
+        screen.push(b"X").unwrap();
+        assert_eq!(screen.cursor(), (1, 1));
+        assert!(screen.parser.screen().row_wrapped(0));
+        screen.push(b"\x1b[?47lY").unwrap();
+        assert_eq!(screen.physical_contents(), "abcde\n Y");
     }
 
     #[test]

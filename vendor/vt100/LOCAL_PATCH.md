@@ -50,3 +50,14 @@ unmodified reference in all compared fields, with four explicit differences
 (capacity negative-index behavior and alternate-entry cursor) still open.
 Core regressions exercise bytewise wide input, actual trimmed-history reading,
 reflow and rendition preservation. Parser identity is vt100-0.18.1+local.3.
+
+P11.7 local.4 transfers the physical (including pending-wrap) cursor between
+buffers, supports 1047 and 1048, and preserves content on repeated alt entry.
+Exit clears alternate content/scroll region but retains its saved cursor, just
+as the locked xterm 6.0.0 model does. Saved rendition is independent per buffer.
+New alternate blank cells inherit only the current background. Pending wrap on
+blank rows still sets the outgoing soft-wrap relation. No upstream dependency
+version or character width table changed. Nine lifecycle sequences compare all
+retained visible cells/attributes at 84 steps (84 exact matches); the original
+67-step history suite now matches 65, with two capacity differences still open.
+Parser identity is vt100-0.18.1+local.4. This does not claim full VT compatibility.

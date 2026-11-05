@@ -85,6 +85,7 @@ pub struct Screen {
 
     attrs: crate::attrs::Attrs,
     saved_attrs: crate::attrs::Attrs,
+    alternate_saved_attrs: crate::attrs::Attrs,
 
     modes: u8,
     mouse_protocol_mode: MouseProtocolMode,
@@ -115,6 +116,7 @@ impl Screen {
 
             attrs: crate::attrs::Attrs::default(),
             saved_attrs: crate::attrs::Attrs::default(),
+            alternate_saved_attrs: crate::attrs::Attrs::default(),
 
             modes: 0,
             mouse_protocol_mode: MouseProtocolMode::default(),
@@ -790,23 +792,44 @@ impl Screen {
     }
 
     fn enter_alternate_grid(&mut self) {
-        self.grid_mut().set_scrollback(0);
-        self.set_mode(MODE_ALTERNATE_SCREEN);
+        if self.mode(MODE_ALTERNATE_SCREEN) {
+            return;
+        }
+        self.grid.set_scrollback(0);
         self.alternate_grid.allocate_rows();
+        self.alternate_grid.erase_all(crate::attrs::Attrs {
+            bgcolor: self.attrs.bgcolor,
+            ..crate::attrs::Attrs::default()
+        });
+        self.alternate_grid.inherit_cursor(&self.grid);
+        self.set_mode(MODE_ALTERNATE_SCREEN);
     }
 
     fn exit_alternate_grid(&mut self) {
+        if !self.mode(MODE_ALTERNATE_SCREEN) {
+            return;
+        }
+        self.grid.inherit_cursor(&self.alternate_grid);
+        self.alternate_grid.clear_alternate();
         self.clear_mode(MODE_ALTERNATE_SCREEN);
     }
 
     fn save_cursor(&mut self) {
         self.grid_mut().save_cursor();
-        self.saved_attrs = self.attrs;
+        if self.mode(MODE_ALTERNATE_SCREEN) {
+            self.alternate_saved_attrs = self.attrs;
+        } else {
+            self.saved_attrs = self.attrs;
+        }
     }
 
     fn restore_cursor(&mut self) {
         self.grid_mut().restore_cursor();
-        self.attrs = self.saved_attrs;
+        self.attrs = if self.mode(MODE_ALTERNATE_SCREEN) {
+            self.alternate_saved_attrs
+        } else {
+            self.saved_attrs
+        };
     }
 
     fn set_mode(&mut self, mode: u8) {
@@ -886,31 +909,10 @@ impl Screen {
         let pos = self.grid().pos();
         let size = self.grid().size();
 
-        // A wide glyph with one column left continues the logical line even
-        // though the last cell is padding. Reflow recognizes that padding by
-        // its empty contents followed by a wide cell on the next row.
-        if width == 2 && pos.col == size.cols() - 1 {
-            return true;
-        }
-        let mut wrap = false;
-        if pos.col + width > size.cols() {
-            let last_cell = self
-                .grid()
-                .drawing_cell(crate::grid::Pos {
-                    row: pos.row,
-                    col: size.cols() - 1,
-                })
-                // pos.row is valid, since it comes directly from
-                // self.grid().pos() which we assume to always have a
-                // valid row value. size.cols - 1 is also always a valid
-                // column.
-                .unwrap();
-            if last_cell.has_contents() || last_cell.is_wide_continuation() {
-                wrap = true;
-            }
-        }
-
-        wrap
+        // A cursor past the last column is pending wrap, even when a
+        // buffer switch or erase left that row blank. A wide glyph with one
+        // column left likewise continues the logical line with padding.
+        pos.col + width > size.cols()
     }
 
     // if we already have a character in a cell, but adding a continuation
@@ -1386,7 +1388,8 @@ impl<CB: crate::Callbacks> WrappedScreen<CB> {
                 [6] => screen.grid_mut().set_origin_mode(true),
                 [9] => screen.set_mouse_mode(MouseProtocolMode::Press),
                 [25] => screen.clear_mode(MODE_HIDE_CURSOR),
-                [47] => screen.enter_alternate_grid(),
+                [47] | [1047] => screen.enter_alternate_grid(),
+                [1048] => screen.save_cursor(),
                 [1000] => {
                     screen.set_mouse_mode(MouseProtocolMode::PressRelease);
                 }
@@ -1402,7 +1405,6 @@ impl<CB: crate::Callbacks> WrappedScreen<CB> {
                 }
                 [1049] => {
                     self.decsc();
-                    self.screen.alternate_grid.clear();
                     self.screen.enter_alternate_grid();
                 }
                 [2004] => screen.set_mode(MODE_BRACKETED_PASTE),
@@ -1424,9 +1426,10 @@ impl<CB: crate::Callbacks> WrappedScreen<CB> {
                 [6] => screen.grid_mut().set_origin_mode(false),
                 [9] => screen.clear_mouse_mode(MouseProtocolMode::Press),
                 [25] => screen.set_mode(MODE_HIDE_CURSOR),
-                [47] => {
+                [47] | [1047] => {
                     screen.exit_alternate_grid();
                 }
+                [1048] => screen.restore_cursor(),
                 [1000] => {
                     screen.clear_mouse_mode(MouseProtocolMode::PressRelease);
                 }
