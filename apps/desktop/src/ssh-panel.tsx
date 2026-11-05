@@ -61,12 +61,12 @@ export function SshPanel({ connection, select, size }: { connection?: Connection
   return <section className="config-panel ssh-panel" aria-label="SSH2 连接面板">
     <div className="config-heading"><h2>SSH2 连接</h2><button disabled={busy} onClick={() => void reload()}>刷新 SSH2 配置</button></div>
     <div className="form-grid"><label>已保存的配置<select aria-label="SSH2 配置" value={profileId} onChange={event => setProfileId(event.target.value)}><option value="">请选择配置</option>{profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <div className="config-actions"><button disabled={busy || !profile || profile.settings.encoding !== 'utf8'} onClick={() => void act(() => start())}>建立 SSH2 连接</button></div></div>
-    <small>当前终端入口使用 UTF-8。GBK/GB18030 的终端收发将在编码步骤接入；配置仍保留。密码不显示在输入诊断中。</small>
+      <div className="config-actions"><button disabled={busy || !profile} onClick={() => void act(() => start())}>建立 SSH2 连接</button></div></div>
+    <small>终端按建立连接时的 UTF-8/GBK/GB18030 编码收发；编辑配置不改变活动连接。无法表示的文本整批拒绝，原始字节接口保持原样。密码不显示在输入诊断中。</small>
     <p role="status">{message}</p>
     {status && <>
-      <small aria-label="SSH2 目标">连接：{status.connection.connection_id} · 代次 {status.connection.generation}</small>
-      <p aria-label="SSH2 状态">{status.connection.state} · 代次 {status.connection.generation}{status.failure && ` · ${status.failure}`}{status.shell_exit_status !== null && ` · shell 退出码 ${status.shell_exit_status}`}{status.shell_exit_signal && ` · 信号 ${status.shell_exit_signal}`}</p>
+      <small aria-label="SSH2 目标">连接：{status.connection.connection_id} · 代次 {status.connection.generation} · 编码 {status.encoding}</small>
+      <p aria-label="SSH2 状态">{status.connection.state} · 代次 {status.connection.generation} · 编码 {status.encoding}{status.failure && ` · ${status.failure}`}{status.shell_exit_status !== null && ` · shell 退出码 ${status.shell_exit_status}`}{status.shell_exit_signal && ` · 信号 ${status.shell_exit_signal}`}</p>
       <div className="config-actions"><button disabled={busy || ['DISCONNECTED', 'FAILED'].includes(status.connection.state)} onClick={() => void act(async () => { await ssh({ op: 'close', connection: active() }); setPassword(''); setAnswers([]); setMessage('已请求关闭；已发送的远端动作不会因此撤销。'); })}>关闭 SSH2 连接</button>
         <button disabled={busy || !['DISCONNECTED', 'FAILED'].includes(status.connection.state)} onClick={() => void act(() => start(true))}>显式重连 SSH2</button>
         <button disabled={busy || !['DISCONNECTED', 'FAILED'].includes(status.connection.state)} onClick={() => void act(async () => {

@@ -47,3 +47,14 @@ test('bounds input, rejects unknown encodings, preserves BOM and distinguishes n
   assert.equal(decoded.bytes.length, 4096 * 3, 'largest public raw event fits the existing writer chunk cap');
   assert.ok(raw.every(byte => byte === 255), 'decoding does not modify raw input');
 });
+
+test('exec stdout and stderr keep separate prefixes and finish independently', () => {
+  for (const [encoding, bytes, expected] of [['gbk', [214,208,206,196], '中文'], ['gb18030', [214,208,144,48,129,48], '中𐀀']]) {
+    const stdout = new OutputDecoder(encoding), stderr = new OutputDecoder(encoding);
+    let out = '', err = '';
+    for (const byte of bytes) { out += text(stdout.decode(new Uint8Array([byte]))); err += text(stderr.decode(new Uint8Array([byte]))); }
+    assert.equal(out + text(stdout.finish()), expected);
+    assert.equal(err + text(stderr.finish()), expected);
+    assert.equal(text(stdout.finish()), '');
+  }
+});

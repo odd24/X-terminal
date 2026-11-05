@@ -79,7 +79,7 @@ function App() {
       setSnapshot('');
       setStatus(message + '；终端已清屏并重置解析状态，后续内容可能从序列中间开始');
     }
-    const newQueue = () => new InputQueue(() => { if (!disposed) setInputFailure('输入结果可能未知；已停止本页面后续输入，未重试。请核对远端状态。'); });
+    const newQueue = () => new InputQueue(error => { if (!disposed) setInputFailure(error instanceof Error && error.message !== 'unknown' ? `${error.message} 已停止本页面后续输入，未重试。` : '输入结果可能未知；已停止本页面后续输入，未重试。请核对远端状态。'); });
     let queue = newQueue();
     let resizeTimer = 0;
     let lastSize = '';
@@ -99,8 +99,9 @@ function App() {
           if (!disposed) setLastInput('串口驱动已接受；不代表设备已执行');
           return;
         }
-        if ('text' in action) return;
-        const reply = await ssh('bytes' in action
+        const reply = await ssh('text' in action
+          ? { op: 'write_text', connection: target, request_id: id, text: action.text }
+          : 'bytes' in action
           ? { op: 'write', connection: target, request_id: id, bytes: action.bytes }
           : { op: 'resize', connection: target, request_id: id, ...action });
         if (reply.result !== 'input') throw new Error('receipt');
@@ -127,10 +128,10 @@ function App() {
       }
       if (current.protocol === 'SSH2') {
         if (!current.writable || selectedRef.current !== current.connection?.connection_id) { setLastInput('连接当前不可写；此次输入未发送'); return; }
-        const bytes = Array.from(new TextEncoder().encode(data));
-        if (bytes.length > 65536) { setInputFailure('单次输入超过 64 KiB；此次输入未发送'); return; }
-        setLastInput(`收到 ${bytes.length} 字节输入；内容不显示`);
-        submit({ bytes });
+        if (/[\uD800-\uDFFF]/u.test(data)) { setInputFailure('输入包含不完整 Unicode 字符；此次输入未发送'); return; }
+        if (new TextEncoder().encode(data).length > 196608) { setInputFailure('单次文本超过输入上限；此次输入未发送'); return; }
+        setLastInput('SSH 键盘输入已收到，按连接编码发送；内容不显示');
+        submit({ text: data });
         return;
       }
       if (!current.fixture || current.protocol !== 'FIXTURE' || !current.connection) return;
@@ -187,6 +188,12 @@ function App() {
             const metadata = await serial({ op: 'status', connection: { connection_id: connection.connection_id, generation: connection.generation } });
             if (disposed) return;
             if (metadata.result !== 'status') throw new Error('Invalid serial status');
+            encoding = metadata.encoding;
+          }
+          if (connection.protocol === 'SSH2') {
+            const metadata = await ssh({ op: 'status', connection: { connection_id: connection.connection_id, generation: connection.generation } });
+            if (disposed) return;
+            if (metadata.result !== 'status' || metadata.connection.connection_id !== connection.connection_id || metadata.connection.generation !== connection.generation) throw new Error('Invalid SSH encoding status');
             encoding = metadata.encoding;
           }
           current.writable = false; queue.close(); queue = newQueue(); lastSize = '';

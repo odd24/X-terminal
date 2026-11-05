@@ -42,6 +42,10 @@ async fn main() {
                     .push(value["text"].as_str().unwrap().as_bytes())
                     .await
             }
+            "push_bytes" => {
+                let bytes: Vec<u8> = serde_json::from_value(value["bytes"].clone()).unwrap();
+                fixture.push(&bytes).await;
+            }
             "stop" => break,
             _ => panic!("unknown fixture command"),
         }

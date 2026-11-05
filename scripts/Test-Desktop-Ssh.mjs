@@ -128,9 +128,9 @@ try {
 
   await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
   await ui.command('Input.insertText',{text:'x'.repeat(65537)});
-  await ui.waitFor(`document.querySelector('.status').textContent.includes('超过 64 KiB')`);
+  await ui.waitFor(`document.querySelector('.status').textContent.includes('编码字节上限')`);
   await delay(400);
-  assert.equal(await ui.evaluate(`document.querySelector('.status').textContent.includes('超过 64 KiB')`),true,'read polling must not overwrite rejected-input feedback');
+  assert.equal(await ui.evaluate(`document.querySelector('.status').textContent.includes('编码字节上限')`),true,'read polling must not overwrite rejected-input feedback');
   assert.equal(Buffer.from((await control({op:'metrics'})).received.flat()).toString(),'firstsecond','oversized paste is not sent');
 
   await control({op:'end'}); await state('DISCONNECTED');
@@ -191,8 +191,82 @@ try {
   await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');await ui.click('移除连接记录');
   await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
   assert.equal((await ui.invoke('service_list')).length,0);
+  // P11.5: real WebView text input, frozen metadata, split legacy exec streams and reload.
+  const legacySnapshot = async text => {
+    for(let attempt=0;attempt<200;attempt++) {
+      await ui.click('屏幕快照');
+      if(await ui.evaluate(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes(${JSON.stringify(text)})`)) return;
+      await delay(50);
+    }
+    throw new Error('legacy terminal snapshot did not contain expected synthetic text');
+  };
+  for (const [encoding, text, raw] of [['gbk','中文',[214,208,206,196]], ['gb18030','中𐀀',[214,208,144,48,129,48]]]) {
+    const legacy = {id:crypto.randomUUID(),folder_id:null,name:`synthetic ${encoding}`,settings:{...password.settings,encoding}};
+    assert.equal((await ui.invoke('config_request',{request:{op:'save_profile',profile:legacy,credential:{action:'keep'}}})).result,'saved_profile');
+    await ui.click('刷新 SSH2 配置');
+    await ui.waitFor(`Array.from(document.querySelector('[aria-label="SSH2 配置"]').options).some(o=>o.value===${JSON.stringify(legacy.id)})`);
+    const beforeLegacySizes=(await control({op:'metrics'})).sizes.length;
+    await choose(legacy);await waitButton('提交本次 SSH2 密码');
+    await ui.fill('SSH2 临时密码',server.password);await ui.click('提交本次 SSH2 密码');await state('CONNECTED');
+    const active = (await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
+    const scope = {connection_id:active.connection_id,generation:active.generation};
+    const getStatus = () => ui.invoke('ssh_request',{request:{op:'status',connection:scope}});
+    assert.equal((await getStatus()).encoding,encoding);
+    // Change the Profile while keeping the generation alive; only a future restart takes it.
+    assert.equal((await ui.invoke('config_request',{request:{op:'save_profile',profile:{...legacy,settings:{...legacy.settings,encoding:'utf8'}},credential:{action:'keep'}}})).result,'saved_profile');
+    const beforeBytes=(await control({op:'metrics'})).received.flat().length;
+    for(let attempt=0;attempt<100 && (await control({op:'metrics'})).sizes.length<beforeLegacySizes+2;attempt++) await delay(50);
+    assert.ok((await control({op:'metrics'})).sizes.length>=beforeLegacySizes+2,'selected terminal has synchronized dimensions');
+    await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
+    await ui.command('Input.insertText',{text});
+    await ui.waitFor(`document.querySelector('.input-status output').textContent.includes('发送管线')`);
+    assert.deepEqual((await control({op:'metrics'})).received.flat().slice(beforeBytes),raw);
+    for (const byte of raw) { await control({op:'push_bytes',bytes:[byte]});await delay(180); }
+    await legacySnapshot(text+text);
+    const beforeCalls=(await control({op:'metrics'})).exec_calls.length;
+    if (!await ui.evaluate(`Boolean(document.querySelector('[aria-label="exec 命令"]'))`)) await ui.click('exec 任务');
+    const legacyTask=await runExec(text,'COMPLETED');
+    await ui.waitFor(`Array.from(document.querySelectorAll('[aria-label="exec 输出"] [data-stream="stdout"]')).map(x=>x.textContent).join('')===${JSON.stringify(text)} && Array.from(document.querySelectorAll('[aria-label="exec 输出"] [data-stream="stderr"]')).map(x=>x.textContent).join('')===${JSON.stringify(text)}`);
+    assert.deepEqual((await control({op:'metrics'})).exec_calls.slice(beforeCalls),[raw]);
+    assert.equal((await getStatus()).encoding,encoding);
+    if(encoding==='gbk') {
+      await ui.fill('exec 命令','𐀀');await ui.click('启动 exec 任务');
+      await ui.waitFor(`document.querySelector('.exec-panel [role="status"]').textContent.includes('无法用连接编码表示')`);
+      assert.equal((await control({op:'metrics'})).exec_calls.length,beforeCalls+1);
+      await runExec('gbk-tail','COMPLETED');
+      await ui.waitFor(`document.querySelector('[aria-label="exec 输出"]').textContent==='�' && document.querySelector('.exec-panel [role="alert"]').textContent.includes('U+FFFD')`);
+    }
+    const callsBeforeReload=(await control({op:'metrics'})).exec_calls.length;
+    await ui.evaluate(`window.__legacyReloadProbe=true`);await ui.command('Page.reload');
+    await ui.waitFor(`window.__legacyReloadProbe===undefined && document.querySelector('footer')?.textContent.includes('服务 ') && Array.from(document.querySelector('[aria-label="会话"]').options).some(o=>o.value===${JSON.stringify(scope.connection_id)})`);
+    await ui.fill('会话',scope.connection_id);
+    await legacySnapshot(text+text);
+    assert.equal((await getStatus()).encoding,encoding);
+    assert.equal((await control({op:'metrics'})).exec_calls.length,callsBeforeReload,'reload does not replay');
+    await ui.click('exec 任务');await ui.fill('查询 exec 任务 ID',legacyTask);await ui.click('查询 exec 任务');
+    await ui.waitFor(`Array.from(document.querySelectorAll('[aria-label="exec 输出"] [data-stream="stdout"]')).map(x=>x.textContent).join('')===${JSON.stringify(text)} && Array.from(document.querySelectorAll('[aria-label="exec 输出"] [data-stream="stderr"]')).map(x=>x.textContent).join('')===${JSON.stringify(text)}`);
+    assert.equal((await control({op:'metrics'})).exec_calls.length,callsBeforeReload,'legacy result query does not rerun');
+    await ui.click('SSH2 连接');await state('CONNECTED');
+    if(encoding==='gbk') {
+      const beforeRejected=(await control({op:'metrics'})).received.flat().length;
+      await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);await ui.command('Input.insertText',{text:'𐀀'});
+      await ui.waitFor(`document.querySelector('.status').textContent.includes('无法用连接编码表示')`);
+      assert.equal((await control({op:'metrics'})).received.flat().length,beforeRejected);
+    }
+    await ui.screenshot(`desktop-ssh-${encoding}-synthetic.png`);
+    await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');
+    await ui.click('显式重连 SSH2');await waitButton('提交本次 SSH2 密码');
+    await ui.fill('SSH2 临时密码',server.password);await ui.click('提交本次 SSH2 密码');await state('CONNECTED');
+    const restarted=(await ui.invoke('service_list')).find(item=>item.connection_id===scope.connection_id);
+    assert.equal(restarted.generation,scope.generation+1);
+    assert.equal((await ui.invoke('ssh_request',{request:{op:'status',connection:{connection_id:restarted.connection_id,generation:restarted.generation}}})).encoding,'utf8');
+    const staleText=await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('ssh_request',${JSON.stringify({request:{op:'write_text',connection:scope,request_id:crypto.randomUUID(),text:'stale'}})}).then(()=>null,e=>String(e))`);
+    assert.equal(staleText,'StaleGeneration');
+    await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');await ui.click('移除连接记录');
+    await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
+  }
   await ui.close();ui=null;
-  console.log('PASS SSH2 native WebView: trust/reject/changed key, wrong/temporary password, DPAPI key, keyboard challenge, FIFO input/resize, bounded exec/exit/signal/timeout/cancel/gaps, exit/disconnect, reload/query without reconnect/replay');
+  console.log('PASS SSH2 native WebView: trust/reject/changed key, wrong/temporary password, DPAPI key, keyboard challenge, FIFO input/resize, bounded exec/exit/signal/timeout/cancel/gaps, exit/disconnect, legacy GBK/GB18030 strict text and split exec streams, frozen codec/reload without replay');
 } catch (error) {
   console.error('SSH status at failure:', await ui?.evaluate(`JSON.stringify({ssh:document.querySelector('[aria-label="SSH2 状态"]')?.textContent,message:document.querySelector('.ssh-panel [role="status"]')?.textContent,main:document.querySelector('.status')?.textContent})`));
   if(ui)console.error('authoritative connections:',await ui.invoke('service_list').catch(()=> 'unavailable'));

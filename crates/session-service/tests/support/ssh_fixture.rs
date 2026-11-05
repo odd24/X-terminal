@@ -182,6 +182,36 @@ impl server::Handler for Server {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         self.exec_calls.lock().unwrap().push(command.to_vec());
+        if command == [0xd6, 0xd0, 0xce, 0xc4] || command == [0xd6, 0xd0, 0x90, 0x30, 0x81, 0x30] {
+            session.channel_success(channel)?;
+            let writer = self.writers.get(&channel).unwrap().clone();
+            let handle = session.handle();
+            let bytes = command.to_vec();
+            let task = tokio::spawn(async move {
+                for byte in bytes {
+                    if writer.data_bytes(vec![byte]).await.is_err()
+                        || writer.extended_data_bytes(1, vec![byte]).await.is_err()
+                    {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+                let _ = handle.exit_status_request(channel, 0).await;
+                let _ = writer.eof().await;
+                let _ = writer.close().await;
+            });
+            self.producers
+                .insert(channel, Arc::new(Producer(task.abort_handle())));
+            return Ok(());
+        }
+        if command == b"gbk-tail" {
+            session.channel_success(channel)?;
+            session.data(channel, vec![0xd6])?;
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
         if command == b"reject" {
             session.channel_failure(channel)?;
             return Ok(());
