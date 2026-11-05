@@ -52,3 +52,14 @@ B原会话已final冻结、idle，分支HEAD=829233196621d7dcd670df2eae4bb78b57f
 ## 16:54后继A实际接管与B集成
 
 唯一集成写入者已移交给01a1aae4-e452-7cb1-962a-fc39ef3d1f0c（host=local），从87ff56efc6d26f17aa915e2b80020272ab48582e/clean接管原集成目录/分支；旧A已显式放行并冻结，B/C保持原冻结，不建新worktree/子Agent。C不重复集成。B 8292331已审核应用，两个追加文档冲突保留双方事实；调查证据除sourceHead外一致，37核心/严格检查/正式差分已在集成通过，详见P11.7新增记录。两库检查进程均结束，无桌面/服务/选择器/剪贴板资源占用；最终构建及完整回归仍待执行，由此后继A唯一串行负责。现有Codex运行时Node进程未触碰。接管后本次为第一个实质提交，Step-ID: P11.7。
+
+## 最终集成原生资源时段（后继A）
+
+RUNNING：2026-11-05T16:56:38.6349186+08:00，owner=01a1aae4-e452-7cb1-962a-fc39ef3d1f0c，源码=6eae64e9d17b48b610e790c6056e6f9ebc092936；最终desktop:build，随后完整test:desktop串行执行。集成target/debug固定二进制；B/C保持冻结，未占用其他用户窗口/进程。构建与回归结果结束后续记。
+
+BUILD PASS（Finished/Built/退出0，详见artifacts/BATCH01-A-desktop-build.txt）；2026-11-05T17:01:22.8261737+08:00 完整npm run test:desktop RUNNING，源码6eae64e9d17b48b610e790c6056e6f9ebc092936，Harness明确启动本目录target/debug/shared-terminal-desktop.exe，二进制时间/长度/SHA-256见artifacts/BATCH01-A-built-binaries.txt。owner同后继A，独占IPC/WebView/选择器/剪贴板。
+
+
+## 17:08第一批退出与资源释放
+
+FINAL VERIFIED：构建2026-11-05 16:56:38–17:00:57/完整回归17:01:22–17:08:01均退出0，源码6eae64e，串口finally普通服务8.07秒实际恢复。完整14入口全部PASS，原始证据artifacts/BATCH01-A-desktop-build.txt、BATCH01-A-desktop-regression.txt，细节及未执行项见P11.4末节；没有后续产品源码变更。项目构建/服务/桌面/专项Node进程已退出，资源RELEASED，未操作其他用户窗口/未知进程。后继A接管后有序提交为6eae64e（B集成）与本Step-ID: P11.4最终验证；任务完成不创建无必要后继。B/C及旧A保持冻结，第一批完成软件成果交付而非父步骤/阶段门产品验收；不自动开展P12–P25。
