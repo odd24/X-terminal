@@ -64,3 +64,56 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 @media (max-width: 850px) { main { padding: var(--space-4); } }
 
 .terminal .xterm-viewport { background-color: var(--terminal-background); }
+
+/* Terminal-first shell. Auxiliary tools scroll independently of the live terminal. */
+html, body, #root { height: 100%; overflow: hidden; }
+main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: var(--space-2); }
+.app-bar { display: flex; align-items: center; gap: var(--space-4); }
+.app-bar span { color: var(--text-muted); font-size: var(--text-sm); }
+.desktop-shell nav { flex-wrap: nowrap; overflow-x: auto; margin: 0; padding: var(--space-1); }
+.desktop-shell nav > * { flex-shrink: 0; }
+.desktop-shell nav select { max-width: var(--list-height); }
+.diagnostic-menu { position: relative; }
+.diagnostic-menu[open] { display: flex; gap: var(--space-2); }
+.desktop-body { min-height: 0; min-width: 0; display: grid; position: relative; grid-template-columns: var(--navigation-width) minmax(0, 1fr); gap: var(--space-2); }
+.desktop-body:has(.auxiliary-panels:not(:empty)) { grid-template-columns: var(--navigation-width) minmax(0, 1fr) minmax(0, var(--auxiliary-width)); }
+.desktop-body.sidebar-hidden { grid-template-columns: minmax(0, 1fr); }
+.desktop-body.sidebar-hidden:has(.auxiliary-panels:not(:empty)) { grid-template-columns: minmax(0, 1fr) minmax(0, var(--auxiliary-width)); }
+.sidebar-hidden .session-sidebar, .auxiliary-panels:empty { display: none; }
+.session-sidebar { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); background: var(--surface); padding: var(--space-3); border: var(--border-width) solid var(--border); overflow: auto; max-width: 100%; }
+.session-sidebar h2 { font-size: var(--text-body); }
+.session-sidebar .config-heading { gap: var(--space-1); }
+.tree-search { display: flex; flex-direction: column; gap: var(--space-1); }
+.tree-search input { width: 100%; min-width: 0; }
+.tree-scroll { flex: 1; min-height: var(--control-height); overflow: auto; }
+.session-tree-list { list-style: none; padding: 0 0 0 var(--space-3); margin: 0; }
+.tree-scroll > .session-tree-list { padding-left: 0; }
+.session-tree-list button { width: 100%; text-align: left; margin-block: var(--space-1); overflow-wrap: anywhere; }
+.session-tree-list small { display: block; color: var(--text-muted); }
+.session-tree-list .selected { border-color: var(--accent); }
+.profile-summary { border-top: var(--border-width) solid var(--border); padding-top: var(--space-3); overflow-wrap: anywhere; }
+.profile-summary small { display: block; color: var(--text-muted); }
+.terminal-workspace { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.terminal-workspace .terminal { flex: 1; height: auto; min-height: 0; border-radius: var(--radius-control); }
+.terminal-workspace :is(.status, .input-status) { margin-block: var(--space-1); }
+.tab-tools { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin-bottom: var(--space-2); }
+[role="tablist"] { display: flex; flex: 1; overflow-x: auto; min-width: 0; gap: var(--space-1); }
+.connection-tab { display: flex; flex-shrink: 0; }
+.connection-tab [role="tab"] { max-width: var(--tab-max-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.connection-tab small { display: block; color: var(--text-muted); font-size: var(--text-xs); }
+.connection-tab [aria-selected="true"] { border-color: var(--accent); background: var(--control-hover); }
+.tab-tools > button { flex-shrink: 0; padding: var(--space-1); font-size: var(--text-xs); }
+.terminal-empty { padding: var(--space-2); }
+.auxiliary-panels { min-height: 0; min-width: 0; overflow: auto; background: var(--page); }
+.auxiliary-panels > .config-panel { padding: var(--space-3); margin-bottom: var(--space-3); }
+.auxiliary-panels .config-layout { grid-template-columns: minmax(0, 1fr); }
+.desktop-shell footer { margin: 0; max-height: calc(var(--line-height) * var(--text-sm) * 2); overflow: auto; }
+@media (max-width: 1100px) {
+  .desktop-body:has(.auxiliary-panels:not(:empty)), .desktop-body.sidebar-hidden:has(.auxiliary-panels:not(:empty)) { grid-template-columns: minmax(0, 1fr) minmax(0, var(--auxiliary-width)); }
+  .desktop-body:has(.auxiliary-panels:not(:empty)) .session-sidebar { display: none; }
+}
+@media (max-width: 850px) {
+  .desktop-body, .desktop-body:has(.auxiliary-panels:not(:empty)), .desktop-body.sidebar-hidden:has(.auxiliary-panels:not(:empty)) { grid-template-columns: minmax(0, 1fr); }
+  .session-sidebar, .auxiliary-panels:not(:empty) { position: absolute; inset: 0 auto 0 0; width: min(85%, var(--navigation-width)); z-index: 2; }
+  .auxiliary-panels:not(:empty) { inset: 0 0 0 auto; width: min(90%, var(--auxiliary-width)); border: var(--border-width) solid var(--border); }
+}

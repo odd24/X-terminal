@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Desktop shell without transport or filesystem permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-close"]
+  "permissions": ["core:default", "core:window:allow-close", "core:window:allow-destroy"]
 }

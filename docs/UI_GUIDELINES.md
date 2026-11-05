@@ -70,3 +70,6 @@ P11.6受控剪贴板沿用公共config-panel/按钮与提示，默认Ctrl+C有�
 apps/desktop/src/tokens.css为唯一设计变量入口，style.css引用语义色/尺寸/层级及状态；appearance.ts从同一CSS读取xterm主题和字体，禁止新增JS独立色板。原生HTML按钮/输入/选择/文本域使用公共基样式，ui.tsx的Panel/Field用于统一面板标题/关闭入口与表单布局；新增导航、标签、提示继续复用。UI字体链Segoe UI→Microsoft YaHei UI→Microsoft YaHei；终端/快照/正文编辑器/指纹使用Consolas优先或Cascadia优先并系统中文回退，未安装Cascadia不安装字体。深浅/系统主题共用所有变量，焦点覆盖select/textarea/summary/链接，禁用悬停保持禁用状态，减少动效遵循系统偏好。
 
 当前外观设置只作用本窗口且重载恢复默认，按数据目录持久化及备份策略仍待P12后续，界面明确说明。实际WebView和有限CSS viewport证据见[P12](records/P12.md)，不是完整T22/T23或真实DPI验收。当前首步仅显示基础；终端优先布局、会话树/标签/按需辅助区域、基础撰写和习惯选项持续落实，不能以共享变量存在替代主流程验收。
+
+
+P12桌面壳采用ADR-040：全窗口终端优先grid、可折叠调宽会话树、可滚动/键盘切换基础标签、独立滚动辅助区和精确活动状态栏；全部沿用共享tokens。Profile选中与活动连接分离，隐藏视图不forget，close/退出确认保持服务语义。1100px以下打开辅助区时收起导航，850px以下采用侧栏/辅助覆盖区；这是CSS适应策略，真实分辨率/DPI和全部状态矩阵仍须T22/T23验证。工具栏水平溢出时可滚动/键盘到达，快照可显式关闭。实际证据见P12，不从布局代码推断完整验收。

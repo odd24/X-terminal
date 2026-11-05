@@ -136,3 +136,6 @@ P11.6新增npm run test:desktop:clipboard（前置desktop:build，纳入完整�
 
 
 P12共享设计入口tokens.css/style.css，terminalAppearance从CSS读取终端主题/字体，Panel/Field优先复用；禁止面板另写色板/字体。新增npm run test:desktop:appearance（前置desktop:build，完整回归第15入口），仅shared-terminal-appearance-ui-中文-自建根。深浅/系统主题、原生Tab焦点、统一字体字号/来源不变/重载默认及CSS viewport探测不等于T22/T23真实分辨率/DPI/全局矩阵；本窗口偏好仍待受管理持久化，不能从首步宣称P12/G1完成。
+
+
+P12导航新增npm run test:desktop:navigation（前置desktop:build及已有gui_ssh_fixture），纳入完整桌面回归第16入口。仅shared-terminal-navigation-ui-中文-自建根/合成SSH夹具与合成会话，验证配置选中/独立实例、标签排序/溢出/关闭/隐藏重开、退出确认、后台保留输出和reload身份。主窗口onCloseRequested放行需要既有main的allow-destroy，仍停止服务；隐藏标签不forget/不扩大保留容量。原生默认窗口面积与CSS探测不能替代真实DPI/全局矩阵。

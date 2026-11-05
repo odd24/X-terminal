@@ -31,6 +31,10 @@
   --line-height-small: 1.6;
   --content-width: 1400px;
   --terminal-height: 390px;
+  --navigation-width: 260px;
+  --auxiliary-width: 440px;
+  --terminal-min-height: 160px;
+  --tab-max-width: 220px;
   --preview-height: 220px;
   --list-height: 280px;
   --disabled-opacity: .5;

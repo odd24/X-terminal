@@ -5,7 +5,7 @@ import { serial, serialResult, reference, type Inventory, type SerialStatus } fr
 import type { Connection } from './ssh-api';
 import { invoke } from '@tauri-apps/api/core';
 
-export function SerialPanel({ connection, select }: { connection?: Connection; select(id: string): void }) {
+export function SerialPanel({ connection, select, requestedProfile }: { connection?: Connection; select(id: string): void; requestedProfile?: string }) {
   const [profiles,setProfiles]=useState<Profile[]>([]); const [profileId,setProfileId]=useState('');
   const [inventory,setInventory]=useState<Inventory>(); const [deviceId,setDeviceId]=useState('');
   const [status,setStatus]=useState<SerialStatus>(); const [approved,setApproved]=useState(false);
@@ -18,6 +18,7 @@ export function SerialPanel({ connection, select }: { connection?: Connection; s
   const device=inventory?.devices.find(item=>item.device_id===deviceId);
   async function refresh(){const [configuration,devices]=await Promise.all([readConfiguration(),serial({op:'inventory'})]);if(devices.result!=='inventory')throw new Error('设备目录响应不匹配。');if(mounted.current){setProfiles(configuration.profiles.filter(item=>item.settings.protocol==='serial'));setInventory(devices);setDeviceId('');setApproved(false);}}
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  useEffect(()=>{if(!requestedProfile)return;let disposed=false;void readConfiguration().then(result=>{if(!disposed){setProfiles(result.profiles.filter(item=>item.settings.protocol==='serial'));setProfileId(requestedProfile);setDeviceId('');setApproved(false);}}).catch(error=>{if(!disposed)setMessage((error as Error).message);});return()=>{disposed=true;};},[requestedProfile]);
   useEffect(()=>{setStatus(undefined);setContent('');setReceiptId('');if(connection?.protocol!=='SERIAL')return;let disposed=false;let timer=0;const target=reference(connection);
     async function poll(){try{const reply=await serial({op:'status',connection:target});if(disposed)return;if(reply.result!=='status'||reply.connection.connection_id!==target.connection_id||reply.connection.generation!==target.generation)throw new Error('串口状态响应不匹配。');setStatus(reply);timer=window.setTimeout(()=>void poll(),250);}catch(error){if(!disposed)setMessage((error as Error).message);}}
     void poll();return()=>{disposed=true;clearTimeout(timer);};

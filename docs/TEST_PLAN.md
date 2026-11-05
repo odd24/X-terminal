@@ -192,3 +192,6 @@ P11.7/T06在原P02七项外新增连续resize矩阵28项，物理视口比较受
 ## P12共享显示专项
 
 npm run test:desktop:appearance（前置desktop:build，纳入完整桌面回归第15入口）使用shared-terminal-appearance-ui-中文-自建临时数据根。真实WebView验证配置/SSH/串口/exec/日志/查找/外观共享深浅主题与UI/等宽字体、实际Tab焦点、字号/字体更新、系统主题事件、来源文本/身份不变及重载默认；目视检查原生深浅截图。1280×720/1920×1080/720×480仅CDP CSS viewport探测，不计原生屏幕分辨率/真实DPI。实际结果和未执行项见[P12](records/P12.md)；后续T22/T23仍须完整导航/标签/全部弹窗状态/长文/中文输入法/真实100/150/200%DPI。没有用户设备输入。
+
+
+P12导航专项npm run test:desktop:navigation（前置最终desktop:build及gui_ssh_fixture）纳入完整桌面回归第16入口。只在shared-terminal-navigation-ui-中文-自建根验证真实WebView：Profile选中不连接/显式与双击新实例、同Profile独立ID、搜索、标签排序/键盘/溢出、取消/隐藏重开/固定代次关闭、后台保留输出、退出确认、导航调宽/折叠及重载服务身份。实际结果见P12/ADR-040；普通关闭/崩溃Job仍由生命周期专项独立验证，不把DOM默认截图当T22/T23全矩阵或实机通过。
