@@ -33,6 +33,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.3 | 有界持久日志引擎 | DONE | [P11.3](records/P11.3.md) | Step-ID: P11.3 |
 | P11.4 | 日志服务与桌面入口 | IN_PROGRESS | [P11.4](records/P11.4.md) | Step-ID: P11.4 |
 | P11.5 | SSH编码完整链路 | DONE | [P11.5](records/P11.5.md) | Step-ID: P11.5 |
+| P11.6 | 终端查找与受控剪贴板 | IN_PROGRESS | [P11.6](records/P11.6.md) | Step-ID: P11.6 |
 | P12 | 基础桌面体验 | TODO | 待创建 | — |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权与调度 | TODO | 待创建 | — |
@@ -95,3 +96,7 @@ P11.4恢复导出桌面契约：独立请求/回执校验、显式RECOVERY编号
 P11.5服务阶段：冻结SSH代次编码与任务元数据、严格WriteText/exec转换和原始字节边界已实现，相关三包124项及严格clippy通过；schema已重生。Git关联Step-ID: P11.5，桌面验证继续。
 
 2026-11-05 P11.5软件链路DONE：服务5f1bcca；本次桌面产物沿用Step-ID: P11.5。UTF-8/GBK/GB18030快照接收/严格文本发送/exec双流、重载原任务查询/新代次编码与旧代次拒绝均经真实Windows IPC/WebView验证，124项相关Rust/33项前端及完整桌面回归PASS，串口finally普通服务恢复实际成功。首轮专项脚本失败与补正见记录，不冒充产品/实机通过；P11/P11.4/G1仍开放。下一步终端复制粘贴/搜索/reflow及其他独立软件余项；本轮第二提交后创建接续对话、确认启动后暂停旧目标。
+
+2026-11-05开始P11.6：基线3cb30b7，先实现当前保留缓冲区查找/滚屏，再独立实现受控剪贴板；P11/G1与实机/reflow仍开放。
+
+P11.6查找阶段：当前buffer有界字面搜索/滚屏定位/回底已接入，36项前端与实际桌面构建、output原生专项PASS，默认截图已核对；Git关联Step-ID: P11.6。剪贴板下一独立提交，P11/G1不变。

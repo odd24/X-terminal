@@ -19,6 +19,17 @@ try {
   const text=await ui.invoke('service_read_text',{connection:ref,cursor:1});
   assert.ok(text.events.map(event=>event.text).join('').includes('中文宽字'));
   assert.equal(text.truncated,false);assert.equal(text.completed,false);
+  await ui.invoke('fixture_append', { connection: ref, bytes: [...Buffer.from('\r\n' + 'SEARCH中文😀'.repeat(30) + '\r\n' + Array.from({length:40},(_,i)=>`scroll-${i}\r\n`).join(''))] });
+  await delay(500);
+  await ui.click('查找终端');await ui.fill('终端查找文字','SEARCH中文😀SEARCH');
+  await ui.click('下一个匹配');
+  await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 15')`);
+  await ui.click('下一个匹配');await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('2 / 15')`);
+  await ui.click('上一个匹配');await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 15')`);
+  await ui.screenshot('desktop-terminal-search-synthetic.png');
+  await ui.fill('终端查找文字','absent-literal-.*');await ui.click('下一个匹配');
+  await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent==='未找到'`);
+  await ui.click('回到底部');await ui.click('关闭查找');
   await ui.invoke('fixture_append', { connection: ref, bytes: [...Buffer.from('\r\nPREFIX\x1b]0;')] });
   await delay(300);await ui.click('屏幕快照');
   await ui.waitFor(`document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('PREFIX')`);

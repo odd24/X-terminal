@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { TerminalSearch } from './terminal-search-panel';
 import { TerminalWriter } from './terminal-writer';
 import { OutputDecoder } from './output-decoder';
 import { ConfigPanel } from './config-panel';
@@ -31,6 +32,7 @@ function App() {
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
   const [loggingOpen,setLoggingOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<{ term: Terminal; fit: FitAddon; writer: TerminalWriter; connection?: Ref; fixture: boolean; inputs: number; protocol: string; writable: boolean } | null>(null);
   const [service, setService] = useState<Status>();
@@ -305,6 +307,7 @@ function App() {
         {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connection.protocol} · {connection.connection_id.slice(0, 8)} · 代次 {connection.generation}</option>)}
       </select>
       {service?.fixture && <><button disabled={busy || !!failure} onClick={() => void createFixture()}>新建合成会话</button><button disabled={busy || !selected || !!failure} onClick={() => void stress()}>高输出回放</button><button onClick={() => { stopped.current = true; }}>停止后续回放</button></>}
+      <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
       <button onClick={capture}>屏幕快照</button>
       <button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
@@ -314,6 +317,7 @@ function App() {
     {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={id => { selectedRef.current = id; setSelected(id); }} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
     <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />
     {serialOpen && <SerialPanel connection={connections.find(item => item.connection_id === selected)} select={id => { selectedRef.current = id; setSelected(id); }} />}
+    {searchOpen && <TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} />}
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || inputFailure || status}</div>
     {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}
