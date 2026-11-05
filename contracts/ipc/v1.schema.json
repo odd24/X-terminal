@@ -57,6 +57,41 @@
           {
             "additionalProperties": false,
             "properties": {
+              "op": {
+                "const": "preferences",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "save_preferences",
+                "type": "string"
+              },
+              "preferences": {
+                "$ref": "#/$defs/DesktopPreferences"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "preferences",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "offset": {
                 "format": "uint32",
                 "minimum": 0,
@@ -541,6 +576,41 @@
             "type": "object"
           }
         ]
+      },
+      "DesktopPreferences": {
+        "additionalProperties": false,
+        "properties": {
+          "ctrl_c_copy": {
+            "type": "boolean"
+          },
+          "ctrl_v_paste": {
+            "type": "boolean"
+          },
+          "font_size": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "right_click_paste": {
+            "type": "boolean"
+          },
+          "terminal_font": {
+            "$ref": "#/$defs/TerminalFont"
+          },
+          "theme": {
+            "$ref": "#/$defs/ThemeChoice"
+          }
+        },
+        "required": [
+          "theme",
+          "terminal_font",
+          "font_size",
+          "ctrl_c_copy",
+          "ctrl_v_paste",
+          "right_click_paste"
+        ],
+        "type": "object"
       },
       "Encoding": {
         "enum": [
@@ -2478,6 +2548,22 @@
             "type": "object"
           }
         ]
+      },
+      "TerminalFont": {
+        "enum": [
+          "consolas",
+          "cascadia"
+        ],
+        "type": "string"
+      },
+      "ThemeChoice": {
+        "description": "Non-secret, data-directory-scoped desktop preferences. No text, paths or grants.",
+        "enum": [
+          "dark",
+          "light",
+          "system"
+        ],
+        "type": "string"
       }
     },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2847,6 +2933,28 @@
           {
             "additionalProperties": false,
             "properties": {
+              "preferences": {
+                "$ref": "#/$defs/DesktopPreferences"
+              },
+              "result": {
+                "const": "preferences",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "preferences",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "entries": {
                 "items": {
                   "$ref": "#/$defs/CredentialInfo"
@@ -2981,6 +3089,9 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "preferences": {
+                "$ref": "#/$defs/DesktopPreferences"
+              },
               "profiles": {
                 "format": "uint32",
                 "minimum": 0,
@@ -3005,7 +3116,8 @@
               "profiles",
               "host_keys",
               "missing_credentials",
-              "sample_profiles"
+              "sample_profiles",
+              "preferences"
             ],
             "type": "object"
           },
@@ -3265,6 +3377,41 @@
         "required": [
           "id",
           "current_profiles"
+        ],
+        "type": "object"
+      },
+      "DesktopPreferences": {
+        "additionalProperties": false,
+        "properties": {
+          "ctrl_c_copy": {
+            "type": "boolean"
+          },
+          "ctrl_v_paste": {
+            "type": "boolean"
+          },
+          "font_size": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "right_click_paste": {
+            "type": "boolean"
+          },
+          "terminal_font": {
+            "$ref": "#/$defs/TerminalFont"
+          },
+          "theme": {
+            "$ref": "#/$defs/ThemeChoice"
+          }
+        },
+        "required": [
+          "theme",
+          "terminal_font",
+          "font_size",
+          "ctrl_c_copy",
+          "ctrl_v_paste",
+          "right_click_paste"
         ],
         "type": "object"
       },
@@ -5737,6 +5884,13 @@
         ],
         "type": "string"
       },
+      "TerminalFont": {
+        "enum": [
+          "consolas",
+          "cascadia"
+        ],
+        "type": "string"
+      },
       "TextEvent": {
         "additionalProperties": false,
         "properties": {
@@ -5831,6 +5985,15 @@
           "source_cursor"
         ],
         "type": "object"
+      },
+      "ThemeChoice": {
+        "description": "Non-secret, data-directory-scoped desktop preferences. No text, paths or grants.",
+        "enum": [
+          "dark",
+          "light",
+          "system"
+        ],
+        "type": "string"
       },
       "Welcome": {
         "additionalProperties": false,

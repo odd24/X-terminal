@@ -135,3 +135,6 @@ P11.4服务整理采用独立8队列actor、4个30秒句柄快照和128回执，
 自选保存的来源基础见[ADR-032](decisions/ADR-032.md)：生产受管理JSONL时累计SHA-256，完成回执才携带指纹，REMOVED清空；Windows VerifiedExport按固定UUID/文件pin，先完整核对再以64KiB缓冲复制并复核实际字节，取消/写失败不授权发布。原生目标选择、私有暂存同步/发布、覆盖确认与打开目录尚未接入，不能由该库接口或完成路径推断已另存到用户位置。
 
 P11.7按[ADR-038](decisions/ADR-038.md)实现普通屏单元格有界重排，screen正文使用物理视口行；parser=vt100-0.18.1+local.2、resize_reflow=true仅表示普通屏重排能力。活动光标组、替代屏沿用xterm默认语义，满容量极窄/极宽序列仍有精确记录的BUG-001差异；原始/文本流不受布局调整影响。
+
+
+P12按[ADR-042](decisions/ADR-042.md)将有限桌面偏好存于同一数据目录的schema 3 SQLite单例，Desktop专用配置线程/16队列、revision保护和备份摘要/事务恢复共用。schema 2旧备份只读构造默认偏好，原文件不改写；便携Profile交换不带偏好。当前主窗口应用接入继续，不能持久化草稿/正文/同意或借全局WebView存储跨目录覆盖。

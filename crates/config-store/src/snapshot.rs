@@ -18,6 +18,7 @@ pub struct ConfigImage {
     pub folders: Vec<Folder>,
     pub profiles: Vec<Profile>,
     pub host_keys: Vec<HostKey>,
+    pub preferences: config_model::DesktopPreferences,
 }
 impl ConfigImage {
     pub fn digest(&self) -> Result<String> {
@@ -41,6 +42,7 @@ impl ConfigImage {
             .collect())
     }
     fn validate(&self) -> Result<()> {
+        self.preferences.validate()?;
         if self.folders.len() > 1024 || self.profiles.len() > 10000 || self.host_keys.len() > 1024 {
             return Err(Error::Invalid("backup limits"));
         }
@@ -86,13 +88,14 @@ impl Store {
     pub fn image(&self) -> Result<ConfigImage> {
         let tx = self.connection.unchecked_transaction()?;
         check(&tx)?;
-        if metadata(&tx)?.1 != SCHEMA_VERSION {
+        if !(2..=SCHEMA_VERSION).contains(&metadata(&tx)?.1) {
             return Err(Error::Schema);
         }
         let image = ConfigImage {
             folders: self.folders()?,
             profiles: self.profiles()?,
             host_keys: host_keys::read(&tx)?,
+            preferences: crate::preferences::read(&tx)?,
         };
         image.validate()?;
         tx.commit()?;
@@ -184,6 +187,13 @@ impl Store {
                     key.key
                 ],
             )?;
+        }
+        if tx.execute(
+            "UPDATE desktop_preferences SET value=?1 WHERE id=1",
+            params![serde_json::to_string(&image.preferences)?],
+        )? != 1
+        {
+            return Err(Error::Corrupt);
         }
         tx.commit()?;
         Ok(safety_copy.to_owned())

@@ -248,3 +248,50 @@ pub struct HostKeyReview {
     pub status: HostKeyStatus,
     pub revision: String,
 }
+
+/// Non-secret, data-directory-scoped desktop preferences. No text, paths or grants.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeChoice {
+    #[default]
+    Dark,
+    Light,
+    System,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalFont {
+    #[default]
+    Consolas,
+    Cascadia,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopPreferences {
+    pub theme: ThemeChoice,
+    pub terminal_font: TerminalFont,
+    pub font_size: u8,
+    pub ctrl_c_copy: bool,
+    pub ctrl_v_paste: bool,
+    pub right_click_paste: bool,
+}
+impl Default for DesktopPreferences {
+    fn default() -> Self {
+        Self {
+            theme: ThemeChoice::Dark,
+            terminal_font: TerminalFont::Consolas,
+            font_size: 15,
+            ctrl_c_copy: true,
+            ctrl_v_paste: false,
+            right_click_paste: false,
+        }
+    }
+}
+impl DesktopPreferences {
+    pub fn validate(&self) -> Result<()> {
+        if !(10..=28).contains(&self.font_size) {
+            return Err(ValidationError("terminal font size"));
+        }
+        Ok(())
+    }
+}

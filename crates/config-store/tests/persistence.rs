@@ -6,8 +6,10 @@ use uuid::Uuid;
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
-        let path =
-            std::env::temp_dir().join(format!("shared-terminal-config-test-{}", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!(
+            "shared-terminal-config-test-中文-{}",
+            Uuid::new_v4()
+        ));
         std::fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -733,4 +735,239 @@ fn open_store_refuses_mutations_after_external_schema_or_application_change() {
             "{pragma}: original bytes changed"
         );
     }
+}
+
+fn make_v2(path: &Path) {
+    let mut store = Store::open(path).unwrap();
+    store.put_profile(profile()).unwrap();
+    drop(store);
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch("DROP TABLE desktop_preferences; DELETE FROM schema_migrations WHERE version=3; PRAGMA user_version=2").unwrap();
+}
+#[test]
+fn preferences_v2_migration_and_readonly_old_backup_preserve_original() {
+    let temp = Temp::new();
+    let path = temp.path("旧版.sqlite");
+    make_v2(&path);
+    let before = std::fs::read(&path).unwrap();
+    let image = Store::read_backup(&path).unwrap();
+    assert_eq!(image.preferences, DesktopPreferences::default());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let store = Store::open(&path).unwrap();
+    let backup = store.migration_backup.as_ref().unwrap();
+    assert_eq!(
+        Store::read_backup(backup).unwrap().digest().unwrap(),
+        image.digest().unwrap()
+    );
+    let backup_conn = Connection::open(backup).unwrap();
+    assert_eq!(
+        backup_conn
+            .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        backup_conn
+            .query_row::<i64, _, _>(
+                "SELECT count(*) FROM sqlite_master WHERE name='desktop_preferences'",
+                [],
+                |r| r.get(0)
+            )
+            .unwrap(),
+        0
+    );
+    drop(backup_conn);
+    assert_eq!(store.preferences().unwrap(), DesktopPreferences::default());
+    assert_eq!(
+        Connection::open(&path)
+            .unwrap()
+            .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
+            .unwrap(),
+        3
+    );
+    drop(store);
+    assert!(Store::open(&path).unwrap().migration_backup.is_none());
+    let fail = temp.path("迁移失败.sqlite");
+    make_v2(&fail);
+    Connection::open(&fail)
+        .unwrap()
+        .execute_batch("CREATE TABLE desktop_preferences(incompatible TEXT)")
+        .unwrap();
+    let before = std::fs::read(&fail).unwrap();
+    assert!(Store::open(&fail).is_err());
+    assert_eq!(std::fs::read(&fail).unwrap(), before);
+}
+#[test]
+fn preferences_restart_directory_isolation_backup_digest_and_transactional_restore() {
+    let temp = Temp::new();
+    let path = temp.path("first.sqlite");
+    let mut store = Store::open(&path).unwrap();
+    let original = store.image().unwrap();
+    let changed = DesktopPreferences {
+        theme: ThemeChoice::Light,
+        terminal_font: TerminalFont::Cascadia,
+        font_size: 28,
+        ctrl_c_copy: false,
+        ctrl_v_paste: true,
+        right_click_paste: true,
+    };
+    store.put_preferences(&changed).unwrap();
+    assert_ne!(
+        store.image().unwrap().digest().unwrap(),
+        original.digest().unwrap()
+    );
+    assert_eq!(
+        Store::open(&temp.path("second.sqlite"))
+            .unwrap()
+            .preferences()
+            .unwrap(),
+        DesktopPreferences::default()
+    );
+    // Portable connection exchange excludes desktop preferences.
+    assert!(
+        !serde_json::to_string(&store.export().unwrap())
+            .unwrap()
+            .contains("preferences")
+    );
+    let backup = temp.path("backup.sqlite");
+    store.backup(&backup).unwrap();
+    drop(store);
+    let mut store = Store::open(&path).unwrap();
+    assert_eq!(store.preferences().unwrap(), changed);
+    let backed = Store::read_backup(&backup).unwrap();
+    assert_eq!(backed.preferences, changed);
+    store
+        .restore_image(
+            &original,
+            &original.digest().unwrap(),
+            &temp.path("安全.sqlite"),
+        )
+        .unwrap();
+    assert_eq!(store.preferences().unwrap(), DesktopPreferences::default());
+    assert_eq!(
+        Store::read_backup(&temp.path("安全.sqlite"))
+            .unwrap()
+            .preferences,
+        changed
+    );
+    let mut altered = backed.clone();
+    altered.preferences.font_size = 27;
+    assert!(matches!(
+        store.restore_image(
+            &altered,
+            &backed.digest().unwrap(),
+            &temp.path("未创建.sqlite")
+        ),
+        Err(Error::Conflict)
+    ));
+    assert!(!temp.path("未创建.sqlite").exists());
+    assert_eq!(store.preferences().unwrap(), DesktopPreferences::default());
+}
+#[test]
+fn invalid_corrupt_missing_and_external_newer_preferences_do_not_silently_reset() {
+    let temp = Temp::new();
+    let path = temp.path("config.sqlite");
+    let mut store = Store::open(&path).unwrap();
+    for size in [0, 9, 29, 255] {
+        assert!(
+            store
+                .put_preferences(&DesktopPreferences {
+                    font_size: size,
+                    ..Default::default()
+                })
+                .is_err()
+        );
+        assert_eq!(store.preferences().unwrap(), DesktopPreferences::default());
+    }
+    let sql = Connection::open(&path).unwrap();
+    sql.execute_batch("PRAGMA user_version=99").unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(matches!(
+        store.put_preferences(&Default::default()),
+        Err(Error::Schema)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    sql.execute_batch("PRAGMA user_version=3").unwrap();
+    drop(store);
+    let valid = serde_json::to_value(DesktopPreferences::default()).unwrap();
+    for value in [
+        serde_json::json!({}),
+        {
+            let mut v = valid.clone();
+            v["font_size"] = 29.into();
+            v
+        },
+        {
+            let mut v = valid.clone();
+            v["theme"] = "unknown".into();
+            v
+        },
+        {
+            let mut v = valid.clone();
+            v["text"] = "must not persist".into();
+            v
+        },
+    ] {
+        sql.execute(
+            "UPDATE desktop_preferences SET value=?1",
+            [value.to_string()],
+        )
+        .unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(Store::open(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+    sql.execute_batch("DELETE FROM desktop_preferences")
+        .unwrap();
+    assert!(Store::open(&path).is_err());
+}
+
+#[test]
+fn preference_restore_failure_rolls_back_other_configuration_tables() {
+    let temp = Temp::new();
+    let path = temp.path("事务.sqlite");
+    let mut store = Store::open(&path).unwrap();
+    let original = store.image().unwrap();
+    let current = profile();
+    store.put_profile(current.clone()).unwrap();
+    store
+        .put_preferences(&DesktopPreferences {
+            font_size: 20,
+            ..Default::default()
+        })
+        .unwrap();
+    let before = store.image().unwrap().digest().unwrap();
+    Connection::open(&path).unwrap().execute_batch("CREATE TRIGGER fail_preference_restore BEFORE UPDATE ON desktop_preferences BEGIN SELECT RAISE(ABORT,'synthetic restore failure'); END").unwrap();
+    assert!(
+        store
+            .restore_image(
+                &original,
+                &original.digest().unwrap(),
+                &temp.path("安全.sqlite")
+            )
+            .is_err()
+    );
+    assert_eq!(store.image().unwrap().digest().unwrap(), before);
+    assert_eq!(store.profiles().unwrap(), vec![current.clone()]);
+    assert_eq!(
+        Store::read_backup(&temp.path("安全.sqlite"))
+            .unwrap()
+            .digest()
+            .unwrap(),
+        before
+    );
+
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("DROP TRIGGER fail_preference_restore; DELETE FROM desktop_preferences")
+        .unwrap();
+    assert!(matches!(
+        store.restore_image(
+            &original,
+            &original.digest().unwrap(),
+            &temp.path("缺行安全.sqlite")
+        ),
+        Err(Error::Corrupt)
+    ));
+    assert_eq!(store.profiles().unwrap(), vec![current]);
 }

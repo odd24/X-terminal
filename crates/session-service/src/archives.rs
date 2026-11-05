@@ -168,6 +168,7 @@ impl Archives {
             folders: image.folders.len() as u32,
             profiles: image.profiles.len() as u32,
             host_keys: image.host_keys.len() as u32,
+            preferences: image.preferences.clone(),
             missing_credentials: Self::missing(&image, state),
             current_revision: state.map(|state| state.revision),
             sample_profiles: image

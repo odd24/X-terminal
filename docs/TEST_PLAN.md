@@ -198,3 +198,6 @@ P12导航专项npm run test:desktop:navigation（前置最终desktop:build及gui
 
 
 P12基础撰写4项状态/边界测试加至44项前端；新增test:desktop:compose（第17入口）通过真实合成SSH验证独立实例草稿、固定目标、精确Unicode/LF/CRLF、双击一次、切走再回不恢复同意、键盘接管、实际write_text应答丢失命中/不重发、面板重开与reload。串口专项追加共享队列的实际内存回环精确文本/CRLF。前置最终产品构建；初次未等待实际绑定的失败与最终结果见P12/ADR-041。T22/T23全局矩阵与P19完整撰写不由该子步推断通过。
+
+
+P12偏好存储新增4项真实SQLite测试和1项严格协议/1项Windows IPC测试：v2只读原文件保持与迁移/失败回滚、目录隔离/重开、镜像摘要/安全副本、偏好恢复UPDATE失败使全部配置回滚、字段/字号/枚举/版本拒绝、真实Desktop保存/旧revision拒绝/备份恢复/服务重启；Observer专项追加preferences/save_preferences拒绝。原生archives专项追加非默认偏好备份预览/恢复/新目录及便携导出排除检查；实际结果见P12，不由库通过推断主窗口设置应用或完整T22/T23。

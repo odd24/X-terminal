@@ -257,6 +257,26 @@ impl State {
             return Err(ConfigError::Invalid);
         }
         match request {
+            ConfigRequest::Preferences {} => Ok(ConfigReply::Preferences {
+                preferences: self.store.preferences().map_err(config_error)?,
+                revision: self.revision,
+            }),
+            ConfigRequest::SavePreferences {
+                preferences,
+                revision,
+            } => {
+                if revision != self.revision {
+                    return Err(ConfigError::Conflict);
+                }
+                self.store
+                    .put_preferences(&preferences)
+                    .map_err(config_error)?;
+                let revision = self.changed();
+                Ok(ConfigReply::Preferences {
+                    preferences,
+                    revision,
+                })
+            }
             ConfigRequest::CredentialsPage { .. }
             | ConfigRequest::InspectCredential { .. }
             | ConfigRequest::ForgetCredential { .. } => Err(ConfigError::Invalid),

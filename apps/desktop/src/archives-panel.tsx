@@ -49,7 +49,7 @@ export function ArchivesPanel({ directory, usable, restored }: { directory: stri
   }
   return <fieldset className="archives" disabled={busy}>
     <legend>配置导出与备份恢复</legend>
-    <p>便携 JSON 不含凭据引用或主机信任；配置备份含引用与信任记录，不含密码、私钥或凭据库。恢复不会重新连接或发送输入。</p>
+    <p>便携 JSON 不含凭据引用或主机信任；配置备份含引用、信任记录与桌面偏好，不含密码、私钥或凭据库。恢复不会重新连接或发送输入。</p>
     <div aria-label="备份状态" role="status">{message}</div>
     <div className="config-actions"><button type="button" disabled={!usable} onClick={() => void create(false)}>导出便携配置</button><button type="button" disabled={!usable} onClick={() => void create(true)}>创建配置备份</button><button type="button" onClick={() => void action(async () => { setPreview(undefined); return '备份列表已刷新'; })}>刷新副本列表</button></div>
     <label>已保存副本<select aria-label="已保存副本" value={selected} onChange={event => { setSelected(event.target.value); setPreview(undefined); setConfirmed(false); setDeleteConfirmed(false); }}>
@@ -60,8 +60,9 @@ export function ArchivesPanel({ directory, usable, restored }: { directory: stri
     <div className="config-actions"><button type="button" disabled={current?.kind !== 'backup'} onClick={() => void inspect()}>预览选中备份</button></div>
     {preview && <div className="backup-preview">
       <p aria-label="备份预览">目录 {preview.folders} · 配置 {preview.profiles} · 主机密钥 {preview.host_keys} · 缺少或当前不能核对的凭据引用 {preview.missing_credentials}</p>
+      <p aria-label="备份桌面偏好">桌面偏好：主题 {{ dark: '深色', light: '浅色', system: '跟随系统' }[preview.preferences.theme]} · 字体 {preview.preferences.terminal_font === 'consolas' ? 'Consolas' : 'Cascadia Mono'} · 字号 {preview.preferences.font_size} · Ctrl+C选区复制 {preview.preferences.ctrl_c_copy ? '开' : '关'} · Ctrl+V粘贴 {preview.preferences.ctrl_v_paste ? '开' : '关'} · 右键粘贴 {preview.preferences.right_click_paste ? '开' : '关'}</p>
       <p>配置样例：{preview.sample_profiles.join('，') || '无'}</p>
-      <label className="check"><input aria-label="确认恢复备份" type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />已核对上述备份，确认恢复其配置和主机信任；不恢复凭据文件</label>
+      <label className="check"><input aria-label="确认恢复备份" type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />已核对上述备份，确认恢复其配置、主机信任与桌面偏好；不恢复凭据文件</label>
       <div className="config-actions"><button type="button" disabled={!confirmed || !usable || !preview.current_revision} onClick={() => void restore(false)}>替换当前配置</button><button type="button" disabled={!confirmed} onClick={() => void restore(true)}>恢复到新目录</button></div>
       <small>替换前会保存当前库副本。当前库损坏或版本不支持时，只能创建新目录，原文件保持不动。</small>
     </div>}

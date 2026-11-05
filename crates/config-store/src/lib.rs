@@ -1,5 +1,6 @@
 //! Structured configuration only. Credential material has no column or model field.
 mod host_keys;
+mod preferences;
 mod snapshot;
 pub use snapshot::ConfigImage;
 mod model;
@@ -12,7 +13,7 @@ use std::{
 use uuid::Uuid;
 
 const APP_ID: i64 = 0x5354544d;
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -78,6 +79,8 @@ fn check(connection: &Connection) -> Result<()> {
 const V1: &str = "CREATE TABLE folders(id TEXT PRIMARY KEY NOT NULL,parent_id TEXT REFERENCES folders(id) ON DELETE RESTRICT,name TEXT NOT NULL); CREATE TABLE profiles(id TEXT PRIMARY KEY NOT NULL,folder_id TEXT REFERENCES folders(id) ON DELETE RESTRICT,name TEXT NOT NULL,credential_ref TEXT,settings TEXT NOT NULL); PRAGMA application_id=1398035533; PRAGMA user_version=1;";
 const V2: &str = "CREATE TABLE host_keys(protocol TEXT NOT NULL,host TEXT NOT NULL,port INTEGER NOT NULL,algorithm TEXT NOT NULL,key BLOB NOT NULL,PRIMARY KEY(protocol,host,port,algorithm)); CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY NOT NULL); INSERT INTO schema_migrations VALUES(1),(2); PRAGMA user_version=2;";
 
+const V3: &str = "CREATE TABLE desktop_preferences(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL); INSERT INTO desktop_preferences VALUES(1,'{\"theme\":\"dark\",\"terminal_font\":\"consolas\",\"font_size\":15,\"ctrl_c_copy\":true,\"ctrl_v_paste\":false,\"right_click_paste\":false}'); INSERT INTO schema_migrations VALUES(3); PRAGMA user_version=3;";
+
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         let new = match std::fs::OpenOptions::new()
@@ -134,7 +137,10 @@ impl Store {
                 )?;
                 migration_backup = Some(backup);
             }
-            tx.execute_batch(V2)?;
+            if version < 2 {
+                tx.execute_batch(V2)?;
+            }
+            tx.execute_batch(V3)?;
         }
         tx.commit()?;
         check(&connection)?;
@@ -212,6 +218,7 @@ impl Store {
         if metadata(&self.connection)?.1 >= 2 {
             self.host_keys()?;
         }
+        self.preferences()?;
         Ok(())
     }
     pub fn put_folder(&mut self, folder: Folder) -> Result<()> {

@@ -543,8 +543,10 @@ async fn service_crash_drops_client_and_restart_does_not_restore_state_or_ticket
 struct ConfigTemp(std::path::PathBuf);
 impl ConfigTemp {
     fn new() -> Self {
-        let path =
-            std::env::temp_dir().join(format!("shared-terminal-service-config-{}", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!(
+            "shared-terminal-service-config-中文-{}",
+            Uuid::new_v4()
+        ));
         std::fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -755,6 +757,11 @@ async fn config_observers_are_denied_and_revision_pages_are_bounded() {
         .unwrap()
         .0;
     for request in [
+        Q::Preferences {},
+        Q::SavePreferences {
+            preferences: Default::default(),
+            revision: Uuid::new_v4(),
+        },
         Q::Page {
             revision: None,
             offset: 0,
@@ -3170,4 +3177,132 @@ async fn serial_catalogue_and_mutations_are_desktop_only_and_invalid_selections_
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].protocol, Protocol::Fixture);
     service.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+async fn desktop_preferences_are_revision_guarded_isolated_backed_up_and_survive_service_restart() {
+    use config::{ConfigReply as C, ConfigRequest as Q};
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut client = service.connect().await;
+    let C::Preferences {
+        preferences,
+        revision,
+    } = config_call(&mut client, Q::Preferences {}).await
+    else {
+        panic!()
+    };
+    assert_eq!(preferences, config_store::DesktopPreferences::default());
+    let changed = config_store::DesktopPreferences {
+        theme: config_store::ThemeChoice::System,
+        font_size: 22,
+        ctrl_v_paste: true,
+        ..preferences
+    };
+    let C::Preferences {
+        revision: next,
+        preferences: actual,
+    } = config_call(
+        &mut client,
+        Q::SavePreferences {
+            preferences: changed.clone(),
+            revision,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert_ne!(next, revision);
+    assert_eq!(actual, changed);
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::SavePreferences {
+                preferences: Default::default(),
+                revision
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Conflict
+        }
+    ));
+    let C::Artifact { artifact } = config_call(&mut client, Q::CreateBackup {}).await else {
+        panic!()
+    };
+    let C::BackupPreview {
+        preferences,
+        digest,
+        current_revision: Some(revision),
+        ..
+    } = config_call(&mut client, Q::InspectBackup { id: artifact.id }).await
+    else {
+        panic!()
+    };
+    assert_eq!(preferences, changed);
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::SavePreferences {
+                preferences: Default::default(),
+                revision
+            }
+        )
+        .await,
+        C::Preferences { .. }
+    ));
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::RestoreBackup {
+                id: artifact.id,
+                digest: digest.clone(),
+                current_revision: revision
+            }
+        )
+        .await,
+        C::Error {
+            code: config::ConfigError::Conflict
+        }
+    ));
+    let C::Preferences { revision, .. } = config_call(&mut client, Q::Preferences {}).await else {
+        panic!()
+    };
+    assert!(matches!(
+        config_call(
+            &mut client,
+            Q::RestoreBackup {
+                id: artifact.id,
+                digest,
+                current_revision: revision
+            }
+        )
+        .await,
+        C::Restored { .. }
+    ));
+    service.stop(&mut client).await;
+    drop(client);
+    drop(service);
+    let mut restarted = temp.start().await;
+    let mut client = restarted.connect().await;
+    let C::Preferences {
+        preferences,
+        revision,
+    } = config_call(&mut client, Q::Preferences {}).await
+    else {
+        panic!()
+    };
+    assert_eq!(preferences, changed);
+    assert_ne!(revision, next);
+    let other = ConfigTemp::new();
+    let mut isolated = other.start().await;
+    let mut second = isolated.connect().await;
+    let C::Preferences { preferences, .. } = config_call(&mut second, Q::Preferences {}).await
+    else {
+        panic!()
+    };
+    assert_eq!(preferences, config_store::DesktopPreferences::default());
+    isolated.stop(&mut second).await;
+    restarted.stop(&mut client).await;
 }

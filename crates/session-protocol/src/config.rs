@@ -21,6 +21,11 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    Preferences {},
+    SavePreferences {
+        preferences: config_model::DesktopPreferences,
+        revision: Uuid,
+    },
     CredentialsPage {
         revision: Option<Uuid>,
         offset: u32,
@@ -87,6 +92,11 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::Preferences {} => true,
+            Self::SavePreferences {
+                preferences,
+                revision,
+            } => !revision.is_nil() && preferences.validate().is_ok(),
             Self::CredentialsPage { revision, offset } => {
                 *offset <= 10000 && (*offset == 0 || revision.is_some())
             }
@@ -184,6 +194,10 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    Preferences {
+        preferences: config_model::DesktopPreferences,
+        revision: Uuid,
+    },
     CredentialsPage {
         revision: Uuid,
         entries: Vec<CredentialInfo>,
@@ -210,6 +224,7 @@ pub enum ConfigReply {
         missing_credentials: u32,
         current_revision: Option<Uuid>,
         sample_profiles: Vec<String>,
+        preferences: config_model::DesktopPreferences,
     },
     Restored {
         revision: Uuid,
@@ -315,5 +330,37 @@ mod tests {
             )
             .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod preference_tests {
+    use super::*;
+    #[test]
+    fn preference_fields_enums_bounds_and_revision_are_strict() {
+        let mut value = serde_json::json!({"op":"save_preferences","revision":Uuid::new_v4(),"preferences":config_model::DesktopPreferences::default()});
+        assert!(
+            serde_json::from_value::<ConfigRequest>(value.clone())
+                .unwrap()
+                .validate()
+        );
+        value["preferences"]["font_size"] = 29.into();
+        assert!(
+            !serde_json::from_value::<ConfigRequest>(value.clone())
+                .unwrap()
+                .validate()
+        );
+        value["preferences"]["font_size"] = 15.into();
+        value["preferences"]["terminal_font"] = "unknown".into();
+        assert!(serde_json::from_value::<ConfigRequest>(value.clone()).is_err());
+        value["preferences"]["terminal_font"] = "consolas".into();
+        value["revision"] = Uuid::nil().to_string().into();
+        assert!(
+            !serde_json::from_value::<ConfigRequest>(value.clone())
+                .unwrap()
+                .validate()
+        );
+        value["preferences"]["draft"] = "forbidden".into();
+        assert!(serde_json::from_value::<ConfigRequest>(value).is_err());
     }
 }
