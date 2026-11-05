@@ -90,3 +90,5 @@ RecoveryReader独立于ArchiveReader，接受ManagedRoot/log_id/精确Connection
 本阶段只有文件库测试，未开放服务/GUI恢复入口。后续须显式恢复模式、独立固定目标、Desktop权限、有界文件线程/分页重试/租期/取消与整理互斥；文本只作历史数据，不送进终端。详见ADR-034与P11.4记录。
 
 文件库追加RecoveryReader::inspect，为Desktop恢复清单提供首配对头的精确身份/起点，不扫描payload且不证明完整。服务新增显式recovery_list/open/read/close，受限Desktop通道、独立4reader/64回执、120秒租期及最后一页重试，详见IPC说明/ADR-034；源文件不变，普通ArchiveReader/完成导出不自动降级，恢复GUI和未完整导出继续。
+
+P11.4桌面已新增独立折叠恢复浏览：显式刷新/选择、精确元数据核对后打开、32KiB逻辑分页、文本/HEX与未完整停止位置。共享log-records北京时间与控制转义，不自动选择当前连接、不把数据写入终端；关闭/取消忽略迟到响应并再次释放原ID，日志整理后清空旧视图。所有读编号/正文不持久化，重载不恢复读者；未确认关闭保留闲置回收提示。test:desktop:recovery只在自建中文合成临时目录验证，未完整恢复导出与跨重启保存任务恢复继续。

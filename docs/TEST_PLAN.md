@@ -157,3 +157,5 @@ P11.4原生另存新增test:desktop:save并纳入完整桌面回归：实际IFil
 P11.4按ADR-034新增失败日志只读RecoveryReader文件库：8项新增/共66项日志库测试PASS，严格clippy及fmt PASS。覆盖缺/partial标志、raw/text尾截断保留同页前缀、首处坏记录停止、真实轮转与后段缺伙伴/坏头/缺段、跨段身份/游标、空日志/缺口/flush、原文件不变、活动logger/句柄共享及junction拒绝。EndOfAvailable不等于完成；恢复IPC/GUI、未完整导出、真实磁盘耗尽和跨重启任务恢复未执行，不以库通过宣称T16/T20完整通过。实际证据见P11.4记录。
 
 P11.4恢复服务新增1协议/3单元/1真实Windows IPC，相关三包18+28+57+66=169项PASS，strict clippy/fmt与桌面宿主check PASS。测试覆盖重启后无原连接注册的恢复身份、raw/text尾坏保留同页前缀、Observer四op拒绝、错误代次/换scope拒绝、普通history_open仍拒绝、相同分页精确重试、真实清理互斥/close释放、4句柄/租期/64回执有序退休及opaque保持、最大转义帧和脱敏。专项最终复验PASS，源逐字节保持。未执行恢复GUI/导出/实机/真实磁盘满及全局UI矩阵，不以服务通过替代T16/T20产品验收；详见P11.4/ADR-034。
+
+P11.4桌面只读恢复新增test:desktop:recovery（前置desktop:build，已纳入完整回归），只使用shared-terminal-recovery-ui-中文-合成临时根。真实WebView验证服务重启后无原连接注册的独立目标/缺标志坏尾前缀、坏首头拒绝、text/HEX/控制字符及HTML仅文本、32KiB分页替换、明确未完整结尾、停止/焦点及文件句柄释放；真实IPC fetch处注入open/read丢应答及延迟，核对命中且迟到不回写。真实清理UI确认删除自建坏头样本后撤下旧恢复视图/释放其他reader，源raw/text和当前终端保持。新增3项前端边界测试，npm test共27项PASS，实际专项/截图/整轮结果见P11.4。未完整恢复导出、全局T22/T23矩阵、真实磁盘耗尽和实机/长稳未由本阶段验收。

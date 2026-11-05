@@ -209,7 +209,7 @@
 - 失败捕获维护：以纯元数据release_failed解除已FAILED且worker_finished的精确关联，保留文件/失败计数，标RELEASED供有序回执退休；不把无目录/不可访问当作已删除，不重放旧Start，不解除另一份记录。Desktop入口与协议/服务/IPC/原生验证见ADR-031；物理目录限额不变，失败前缀恢复另做。
 - 失败维护发现要求：不能仅依赖当前ConnectionRef列表，须覆盖旧代次/已移除连接及无目录失败；下条跨连接清单已提供本次服务发现，跨重启恢复仍单列，不能从release_failed成功推断持久恢复完成。
 - 跨连接维护接入：capture_list仅Desktop查询本次最多64项注册，保留旧代次/已移除连接范围，不依赖物理目录。独立折叠面板替换当前连接内解除入口，刷新不自动选目标，固定scope/完整ID、错误后只读查询、上次操作身份独立；原生与IPC验收覆盖真实重连/移除及无活动连接，结果见P11.4/ADR-031，不代表失败前缀恢复或服务重启恢复本次回执。
-- 失败前缀恢复：按ADR-034新增独立RecoveryReader，只读固定UUID/精确连接，逐条校验并在首处错误停止，保留同页已验证前缀；EndOfAvailable不代表完成。文件库66项与相关三包169项测试通过，Desktop专用recovery_list/open/read/close接入history独立文件线程，恢复独立4reader/64回执/120秒租期及分页重试；桌面恢复及恢复导出继续，不能自动降低普通历史/导出的完整性要求。
+- 失败前缀恢复：按ADR-034新增独立RecoveryReader，只读固定UUID/精确连接，逐条校验并在首处错误停止，保留同页已验证前缀；EndOfAvailable不代表完成。文件库66项与相关三包169项测试通过，Desktop专用recovery_list/open/read/close接入history独立文件线程，恢复独立4reader/64回执/120秒租期及分页重试；桌面独立选择/分页/文本HEX/停止原因与迟到释放已通过test:desktop:recovery原生专项，新增3项、共27项前端测试通过。恢复导出及全局UI/长稳继续，不能自动降低普通历史/导出的完整性要求。
 - 验收：全部传输同路径、观察者不能启停日志、重连不继承记录、磁盘故障与缺口可见；R12完整范围仍含后续搜索/导出及P22压力。
 - 提交：`feat(P11.4): integrate scoped terminal logging controls`。
 
