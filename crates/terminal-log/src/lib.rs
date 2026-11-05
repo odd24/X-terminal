@@ -27,7 +27,7 @@ pub use cleanup::{
 };
 pub use directory::ManagedRoot;
 pub use export::{ExportSummary, export_jsonl};
-pub use export_store::{ExportArtifact, ExportStore, MAX_EXPORT_BYTES};
+pub use export_store::{ExportArtifact, ExportStore, MAX_EXPORT_BYTES, RecoveryArtifact};
 pub use format::{RawFrame, RawReader, SegmentHeader};
 pub use paired::PairReader;
 use serde::{Deserialize, Serialize};

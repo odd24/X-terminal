@@ -1,5 +1,7 @@
 //! Single-owner managed export staging. Never accepts a caller-provided name.
-use crate::{ExportSummary, ManagedRoot, export_jsonl, storage};
+use crate::{
+    ExportSummary, ManagedRoot, RecoverySummary, export_jsonl, export_recovery_jsonl, storage,
+};
 use session_core::session::ConnectionRef;
 use sha2::{Digest, Sha256};
 use std::{
@@ -13,12 +15,13 @@ pub const MAX_EXPORT_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_EXPORTS: usize = 8;
 
 #[derive(Debug, Clone)]
-pub struct ExportArtifact {
+pub struct ExportArtifact<S = ExportSummary> {
     pub export_id: Uuid,
     pub bytes: u64,
     pub sha256: [u8; 32],
-    pub summary: ExportSummary,
+    pub summary: S,
 }
+pub type RecoveryArtifact = ExportArtifact<RecoverySummary>;
 pub struct ExportStore {
     _guards: Vec<File>,
     _lock: File,
@@ -123,6 +126,42 @@ impl ExportStore {
         // This is only header inspection; full validation still happens below.
         let checked = crate::ArchiveReader::open(source, log_id, connection)?;
         drop(checked);
+        self.create_inner(export_id, &mut is_cancelled, |output, cancelled| {
+            export_jsonl(source, log_id, connection, output, cancelled)
+        })
+    }
+
+    /// Explicit recovery mode, sharing the same eight attempts / 256MiB budget,
+    /// fingerprinting, private staging and no-overwrite publication as create.
+    /// Ok means the incomplete artifact was synced/published, never that its
+    /// source completed. The distinct summary preserves the exact stop report.
+    pub fn create_recovery(
+        &mut self,
+        source: &ManagedRoot,
+        log_id: Uuid,
+        connection: ConnectionRef,
+        export_id: Uuid,
+        mut is_cancelled: impl FnMut() -> bool,
+    ) -> io::Result<RecoveryArtifact> {
+        if export_id.is_nil() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid export id",
+            ));
+        }
+        let checked = crate::RecoveryReader::open(source, log_id, connection)?;
+        drop(checked);
+        self.create_inner(export_id, &mut is_cancelled, |output, cancelled| {
+            export_recovery_jsonl(source, log_id, connection, output, cancelled)
+        })
+    }
+
+    fn create_inner<S>(
+        &mut self,
+        export_id: Uuid,
+        mut is_cancelled: impl FnMut() -> bool,
+        stream: impl FnOnce(&mut Limited<BufWriter<File>>, &mut dyn FnMut() -> bool) -> io::Result<S>,
+    ) -> io::Result<ExportArtifact<S>> {
         if is_cancelled() {
             return Err(io::Error::new(
                 io::ErrorKind::Interrupted,
@@ -162,7 +201,7 @@ impl ExportStore {
             bytes: 0,
             hash: Sha256::new(),
         };
-        let summary = export_jsonl(source, log_id, connection, &mut output, &mut is_cancelled)?;
+        let summary = stream(&mut output, &mut is_cancelled)?;
         output.inner.get_ref().sync_all()?;
         if is_cancelled() {
             return Err(io::Error::new(

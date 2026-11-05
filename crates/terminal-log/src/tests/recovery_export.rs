@@ -1,5 +1,6 @@
 use super::export::{capture, lines};
 use super::*;
+use sha2::Digest;
 use std::io::Write;
 
 fn snapshot(root: &ManagedRoot, id: Uuid) -> Vec<(PathBuf, Vec<u8>)> {
@@ -287,4 +288,221 @@ fn recovery_export_counter_overflow_never_writes_a_terminal_report() {
             .iter()
             .all(|row| row["type"] != "recovery_stopped")
     );
+}
+
+#[test]
+fn managed_recovery_publishes_fingerprinted_prefix_and_copies_with_source_untouched() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 3);
+    let dir = root.path().join(status.log_id.to_string());
+    fs::remove_file(dir.join("completion.json")).unwrap();
+    let path = dir.join("0000000000000001.text.jsonl");
+    let bytes = fs::read(&path).unwrap();
+    fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
+    let before = snapshot(&root, status.log_id);
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    let id = Uuid::new_v4();
+    let artifact = store
+        .create_recovery(&root, status.log_id, meta.connection, id, || false)
+        .unwrap();
+    let output = store.path().join(id.to_string()).join("export.jsonl");
+    let bytes = fs::read(&output).unwrap();
+    assert_eq!(artifact.bytes, bytes.len() as u64);
+    assert_eq!(
+        artifact.sha256,
+        <[u8; 32]>::from(sha2::Sha256::digest(&bytes))
+    );
+    assert_eq!(
+        artifact.summary.stop.kind,
+        RecoveryStopKind::TruncatedRecord
+    );
+    assert_eq!(artifact.summary.recovered_records, 4);
+    assert_eq!(lines(&bytes).last().unwrap()["incomplete"], true);
+    assert!(!output.with_file_name("export.partial").exists());
+    assert!(
+        store
+            .create_recovery(&root, status.log_id, meta.connection, id, || false)
+            .is_err()
+    );
+    assert_eq!(fs::read(&output).unwrap(), bytes);
+    #[cfg(windows)]
+    {
+        let mut verified = VerifiedExport::open(
+            &temp.0,
+            id,
+            ExportFingerprint {
+                bytes: artifact.bytes,
+                sha256: artifact.sha256,
+            },
+            || false,
+        )
+        .unwrap();
+        assert!(store.preview_cleanup(id).is_err());
+        let mut copy = Vec::new();
+        verified.copy_to(&mut copy, || false).unwrap();
+        assert_eq!(copy, bytes);
+        drop(verified);
+        assert!(store.preview_cleanup(id).unwrap().apply().directory_removed);
+    }
+    assert_eq!(snapshot(&root, status.log_id), before);
+}
+
+#[test]
+fn recovery_and_normal_artifacts_share_quota_unknown_entry_policy_and_no_overwrite_ids() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 1);
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    let first = Uuid::new_v4();
+    fs::write(store.path().join("unknown"), b"preserve").unwrap();
+    assert!(
+        store
+            .create_recovery(&root, status.log_id, meta.connection, first, || false)
+            .is_err()
+    );
+    assert!(!store.path().join(first.to_string()).exists());
+    assert_eq!(fs::read(store.path().join("unknown")).unwrap(), b"preserve");
+    fs::remove_file(store.path().join("unknown")).unwrap();
+    let recovered = store
+        .create_recovery(&root, status.log_id, meta.connection, first, || false)
+        .unwrap();
+    let original = fs::read(store.path().join(first.to_string()).join("export.jsonl")).unwrap();
+    assert!(
+        store
+            .create(&root, status.log_id, meta.connection, first, || false)
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(store.path().join(first.to_string()).join("export.jsonl")).unwrap(),
+        original
+    );
+    assert_eq!(
+        recovered.summary.stop.kind,
+        RecoveryStopKind::EndOfAvailable
+    );
+    for n in 1..8 {
+        let id = Uuid::new_v4();
+        let partial = store.path().join(id.to_string()).join("export.partial");
+        if n == 1 {
+            assert!(
+                store
+                    .create_recovery(&root, status.log_id, meta.connection, id, || partial
+                        .exists())
+                    .is_err()
+            );
+        } else if n % 2 == 0 {
+            store
+                .create(&root, status.log_id, meta.connection, id, || false)
+                .unwrap();
+        } else {
+            store
+                .create_recovery(&root, status.log_id, meta.connection, id, || false)
+                .unwrap();
+        }
+    }
+    assert_eq!(
+        store
+            .create_recovery(
+                &root,
+                status.log_id,
+                meta.connection,
+                Uuid::new_v4(),
+                || false
+            )
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::StorageFull
+    );
+    assert_eq!(
+        store
+            .create(
+                &root,
+                status.log_id,
+                meta.connection,
+                Uuid::new_v4(),
+                || false
+            )
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::StorageFull
+    );
+    assert_eq!(fs::read_dir(store.path()).unwrap().count(), 9);
+}
+
+#[test]
+fn managed_recovery_late_cancel_and_publication_collision_preserve_unpublished_evidence() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 0);
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    let id = Uuid::new_v4();
+    let mut checks = 0;
+    let error = store
+        .create_recovery(&root, status.log_id, meta.connection, id, || {
+            checks += 1;
+            checks == 9 // store setup; stream open twice/page/records/trailer/flush; store sync
+        })
+        .unwrap_err();
+    assert_eq!(checks, 9);
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    let dir = store.path().join(id.to_string());
+    assert!(!dir.join("export.jsonl").exists());
+    assert_eq!(
+        lines(&fs::read(dir.join("export.partial")).unwrap())
+            .last()
+            .unwrap()["type"],
+        "recovery_stopped"
+    );
+    let collision = Uuid::new_v4();
+    let dir = store.path().join(collision.to_string());
+    let result = store.create_recovery(&root, status.log_id, meta.connection, collision, || {
+        if dir.join("export.partial").exists() && !dir.join("export.jsonl").exists() {
+            fs::write(dir.join("export.jsonl"), b"preserve external name").unwrap();
+        }
+        false
+    });
+    assert!(result.is_err());
+    assert_eq!(
+        fs::read(dir.join("export.jsonl")).unwrap(),
+        b"preserve external name"
+    );
+    assert_eq!(
+        lines(&fs::read(dir.join("export.partial")).unwrap())
+            .last()
+            .unwrap()["incomplete"],
+        true
+    );
+}
+
+#[test]
+fn managed_recovery_rejects_unscoped_or_invalid_source_without_reserving_an_attempt() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 1);
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    let id = Uuid::new_v4();
+    assert!(
+        store
+            .create_recovery(
+                &root,
+                status.log_id,
+                ConnectionRef {
+                    generation: meta.connection.generation + 1,
+                    ..meta.connection
+                },
+                id,
+                || false
+            )
+            .is_err()
+    );
+    assert!(!store.path().join(id.to_string()).exists());
+    assert!(
+        store
+            .create_recovery(&root, status.log_id, meta.connection, Uuid::nil(), || false)
+            .is_err()
+    );
+    assert!(
+        store
+            .create_recovery(&root, status.log_id, meta.connection, id, || true)
+            .is_err()
+    );
+    assert!(!store.path().join(id.to_string()).exists());
+    assert_eq!(fs::read_dir(store.path()).unwrap().count(), 1);
 }

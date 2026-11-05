@@ -98,3 +98,5 @@ P11.4桌面已新增独立折叠恢复浏览：显式刷新/选择、精确元�
 export_recovery_jsonl仅显式恢复模式，重新从ManagedRoot/log_id/ConnectionRef最早可见配对头读取，32KiB逻辑页/128条+单条有界JSON。首行type=recovery_header、format=shared-terminal-recovery-export、format_version=1、incomplete=true、source为RecoveryInfo（含metadata/limits/起点/段范围/标志有无）；record行仍raw/text分离，最终type=recovery_stopped、incomplete=true、recovered含recovered_records/recovered_raw_bytes/recovered_gap_bytes/next_cursor/stop。stop保持ADR-034名称/段/游标，END_OF_AVAILABLE也不表示完整；无verified或可信source_completion，不复原退休内容。
 
 checked_add计数，写/flush失败、取消或计数溢出传播Err，Err可能已有部分/全部字节及终止行，调用方不得发布。Ok只表示恢复格式流及停止报告写入/flush，不包含sync/指纹发布或用户覆盖授权。源读取错误转为未完整stop，打开失败不写首行；源文件保持，普通export_jsonl不自动降级。库调用只接受私有新暂存sink/有界阻塞线程，受管理发布、模式化服务任务与桌面保存仍待接入，不能从文件流通过推断产品已可恢复导出。详见ADR-035及P11.4记录。
+
+ADR-035的ExportStore::create_recovery现复用普通导出私有暂存/生产指纹/同步/不覆盖发布，RecoveryArtifact携带独立RecoverySummary，普通ExportArtifact默认类型保持ExportSummary。共用8项尝试含失败/每份256MiB上限，固定export.partial/export.jsonl及清理白名单不变，同UUID跨模式不覆盖。错误范围/无效ID/开始前取消不保留尝试；晚取消/冲突partial保留。VerifiedExport可基于可信生产指纹验证/复制显式未完整产物，不能从文件名或渲染器声明推断来源完整或保存授权。服务模式化回执/GUI仍待接入；详见ADR-035/P11.4。
