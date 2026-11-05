@@ -111,6 +111,73 @@ try {
   await ui.screenshot('desktop-recovery-prefix-synthetic.png');
   await ui.click('停止并关闭恢复读取'); await status('恢复读取已关闭'); await releaseCheck(first.log_id);
   await ui.waitFor(`document.activeElement?.textContent==='打开只读恢复'`);
+  // Actual recovery export controls: lose the real Start response, then query
+  // the same ID. No renderer-level invoke replacement or automatic restart.
+  const exportKey='terminal-log-recovery-export-task-v1';
+  const exportState=()=>ui.evaluate(`document.querySelector('[aria-label="恢复导出状态"]')?.textContent`);
+  const exportReady=()=>ui.waitFor(`document.querySelector('[aria-label="恢复导出状态"]')?.textContent.includes('未完整前缀文件已保存到应用目录')`);
+  const lostExport=await ui.interceptIpc({op:'recovery_export_start',mode:'error'});
+  await ui.click('导出未完整恢复前缀');
+  await ui.waitFor(`document.querySelector('[aria-label="恢复导出状态"]')?.textContent.includes('仅查询结果')`);
+  assert.equal(await lostExport.count(),1);await lostExport.restore();
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复导出文件路径"]')`),false);
+  assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='导出未完整恢复前缀').disabled`),true);
+  assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='停止恢复导出').disabled`),true,'unknown outcome permits only status queries');
+  const savedSlot=JSON.parse(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify(exportKey)})`));
+  assert.equal(savedSlot.mode,'RECOVERY');assert.equal(savedSlot.log_id,first.log_id);
+  assert.deepEqual(Object.keys(savedSlot).sort(),['connection','log_id','mode','request_id']);
+  await ui.click('查询恢复导出结果');await exportReady();
+  const guiScope={connection:savedSlot.connection,log_id:savedSlot.log_id,request_id:savedSlot.request_id};
+  const guiReceipt=await request({op:'recovery_export_status',...guiScope});
+  const guiPath=await ui.evaluate(`document.querySelector('[aria-label="恢复导出文件路径"]').value`);
+  assert.equal(guiPath,path.join(directory,'terminal-log-exports',guiScope.request_id,'export.jsonl'));
+  const guiBytes=await readFile(guiPath);
+  assert.equal(guiReceipt.sha256,createHash('sha256').update(guiBytes).digest('hex'));assert.equal(guiReceipt.bytes,guiBytes.length);
+  const guiRows=guiBytes.toString('utf8').trimEnd().split('\n').map(line=>JSON.parse(line));
+  assert.equal(guiRows[0].incomplete,true);assert.equal(guiRows.at(-1).type,'recovery_stopped');
+  assert.equal(guiRows.at(-1).recovered.recovered_records,2);assert.equal(guiRows.at(-1).recovered.stop.kind,'TRUNCATED_RECORD');
+  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复导出范围"]').textContent`)).includes('未完整'));
+  await select(long.log_id);
+  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复导出任务目标"]').textContent`)).includes(first.log_id),'selection cannot retarget completed task');
+  await ui.screenshot('desktop-recovery-export-synthetic.png');
+  // A real WebView reload restores only the recovery-mode ID and queries it.
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await panel();
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复导出文件路径"]')`),false);
+  assert.ok((await exportState()).includes('已恢复恢复导出编号'));
+  await ui.click('查询恢复导出结果');await exportReady();
+  assert.deepEqual(await request({op:'recovery_export_status',...guiScope}),guiReceipt);
+  // A failed status response hides the old path until the same ID is queried.
+  const lostStatus=await ui.interceptIpc({op:'recovery_export_status',mode:'error'});
+  await ui.click('查询恢复导出结果');await ui.waitFor(`document.querySelector('[aria-label="恢复导出状态"]')?.textContent.includes('仅查询结果')`);
+  assert.equal(await lostStatus.count(),1);await lostStatus.restore();
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复导出文件路径"]')`),false);
+  await ui.click('查询恢复导出结果');await exportReady();
+  // Real cleanup invalidates the artifact; query removes statistics and path.
+  const cleanup={kind:'EXPORT',id:guiScope.request_id,preview_id:crypto.randomUUID()};
+  const preview=await request({op:'cleanup_preview',...cleanup});
+  const cleaned=await request({op:'cleanup_commit',...cleanup,confirmation:preview.confirmation});
+  assert.equal(cleaned.report.directory_removed,true);assert.equal(cleaned.report.failure,null);
+  await ui.click('查询恢复导出结果');await ui.waitFor(`document.querySelector('[aria-label="恢复导出状态"]')?.textContent.includes('不再可用')`);
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复导出文件路径"]') || !!document.querySelector('[aria-label="恢复导出范围"]')`),false);
+  // A late Start response after collapse must not resurrect UI or redirect a
+  // cancellation. The same recovery ID remains queryable after reopening.
+  await select(long.log_id);
+  const lateExport=await ui.interceptIpc({op:'recovery_export_start',delayMs:500});
+  await ui.click('导出未完整恢复前缀');await ui.waitFor(`window.__desktopIpcResponseTest.count===1`);
+  const lateSlot=JSON.parse(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify(exportKey)})`));
+  await ui.evaluate(`document.querySelector('[aria-label="失败日志恢复工具"]').open=false`);
+  await ui.waitFor(`!document.querySelector('[aria-label="恢复读取面板"]')`);
+  await delay(650);assert.equal(await lateExport.count(),1);await lateExport.restore();
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复导出文件路径"]')`),false);
+  await ui.evaluate(`document.querySelector('[aria-label="失败日志恢复工具"]').open=true`);
+  await ui.waitFor(`!!document.querySelector('[aria-label="恢复读取面板"]')`);
+  await ui.click('查询恢复导出结果');
+  await ui.waitFor(`!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='查询恢复导出结果').disabled`);
+  const lateInfo=await request({op:'recovery_export_status',connection:lateSlot.connection,log_id:lateSlot.log_id,request_id:lateSlot.request_id});
+  assert.ok(['COMPLETED','CANCELLED'].includes(lateInfo.phase));
+  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复导出任务目标"]').textContent`)).includes(lateSlot.request_id));
+  await ui.click('刷新恢复目录');
   await select(long.log_id); await ui.click('打开只读恢复'); await status('本页前缀已验证');
   assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复日志内容"]').textContent`)).includes('ROW-0-'));
   await ui.click('读取恢复下一页');
@@ -172,12 +239,12 @@ try {
   assert.deepEqual(await readFile(file(first.log_id,'0000000000000001.rawlog')),rawBefore);
   assert.deepEqual(await readFile(textFile(first.log_id)),textBefore);
   assert.deepEqual(await ui.invoke('service_read',{connection:ref(active),cursor:1}),before);
-  console.log('PASS recovery native WebView: independent old-service target, missing marker/corrupt tail prefix, rejected header, text/HEX and escaped markup, bounded replacement pages, explicit incomplete end, stop/focus, real lost/delayed IPC responses and late close release; synthetic only');
+  console.log('PASS recovery native WebView: independent old-service target, missing marker/corrupt tail prefix, rejected header, text/HEX and escaped markup, bounded replacement pages, explicit incomplete end, stop/focus, GUI incomplete export with real fingerprint/stop report, lost Start/Status query-only recovery, reload IDs, removed paths, delayed export collapse, real lost/delayed reader responses and late close release; synthetic only');
 } catch (error) {
-  if(ui){console.error(await ui.evaluate(`({status:document.querySelector('[aria-label="恢复读取状态"]')?.textContent,range:document.querySelector('[aria-label="恢复分页范围"]')?.textContent})`));await ui.screenshot('desktop-recovery-failure-synthetic.png');}
+  if(ui){console.error(await ui.evaluate(`({status:document.querySelector('[aria-label="恢复读取状态"]')?.textContent,range:document.querySelector('[aria-label="恢复分页范围"]')?.textContent,export:document.querySelector('[aria-label="恢复导出状态"]')?.textContent})`));await ui.screenshot('desktop-recovery-failure-synthetic.png');}
   throw error;
 } finally {
   await ui?.close();
   const target = path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-recovery-ui-中文-'));
-  await rm(target,{recursive:true,force:true});
+  await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }

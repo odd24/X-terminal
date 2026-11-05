@@ -125,3 +125,5 @@ P11.4整理服务新增cleanup_*（Desktop专用），4快照/30秒/128回执/8�
 P11.4桌面恢复新增npm run test:desktop:recovery（前置desktop:build），已纳入完整桌面回归。只用shared-terminal-recovery-ui-中文-临时根，验证独立旧服务身份、缺标志/截断前缀、未完整结尾、HEX/文本、原始文件保持、真实IPC应答丢失/迟到关闭及清理后缓存撤下；不代表恢复导出/真实磁盘耗尽/长期或全局UI矩阵已通过。所有恢复读取编号与正文不持久化，重载不恢复授权或自动重开。
 
 P11.4恢复导出扩展test:desktop:recovery的专用logging_request通道验证，以Node crypto独立核对真实JSONL的长度/SHA-256、精确两条前缀及未完整停止尾行，重复Start/晚Cancel保持，普通查询拒绝。原生构建与专项实际PASS，完整回归结果见P11.4；未接恢复导出/另存按钮时不得由通道通过宣称GUI保存完成。
+
+P11.4恢复导出GUI扩展test:desktop:recovery，真实按钮/IPC应答丢失及迟到折叠、Page.reload编号恢复、Node crypto落盘指纹和清理后撤下路径；仍只用shared-terminal-recovery-ui-中文-自建临时根。应用目录发布不等于恢复原生另存，后者须固定来源模式并从对应服务回执获取可信指纹，不得把恢复ID走普通查询或把未完整报告改成完整。

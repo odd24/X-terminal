@@ -3,6 +3,7 @@ import { logging } from './logging-api';
 import { checkedRecoveryInfo, checkedRecoveryList, checkedRecoveryPage, recoveryStopText, sameRecoveryInfo, type RecoveryEntry, type RecoveryInfo, type RecoveryPage, type RecoveryScope } from './log-recovery';
 import { display, logTime } from './log-records';
 import { requestId } from './request-id';
+import { LogRecoveryExportPanel } from './log-recovery-export-panel';
 type Handle = { scope: RecoveryScope; info: RecoveryInfo; cursor: number; source: number; flushed: boolean };
 type Job = { cancelled: boolean };
 const errorText = (value: unknown) => value instanceof Error ? value.message : String(value);
@@ -119,6 +120,7 @@ function RecoveryBrowser() {
     <label>恢复目标<select aria-label="恢复日志选择" value={selected} disabled={busy} onChange={event => void choose(event.target.value)}><option value="">请选择恢复日志</option>{entries.map(value => <option key={value.log_id} value={value.log_id}>{value.log_id} · {value.info ? '首头可识别，内容未全检' : '不可识别或被占用'}</option>)}</select></label>
     {entry && <p className="data-location" aria-label="恢复日志目标">日志 {entry.log_id}{entry.info && ` · ${entry.info.protocol} · ${entry.info.connection.connection_id} / ${entry.info.connection.generation} · ${entry.info.encoding} · ${logTime(entry.info.started_at_ms)} · 捕获文本起点 ${entry.info.text_cursor} / 可见起点 ${entry.info.available_from} · 可见分段 ${entry.info.first_segment}–${entry.info.last_observed_segment} · 完成标志${entry.info.completion_present ? '存在（未验证）' : '缺失'} / 临时标志${entry.info.partial_present ? '存在' : '缺失'}`}</p>}
     <div className="config-actions"><button ref={openButton} disabled={busy || !entry?.info} onClick={() => void browse(true)}>打开只读恢复</button><button disabled={busy || !opened || !!page?.stop} onClick={() => void browse(false)}>读取恢复下一页</button><button disabled={!busy && !opened} onClick={() => void stop()}>停止并关闭恢复读取</button></div>
+    <LogRecoveryExportPanel selected={entry?.info ?? undefined} disabled={busy || opened} />
     <label className="check"><input type="checkbox" aria-label="恢复显示HEX" checked={hex} onChange={event => setHex(event.target.checked)} />显示原始 HEX</label>
     {page && <><p aria-label="恢复分页范围">本页文本 {page.cursor}–{page.next_cursor}（不含结束值） · {page.records.length} 条 · 仅已验证前缀</p><pre aria-label="恢复日志内容">{display(page.records, hex) || '本页无新记录。'}</pre></>}
     <p role="status" aria-label="恢复读取状态">{message}</p>

@@ -167,3 +167,5 @@ P11.4恢复导出受管理发布新增4项实质测试、日志库76项/strict c
 P11.4模式化恢复导出服务新增1协议/1单元/1 IPC，相关三包19+29+58+76=182项PASS。实际worker固定混合8队列及跨模式Start/查询/取消拒绝，错误取消保持Queued、真实Queued取消不保留尝试；IPC覆盖旧服务精确scope/坏尾前缀实际文件/VerifiedExport复制、所有Observer拒绝、普通失败不降级/错误代次失败无目录、清理后REMOVED撤统计/指纹、重建sentinel时旧Start不重跑/重启不覆盖。另在匹配源只读票据Observer上扩展三op拒绝专项并复验PASS。原生recovery专项追加logging_request及Node crypto独立落盘核对，结果以P11.4为准；恢复导出/保存控件、实机/长稳与全局UI矩阵继续。
 
 P11.4恢复导出桌面契约追加3项边界测试，npm test共30项及lint PASS；覆盖精确模式/作用域、未完整停止报告/安全统计与指纹、非完成撤下产物及显式RECOVERY的ID-only恢复。未执行本子步原生构建/GUI，入口与另存继续，详见记录。
+
+P11.4恢复原生专项新增GUI恢复导出：真实Start/Status丢应答逐次核对命中、精确原ID查询、Node crypto核对真实长度/SHA-256及精确坏尾前缀、选择切换/真实Page.reload只恢复编号、cleanup后REMOVED撤路径/统计，以及Start延迟折叠后迟到不回写和原ID查询。默认环境专项实际PASS；完整回归见记录，不代表恢复另存选择器/全局UI矩阵/实机通过。
