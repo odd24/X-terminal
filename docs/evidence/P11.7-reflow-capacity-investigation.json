@@ -1,0 +1,1182 @@
+{
+  "kind": "INVESTIGATION_NOT_COMPATIBILITY_PASS",
+  "sourceHead": "40572326fde123bd3917068e5e7ece5f1deb23bd",
+  "reference": {
+    "version": "6.0.0",
+    "commit": "f447274f430fd22513f6adbf9862d19524471c04",
+    "sources": [
+      {
+        "path": "common/buffer/Buffer.ts",
+        "sha256": "7d48cc12cf3c32b9cac1b6f6cfcee01215a1edb66e0dab48ceb3f87d9c25b422"
+      },
+      {
+        "path": "common/CircularList.ts",
+        "sha256": "fe28dbff8abae1fd7ff1b3cd04a813a4fccc6501c8b03184ada7130732d0f19b"
+      }
+    ]
+  },
+  "family": {
+    "cols": 12,
+    "rows": 4,
+    "scrollback": 512,
+    "record": "NNN-abcdefghijklmnop\\r\\n",
+    "suffix": "end",
+    "widths": [
+      6,
+      2,
+      500,
+      2,
+      500,
+      12
+    ]
+  },
+  "reduction": {
+    "originalRecords": 600,
+    "firstAffectedInExhaustiveRange1Through258": 258,
+    "originalInputBytes": 13203,
+    "reducedInputBytes": 5679,
+    "globalMinimalityClaimed": false
+  },
+  "unchanged": [
+    {
+      "count": 257,
+      "scrollback": 512,
+      "inputBytes": 5657,
+      "inputSha256": "f2630cddcb954316b12ad79a162ca35ec293d7933e675664dcb902772b6fabae",
+      "initial": {
+        "contents": "ijklmnop\n256-abcdefgh\nijklmnop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false,
+        "base": 511,
+        "length": 515,
+        "ringStart": 0,
+        "activeRowPreserved": true,
+        "activeRowWrapped": false
+      },
+      "states": [
+        {
+          "cols": 6,
+          "contents": "cdefgh\nijklmn\nop\nend",
+          "cursor": [
+            3,
+            3
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 500,
+          "contents": "254-abcdefghijklmnop\n255-abcdefghijklmnop\n256-abcdefghijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 49,
+          "length": 53,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 500,
+          "contents": "254-abcdefghijklmnop\n255-abcdefghijklmnop\n256-abcdefghijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 49,
+          "length": 53,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 12,
+          "contents": "ijklmnop\n256-abcdefgh\nijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 100,
+          "length": 104,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        }
+      ],
+      "negativeWrites": [
+        {
+          "cols": 2,
+          "index": -1,
+          "physicalIndex": -1,
+          "aliasesActiveSlot": false,
+          "contents": "ef",
+          "wrapped": true,
+          "suppressedForDiagnostic": false
+        }
+      ]
+    },
+    {
+      "count": 258,
+      "scrollback": 512,
+      "inputBytes": 5679,
+      "inputSha256": "d0650f7977691cc3d199d180b309d9fb53d403cc05e6be84461ac31e726ad379",
+      "initial": {
+        "contents": "ijklmnop\n257-abcdefgh\nijklmnop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false,
+        "base": 512,
+        "length": 516,
+        "ringStart": 1,
+        "activeRowPreserved": true,
+        "activeRowWrapped": false
+      },
+      "states": [
+        {
+          "cols": 6,
+          "contents": "cdefgh\nijklmn\nop\nend",
+          "cursor": [
+            3,
+            3
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 1,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 1,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        },
+        {
+          "cols": 500,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 58,
+          "length": 62,
+          "ringStart": 1,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 1,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        },
+        {
+          "cols": 500,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 58,
+          "length": 62,
+          "ringStart": 1,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        },
+        {
+          "cols": 12,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 108,
+          "length": 112,
+          "ringStart": 1,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        }
+      ],
+      "negativeWrites": [
+        {
+          "cols": 2,
+          "index": -1,
+          "physicalIndex": 0,
+          "aliasesActiveSlot": true,
+          "contents": "ef",
+          "wrapped": true,
+          "suppressedForDiagnostic": false
+        }
+      ]
+    },
+    {
+      "count": 600,
+      "scrollback": 512,
+      "inputBytes": 13203,
+      "inputSha256": "77d42bee239cbe6d1a0d8072a92167e08bf3af0ebe15e8824094f20a4440ec5b",
+      "initial": {
+        "contents": "ijklmnop\n599-abcdefgh\nijklmnop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false,
+        "base": 512,
+        "length": 516,
+        "ringStart": 169,
+        "activeRowPreserved": true,
+        "activeRowWrapped": false
+      },
+      "states": [
+        {
+          "cols": 6,
+          "contents": "cdefgh\nijklmn\nop\nend",
+          "cursor": [
+            3,
+            3
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 169,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 169,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        },
+        {
+          "cols": 500,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 58,
+          "length": 62,
+          "ringStart": 169,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 169,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        },
+        {
+          "cols": 500,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 58,
+          "length": 62,
+          "ringStart": 169,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        },
+        {
+          "cols": 12,
+          "contents": "kl\nmn\nop\nef",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 108,
+          "length": 112,
+          "ringStart": 169,
+          "activeRowPreserved": false,
+          "activeRowWrapped": true
+        }
+      ],
+      "negativeWrites": [
+        {
+          "cols": 2,
+          "index": -1,
+          "physicalIndex": 168,
+          "aliasesActiveSlot": true,
+          "contents": "ef",
+          "wrapped": true,
+          "suppressedForDiagnostic": false
+        }
+      ]
+    }
+  ],
+  "guardedDiagnosticOnly": [
+    {
+      "count": 257,
+      "scrollback": 512,
+      "inputBytes": 5657,
+      "inputSha256": "f2630cddcb954316b12ad79a162ca35ec293d7933e675664dcb902772b6fabae",
+      "initial": {
+        "contents": "ijklmnop\n256-abcdefgh\nijklmnop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false,
+        "base": 511,
+        "length": 515,
+        "ringStart": 0,
+        "activeRowPreserved": true,
+        "activeRowWrapped": false
+      },
+      "states": [
+        {
+          "cols": 6,
+          "contents": "cdefgh\nijklmn\nop\nend",
+          "cursor": [
+            3,
+            3
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 500,
+          "contents": "254-abcdefghijklmnop\n255-abcdefghijklmnop\n256-abcdefghijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 49,
+          "length": 53,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 500,
+          "contents": "254-abcdefghijklmnop\n255-abcdefghijklmnop\n256-abcdefghijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 49,
+          "length": 53,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 12,
+          "contents": "ijklmnop\n256-abcdefgh\nijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 100,
+          "length": 104,
+          "ringStart": 0,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        }
+      ],
+      "negativeWrites": [
+        {
+          "cols": 2,
+          "index": -1,
+          "physicalIndex": -1,
+          "aliasesActiveSlot": false,
+          "contents": "ef",
+          "wrapped": true,
+          "suppressedForDiagnostic": true
+        }
+      ]
+    },
+    {
+      "count": 258,
+      "scrollback": 512,
+      "inputBytes": 5679,
+      "inputSha256": "d0650f7977691cc3d199d180b309d9fb53d403cc05e6be84461ac31e726ad379",
+      "initial": {
+        "contents": "ijklmnop\n257-abcdefgh\nijklmnop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false,
+        "base": 512,
+        "length": 516,
+        "ringStart": 1,
+        "activeRowPreserved": true,
+        "activeRowWrapped": false
+      },
+      "states": [
+        {
+          "cols": 6,
+          "contents": "cdefgh\nijklmn\nop\nend",
+          "cursor": [
+            3,
+            3
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 1,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 1,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 500,
+          "contents": "255-abcdefghijklmnop\n256-abcdefghijklmnop\n257-abcdefghijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 49,
+          "length": 53,
+          "ringStart": 1,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 1,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 500,
+          "contents": "255-abcdefghijklmnop\n256-abcdefghijklmnop\n257-abcdefghijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 49,
+          "length": 53,
+          "ringStart": 1,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 12,
+          "contents": "ijklmnop\n257-abcdefgh\nijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 100,
+          "length": 104,
+          "ringStart": 1,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        }
+      ],
+      "negativeWrites": [
+        {
+          "cols": 2,
+          "index": -1,
+          "physicalIndex": 0,
+          "aliasesActiveSlot": true,
+          "contents": "ef",
+          "wrapped": true,
+          "suppressedForDiagnostic": true
+        }
+      ]
+    },
+    {
+      "count": 600,
+      "scrollback": 512,
+      "inputBytes": 13203,
+      "inputSha256": "77d42bee239cbe6d1a0d8072a92167e08bf3af0ebe15e8824094f20a4440ec5b",
+      "initial": {
+        "contents": "ijklmnop\n599-abcdefgh\nijklmnop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false,
+        "base": 512,
+        "length": 516,
+        "ringStart": 169,
+        "activeRowPreserved": true,
+        "activeRowWrapped": false
+      },
+      "states": [
+        {
+          "cols": 6,
+          "contents": "cdefgh\nijklmn\nop\nend",
+          "cursor": [
+            3,
+            3
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 169,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 169,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 500,
+          "contents": "597-abcdefghijklmnop\n598-abcdefghijklmnop\n599-abcdefghijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 49,
+          "length": 53,
+          "ringStart": 169,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 2,
+          "contents": "kl\nmn\nop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 512,
+          "length": 516,
+          "ringStart": 169,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 500,
+          "contents": "597-abcdefghijklmnop\n598-abcdefghijklmnop\n599-abcdefghijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 49,
+          "length": 53,
+          "ringStart": 169,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        },
+        {
+          "cols": 12,
+          "contents": "ijklmnop\n599-abcdefgh\nijklmnop\nen",
+          "cursor": [
+            3,
+            1
+          ],
+          "alternate": false,
+          "base": 100,
+          "length": 104,
+          "ringStart": 169,
+          "activeRowPreserved": true,
+          "activeRowWrapped": false
+        }
+      ],
+      "negativeWrites": [
+        {
+          "cols": 2,
+          "index": -1,
+          "physicalIndex": 168,
+          "aliasesActiveSlot": true,
+          "contents": "ef",
+          "wrapped": true,
+          "suppressedForDiagnostic": true
+        }
+      ]
+    }
+  ],
+  "tinyReferenceOnly": {
+    "text": "ABCDEFGHIJKLMNOPQRST\r\nABCDEFGHIJKLMNOPQRST\r\nend",
+    "count": 2,
+    "scrollback": 0,
+    "inputBytes": 47,
+    "inputSha256": "26f91aa03da3f9ea432f01815a08095ff4b4c2dfdb2c5e55839d60f25017c853",
+    "initial": {
+      "contents": "MNOPQRST\nABCDEFGHIJKL\nMNOPQRST\nend",
+      "cursor": [
+        3,
+        3
+      ],
+      "alternate": false,
+      "base": 0,
+      "length": 4,
+      "ringStart": 1,
+      "activeRowPreserved": true,
+      "activeRowWrapped": false
+    },
+    "states": [
+      {
+        "cols": 6,
+        "contents": "GHIJKL\nMNOPQR\nST\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false,
+        "base": 0,
+        "length": 4,
+        "ringStart": 1,
+        "activeRowPreserved": true,
+        "activeRowWrapped": false
+      },
+      {
+        "cols": 2,
+        "contents": "OP\nQR\nST\nMN",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false,
+        "base": 0,
+        "length": 4,
+        "ringStart": 1,
+        "activeRowPreserved": false,
+        "activeRowWrapped": true
+      }
+    ],
+    "negativeWrites": [
+      {
+        "cols": 2,
+        "index": -1,
+        "physicalIndex": 0,
+        "aliasesActiveSlot": true,
+        "contents": "MN",
+        "wrapped": true,
+        "suppressedForDiagnostic": false
+      }
+    ]
+  },
+  "comparisons": [
+    {
+      "name": "capacity-257-step-1",
+      "candidate": {
+        "alternate": false,
+        "contents": "cdefgh\nijklmn\nop\nend",
+        "cursor": [
+          3,
+          3
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "cdefgh\nijklmn\nop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false
+      },
+      "result": "MATCH",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-257-step-2",
+      "candidate": {
+        "alternate": false,
+        "contents": "kl\nmn\nop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nen",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "MATCH",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-257-step-3",
+      "candidate": {
+        "alternate": false,
+        "contents": "254-abcdefghijklmnop\n255-abcdefghijklmnop\n256-abcdefghijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "254-abcdefghijklmnop\n255-abcdefghijklmnop\n256-abcdefghijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "MATCH",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-257-step-4",
+      "candidate": {
+        "alternate": false,
+        "contents": "kl\nmn\nop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nen",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "MATCH",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-257-step-5",
+      "candidate": {
+        "alternate": false,
+        "contents": "254-abcdefghijklmnop\n255-abcdefghijklmnop\n256-abcdefghijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "254-abcdefghijklmnop\n255-abcdefghijklmnop\n256-abcdefghijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "MATCH",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-257-step-6",
+      "candidate": {
+        "alternate": false,
+        "contents": "ijklmnop\n256-abcdefgh\nijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "ijklmnop\n256-abcdefgh\nijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "MATCH",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-258-step-1",
+      "candidate": {
+        "alternate": false,
+        "contents": "cdefgh\nijklmn\nop\nend",
+        "cursor": [
+          3,
+          3
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "cdefgh\nijklmn\nop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false
+      },
+      "result": "MATCH",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-258-step-2",
+      "candidate": {
+        "alternate": false,
+        "contents": "kl\nmn\nop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-258-step-3",
+      "candidate": {
+        "alternate": false,
+        "contents": "255-abcdefghijklmnop\n256-abcdefghijklmnop\n257-abcdefghijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-258-step-4",
+      "candidate": {
+        "alternate": false,
+        "contents": "kl\nmn\nop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-258-step-5",
+      "candidate": {
+        "alternate": false,
+        "contents": "255-abcdefghijklmnop\n256-abcdefghijklmnop\n257-abcdefghijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-258-step-6",
+      "candidate": {
+        "alternate": false,
+        "contents": "ijklmnop\n257-abcdefgh\nijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-600-step-1",
+      "candidate": {
+        "alternate": false,
+        "contents": "cdefgh\nijklmn\nop\nend",
+        "cursor": [
+          3,
+          3
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "cdefgh\nijklmn\nop\nend",
+        "cursor": [
+          3,
+          3
+        ],
+        "alternate": false
+      },
+      "result": "MATCH",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-600-step-2",
+      "candidate": {
+        "alternate": false,
+        "contents": "kl\nmn\nop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-600-step-3",
+      "candidate": {
+        "alternate": false,
+        "contents": "597-abcdefghijklmnop\n598-abcdefghijklmnop\n599-abcdefghijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-600-step-4",
+      "candidate": {
+        "alternate": false,
+        "contents": "kl\nmn\nop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-600-step-5",
+      "candidate": {
+        "alternate": false,
+        "contents": "597-abcdefghijklmnop\n598-abcdefghijklmnop\n599-abcdefghijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    },
+    {
+      "name": "capacity-600-step-6",
+      "candidate": {
+        "alternate": false,
+        "contents": "ijklmnop\n599-abcdefgh\nijklmnop\nen",
+        "cursor": [
+          3,
+          1
+        ]
+      },
+      "unmodifiedReference": {
+        "contents": "kl\nmn\nop\nef",
+        "cursor": [
+          3,
+          1
+        ],
+        "alternate": false
+      },
+      "result": "KNOWN_DIFFERENCE",
+      "diagnosticGuardMatchesCandidate": true
+    }
+  ],
+  "conclusion": "The locked xterm smaller-reflow batch inserts write index -1. With nonzero ring start this aliases the active slot, replacing end with ef and marking it wrapped. Wider reflow then skips its merged cursor group. Guard suppression is diagnostic only and is never a compatibility oracle or a dependency patch."
+}

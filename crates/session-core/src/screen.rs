@@ -188,6 +188,53 @@ mod tests {
     }
 
     #[test]
+    fn capacity_trimming_never_replaces_the_active_row_with_retired_history() {
+        for count in [257, 258, 600] {
+            let mut screen = Screen::new(4, 12).unwrap();
+            screen.push(b"\x1b[31m").unwrap();
+            for index in 0..count {
+                screen
+                    .push(format!("{index:03}-abcdefghijklmnop\r\n").as_bytes())
+                    .unwrap();
+            }
+            screen.push(b"\x1b[32mend").unwrap();
+            for cols in [6, 2, 500, 2, 500, 12] {
+                screen.resize(4, cols).unwrap();
+                let expected = match cols {
+                    6 => "cdefgh\nijklmn\nop\nend".to_owned(),
+                    2 => "kl\nmn\nop\nen".to_owned(),
+                    500 => format!(
+                        "{:03}-abcdefghijklmnop\n{:03}-abcdefghijklmnop\n{:03}-abcdefghijklmnop\nen",
+                        count - 3,
+                        count - 2,
+                        count - 1
+                    ),
+                    12 => format!("ijklmnop\n{:03}-abcdefgh\nijklmnop\nen", count - 1),
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    screen.physical_contents(),
+                    expected,
+                    "count={count}, cols={cols}"
+                );
+                assert_eq!(screen.cursor(), (3, if cols == 6 { 3 } else { 1 }));
+                assert!(screen.parser.screen().scrollback_len() <= 512);
+                for col in 0..2 {
+                    assert_eq!(
+                        screen.parser.screen().cell(3, col).unwrap().fgcolor(),
+                        vt100::Color::Idx(2),
+                        "active cells must retain their own contents and attributes"
+                    );
+                }
+                assert_eq!(
+                    screen.parser.screen().cell(2, 0).unwrap().fgcolor(),
+                    vt100::Color::Idx(1)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn normal_cursor_group_and_alternate_hidden_columns_follow_default_xterm() {
         let mut screen = Screen::new(6, 12).unwrap();
         screen.push(b"abcdefghijklmnop").unwrap();
