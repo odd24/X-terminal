@@ -71,6 +71,7 @@ async fn connect_grants_resolve_saved_profiles_and_do_not_implicitly_authorize_c
         error(
             desktop
                 .request(agent(A::Grant {
+                    request_id: Uuid::new_v4(),
                     scopes: vec![missing],
                     lifetime_ms: 1000
                 }))
@@ -94,15 +95,17 @@ fn scope(connection: ConnectionRef, action: Action) -> Scope {
 async fn issue(desktop: &mut Client, scopes: Vec<Scope>, lifetime_ms: u64) -> (Uuid, Sensitive) {
     match ok(desktop
         .request(agent(A::Grant {
+            request_id: Uuid::new_v4(),
             scopes,
             lifetime_ms,
         }))
         .await
         .unwrap())
     {
-        Reply::Agent(AR::Ticket {
-            ticket_id, token, ..
-        }) => (ticket_id, token),
+        Reply::Agent(AR::Grant {
+            receipt,
+            token: Some(token),
+        }) => (receipt.summary.ticket_id, token),
         _ => panic!("ticket expected"),
     }
 }
@@ -197,6 +200,7 @@ async fn agent_identity_reads_only_granted_views_and_cannot_promote_or_read_conf
             lifetime_ms: 1000,
         },
         agent(A::Grant {
+            request_id: Uuid::new_v4(),
             scopes: vec![scope(hidden, Action::Read)],
             lifetime_ms: 1000,
         }),
@@ -1234,4 +1238,502 @@ async fn agent_queued_exec_is_cancelled_before_remote_dispatch_for_every_ownersh
         assert_eq!(*remote.exec_calls.lock().unwrap(), expected);
         service.stop(&mut desktop).await;
     }
+}
+
+async fn managed(
+    client: &mut Client,
+    request: A,
+) -> (session_core::pairing::grants::View, Option<Sensitive>) {
+    match ok(client.request(agent(request)).await.unwrap()) {
+        Reply::Agent(AR::Grant { receipt, token }) => (receipt, token),
+        _ => panic!("managed grant expected"),
+    }
+}
+#[tokio::test]
+async fn managed_grants_recover_same_token_across_clients_and_revoke_without_renewal() {
+    use session_core::pairing::grants::State as G;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let connection = reference(ok(desktop
+        .request(Request::CreateFixture {})
+        .await
+        .unwrap()));
+    let id = Uuid::new_v4();
+    let scopes = vec![
+        scope(connection, Action::Read),
+        scope(connection, Action::Write),
+    ];
+    let (first, token) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: id,
+            scopes: scopes.clone(),
+            lifetime_ms: 30000,
+        },
+    )
+    .await;
+    let token = token.unwrap();
+    // Ignore the first issuance reply as a caller would after opaque delivery loss.
+    let mut recovered_desktop = service.connect().await;
+    let (status, recovered) =
+        managed(&mut recovered_desktop, A::GrantStatus { request_id: id }).await;
+    assert_eq!(status.summary.ticket_id, first.summary.ticket_id);
+    assert_eq!(status.summary.expires_at_ms, first.summary.expires_at_ms);
+    assert_eq!(recovered.unwrap().expose(), token.expose());
+    let (replayed, recovered) = managed(
+        &mut recovered_desktop,
+        A::Grant {
+            request_id: id,
+            scopes: scopes.iter().rev().copied().collect(),
+            lifetime_ms: 30000,
+        },
+    )
+    .await;
+    assert_eq!(replayed.summary.ticket_id, first.summary.ticket_id);
+    assert_eq!(recovered.unwrap().expose(), token.expose());
+    assert_eq!(
+        error(
+            desktop
+                .request(agent(A::Grant {
+                    request_id: id,
+                    scopes: scopes.clone(),
+                    lifetime_ms: 29999
+                }))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidArgument
+    );
+    let Reply::Agent(AR::GrantList(list)) =
+        ok(desktop.request(agent(A::GrantList {})).await.unwrap())
+    else {
+        panic!()
+    };
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].request_id, id);
+    assert_eq!(list[0].effective_scope_count, 2);
+    assert!(
+        !serde_json::to_string(&list)
+            .unwrap()
+            .contains(token.expose())
+    );
+    let (mut client, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    lease(&mut client, connection, 5000).await;
+    for request in [
+        A::GrantStatus { request_id: id },
+        A::GrantList {},
+        A::GrantRevoke { request_id: id },
+    ] {
+        assert_eq!(
+            error(client.request(agent(request)).await.unwrap()),
+            ErrorCode::PermissionDenied
+        );
+    }
+    let Reply::ReadTicket {
+        token: reader_token,
+        ..
+    } = ok(desktop
+        .request(Request::IssueRead {
+            scopes: vec![connection],
+            lifetime_ms: 30000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let (mut observer, _) = Client::connect(&service.instance, reader_token.expose(), service.pid)
+        .await
+        .unwrap();
+    for request in [
+        A::GrantStatus { request_id: id },
+        A::GrantList {},
+        A::GrantRevoke { request_id: id },
+    ] {
+        assert_eq!(
+            error(observer.request(agent(request)).await.unwrap()),
+            ErrorCode::PermissionDenied
+        );
+    }
+    ok(desktop
+        .request(agent(A::Takeover { connection }))
+        .await
+        .unwrap());
+    let (taken, _) = managed(&mut desktop, A::GrantStatus { request_id: id }).await;
+    assert_eq!(taken.approved_scopes.len(), 2);
+    assert_eq!(
+        taken.effective_scopes,
+        vec![scope(connection, Action::Read)]
+    );
+    let (revoked, none) = managed(&mut recovered_desktop, A::GrantRevoke { request_id: id }).await;
+    assert_eq!(revoked.summary.state, G::Revoked);
+    assert!(none.is_none());
+    let (again, none) = managed(&mut desktop, A::GrantRevoke { request_id: id }).await;
+    assert_eq!(again.summary.ticket_id, first.summary.ticket_id);
+    assert!(none.is_none());
+    let (again, none) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: id,
+            scopes,
+            lifetime_ms: 30000,
+        },
+    )
+    .await;
+    assert_eq!(again.summary.state, G::Revoked);
+    assert!(none.is_none());
+    assert_eq!(
+        error(client.request(Request::Ping {}).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    assert!(
+        Client::connect(&service.instance, token.expose(), service.pid)
+            .await
+            .is_err()
+    );
+    assert!(matches!(
+        ok(desktop
+            .request(agent(A::Lease { connection }))
+            .await
+            .unwrap()),
+        Reply::Agent(AR::Lease(None))
+    ));
+    assert!(
+        matches!(ok(observer.request(Request::List {}).await.unwrap()),Reply::Sessions(list) if list.len()==1),
+        "unrelated read ticket remains valid"
+    );
+    assert_eq!(
+        error(
+            desktop
+                .request(agent(A::GrantStatus {
+                    request_id: Uuid::new_v4()
+                }))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::NotFound
+    );
+    assert_eq!(
+        error(
+            desktop
+                .request(agent(A::GrantRevoke {
+                    request_id: Uuid::new_v4()
+                }))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::NotFound
+    );
+    service.stop(&mut desktop).await;
+}
+#[tokio::test]
+async fn managed_grant_recovery_survives_retired_sources_but_not_service_restart_or_expiry() {
+    use session_core::pairing::grants::State as G;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let connection = reference(ok(desktop
+        .request(Request::CreateFixture {})
+        .await
+        .unwrap()));
+    let id = Uuid::new_v4();
+    let scopes = vec![scope(connection, Action::Read)];
+    let (first, token) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: id,
+            scopes: scopes.clone(),
+            lifetime_ms: 30000,
+        },
+    )
+    .await;
+    let token = token.unwrap();
+    ok(desktop
+        .request(Request::CloseFixture { connection })
+        .await
+        .unwrap());
+    ok(desktop
+        .request(Request::RemoveFixture { connection })
+        .await
+        .unwrap());
+    let (old, recovered) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: id,
+            scopes: scopes.clone(),
+            lifetime_ms: 30000,
+        },
+    )
+    .await;
+    assert_eq!(old.summary.ticket_id, first.summary.ticket_id);
+    assert!(old.effective_scopes.is_empty());
+    assert_eq!(recovered.unwrap().expose(), token.expose());
+    assert_eq!(
+        error(
+            desktop
+                .request(agent(A::Grant {
+                    request_id: Uuid::new_v4(),
+                    scopes,
+                    lifetime_ms: 30000
+                }))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::NotFound
+    );
+    // Profile deletion cannot force a retry to issue a new token or fail lookup.
+    let profile = portable();
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    let profile_id = Uuid::new_v4();
+    let profile_scopes = vec![Scope {
+        target: Target::Profile {
+            profile_id: profile.id,
+        },
+        action: Action::Connect,
+    }];
+    let (saved, _) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: profile_id,
+            scopes: profile_scopes.clone(),
+            lifetime_ms: 30000,
+        },
+    )
+    .await;
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::DeleteProfile { id: profile.id },
+    )
+    .await;
+    let (saved_retry, _) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: profile_id,
+            scopes: profile_scopes,
+            lifetime_ms: 30000,
+        },
+    )
+    .await;
+    assert_eq!(saved_retry.summary.ticket_id, saved.summary.ticket_id);
+    assert_eq!(
+        saved_retry.summary.expires_at_ms,
+        saved.summary.expires_at_ms
+    );
+    let active = reference(ok(desktop
+        .request(Request::CreateFixture {})
+        .await
+        .unwrap()));
+    let expiry = Uuid::new_v4();
+    let (expiring, expiring_token) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: expiry,
+            scopes: vec![scope(active, Action::Read)],
+            lifetime_ms: 200,
+        },
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let (expired, none) = managed(&mut desktop, A::GrantStatus { request_id: expiry }).await;
+    assert_eq!(expired.summary.state, G::Expired);
+    assert!(none.is_none());
+    let (expired, none) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: expiry,
+            scopes: vec![scope(active, Action::Read)],
+            lifetime_ms: 200,
+        },
+    )
+    .await;
+    assert_eq!(
+        expired.summary.expires_at_ms,
+        expiring.summary.expires_at_ms
+    );
+    assert!(none.is_none());
+    assert!(
+        Client::connect(
+            &service.instance,
+            expiring_token.unwrap().expose(),
+            service.pid
+        )
+        .await
+        .is_err()
+    );
+    service.stop(&mut desktop).await;
+    let mut restarted = temp.start().await;
+    let mut desktop = restarted.connect().await;
+    assert!(
+        matches!(ok(desktop.request(agent(A::GrantList {})).await.unwrap()),Reply::Agent(AR::GrantList(list)) if list.is_empty())
+    );
+    assert_eq!(
+        error(
+            desktop
+                .request(agent(A::GrantStatus { request_id: id }))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::NotFound
+    );
+    assert!(
+        Client::connect(&restarted.instance, token.expose(), restarted.pid)
+            .await
+            .is_err()
+    );
+    restarted.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+async fn managed_grant_unread_real_pipe_reply_and_concurrent_retries_recover_one_issuance() {
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let connection = reference(ok(desktop
+        .request(Request::CreateFixture {})
+        .await
+        .unwrap()));
+    let id = Uuid::new_v4();
+    let scopes = vec![scope(connection, Action::Read)];
+    let mut pipe = service.raw().await;
+    write_frame(
+        &mut pipe,
+        &Hello {
+            protocol_version: PROTOCOL_VERSION,
+            client_name: "synthetic-unread-grant".into(),
+            token: Sensitive::new(service.token.expose().to_string()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        read_frame::<_, Response>(&mut pipe).await.unwrap().unwrap(),
+        Response::Ok { id: 0, .. }
+    ));
+    write_frame(
+        &mut pipe,
+        &RequestEnvelope {
+            id: 1,
+            request: agent(A::Grant {
+                request_id: id,
+                scopes: scopes.clone(),
+                lifetime_ms: 30000,
+            }),
+        },
+    )
+    .await
+    .unwrap();
+    // Never read this request's response. A separate authenticated pipe observes
+    // actual service completion, then the original transport is discarded.
+    let mut recovered = None;
+    for _ in 0..200 {
+        match desktop
+            .request(agent(A::GrantStatus { request_id: id }))
+            .await
+            .unwrap()
+        {
+            Response::Ok {
+                reply:
+                    Reply::Agent(AR::Grant {
+                        receipt,
+                        token: Some(token),
+                    }),
+                ..
+            } => {
+                recovered = Some((receipt, token));
+                break;
+            }
+            Response::Error {
+                code: ErrorCode::NotFound,
+                ..
+            } => tokio::time::sleep(Duration::from_millis(5)).await,
+            _ => panic!("unexpected recovery result"),
+        }
+    }
+    drop(pipe);
+    let (original, token) = recovered.expect("unread issuance was not observed");
+    let (retry, retry_token) = managed(
+        &mut desktop,
+        A::Grant {
+            request_id: id,
+            scopes,
+            lifetime_ms: 30000,
+        },
+    )
+    .await;
+    assert_eq!(retry.summary.ticket_id, original.summary.ticket_id);
+    assert_eq!(retry.summary.expires_at_ms, original.summary.expires_at_ms);
+    assert_eq!(retry_token.unwrap().expose(), token.expose());
+    assert!(
+        Client::connect(&service.instance, token.expose(), service.pid)
+            .await
+            .is_ok()
+    );
+    let profile = portable();
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    let request_id = Uuid::new_v4();
+    let scope = Scope {
+        target: Target::Profile {
+            profile_id: profile.id,
+        },
+        action: Action::Connect,
+    };
+    let mut other = service.connect().await;
+    let (a, b) = tokio::join!(
+        managed(
+            &mut desktop,
+            A::Grant {
+                request_id,
+                scopes: vec![scope],
+                lifetime_ms: 30000
+            }
+        ),
+        managed(
+            &mut other,
+            A::Grant {
+                request_id,
+                scopes: vec![scope],
+                lifetime_ms: 30000
+            }
+        )
+    );
+    assert_eq!(a.0.summary.ticket_id, b.0.summary.ticket_id);
+    assert_eq!(a.0.summary.expires_at_ms, b.0.summary.expires_at_ms);
+    assert_eq!(a.1.unwrap().expose(), b.1.unwrap().expose());
+    let Reply::Agent(AR::GrantList(list)) =
+        ok(desktop.request(agent(A::GrantList {})).await.unwrap())
+    else {
+        panic!()
+    };
+    assert_eq!(list.len(), 2);
+    // The original ticket-id Revoke also clears the managed recovery token.
+    ok(desktop
+        .request(Request::Revoke {
+            ticket_id: original.summary.ticket_id,
+        })
+        .await
+        .unwrap());
+    let (revoked, none) = managed(&mut desktop, A::GrantStatus { request_id: id }).await;
+    assert_eq!(
+        revoked.summary.state,
+        session_core::pairing::grants::State::Revoked
+    );
+    assert!(none.is_none());
+    service.stop(&mut desktop).await;
 }

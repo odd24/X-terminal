@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14授权管理按[ADR-046](decisions/ADR-046.md)加入128签发回执及UUIDv7退休；Grant必填request_id，保留重试/状态查询只取原ticket/绝对到期与当前有效范围，不续期/恢复接管能力。Desktop管理清单仅摘要，单项才返回范围和有效token，幂等撤销原编号同步擦除token；内存记录不跨服务重启，实际结果见P14。GUI及其他动作/完整审计仍继续。
+
 P14串口输入/控制增量见[ADR-045](decisions/ADR-045.md)：服务认证Identity及固定许可随Work进入原OS worker，在每次至多1024字节驱动尝试（含短写/Interrupted重试、节奏/接收等待后）前复核；撤权结算该请求的已知前缀并停止尾部，保留同连接供用户继续，不能承诺撤回已决定OS调用。输入owner随原有界回执退休，无新永久表；精确实际验证见[P14](records/P14.md)。建连/断开、签发幂等/管理GUI与完整审计仍继续。
 
 P14按[ADR-044](decisions/ADR-044.md)实施核心策略及Pairing真实Agent身份、独立read范围与管理/租约/审计通道。SSH Write/WriteText及独立Exec已接原共享FIFO、固定内部许可和真实client_id回执/任务归属；用户输入及主动Desktop exec接管，异步任务真正启动前再次与撤销同锁复查。自己的任务结果/取消不推导终端Read；保留Start重试只查原回执，不续租/重派发。真实Windows IPC证据见[P14](records/P14.md)。connect/control/disconnect、串口worker逐片段、授权GUI及完整审计仍继续，不能从SSH路径推断全部Agent能力/MCP已开放。

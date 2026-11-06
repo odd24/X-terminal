@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use zeroize::Zeroizing;
+pub mod grants;
 
 const MAX_TICKETS: usize = 128;
 const MAX_READ_LIFETIME_MS: u64 = 30 * 60 * 1000;
@@ -56,6 +57,7 @@ struct Ticket {
 pub struct Pairing {
     tickets: HashMap<[u8; 32], Ticket>,
     policy: Policy,
+    grants: grants::Ledger,
 }
 
 impl Pairing {
@@ -71,6 +73,7 @@ impl Pairing {
         Self {
             tickets: HashMap::from([(bootstrap.digest(), ticket)]),
             policy: Policy::default(),
+            grants: grants::Ledger::default(),
         }
     }
     pub fn authenticate(&self, token: &SecretToken, now_ms: u64) -> Result<Identity, ErrorCode> {
@@ -389,6 +392,7 @@ impl Pairing {
             .map(|(key, _)| *key)
             .ok_or(ErrorCode::NotFound)?;
         self.tickets.remove(&key);
+        self.grants.clear_token(ticket_id);
         self.policy.revoke(ticket_id, now_ms);
         Ok(())
     }

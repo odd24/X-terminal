@@ -1,5 +1,7 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-06 P14授权管理增量按ADR-046补固定签发编号/幂等回执、可查询原状态/无token摘要清单和原编号幂等撤销，实际验证见最新P14。授权GUI可据此处理应答未知但尚未接入，Connect/Disconnect/建连owner、其他控制/完整持久审计、P15真正桥与完整方案继续。
+
 2026-11-06 P14串口增量按ADR-045接入Write/Send/Control和本人InputStatus、同OS worker逐片段/短写许可复核、回执owner与用户接管，实际验证状态见最新P14。Start/Inventory/Status/Close/Forget仍Desktop专用，Connect/Disconnect/建连owner、幂等可查询签发/GUI、完整持久审计及真正MCP继续；不从内存串口推断COM验收。
 
 2026-11-06 P14独立exec增量已接真实客户端任务归属/最终派发许可、本人查询取消及旧Start只查回执，最终176相关Rust已通过，实际原生终态见P14。仍需串口OS worker逐片段许可/自动接管、connect/control/disconnect、幂等可查询签发/授权GUI/完整审计与真正MCP，不能从SSH输入和exec推断整个P14完成。

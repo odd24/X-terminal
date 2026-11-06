@@ -9,8 +9,16 @@ use uuid::Uuid;
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Grant {
+        request_id: Uuid,
         scopes: Vec<Scope>,
         lifetime_ms: u64,
+    },
+    GrantStatus {
+        request_id: Uuid,
+    },
+    GrantList {},
+    GrantRevoke {
+        request_id: Uuid,
     },
     Acquire {
         connection: ConnectionRef,
@@ -35,10 +43,12 @@ impl Request {
     pub fn validate(&self) -> bool {
         match self {
             Self::Grant {
+                request_id,
                 scopes,
                 lifetime_ms,
             } => {
-                !scopes.is_empty()
+                !request_id.is_nil()
+                    && !scopes.is_empty()
                     && scopes.len() <= MAX_SCOPES
                     && (1..=MAX_GRANT_MS).contains(lifetime_ms)
                     && scopes.iter().all(|s| match s.target {
@@ -55,6 +65,10 @@ impl Request {
                         .len()
                         == scopes.len()
             }
+            Self::GrantStatus { request_id } | Self::GrantRevoke { request_id } => {
+                !request_id.is_nil()
+            }
+            Self::GrantList {} => true,
             Self::Acquire {
                 connection,
                 lifetime_ms,
@@ -82,11 +96,11 @@ fn valid_connection(c: ConnectionRef) -> bool {
     deny_unknown_fields
 )]
 pub enum Reply {
-    Ticket {
-        ticket_id: Uuid,
-        token: Sensitive,
-        expires_at_ms: u64,
+    Grant {
+        receipt: session_core::pairing::grants::View,
+        token: Option<Sensitive>,
     },
+    GrantList(Vec<session_core::pairing::grants::Summary>),
     Lease(Option<Lease>),
     Audit(AuditPage),
     Ok,
@@ -114,6 +128,7 @@ mod tests {
         };
         assert!(
             !Request::Grant {
+                request_id: Uuid::new_v4(),
                 scopes: vec![s, s],
                 lifetime_ms: 1
             }
@@ -121,6 +136,7 @@ mod tests {
         );
         assert!(
             !Request::Grant {
+                request_id: Uuid::new_v4(),
                 scopes: vec![Scope {
                     action: Action::Connect,
                     ..s
@@ -152,16 +168,78 @@ mod tests {
         );
         assert!(
             Request::Grant {
+                request_id: Uuid::new_v4(),
                 scopes: vec![s],
                 lifetime_ms: MAX_GRANT_MS
             }
             .validate()
         );
-        let reply = Reply::Ticket {
-            ticket_id: Uuid::new_v4(),
-            token: Sensitive::new("synthetic-secret".into()),
-            expires_at_ms: 1,
+        let reply = Reply::Grant {
+            receipt: session_core::pairing::grants::View {
+                summary: session_core::pairing::grants::Summary {
+                    request_id: Uuid::new_v4(),
+                    ticket_id: Uuid::new_v4(),
+                    expires_at_ms: 1,
+                    state: session_core::pairing::grants::State::Active,
+                    effective_scope_count: 1,
+                },
+                approved_scopes: vec![s],
+                effective_scopes: vec![s],
+            },
+            token: Some(Sensitive::new("synthetic-secret".into())),
         };
         assert!(!format!("{reply:?}").contains("synthetic-secret"));
+    }
+    #[test]
+    fn management_requests_are_strict_and_worst_case_replies_stay_bounded() {
+        use session_core::pairing::grants::*;
+        for input in [
+            serde_json::json!({"op":"grant_list","token":"no"}),
+            serde_json::json!({"op":"grant_status","request_id":Uuid::new_v4(),"role":"desktop"}),
+            serde_json::json!({"op":"grant","scopes":[],"lifetime_ms":1}),
+        ] {
+            assert!(serde_json::from_value::<Request>(input).is_err());
+        }
+        assert!(
+            !Request::GrantStatus {
+                request_id: Uuid::nil()
+            }
+            .validate()
+        );
+        assert!(
+            !Request::GrantRevoke {
+                request_id: Uuid::nil()
+            }
+            .validate()
+        );
+        let summary = Summary {
+            request_id: Uuid::new_v4(),
+            ticket_id: Uuid::new_v4(),
+            expires_at_ms: u64::MAX,
+            state: State::Active,
+            effective_scope_count: MAX_SCOPES,
+        };
+        let list = Reply::GrantList(vec![summary.clone(); MAX_GRANT_RECEIPTS]);
+        let json = serde_json::to_vec(&list).unwrap();
+        assert!(json.len() < crate::MAX_FRAME / 2);
+        assert!(!String::from_utf8(json).unwrap().contains("token"));
+        let scope = Scope {
+            target: Target::Connection {
+                connection: ConnectionRef {
+                    connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+                    generation: u64::MAX,
+                },
+            },
+            action: Action::Read,
+        };
+        let full = Reply::Grant {
+            receipt: View {
+                summary,
+                approved_scopes: vec![scope; MAX_SCOPES],
+                effective_scopes: vec![scope; MAX_SCOPES],
+            },
+            token: Some(Sensitive::new("a".repeat(64))),
+        };
+        assert!(serde_json::to_vec(&full).unwrap().len() < crate::MAX_FRAME / 2);
     }
 }

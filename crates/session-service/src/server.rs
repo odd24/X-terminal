@@ -58,30 +58,66 @@ impl Runtime {
         if !request.validate() {
             return Err(ErrorCode::InvalidArgument);
         }
-        if let agent::Request::Grant { scopes, .. } = &request {
+        if let agent::Request::Grant {
+            request_id,
+            scopes,
+            lifetime_ms,
+        } = &request
+        {
             {
-                let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-                store.pairing.require_desktop(identity, self.now())?;
+                let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                if let Some(result) = store.pairing.grant_replay(
+                    identity,
+                    *request_id,
+                    scopes,
+                    *lifetime_ms,
+                    self.now(),
+                )? {
+                    return Ok(Reply::Agent(Self::grant_reply(result)));
+                }
             }
             // Only the existing configuration worker resolves Profile IDs. No paths or secrets.
             for scope in scopes {
                 if let session_core::access::Target::Profile { profile_id } = scope.target {
-                    self.config
+                    let lookup = self
+                        .config
                         .access()
                         .request(crate::config::Internal::Profile(profile_id))
-                        .await
-                        .map_err(|e| {
-                            if matches!(e, config::ConfigError::NotFound) {
-                                ErrorCode::NotFound
-                            } else {
-                                ErrorCode::InvalidState
-                            }
-                        })?;
+                        .await;
+                    // Another in-flight copy may have completed while this
+                    // configuration request waited, including before a deletion.
+                    {
+                        let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                        if let Some(result) = store.pairing.grant_replay(
+                            identity,
+                            *request_id,
+                            scopes,
+                            *lifetime_ms,
+                            self.now(),
+                        )? {
+                            return Ok(Reply::Agent(Self::grant_reply(result)));
+                        }
+                    }
+                    lookup.map_err(|e| {
+                        if matches!(e, config::ConfigError::NotFound) {
+                            ErrorCode::NotFound
+                        } else {
+                            ErrorCode::InvalidState
+                        }
+                    })?;
                 }
             }
         }
         // Revalidate identity and all current connection generations after asynchronous work.
         self.handle(identity, Request::Agent { request })
+    }
+    fn grant_reply(result: session_core::pairing::grants::ResultView) -> agent::Reply {
+        agent::Reply::Grant {
+            receipt: result.view,
+            token: result
+                .token
+                .map(|token| Sensitive::new(token.expose().to_string())),
+        }
     }
     async fn handle_logging(
         &self,
@@ -161,10 +197,20 @@ impl Runtime {
                 use agent::{Reply as R, Request as A};
                 let reply = match request {
                     A::Grant {
+                        request_id,
                         scopes,
                         lifetime_ms,
                     } => {
                         store.pairing.require_desktop(identity, now)?;
+                        if let Some(result) = store.pairing.grant_replay(
+                            identity,
+                            request_id,
+                            &scopes,
+                            lifetime_ms,
+                            now,
+                        )? {
+                            return Ok(Reply::Agent(Self::grant_reply(result)));
+                        }
                         for scope in &scopes {
                             if let session_core::access::Target::Connection { connection } =
                                 scope.target
@@ -172,16 +218,23 @@ impl Runtime {
                                 store.sessions.info(connection)?;
                             }
                         }
-                        let (agent, token, expires) =
-                            store
-                                .pairing
-                                .issue_agent(identity, scopes, lifetime_ms, now)?;
-                        R::Ticket {
-                            ticket_id: agent.ticket_id(),
-                            token: Sensitive::new(token.expose().to_string()),
-                            expires_at_ms: expires,
-                        }
+                        Self::grant_reply(store.pairing.issue_managed_agent(
+                            identity,
+                            request_id,
+                            scopes,
+                            lifetime_ms,
+                            now,
+                        )?)
                     }
+                    A::GrantStatus { request_id } => {
+                        Self::grant_reply(store.pairing.grant_status(identity, request_id, now)?)
+                    }
+                    A::GrantList {} => R::GrantList(store.pairing.grant_list(identity, now)?),
+                    A::GrantRevoke { request_id } => Self::grant_reply(
+                        store
+                            .pairing
+                            .revoke_managed_agent(identity, request_id, now)?,
+                    ),
                     A::Acquire {
                         connection,
                         lifetime_ms,

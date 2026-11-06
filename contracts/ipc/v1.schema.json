@@ -1151,6 +1151,10 @@
                 "const": "grant",
                 "type": "string"
               },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
               "scopes": {
                 "items": {
                   "$ref": "#/$defs/Scope"
@@ -1160,8 +1164,58 @@
             },
             "required": [
               "op",
+              "request_id",
               "scopes",
               "lifetime_ms"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "grant_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "grant_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "grant_revoke",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "request_id"
             ],
             "type": "object"
           },
@@ -3679,7 +3733,7 @@
             "$ref": "#/$defs/Protocol"
           },
           "state": {
-            "$ref": "#/$defs/State"
+            "$ref": "#/$defs/State2"
           }
         },
         "required": [
@@ -5004,28 +5058,47 @@
               "data": {
                 "additionalProperties": false,
                 "properties": {
-                  "expires_at_ms": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "ticket_id": {
-                    "format": "uuid",
-                    "type": "string"
+                  "receipt": {
+                    "$ref": "#/$defs/View"
                   },
                   "token": {
-                    "$ref": "#/$defs/Sensitive"
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Sensitive"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
-                  "ticket_id",
-                  "token",
-                  "expires_at_ms"
+                  "receipt"
                 ],
                 "type": "object"
               },
               "type": {
-                "const": "ticket",
+                "const": "grant",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "items": {
+                  "$ref": "#/$defs/Summary"
+                },
+                "type": "array"
+              },
+              "type": {
+                "const": "grant_list",
                 "type": "string"
               }
             },
@@ -6383,6 +6456,14 @@
       },
       "State": {
         "enum": [
+          "ACTIVE",
+          "EXPIRED",
+          "REVOKED"
+        ],
+        "type": "string"
+      },
+      "State2": {
+        "enum": [
           "DISCONNECTED",
           "CONNECTING",
           "AUTHENTICATING",
@@ -6391,6 +6472,40 @@
           "FAILED"
         ],
         "type": "string"
+      },
+      "Summary": {
+        "additionalProperties": false,
+        "properties": {
+          "effective_scope_count": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expires_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/$defs/State"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "ticket_id",
+          "expires_at_ms",
+          "state",
+          "effective_scope_count"
+        ],
+        "type": "object"
       },
       "Target": {
         "oneOf": [
@@ -6558,6 +6673,32 @@
           "system"
         ],
         "type": "string"
+      },
+      "View": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_scopes": {
+            "items": {
+              "$ref": "#/$defs/Scope"
+            },
+            "type": "array"
+          },
+          "effective_scopes": {
+            "items": {
+              "$ref": "#/$defs/Scope"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/$defs/Summary"
+          }
+        },
+        "required": [
+          "summary",
+          "approved_scopes",
+          "effective_scopes"
+        ],
+        "type": "object"
       },
       "Welcome": {
         "additionalProperties": false,

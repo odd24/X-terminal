@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14签发管理按[ADR-046](decisions/ADR-046.md)要求Grant固定request_id，同编号同范围集合/期限恢复原ticket/token及原到期，不新授权。管理清单无token，单项查询区分原批准与有效范围；过期/撤销不返回token，重启无旧回执，不自动换ID/重发。服务查询能力不代表GUI或真实stdio工具已接入，不把恢复票据等同恢复执行权限。
+
 P14串口Write/Send/Control及本人InputStatus的服务接入见[ADR-045](decisions/ADR-045.md)/[P14](records/P14.md)：真实Agent需要独立范围/租约，每个OS写片段前重验同一许可；用户输入/控制接管仅停止未发送尾部，driver_accepted是已知驱动下界，串口没有退出码。原编号结果不明只查询，不换ID重发。实际stdio桥仍未接入，不能使用Desktop票据绕过Agent策略；其他动作/授权GUI继续。
 
 2026-11-06 P14增量见[ADR-044](decisions/ADR-044.md)/[P14](records/P14.md)：服务已有独立Agent身份/read范围、管理/租约/审计通道，SSH Write/WriteText/InputStatus及Exec/状态/输出/取消已接同连接FIFO和真实client归属。新Exec独立授权/lease；原客户端的保留Start重试只查原回执，释放/接管后不续租、不重派发，新Start仍须授权。自己的exec输出不推导终端Read，其他客户端不能靠UUID读/取消/重用任务。实际MCP仍P06只读mock，真实stdio桥/授权GUI及其他Agent动作继续；不允许桥用Desktop票据绕过Agent策略。

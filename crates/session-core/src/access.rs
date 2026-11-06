@@ -128,6 +128,14 @@ pub struct Policy {
     next_seq: u64,
 }
 impl Policy {
+    /// Management metadata only; never an authorization shortcut.
+    pub fn effective_scopes(&self, client: Uuid, now: u64) -> Vec<Scope> {
+        self.grants
+            .get(&client)
+            .filter(|grant| grant.expires_at_ms > now)
+            .map(|grant| grant.scopes.iter().copied().collect())
+            .unwrap_or_default()
+    }
     fn record(
         &mut self,
         now: u64,
