@@ -29,6 +29,19 @@ public static class NativeSaveTestWindow {
 }
 '@
 $dialog=$null
+$id=[Windows.Automation.AutomationElement]::AutomationIdProperty
+function Find-FileNameEditor($picker) {
+    $hostControl=$picker.FindFirst([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new($id,'FileNameControlHost'))
+    if($hostControl) {
+        $editor=$hostControl.FindFirst([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Edit))
+        if($editor) { return $editor }
+    }
+    $editors=$picker.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new($id,'1001'))
+    foreach($candidate in $editors) {
+        if($candidate.Current.ControlType -eq [Windows.Automation.ControlType]::Edit -and $candidate.Current.Name -match '文件名|File name') { return $candidate }
+    }
+    return $null
+}
 for($attempt=0;$attempt -lt 100;$attempt++) {
     $candidates=[Collections.Generic.List[IntPtr]]::new()
     $callback=[NativeSaveTestWindow+Callback]{ param($window,$unused)
@@ -42,18 +55,16 @@ for($attempt=0;$attempt -lt 100;$attempt++) {
     }
     [void][NativeSaveTestWindow]::EnumWindows($callback,[IntPtr]::Zero)
     if($candidates.Count) { $handle=$candidates[0];[void][NativeSaveTestWindow]::ShowWindow($handle,9);$dialog=[Windows.Automation.AutomationElement]::FromHandle($handle) }
+    if($dialog -and $Action -eq 'select') {
+        $edit=Find-FileNameEditor $dialog
+        # The top-level window can precede its controls. Use the same bounded
+        # discovery loop for readiness; never select a different process/window.
+        if(!$edit) { $dialog=$null }
+    }
     if($dialog) { break }; Start-Sleep -Milliseconds 100
 }
 if(!$dialog) { throw 'The native save picker was not found in the test process.' }
-$id=[Windows.Automation.AutomationElement]::AutomationIdProperty
 if($Action -eq 'select') {
-    $edit=$null
-    $hostControl=$dialog.FindFirst([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new($id,'FileNameControlHost'))
-    if($hostControl) { $edit=$hostControl.FindFirst([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Edit)) }
-    if(!$edit) {
-        $editors=$dialog.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new($id,'1001'))
-        foreach($candidate in $editors) { if($candidate.Current.ControlType -eq [Windows.Automation.ControlType]::Edit -and $candidate.Current.Name -match '文件名|File name') { $edit=$candidate; break } }
-    }
     if(!$edit) { throw 'Native file-name editor 1001 not found.' }
     $pattern=$edit.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
     $pattern.SetValue($resolved)

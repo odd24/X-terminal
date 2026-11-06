@@ -118,7 +118,12 @@ impl Ticket {
 struct Work {
     command: Command,
     reply: mpsc::SyncSender<Outcome>,
+    dispatch: Option<DispatchGuard>,
 }
+/// Trusted in-process service callback, never supplied through IPC. Called after
+/// waits and before each driver operation (including short-write retries). True
+/// commits at most one <=1024-byte attempt; revocation cannot retract that call.
+pub type DispatchGuard = Arc<dyn Fn() -> bool + Send + Sync>;
 struct Chunk {
     offset: u64,
     bytes: Vec<u8>,
@@ -222,7 +227,14 @@ impl Worker {
     pub fn status(&self) -> Status {
         *self.state.lock().unwrap()
     }
-    pub fn submit(&self, mut command: Command) -> Result<Ticket, SubmitError> {
+    pub fn submit(&self, command: Command) -> Result<Ticket, SubmitError> {
+        self.submit_guarded(command, None)
+    }
+    pub fn submit_guarded(
+        &self,
+        mut command: Command,
+        dispatch: Option<DispatchGuard>,
+    ) -> Result<Ticket, SubmitError> {
         if let Command::PacedWrite {
             bytes,
             chunk_bytes,
@@ -257,7 +269,11 @@ impl Worker {
         }
         let (reply, ticket) = mpsc::sync_channel(1);
         self.commands
-            .try_send(Work { command, reply })
+            .try_send(Work {
+                command,
+                reply,
+                dispatch,
+            })
             .map_err(|error| match error {
                 mpsc::TrySendError::Full(_) => SubmitError::Full,
                 mpsc::TrySendError::Disconnected(_) => SubmitError::Stopped,
@@ -353,9 +369,15 @@ impl Drop for EndGuard {
 
 #[cfg(test)]
 fn write<P: Port>(port: &mut P, bytes: &[u8], stop: &AtomicBool) -> Outcome {
-    write_paced(port, bytes, stop, 1024, std::time::Duration::ZERO, |_| {
-        Ok(())
-    })
+    write_paced(
+        port,
+        bytes,
+        stop,
+        1024,
+        std::time::Duration::ZERO,
+        None,
+        |_| Ok(()),
+    )
 }
 fn write_paced<P: Port>(
     port: &mut P,
@@ -363,9 +385,11 @@ fn write_paced<P: Port>(
     stop: &AtomicBool,
     chunk_bytes: usize,
     interval: std::time::Duration,
+    dispatch: Option<&DispatchGuard>,
     mut pump: impl FnMut(&mut P) -> io::Result<()>,
 ) -> Outcome {
     let mut accepted = 0;
+    let mut attempted = false;
     let mut interruptions = 0;
     loop {
         if accepted == bytes.len() {
@@ -385,6 +409,19 @@ fn write_paced<P: Port>(
             };
         }
         let end = ((accepted / chunk_bytes + 1) * chunk_bytes).min(bytes.len());
+        if dispatch.is_some_and(|allow| !allow()) {
+            return if !attempted {
+                Outcome::CancelledBeforeDispatch
+            } else {
+                Outcome::Written {
+                    driver_accepted: accepted,
+                    complete: false,
+                    error: None,
+                    cancelled: true,
+                }
+            };
+        }
+        attempted = true;
         match port.write_once(&bytes[accepted..end]) {
             Ok(count) if count > 0 && count <= end - accepted => {
                 accepted += count;
@@ -466,19 +503,33 @@ fn run<P: Port>(
                 Outcome::CancelledBeforeDispatch
             } else {
                 match &work.command {
-                    Command::Write(bytes) => {
-                        write_paced(port, bytes, stop, 1024, std::time::Duration::ZERO, |port| {
-                            pump_available(port, output, state)
-                        })
-                    }
+                    Command::Write(bytes) => write_paced(
+                        port,
+                        bytes,
+                        stop,
+                        1024,
+                        std::time::Duration::ZERO,
+                        work.dispatch.as_ref(),
+                        |port| pump_available(port, output, state),
+                    ),
                     Command::PacedWrite {
                         bytes,
                         chunk_bytes,
                         interval,
-                    } => write_paced(port, bytes, stop, *chunk_bytes, *interval, |port| {
-                        pump_available(port, output, state)
-                    }),
+                    } => write_paced(
+                        port,
+                        bytes,
+                        stop,
+                        *chunk_bytes,
+                        *interval,
+                        work.dispatch.as_ref(),
+                        |port| pump_available(port, output, state),
+                    ),
                     command => {
+                        if work.dispatch.as_ref().is_some_and(|allow| !allow()) {
+                            let _ = work.reply.try_send(Outcome::CancelledBeforeDispatch);
+                            continue;
+                        }
                         // A failed assertion can still have changed the line. Keep a
                         // best-effort clear pending until an explicit clear succeeds.
                         if matches!(command, Command::Break(true)) {
@@ -500,7 +551,7 @@ fn run<P: Port>(
             match result {
                 Outcome::Written {
                     cancelled: true, ..
-                } => break End::Cancelled,
+                } if stop.load(Ordering::Acquire) => break End::Cancelled,
                 Outcome::Written {
                     error: Some(error), ..
                 } => break End::WriteFailed(error),

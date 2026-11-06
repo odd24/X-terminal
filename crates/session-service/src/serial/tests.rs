@@ -695,6 +695,7 @@ async fn service_caps_unsettled_tickets_even_if_worker_finishes_before_polling()
     for stamp in 1..=17 {
         manager
             .enqueue(
+                None,
                 connection,
                 ordered(stamp),
                 Fingerprint::write(&[1]),
@@ -715,6 +716,7 @@ async fn service_caps_unsettled_tickets_even_if_worker_finishes_before_polling()
     );
     assert!(matches!(
         manager.enqueue(
+            None,
             connection,
             ordered(18),
             Fingerprint::write(&[1]),
@@ -725,6 +727,7 @@ async fn service_caps_unsettled_tickets_even_if_worker_finishes_before_polling()
     manager.tick();
     manager
         .enqueue(
+            None,
             connection,
             ordered(18),
             Fingerprint::write(&[1]),
@@ -859,6 +862,314 @@ async fn prepared_send_is_encoded_deduplicated_and_cancelled_without_stopping_re
             .windows(10)
             .any(|bytes| bytes == b"never-send")
     );
+    manager.close().await.unwrap();
+    config.close().await.unwrap();
+}
+
+fn identities(manager: &Manager, connection: ConnectionRef, lifetime: u64) -> (Identity, Identity) {
+    use session_core::pairing::{Pairing, SecretToken};
+    let token = SecretToken::generate();
+    let mut store = manager.store.lock().unwrap();
+    store.pairing = Pairing::new(&token);
+    let now = store.now();
+    let desktop = store.pairing.authenticate(&token, now).unwrap();
+    let scopes = [Action::Write, Action::Control]
+        .map(|action| Scope {
+            target: Target::Connection { connection },
+            action,
+        })
+        .to_vec();
+    let (agent, _, _) = store
+        .pairing
+        .issue_agent(&desktop, scopes, lifetime, now)
+        .unwrap();
+    (desktop, agent)
+}
+
+#[tokio::test]
+async fn serial_agent_guards_recheck_real_policy_after_waits_and_keep_user_connection() {
+    for cause in [
+        "release",
+        "lease-expiry",
+        "grant-expiry",
+        "revoke",
+        "takeover",
+        "user",
+        "user-control",
+    ] {
+        let (_temp, config, manager, wire, profile) = setup().await;
+        let (revision, device) = selection(&manager).await;
+        let connection = start(&manager, profile, Uuid::new_v4(), revision, device).await;
+        status(&manager, connection, State::Connected).await;
+        let (desktop, agent) = identities(
+            &manager,
+            connection,
+            if cause == "grant-expiry" { 200 } else { 10000 },
+        );
+        let lease = {
+            let mut store = manager.store.lock().unwrap();
+            let now = store.now();
+            store
+                .pairing
+                .acquire_lease(
+                    &agent,
+                    connection,
+                    if cause == "grant-expiry" {
+                        100
+                    } else if cause == "lease-expiry" {
+                        200
+                    } else {
+                        3000
+                    },
+                    now,
+                )
+                .unwrap()
+        };
+        let id = Uuid::new_v4();
+        manager
+            .handle_authenticated(
+                &agent,
+                Request::Send {
+                    connection,
+                    request_id: id,
+                    content: session_protocol::Sensitive::new("abc".into()),
+                    format: serial::Format::Text,
+                    ending: serial::Ending::None,
+                    pace: serial::Pace {
+                        chunk_bytes: 1,
+                        interval_ms: 500,
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let tail = Uuid::new_v4();
+        manager
+            .handle_authenticated(&agent, write(connection, tail, b"never"))
+            .await
+            .unwrap();
+        let control = Uuid::new_v4();
+        manager
+            .handle_authenticated(
+                &agent,
+                Request::Control {
+                    connection,
+                    request_id: control,
+                    line: Line::Break,
+                    asserted: true,
+                },
+            )
+            .await
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while wire.writes.load(Ordering::Acquire) == 0 {
+            assert!(Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        match cause {
+            "release" => {
+                let mut store = manager.store.lock().unwrap();
+                let now = store.now();
+                store
+                    .pairing
+                    .release_lease(&agent, connection, lease.lease_id, now)
+                    .unwrap();
+                store
+                    .pairing
+                    .acquire_lease(&agent, connection, 2000, now)
+                    .unwrap();
+            }
+            "lease-expiry" | "grant-expiry" => tokio::time::sleep(Duration::from_millis(250)).await,
+            "revoke" => {
+                let mut store = manager.store.lock().unwrap();
+                let now = store.now();
+                store
+                    .pairing
+                    .revoke(&desktop, agent.ticket_id(), now)
+                    .unwrap();
+            }
+            "takeover" => {
+                let mut store = manager.store.lock().unwrap();
+                let now = store.now();
+                store.pairing.takeover(&desktop, connection, now).unwrap();
+            }
+            "user" => {
+                manager
+                    .handle_authenticated(&desktop, write(connection, Uuid::new_v4(), b"user"))
+                    .await
+                    .unwrap();
+            }
+            "user-control" => {
+                manager
+                    .handle_authenticated(
+                        &desktop,
+                        Request::Control {
+                            connection,
+                            request_id: Uuid::new_v4(),
+                            line: Line::Dtr,
+                            asserted: true,
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let result = receipt(&manager, connection, id).await;
+        assert_eq!(result.driver_accepted, Some(1), "{cause}");
+        assert_eq!(result.state, InputState::Unknown, "{cause}");
+        assert_eq!(result.failure, Some(Failure::Cancelled));
+        assert_eq!(
+            receipt(&manager, connection, tail).await.state,
+            InputState::CancelledBeforeDispatch
+        );
+        assert_eq!(
+            receipt(&manager, connection, control).await.state,
+            InputState::CancelledBeforeDispatch
+        );
+        // FIFO fence: successful user input proves cancelled tail/control were consumed.
+        let fence = Uuid::new_v4();
+        manager
+            .handle_authenticated(&desktop, write(connection, fence, b"fence"))
+            .await
+            .unwrap();
+        assert_eq!(
+            receipt(&manager, connection, fence).await.state,
+            InputState::DriverAccepted
+        );
+        assert_eq!(
+            *wire.accepted.lock().unwrap(),
+            if cause == "user" {
+                b"auserfence".as_slice()
+            } else {
+                b"afence".as_slice()
+            }
+        );
+        assert_eq!(
+            *wire.controls.lock().unwrap(),
+            if cause == "user-control" {
+                vec![(0, true)]
+            } else {
+                vec![]
+            }
+        );
+        status(&manager, connection, State::Connected).await;
+        manager.close().await.unwrap();
+        config.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn serial_authenticated_receipts_keep_owners_and_independent_write_control_scopes() {
+    let (_temp, config, manager, wire, profile) = setup().await;
+    let (revision, device) = selection(&manager).await;
+    let connection = start(&manager, profile, Uuid::new_v4(), revision, device).await;
+    status(&manager, connection, State::Connected).await;
+    let (desktop, agent) = identities(&manager, connection, 10000);
+    let other = {
+        let mut store = manager.store.lock().unwrap();
+        let now = store.now();
+        store
+            .pairing
+            .acquire_lease(&agent, connection, 2000, now)
+            .unwrap();
+        store
+            .pairing
+            .issue_agent(
+                &desktop,
+                vec![Scope {
+                    target: Target::Connection { connection },
+                    action: Action::Write,
+                }],
+                10000,
+                now,
+            )
+            .unwrap()
+            .0
+    };
+    let id = Uuid::new_v4();
+    manager
+        .handle_authenticated(&agent, write(connection, id, b"abc"))
+        .await
+        .unwrap();
+    assert_eq!(
+        receipt(&manager, connection, id).await.driver_accepted,
+        Some(3)
+    );
+    manager
+        .handle_authenticated(&agent, write(connection, id, b"abc"))
+        .await
+        .unwrap();
+    assert!(matches!(
+        manager
+            .handle_authenticated(&desktop, write(connection, id, b"abc"))
+            .await,
+        Err(ErrorCode::PermissionDenied)
+    ));
+    {
+        let mut store = manager.store.lock().unwrap();
+        let now = store.now();
+        let lease = store
+            .pairing
+            .lease(&agent, connection, now)
+            .unwrap()
+            .unwrap();
+        store
+            .pairing
+            .release_lease(&agent, connection, lease.lease_id, now)
+            .unwrap();
+        store
+            .pairing
+            .acquire_lease(&other, connection, 2000, now)
+            .unwrap();
+    }
+    for bytes in [b"abc".as_slice(), b"other"] {
+        assert!(matches!(
+            manager
+                .handle_authenticated(&other, write(connection, id, bytes))
+                .await,
+            Err(ErrorCode::PermissionDenied)
+        ));
+    }
+    assert!(matches!(
+        manager
+            .handle_authenticated(
+                &other,
+                Request::InputStatus {
+                    connection,
+                    request_id: id
+                }
+            )
+            .await,
+        Err(ErrorCode::PermissionDenied)
+    ));
+    assert!(matches!(
+        manager
+            .handle_authenticated(
+                &other,
+                Request::Control {
+                    connection,
+                    request_id: Uuid::new_v4(),
+                    line: Line::Dtr,
+                    asserted: true
+                }
+            )
+            .await,
+        Err(ErrorCode::PermissionDenied)
+    ));
+    assert!(matches!(
+        manager
+            .handle_authenticated(
+                &agent,
+                Request::InputStatus {
+                    connection,
+                    request_id: id
+                }
+            )
+            .await,
+        Ok(Reply::Input(_))
+    ));
+    assert_eq!(*wire.accepted.lock().unwrap(), b"abc");
     manager.close().await.unwrap();
     config.close().await.unwrap();
 }

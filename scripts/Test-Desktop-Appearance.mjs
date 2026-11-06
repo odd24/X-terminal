@@ -29,6 +29,7 @@ try {
         terminal:getComputedStyle(document.querySelector('.terminal')).backgroundColor,
         viewport:getComputedStyle(document.querySelector('.xterm-viewport')).backgroundColor,
         numberWidth:document.querySelector('[aria-label="字号"]').clientWidth,
+        numberLayout:(()=>{const n=document.querySelector('[aria-label="字号"]');const s=getComputedStyle(n);const ctx=document.createElement('canvas').getContext('2d');ctx.font=s.font;return {clientWidth:n.clientWidth,rect:n.getBoundingClientRect().toJSON(),width:s.width,box:s.boxSizing,padding:s.padding,border:s.borderWidth,display:s.display,numberToken:css.getPropertyValue('--number-width'),available:n.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight),digits:Math.max(...Array.from({length:19},(_,i)=>ctx.measureText(String(i+10)).width)),viewport:[innerWidth,innerHeight]};})(),
         panels:[...document.querySelectorAll('.config-panel')].map(panel=>getComputedStyle(panel).backgroundColor),
         surface:css.getPropertyValue('--surface').trim(),
         font:css.fontFamily,
@@ -40,7 +41,12 @@ try {
     assert.equal(actual.page, background);
     assert.equal(actual.terminal, terminalBackground);
     assert.equal(actual.viewport, terminalBackground);
-    assert.ok(actual.numberWidth >= 70, 'number spinner must leave room for both digits');
+    // Native spin buttons can reduce clientWidth while leaving the declared
+    // border box intact. Verify the actual text area against every valid size.
+    const numberFits=actual.numberLayout.rect.width >= parseFloat(actual.numberLayout.numberToken)
+      && actual.numberLayout.available >= actual.numberLayout.digits;
+    if(!numberFits) await ui.screenshot('desktop-appearance-number-failure.png');
+    assert.ok(numberFits, `number spinner must leave room for both digits: ${JSON.stringify(actual.numberLayout)}`);
     assert.ok(actual.panels.length >= 5, 'existing panels must participate in the shared theme');
     assert.equal(new Set(actual.panels).size, 1);
     assert.ok(actual.controlFonts.every(font => font === actual.font), 'all native form controls use the UI fallback chain');

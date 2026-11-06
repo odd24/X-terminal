@@ -100,12 +100,10 @@ impl Runtime {
         identity: &Identity,
         request: serial::Request,
     ) -> Result<Reply, ErrorCode> {
-        {
-            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-            store.pairing.require_active(identity, self.now())?;
-            store.pairing.require_desktop(identity, self.now())?;
-        }
-        self.serial.handle(request).await.map(Reply::Serial)
+        self.serial
+            .handle_authenticated(identity, request)
+            .await
+            .map(Reply::Serial)
     }
     async fn handle_ssh(
         &self,

@@ -1,6 +1,9 @@
 use super::*;
 use session_core::access::{Action, AuditKind, Scope, Target};
 use session_protocol::agent::{Reply as AR, Request as A};
+#[cfg(feature = "serial-ui-fixture")]
+#[path = "agent_serial.rs"]
+mod serial_dispatch_cases;
 
 #[tokio::test]
 async fn connect_grants_resolve_saved_profiles_and_do_not_implicitly_authorize_connections() {
@@ -304,7 +307,7 @@ async fn agent_lease_ownership_takeover_and_audit_are_enforced_by_real_pipe_iden
     assert!(
         matches!(ok(desktop.request(agent(A::Lease {connection:first})).await.unwrap()), Reply::Agent(AR::Lease(Some(found))) if found == l)
     );
-    // Resize and serial control remain unavailable until their own scoped integration.
+    // SSH resize remains unavailable; a fixture connection is never a serial target.
     for request in [
         Request::Ssh {
             request: ssh::Request::Resize {

@@ -411,6 +411,7 @@ fn paced_write_waits_at_least_the_requested_interval_between_complete_chunks() {
             &AtomicBool::new(false),
             1,
             interval,
+            None,
             |_| Ok(())
         ),
         Outcome::Written {
@@ -423,4 +424,115 @@ fn paced_write_waits_at_least_the_requested_interval_between_complete_chunks() {
     for times in port.0.windows(2) {
         assert!(times[1].duration_since(times[0]) >= interval);
     }
+}
+
+#[test]
+fn revoked_queued_commands_never_reach_driver_and_worker_keeps_serving_user() {
+    let (mut worker, release, log) = gated(Fake::new());
+    let allowed = Arc::new(AtomicBool::new(true));
+    let flag = allowed.clone();
+    let dispatch: DispatchGuard = Arc::new(move || flag.load(Ordering::Acquire));
+    let write = worker
+        .submit_guarded(Command::Write(b"never".to_vec()), Some(dispatch.clone()))
+        .unwrap();
+    let control = worker
+        .submit_guarded(Command::Break(true), Some(dispatch))
+        .unwrap();
+    allowed.store(false, Ordering::Release);
+    let user = worker.submit(Command::Write(b"user".to_vec())).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(outcome(&write), Outcome::CancelledBeforeDispatch);
+    assert_eq!(outcome(&control), Outcome::CancelledBeforeDispatch);
+    assert!(matches!(
+        outcome(&user),
+        Outcome::Written {
+            complete: true,
+            driver_accepted: 4,
+            ..
+        }
+    ));
+    assert_eq!(*log.lock().unwrap(), [Op::Write(b"user".to_vec())]);
+    assert_eq!(worker.status().phase, Phase::Ready);
+    worker.join().unwrap();
+}
+
+#[test]
+fn revocation_after_a_driver_call_stops_the_tail_without_ending_the_connection() {
+    // Even without a pacing delay, every short write/driver chunk must recheck.
+    for short in [false, true] {
+        let revoked = Arc::new(AtomicBool::new(false));
+        let mut fake = Fake::new();
+        fake.stop_on_write = Some(revoked.clone());
+        fake.fail_write = short;
+        let (mut worker, release, log) = gated(fake);
+        let flag = revoked.clone();
+        let dispatch: DispatchGuard = Arc::new(move || !flag.load(Ordering::Acquire));
+        let ticket = worker
+            .submit_guarded(
+                Command::PacedWrite {
+                    bytes: vec![42; 4096],
+                    chunk_bytes: 1024,
+                    interval: Duration::from_millis(10),
+                },
+                Some(dispatch),
+            )
+            .unwrap();
+        release.send(()).unwrap();
+        let accepted = if short { 2 } else { 1024 };
+        assert_eq!(
+            outcome(&ticket),
+            Outcome::Written {
+                driver_accepted: accepted,
+                complete: false,
+                error: None,
+                cancelled: true
+            }
+        );
+        assert_eq!(*log.lock().unwrap(), [Op::Write(vec![42; accepted])]);
+        assert_eq!(worker.status().phase, Phase::Ready);
+        // A control fence succeeds on the same OS worker after revocation.
+        assert_eq!(
+            outcome(&worker.submit(Command::Dtr(true)).unwrap()),
+            Outcome::Controlled
+        );
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn revocation_after_interrupted_driver_call_keeps_zero_known_bytes_unknown() {
+    struct Interrupted(Arc<AtomicBool>);
+    impl Port for Interrupted {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<ReadOutcome> {
+            Ok(ReadOutcome::Idle)
+        }
+        fn write_once(&mut self, _: &[u8]) -> io::Result<usize> {
+            self.0.store(false, Ordering::Release);
+            Err(io::ErrorKind::Interrupted.into())
+        }
+        fn control(&mut self, _: &Command) -> io::Result<()> {
+            panic!("unexpected control")
+        }
+    }
+    let allowed = Arc::new(AtomicBool::new(true));
+    let flag = allowed.clone();
+    let dispatch: DispatchGuard = Arc::new(move || flag.load(Ordering::Acquire));
+    let mut port = Interrupted(allowed);
+    assert_eq!(
+        write_paced(
+            &mut port,
+            b"a",
+            &AtomicBool::new(false),
+            1,
+            Duration::ZERO,
+            Some(&dispatch),
+            |_| Ok(())
+        ),
+        Outcome::Written {
+            driver_accepted: 0,
+            complete: false,
+            error: None,
+            cancelled: true
+        }
+    );
 }

@@ -1,5 +1,7 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-06 P14串口增量按ADR-045接入Write/Send/Control和本人InputStatus、同OS worker逐片段/短写许可复核、回执owner与用户接管，实际验证状态见最新P14。Start/Inventory/Status/Close/Forget仍Desktop专用，Connect/Disconnect/建连owner、幂等可查询签发/GUI、完整持久审计及真正MCP继续；不从内存串口推断COM验收。
+
 2026-11-06 P14独立exec增量已接真实客户端任务归属/最终派发许可、本人查询取消及旧Start只查回执，最终176相关Rust已通过，实际原生终态见P14。仍需串口OS worker逐片段许可/自动接管、connect/control/disconnect、幂等可查询签发/授权GUI/完整审计与真正MCP，不能从SSH输入和exec推断整个P14完成。
 
 2026-11-06 P14 SSH派发子步已将Write/WriteText/InputStatus接入真实认证来源、同FIFO许可复核与有界回执归属/自动用户接管，最终174相关Rust及完整18入口原生回归证据见P14；仍需exec/串口逐片段、connect/control/disconnect、管理GUI/幂等签发与真实MCP。已派发请求不承诺撤回。

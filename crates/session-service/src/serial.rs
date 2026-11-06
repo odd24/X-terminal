@@ -4,7 +4,9 @@ use crate::{
     server::Store,
 };
 use session_core::{
+    access::{Action, Scope, Target},
     input::{Fingerprint, RequestWindow, ordered_timestamp},
+    pairing::Identity,
     session::*,
 };
 use session_protocol::serial::{self, Failure, InputReceipt, InputState, Line, Reply, Request};
@@ -46,6 +48,7 @@ struct Start {
     device_id: Uuid,
 }
 struct Record {
+    owner: Option<Uuid>,
     fingerprint: Fingerprint,
     receipt: InputReceipt,
 }
@@ -108,7 +111,38 @@ impl Manager {
             }
         }
     }
-    pub(crate) async fn handle(&self, request: Request) -> Result<Reply, ErrorCode> {
+    pub(crate) async fn handle_authenticated(
+        &self,
+        identity: &Identity,
+        request: Request,
+    ) -> Result<Reply, ErrorCode> {
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            let now = store.now();
+            store.pairing.require_active(identity, now)?;
+            if !store.pairing.is_agent(identity, now)?
+                || !matches!(
+                    request,
+                    Request::Write { .. }
+                        | Request::Send { .. }
+                        | Request::Control { .. }
+                        | Request::InputStatus { .. }
+                )
+            {
+                store.pairing.require_desktop(identity, now)?;
+            }
+        }
+        self.handle_from(Some(identity), request).await
+    }
+    #[cfg(test)]
+    async fn handle(&self, request: Request) -> Result<Reply, ErrorCode> {
+        self.handle_from(None, request).await
+    }
+    async fn handle_from(
+        &self,
+        identity: Option<&Identity>,
+        request: Request,
+    ) -> Result<Reply, ErrorCode> {
         if !request.validate() {
             return Err(ErrorCode::InvalidArgument);
         }
@@ -218,6 +252,9 @@ impl Manager {
                     inner.window.check(request_id)?;
                 }
                 let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                if let Some(identity) = identity {
+                    store.pairing.require_desktop(identity, store.now())?;
+                }
                 let initial = store.sessions.create(Protocol::Serial)?;
                 let connection = store.sessions.begin_connect(initial.reference())?;
                 store.sessions.configure_output(
@@ -273,11 +310,9 @@ impl Manager {
             } => {
                 let encoding = {
                     let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-                    self.store
-                        .lock()
-                        .map_err(|_| ErrorCode::InvalidState)?
-                        .sessions
-                        .info(connection)?;
+                    let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    Self::check_action(&store, identity, connection, Action::Write)?;
+                    store.sessions.info(connection)?;
                     inner
                         .entries
                         .get(&connection.connection_id)
@@ -297,6 +332,7 @@ impl Manager {
                     return Err(ErrorCode::InvalidArgument);
                 }
                 self.enqueue(
+                    identity,
                     connection,
                     request_id,
                     Fingerprint::paced_write(&bytes, pace.chunk_bytes, pace.interval_ms),
@@ -312,6 +348,7 @@ impl Manager {
                 request_id,
                 bytes,
             } => self.enqueue(
+                identity,
                 connection,
                 request_id,
                 Fingerprint::write(bytes.expose()),
@@ -325,11 +362,9 @@ impl Manager {
             } => {
                 if line == Line::Rts {
                     let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-                    self.store
-                        .lock()
-                        .map_err(|_| ErrorCode::InvalidState)?
-                        .sessions
-                        .info(connection)?;
+                    let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    Self::check_action(&store, identity, connection, Action::Control)?;
+                    store.sessions.info(connection)?;
                     if inner
                         .entries
                         .get(&connection.connection_id)
@@ -345,6 +380,7 @@ impl Manager {
                     Line::Break => (2, worker::Command::Break(asserted)),
                 };
                 self.enqueue(
+                    identity,
                     connection,
                     request_id,
                     Fingerprint::control(code, asserted),
@@ -361,6 +397,17 @@ impl Manager {
                 };
                 let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
                 let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                let owner = Self::owner(&store, identity)?;
+                if let (Some(owner), Request::InputStatus { request_id, .. }) = (owner, &request)
+                    && !inner
+                        .entries
+                        .get(&connection.connection_id)
+                        .filter(|entry| entry.reference == connection)
+                        .and_then(|entry| entry.inputs.get(request_id))
+                        .is_some_and(|record| record.owner == Some(owner))
+                {
+                    return Err(ErrorCode::PermissionDenied);
+                }
                 let info = store.sessions.info(connection)?;
                 let entry = inner
                     .entries
@@ -384,6 +431,9 @@ impl Manager {
                     }
                     Request::InputStatus { request_id, .. } => {
                         if let Some(record) = entry.inputs.get(&request_id) {
+                            if owner.is_some() && record.owner != owner {
+                                return Err(ErrorCode::PermissionDenied);
+                            }
                             return Ok(Reply::Input(record.receipt.clone()));
                         }
                         entry.window.check(request_id)?;
@@ -424,23 +474,38 @@ impl Manager {
     }
     fn enqueue(
         &self,
+        identity: Option<&Identity>,
         connection: ConnectionRef,
         id: Uuid,
         fingerprint: Fingerprint,
         command: worker::Command,
     ) -> Result<Reply, ErrorCode> {
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-        let info = self
-            .store
-            .lock()
-            .map_err(|_| ErrorCode::InvalidState)?
-            .sessions
-            .info(connection)?;
+        let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let owner = Self::owner(&store, identity)?;
+        let action = if matches!(
+            command,
+            worker::Command::Write(_) | worker::Command::PacedWrite { .. }
+        ) {
+            Action::Write
+        } else {
+            Action::Control
+        };
+        // Authorization precedes connection/encoding disclosure; final admission
+        // and Desktop takeover share the same store lock as worker dispatch.
+        Self::check_action(&store, identity, connection, action)?;
+        let info = store.sessions.info(connection)?;
+        if owner.is_some() && info.protocol != Protocol::Serial {
+            return Err(ErrorCode::PermissionDenied);
+        }
         let entry = inner
             .entries
             .get_mut(&connection.connection_id)
             .ok_or(ErrorCode::NotFound)?;
         if let Some(record) = entry.inputs.get(&id) {
+            if record.owner != owner {
+                return Err(ErrorCode::PermissionDenied);
+            }
             return if record.fingerprint == fingerprint {
                 Ok(Reply::Input(record.receipt.clone()))
             } else {
@@ -448,6 +513,41 @@ impl Manager {
             };
         }
         entry.window.check(id)?;
+        let now = store.now();
+        let dispatch = if owner.is_some() {
+            let identity = identity.unwrap().clone();
+            let permit = store.pairing.admit_input(
+                &identity,
+                Scope {
+                    target: Target::Connection { connection },
+                    action,
+                },
+                id,
+                now,
+            )?;
+            let shared = self.store.clone();
+            Some(Arc::new(move || {
+                let Ok(mut store) = shared.lock() else {
+                    return false;
+                };
+                let now = store.now();
+                store
+                    .sessions
+                    .info(connection)
+                    .is_ok_and(|i| i.state == State::Connected)
+                    && store
+                        .pairing
+                        .dispatch_input(&identity, &permit, now)
+                        .is_ok()
+            }) as worker::DispatchGuard)
+        } else {
+            // Actual user input, including paced Send and control-line buttons.
+            // No connection cancellation: queued Agent guards invalidate in place.
+            if let Some(identity) = identity {
+                store.pairing.takeover(identity, connection, now)?;
+            }
+            None
+        };
         if info.state != State::Connected || entry.closing {
             return Err(ErrorCode::NotConnected);
         }
@@ -470,7 +570,7 @@ impl Manager {
             .worker
             .as_ref()
             .ok_or(ErrorCode::NotConnected)?
-            .submit(command)
+            .submit_guarded(command, dispatch)
             .map_err(|error| match error {
                 worker::SubmitError::Full => ErrorCode::CapacityExceeded,
                 worker::SubmitError::InvalidInput => ErrorCode::InvalidArgument,
@@ -485,12 +585,42 @@ impl Manager {
         entry.inputs.insert(
             id,
             Record {
+                owner,
                 fingerprint,
                 receipt: receipt.clone(),
             },
         );
         entry.tickets.insert(id, ticket);
         Ok(Reply::Input(receipt))
+    }
+    fn owner(store: &Store, identity: Option<&Identity>) -> Result<Option<Uuid>, ErrorCode> {
+        let Some(identity) = identity else {
+            return Ok(None);
+        };
+        if store.pairing.is_agent(identity, store.now())? {
+            Ok(Some(identity.ticket_id()))
+        } else {
+            store.pairing.require_desktop(identity, store.now())?;
+            Ok(None)
+        }
+    }
+    fn check_action(
+        store: &Store,
+        identity: Option<&Identity>,
+        connection: ConnectionRef,
+        action: Action,
+    ) -> Result<(), ErrorCode> {
+        if Self::owner(store, identity)?.is_some() {
+            store.pairing.check_action(
+                identity.unwrap(),
+                Scope {
+                    target: Target::Connection { connection },
+                    action,
+                },
+                store.now(),
+            )?;
+        }
+        Ok(())
     }
     pub(crate) fn tick(&self) {
         let mut inner = self.inner.lock().unwrap();

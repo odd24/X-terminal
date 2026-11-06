@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14串口增量按ADR-045新增OS线程/真实Pairing测试及opt-in serial-ui-fixture下真实Windows IPC：排队输入/控制不派发、短写每次复核、七种撤权下精确已接受前缀/未发送尾部/用户同连接fence、独立Write/Control与客户端回执归属、Observer存在/不存在目标先拒绝。准确终态/失败见P14，不把内存回显当COM驱动验收，不从专项推断GUI/MCP/完整T13–T17通过。
+
 P14当前增量：核心策略/身份管理之外，真实Windows IPC已覆盖SSH认证输入和独立exec的范围/租约/归属/去重、旧Start只查回执、任务本人运行后取消、Observer已存在/随机不存在目标先拒绝，以及真实32KiB窗口背压下六类所有权变化不派发排队exec，准确结果见[P14](records/P14.md)。已派发动作/部分输出不能冒充撤回；串口逐片段、connect/control/disconnect、授权GUI与真实MCP仍未由此通过，18入口桌面回归只支持各自软件边界。
 
 本文定义验收条件，不是执行结果清单。已执行的软件/隔离/原生专项见对应 docs/records/Pxx.md 或其引用的脱敏证据；完整实机/长稳/全局UI及阶段验收仍有缺口，见[剩余要求盘点](REMAINING_EXECUTION.md)。文档检查不能替代功能测试，局部通过不能自动填充整条用例。
