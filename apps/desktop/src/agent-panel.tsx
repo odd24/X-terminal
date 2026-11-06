@@ -53,11 +53,12 @@ export function AgentPanel({ serviceId, target, close }: { serviceId: string; ta
   return <Panel title="Agent 授权" label="Agent授权面板" close={() => { invalidate(); close(); }} closeLabel="关闭Agent授权">
     <p role="status" aria-label="Agent管理状态">{message}</p>
     <small>服务 {serviceId} · 凭据只在原生/服务内存中。真实 MCP 桥交付尚未接入；本面板不提供 token 复制或保存。</small>
-    <p>读取范围包含该代次服务当前有界保留的原始输出、解码文本与屏幕；不包含持久日志/导出、认证秘密或其他连接。写入、独立 exec 与控制线分别批准；变更操作还需 Agent 自己取得最长60秒的独占租约。</p>
+    <p>读取范围包含该代次服务当前有界保留的原始输出、解码文本与屏幕；不包含持久日志/导出、认证秘密或其他连接。写入、独立 exec、协议控制与断开连接分别批准；变更操作还需 Agent 自己取得最长60秒的独占租约。</p>
     <fieldset disabled={busy || unresolved}><legend>批准当前目标</legend>
       <small aria-label="Agent批准目标">{target ? `${target.protocol} · ${targetText(target)}` : '尚无活动连接'}</small>
-      <p>默认未选择能力。Connect/Disconnect和广播尚未开放；协议控制仅为SSH尺寸或串口控制线；合成会话只提供测试读取。</p>
+      <p>默认未选择能力。建立配置连接和广播尚未开放；协议控制仅为SSH尺寸或串口控制线；合成会话只提供测试读取。</p>
       {available.map(action => <label className="check" key={action}><input type="checkbox" aria-label={`授权${actionName[action]}`} checked={selected.includes(action)} onChange={event => { invalidate(); setSelected(previous => event.target.checked ? [...previous, action] : previous.filter(item => item !== action)); }} />{actionName[action]}</label>)}
+      {selected.includes('DISCONNECT') && <p aria-label="Agent断开范围说明">断开仅限以上连接代次，取消该连接的排队输入与任务，并撤下此代次自动化范围和租约。请求关闭不等于本地传输已回收，实际回收须查询原请求编号；不能撤回已发送字节或远端已执行动作。批准授权本身不会断开连接，也不授予读取、写入、控制或重连能力。</p>}
       <Field label="授权期限（秒，1–1800）"><input type="number" min={1} max={1800} aria-label="Agent授权秒数" value={seconds} onChange={event => { invalidate(); setSeconds(Number(event.target.value)); }} /></Field>
       <button disabled={!target || !selected.length} onClick={() => { try { if (!target) return; setProposal(approval.current.prepare(serviceId, target, selected, seconds)); setConsent(false); setMessage('请核对固定目标、能力和期限；尚未签发。'); } catch (error) { invalidate(); setMessage(String(error)); } }}>预览Agent授权</button>
     </fieldset>
@@ -65,6 +66,7 @@ export function AgentPanel({ serviceId, target, close }: { serviceId: string; ta
     {proposal && <fieldset disabled={busy}><legend>核对本次授权</legend>
       <small aria-label="Agent授权预览">{proposal.protocol} · {targetText(proposal.connection)} · {proposal.lifetime_ms / 1000} 秒</small>
       <ul>{proposal.scopes.map(scope => <li key={scope.action}>{scopeText(scope)}</li>)}</ul>
+      {proposal.scopes.some(scope => scope.action === 'DISCONNECT') && <p>断开权限仅适用于此固定代次，需独立租约；原编号用于恢复关闭回执，Requested表示请求关闭，TransportEnded表示本地传输回收，不代表远端动作已撤销。</p>}
       <label className="check"><input aria-label="同意本次Agent范围" type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} />我批准以上固定代次、独立能力与期限</label>
       <div className="config-actions"><button autoFocus onClick={() => { invalidate(); setMessage('已取消预览；未签发。'); }}>取消Agent批准</button><button disabled={!consent} onClick={() => {
         if (flight.current) return;

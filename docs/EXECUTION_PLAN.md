@@ -277,6 +277,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- GUI Disconnect增量：SSH2/SERIAL同固定代次面板独立批准，明确关闭请求/回收和批准不执行动作；test:desktop:agent第19入口覆盖两协议并恢复普通服务，准确结果见P14。Profile Connect/真实桥及完整范围继续。
+
 - 串口Disconnect增量：按ADR-051独立范围/lease/原owner回执与实际OS worker join接入，回报通道丢失不虚报完成，tick/Forget前保存终态；实际结果见P14，GUI/真实桥及整个方案继续。
 
 - SSH服务增量：ADR-051接独立Disconnect/lease、严格原编号查询与认证归属，关闭后退休范围不阻断原有效ticket恢复回执；实际Actor/传输引用回收才完成，结果见P14。串口Disconnect/GUI/真实桥及整个方案继续。

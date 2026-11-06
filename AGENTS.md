@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14授权GUI新增SSH2/SERIAL独立Disconnect，默认无勾选、固定代次/期限且批准不关闭连接；Requested/TransportEnded语义持续明确，接管撤下Disconnect。test:desktop:agent第19入口含SSH与独立内存串口GUI，串口Agent专项仅shared-terminal-agent-ui-中文-自建根并finally实际恢复普通服务；不得将原生Desktop关闭测试冒充Agent token已交真实stdio桥。Profile Connect批准/真实桥仍独立推进。
+
 P14串口Disconnect按ADR-051独立范围/lease和原owner编号回执接入，只有OS worker实际join回报可标TransportEnded；join回报通道丢失保持Requested/cleanup_pending并拒绝Forget。tick及Forget前保存精确代次终态，guard等待中取消不得再open；内存feature IPC不等于COM验收，之后须实际desktop:build与串口finally普通服务恢复。旧Close仍Desktop专用，GUI/真实桥独立交付。
 
 P14 SSH Disconnect按ADR-051使用独立Disconnect/lease及严格原编号/owner回执；Requested不等于本地传输结束，Actor结束且共享传输引用释放才可TransportEnded。退休/Forget后有效ticket原编号只查，不续租或再次关闭；旧无编号Close仍Desktop专用。串口Disconnect、GUI批准和真实stdio桥须独立验证，不从SSH路径推导。

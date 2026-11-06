@@ -74,8 +74,8 @@ export function restoreSlot(raw: string | null): Slot | undefined {
 }
 export function supportedActions(target: Connection): Action[] {
   if (target.state !== 'CONNECTED') return [];
-  if (target.protocol === 'SSH2') return ['READ', 'WRITE', 'EXEC', 'CONTROL'];
-  if (target.protocol === 'SERIAL') return ['READ', 'WRITE', 'CONTROL'];
+  if (target.protocol === 'SSH2') return ['READ', 'WRITE', 'EXEC', 'CONTROL', 'DISCONNECT'];
+  if (target.protocol === 'SERIAL') return ['READ', 'WRITE', 'CONTROL', 'DISCONNECT'];
   if (target.protocol === 'FIXTURE') return ['READ'];
   return [];
 }

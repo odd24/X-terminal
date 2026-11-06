@@ -89,14 +89,23 @@ try {
   const sshId = await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);
   const sshConnection = (await ui.invoke('service_list')).find(c => c.connection_id === sshId);
   const sshRef = { connection_id: sshId, generation: sshConnection.generation };
+  const reopenAfterReload = async () => {
+    // Page.reload completes before React/service inventory is ready. click() is
+    // deliberately optional in the harness, so require the actual controls first.
+    await ui.waitFor(`!!(${button('Agent 授权')})&&Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(sshId)})`);
+    assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权面板"]')`), false);
+    await ui.fill('会话', sshId); await ui.click('Agent 授权');
+    await ui.waitFor(`document.querySelector('[aria-label="Agent批准目标"]')?.textContent.includes(${JSON.stringify(sshId)})&&!!document.querySelector('[aria-label="授权读取终端"]')`);
+  };
   await ui.click('Agent 授权');
   await ui.waitFor(`document.querySelector('[aria-label="Agent批准目标"]')?.textContent.includes(${JSON.stringify(sshId)})`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权读取终端"]').checked`), false);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权写入终端"]').checked`), false);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权协议控制（SSH尺寸/串口控制线）"]').checked`), false);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权断开连接"]').checked`), false);
   const toggle = label => ui.evaluate(`document.querySelector('[aria-label=${JSON.stringify(label)}]').click()`);
   const prepare = async (write = false) => {
-    await toggle('授权读取终端'); if (write) { await toggle('授权写入终端'); await toggle('授权协议控制（SSH尺寸/串口控制线）'); }
+    await toggle('授权读取终端'); if (write) { await toggle('授权写入终端'); await toggle('授权协议控制（SSH尺寸/串口控制线）'); await toggle('授权断开连接'); }
     await ui.fill('Agent授权秒数', '300'); await ui.click('预览Agent授权');
     await ui.waitFor(`!!(${button('确认批准Agent')})`); await toggle('同意本次Agent范围');
   };
@@ -118,16 +127,19 @@ try {
   let saved = await storage(); assert.deepEqual(Object.keys(saved).sort(), ['request_id', 'service_id']);
   let managed = await call({ op: 'grant_status', request_id: saved.request_id });
   assert.ok(managed.data.approved_scopes.every(s => JSON.stringify(s.target.connection) === JSON.stringify(sshRef)));
-  assert.deepEqual(managed.data.approved_scopes.map(s => s.action).sort(), ['CONTROL', 'READ', 'WRITE']);
+  assert.deepEqual(managed.data.approved_scopes.map(s => s.action).sort(), ['CONTROL', 'DISCONNECT', 'READ', 'WRITE']);
+  assert.equal('token' in managed.data, false);
+  assert.equal((await ui.invoke('service_list')).find(c => c.connection_id === sshId).state, 'CONNECTED', 'granting Disconnect does not close the target');
   await ui.click('查询当前输入租约');
   await ui.waitFor(`document.querySelector('[aria-label="Agent租约详情"]')?.textContent.includes('没有有效输入租约')`);
   await ui.click('人工接管当前连接'); await ui.click('取消Agent变更');
-  assert.equal((await call({ op: 'grant_status', request_id: saved.request_id })).data.summary.effective_scope_count, 3);
+  assert.equal((await call({ op: 'grant_status', request_id: saved.request_id })).data.summary.effective_scope_count, 4);
   await ui.click('人工接管当前连接'); await ui.click('确认Agent变更');
   await ui.waitFor(`document.querySelector('[aria-label="Agent管理状态"]').textContent.includes('已人工接管')`);
   await ui.click('查询原Agent编号');
   await ui.waitFor(`document.querySelector('[aria-label="Agent授权详情"]')?.textContent.includes('有效范围 1')`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="Agent有效范围"]').textContent.includes('写入终端')`), false);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="Agent有效范围"]').textContent.includes('断开连接')`), false);
   assert.ok((await call({ op: 'grant_status', request_id: saved.request_id })).data.summary.state === 'ACTIVE');
   await ui.click('撤销此Agent授权'); await ui.click('取消Agent变更');
   assert.equal((await call({ op: 'grant_status', request_id: saved.request_id })).data.summary.state, 'ACTIVE');
@@ -154,7 +166,7 @@ try {
   saved = await storage();
   await ui.command('Page.reload');
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权面板"]')`), false);
-  await ui.click('Agent 授权');
+  await reopenAfterReload();
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权详情"]')`), false);
   assert.equal(await ui.evaluate(`!!(${button('确认批准Agent')})`), false);
   assert.equal(await count(), beforeLost + 1, 'reload never signs automatically');
@@ -180,7 +192,7 @@ try {
   const beforePreviewReload = await count();
   await prepare();
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="同意本次Agent范围"]').checked`), true);
-  await ui.command('Page.reload'); await ui.click('Agent 授权');
+  await ui.command('Page.reload'); await reopenAfterReload();
   assert.equal(await ui.evaluate(`!!(${button('确认批准Agent')})`), false);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权读取终端"]').checked`), false);
   assert.equal(await count(), beforePreviewReload, 'reload of an approved preview cannot sign');
@@ -202,7 +214,7 @@ try {
   await ui.click('关闭外观');
   await ui.evaluate(`document.querySelector('.auxiliary-panels').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-light-synthetic.png');
-  console.log('PASS Agent GUI: fixed SSH generation/independent READ+WRITE+SSH CONTROL, no default consent, cancel/switch/one-shot approval, scope reduction, original revoke/lost grant recovery, ID-only reload, late-close and bounded audit gap');
+  console.log('PASS Agent GUI: fixed SSH generation/independent READ+WRITE+SSH CONTROL+DISCONNECT, approval does not close, no default consent, cancel/switch/one-shot approval, takeover removes Disconnect, original revoke/lost grant recovery, ID-only reload, late-close and bounded audit gap');
   await ui.close(); ui = await launchDesktop(directory, { fixture: true });
   assert.deepEqual((await call({ op: 'grant_list' })).data, []);
   await assert.rejects(call({ op: 'grant_status', request_id }));

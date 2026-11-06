@@ -39,7 +39,7 @@
     "test:desktop:recovery": "node scripts/Test-Desktop-Recovery.mjs",
     "test:desktop:navigation": "node scripts/Test-Desktop-Navigation.mjs",
     "test:desktop:compose": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-Compose.mjs",
-    "test:desktop:agent": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-Agent.mjs",
+    "test:desktop:agent": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-Agent.mjs && node scripts/Test-Desktop-Agent-Serial.mjs",
     "test:desktop:preferences": "node scripts/Test-Desktop-Preferences.mjs"
   },
   "devDependencies": {

@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-06 两协议Disconnect授权GUI子步完成：SSH2/SERIAL独立默认无勾选/固定代次，批准不关闭，接管撤下Disconnect；50前端/lint、实际构建/两协议专项与23:14:07–23:19:54最终完整19入口PASS/退出0，两次串口普通服务实际恢复/资源0。首轮第19重载就绪失败及修正、最终指纹/两提交冻结见P14；第一成果0961b6c，Profile Connect/真实桥与完整方案继续。Step-ID: P14。
+
+2026-11-06 前置0961b6c后实施SSH2/SERIAL独立Disconnect授权GUI，复用公共能力选择/固定代次预览并明确批准不关闭/Requested与实际回收。50前端测试/lint及新增脚本语法检查PASS，最终原生专项/完整19入口结果见P14，不预填通过。Step-ID: P14。
+
 2026-11-06 串口Disconnect子步完成：ADR-051独立范围/lease/原owner回执、实际worker join及回报丢失不虚报清理。232相关Rust、5 feature真实IPC/严格检查、实际desktop:build与串口/Agent专项PASS，串口普通服务8.55秒恢复；准确失败/指纹/未执行见P14。GUI Disconnect批准、Profile Connect、真实桥和完整方案继续。Step-ID: P14。
 
 2026-11-06 后继A从2cb0b49干净核验后获前任明确放行唯一写入权，完整R01–R16/P01–P25目标active。串口Disconnect独立范围/lease/原owner回执及实际join证明已实现，新增3项确定性服务测试实际PASS，feature真实IPC运行中，最终终态见P14；不预填原生/COM/GUI/真实桥通过。Step-ID: P14。
@@ -123,7 +127,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
-| P14 | Agent 授权与调度（派发/管理/GUI及Profile建连阶段已有；Disconnect/上下文范围/真实桥/完整审计继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
+| P14 | Agent 授权与调度（派发/管理/连接能力GUI及建连/断开服务已有；Profile批准/上下文范围/真实桥/完整审计继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | MCP 工具实现 | TODO | 待创建 | — |
 | P16 | Codex 真机闭环 | TODO | 待创建 | — |
 | P17 | 标签组与工作区 | TODO | 待创建 | — |

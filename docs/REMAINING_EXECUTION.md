@@ -1,5 +1,9 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-06 串口Disconnect服务/真实join及SSH2/SERIAL独立Disconnect授权GUI两成果完成，232相关Rust/5 feature IPC属于首成果，50前端/lint与最终完整19入口23:14:07–23:19:54实际PASS/退出0、普通服务两次恢复/资源0；首轮重载就绪失败及最终指纹见P14。不关闭父P14或阶段门。下一Profile Connect GUI固定配置/串口初始线行为，随后独立Reconnect/Forget、读取时间范围/授权形式/脱敏/完整拒绝及持久审计、真实stdio桥与整个P15–P25持续，不重做已完成能力或缩小R01–R16/P01–P25目标。
+
+2026-11-06 GUI独立Disconnect按ADR-047/051接SSH2/SERIAL固定代次批准，准确实际验证见P14，不由源码存在预填PASS。下一Profile Connect须固定配置/串口初始DTR/RTS打开行为；SSH Reconnect/Forget仍须独立设计，读取时间范围/单次或任务形式/脱敏/完整拒绝与持久审计、P15安全token交付真实stdio桥/P16同连接及P17–P25继续，完整目标不缩减。
+
 2026-11-06 串口Disconnect独立范围/lease与原owner有界回执已接实现，OS worker实际join才TransportEnded，回报丢失保持Requested并拒绝Forget。真实测试终态见P14，不能由实现预填PASS。下一GUI独立Disconnect批准、Profile Connect、SSH Reconnect/Forget、读取时间范围/授权形式/脱敏/持久审计及P15真正桥与完整R01–R16/P01–P25继续。
 
 2026-11-06 SSH Disconnect沿ADR-051接独立范围/lease、原owner回执和实际本地回收；原编号恢复不重关新代次，具体验证见P14。串口Disconnect仍须OS worker实际join/有界回执接入；SSH Reconnect/Forget的Agent动作、GUI Profile/Disconnect批准、时间范围/授权形式/脱敏/完整审计与真正stdio桥及全部P15–P25继续，不因两个本地成果缩减完整目标。

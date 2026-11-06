@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14现有授权面板可对SSH2/SERIAL明确批准独立Disconnect，默认不勾选；固定ConnectionRef/期限，批准不执行动作，不代取租约或授其他能力。接管后的有效范围撤下断开能力，原批准只读保留。第19原生入口覆盖两协议（串口为内存worker），准确结果见P14；真实stdio桥安全交付、Profile Connect批准与完整上下文/审计继续。
+
 P14串口新增严格Disconnect/DisconnectStatus，原有效ticket/原owner编号在范围退休与Forget后只恢复回执、不续租或再取消新worker。新请求需要独立Disconnect/lease，Write/Connect/Control不推导；只有实际join返回才能TransportEnded，回报丢失保持Requested。准确结果见P14/ADR-051，GUI批准与实际stdio桥仍须独立交付。
 
 P14 SSH Disconnect服务按[ADR-051](decisions/ADR-051.md)使用精确ConnectionRef/request_id、独立Disconnect与lease，新请求取消原共享传输/任务并退休范围；原有效ticket同owner编号在范围退休/Forget后只取回执，不重派发。Requested不代表回收，TransportEnded仅本地Actor及传输引用已结束，不承诺远端动作撤销。真实验证见P14；串口Disconnect、GUI动作批准及实际stdio桥仍继续。

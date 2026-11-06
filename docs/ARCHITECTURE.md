@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14授权GUI按ADR-047/051给SSH2/SERIAL增加独立Disconnect，固定原代次/期限、默认无勾选，批准只签发不关闭。选择及预览明确关闭请求/实际回收/原编号语义；接管后有效范围撤下Disconnect。SSH/独立串口GUI结果见P14，实际Agent token交付/stdio桥仍未完成。
+
 P14串口Disconnect沿[ADR-051](decisions/ADR-051.md)接独立Disconnect/lease和认证owner原编号回执；实际OS worker join返回才完成，本地取消/Ended状态或回报通道丢失不能充当回收证据。tick/Forget前保存终态，关闭退休后只查原编号不重开/重关。内存IPC/原生准确结果见P14；GUI、真实桥及COM独立验证。
 
 P14 SSH Disconnect按[ADR-051](decisions/ADR-051.md)推进独立Disconnect/lease、原认证owner/精确代次的有界回执与只查编号恢复；Requested与Actor及共享传输引用实际回收的TransportEnded分开。旧无编号Close保持Desktop专用；串口Disconnect、GUI和真实桥须独立接入，准确验证见P14。

@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14 Disconnect GUI扩展test:desktop:agent第19入口：SSH验证默认未选、固定READ+WRITE+CONTROL+DISCONNECT批准且仍Connected、取消接管保留/确认接管仅Read；独立串口Agent中文临时根验证仅Disconnect批准不推导Read/Write/Control/lease/关闭，取消/切换/一次性、精确目标、实际Desktop关闭与worker join/Forget原编号回执、范围退休与只编号重载。后者的Desktop调用不冒充Agent端到端，Agent身份另由feature IPC证明；脚本finally须实际恢复普通服务。准确终态见P14，不替代真实MCP/COM/全局DPIIME。
+
 P14串口Disconnect新增确定性阻塞worker仍Requested/禁止Forget与重开、容量失败不取消、open guard等待期间Disconnect零实际打开、join回报通道丢失不虚报回收；严格协议拒绝无编号/代次0/自填owner。opt-in serial-ui-fixture真实Windows IPC独立验证lease/范围/归属、部分写前缀与排队取消、跨Pipe原编号/Forget后重开不被旧请求关闭、不读实际Pipe应答后查询及撤销/到期拒绝。内存端口不代表COM；准确终态见P14，GUI/真实桥另验。
 
 P14 SSH Disconnect增加领域Disconnected但Actor被确定性阻塞时仍Requested、回执容量失败不取消；严格协议拒绝调用者owner。真实Pipe覆盖独立范围/lease/跨来源、并发重复、运行exec取消及合成SSH对端结束；不读实际Pipe应答后原编号恢复、重连新代次不重关、Forget后恢复与撤销后拒绝分别验证。真实终态见P14，不推导串口Disconnect/GUI或真实MCP桥。
