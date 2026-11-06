@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14串口Start增量按ADR-050验证配置await后撤权不创建worker，以及OS worker打开前撤销/到期/Close不调用实际open；opt-in feature真实IPC验证同来源并发/重连、跨来源/越权拒绝及删除配置/刷新库存后不重开。内存端口不替代COM验收，实际终态见P14。
+
 P14 SSH Start增量按ADR-049验证Profile独立Connect、真实owner/并发同编号、删除Profile及移除连接后只查回执；确定性配置等待/Actor首次poll前撤权且对端socket未接受。准确结果见P14，不由服务阶段推导GUI、串口Start/Disconnect或真实MCP完成。
 
 P14尺寸增量按ADR-048新增真实Windows IPC：独立Control/lease、无Read/Write扩大、Desktop Resize保留租约、编号去重/跨客户端归属，以及六类排队撤权的远端尺寸记录与FIFO fence；授权GUI扩展READ+WRITE+CONTROL固定范围。准确结果见P14，不能从合成SSH/默认截图推断实机或全局矩阵。

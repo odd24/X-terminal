@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14串口Start按ADR-050绑定原回执owner/精确Profile Connect，配置await后与OS worker实际打开前复核；库存revision/device_id/端口匹配及占用仍必需，guard等待期间Close后不得再open。仅合成内存端口/中文前缀根，feature IPC后实际desktop:build恢复普通服务；Connect不推导Read/Write/Control/Disconnect、库存枚举或GUI/真实桥交付。
+
 P14 SSH Start按ADR-049绑定原Start回执认证owner，Profile Connect不授新连接Read/Write/认证批准；配置await后及实际连接future首次poll重验同许可。SSH Reconnect/Forget、串口Start与Disconnect仍待独立接入，不从服务Connect推导GUI或真实stdio桥交付。
 
 P14尺寸控制按ADR-048接SSH2 Control/lease及原FIFO/认证回执，Desktop视口调整不接管；test:desktop:agent扩展READ+WRITE+CONTROL默认无勾选/固定范围和接管后仅Read，仍须前置实际desktop:build。Control仅按目标协议为SSH尺寸或串口控制线，不推导Connect/Disconnect/广播或真实MCP桥交付。

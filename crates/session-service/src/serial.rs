@@ -25,24 +25,36 @@ use uuid::Uuid;
 mod entry;
 #[cfg(feature = "serial-ui-fixture")]
 mod fixture;
+mod start;
 #[cfg(test)]
 mod tests;
 
 trait Factory: Send + Sync {
     fn inventory(&self) -> io::Result<Inventory>;
-    fn open(&self, config: Config, device: Device) -> io::Result<Worker>;
+    fn open(
+        &self,
+        config: Config,
+        device: Device,
+        dispatch: Option<worker::DispatchGuard>,
+    ) -> io::Result<Worker>;
 }
 struct Native;
 impl Factory for Native {
     fn inventory(&self) -> io::Result<Inventory> {
         device::inventory()
     }
-    fn open(&self, config: Config, device: Device) -> io::Result<Worker> {
-        Worker::spawn(config, device)
+    fn open(
+        &self,
+        config: Config,
+        device: Device,
+        dispatch: Option<worker::DispatchGuard>,
+    ) -> io::Result<Worker> {
+        Worker::spawn_guarded(config, device, dispatch)
     }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Start {
+    owner: Option<Uuid>,
     profile_id: Uuid,
     revision: Uuid,
     device_id: Uuid,
@@ -103,6 +115,7 @@ impl Manager {
         start: Start,
     ) -> Result<Option<ConnectionInfo>, ErrorCode> {
         match inner.starts.get(&id) {
+            Some((old, _)) if old.owner != start.owner => Err(ErrorCode::PermissionDenied),
             Some((old, result)) if *old == start => Ok(Some(result.clone())),
             Some(_) => Err(ErrorCode::InvalidArgument),
             None => {
@@ -123,7 +136,8 @@ impl Manager {
             if !store.pairing.is_agent(identity, now)?
                 || !matches!(
                     request,
-                    Request::Write { .. }
+                    Request::Start { .. }
+                        | Request::Write { .. }
                         | Request::Send { .. }
                         | Request::Control { .. }
                         | Request::InputStatus { .. }
@@ -184,121 +198,8 @@ impl Manager {
                 revision,
                 device_id,
             } => {
-                let start = Start {
-                    profile_id,
-                    revision,
-                    device_id,
-                };
-                if let Some(connection) = Self::duplicate(
-                    &*self.inner.lock().map_err(|_| ErrorCode::InvalidState)?,
-                    request_id,
-                    start,
-                )? {
-                    return Ok(Reply::Started { connection });
-                }
-                let Value::Profile(profile) = self
-                    .config
-                    .request(Internal::Profile(profile_id))
+                self.start_as(identity, profile_id, request_id, revision, device_id)
                     .await
-                    .map_err(|_| ErrorCode::InvalidArgument)?
-                else {
-                    return Err(ErrorCode::InvalidState);
-                };
-                let config = parameters(&profile.settings)?;
-                let encoding = match &profile.settings {
-                    config_store::Settings::Serial { encoding, .. } => encoding.clone(),
-                    _ => unreachable!(),
-                };
-                let port = config.port.clone();
-                let hardware_rts = config.flow_control == serialport::FlowControl::Hardware;
-                let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-                if let Some(connection) = Self::duplicate(&inner, request_id, start)? {
-                    return Ok(Reply::Started { connection });
-                }
-                if inner.revision != revision {
-                    return Err(ErrorCode::InvalidState);
-                }
-                let device = inner
-                    .devices
-                    .get(&device_id)
-                    .ok_or(ErrorCode::NotFound)?
-                    .clone();
-                if device.port_name() != config.port {
-                    return Err(ErrorCode::InvalidArgument);
-                }
-                if inner.entries.values().any(|entry| {
-                    !entry.joined && (entry.port == config.port || entry.device == device)
-                }) {
-                    return Err(ErrorCode::InvalidState);
-                }
-                if inner.entries.len() >= MAX_CONNECTIONS {
-                    return Err(ErrorCode::CapacityExceeded);
-                }
-                if inner.starts.len() >= 1024 {
-                    let (old, stamp) = inner
-                        .starts
-                        .iter()
-                        .filter(|(_, (_, result))| {
-                            inner
-                                .entries
-                                .get(&result.connection_id)
-                                .is_none_or(|entry| entry.joined)
-                        })
-                        .filter_map(|(id, _)| ordered_timestamp(*id).map(|stamp| (*id, stamp)))
-                        .min_by_key(|(_, stamp)| *stamp)
-                        .ok_or(ErrorCode::CapacityExceeded)?;
-                    inner.window.retire(stamp);
-                    inner.starts.remove(&old);
-                    inner.window.check(request_id)?;
-                }
-                let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-                if let Some(identity) = identity {
-                    store.pairing.require_desktop(identity, store.now())?;
-                }
-                let initial = store.sessions.create(Protocol::Serial)?;
-                let connection = store.sessions.begin_connect(initial.reference())?;
-                store.sessions.configure_output(
-                    connection.reference(),
-                    crate::encoding_label(&encoding),
-                    24,
-                    80,
-                )?;
-                let worker = match self.factory.open(config, device.clone()) {
-                    Ok(worker) => worker,
-                    Err(error) => {
-                        store
-                            .sessions
-                            .transition(connection.reference(), State::Failed)?;
-                        store.sessions.remove(connection.reference())?;
-                        return Err(if error.kind() == io::ErrorKind::WouldBlock {
-                            ErrorCode::CapacityExceeded
-                        } else {
-                            ErrorCode::InvalidState
-                        });
-                    }
-                };
-                inner.entries.insert(
-                    connection.connection_id,
-                    Entry {
-                        hardware_rts,
-                        encoding,
-                        device,
-                        reference: connection.reference(),
-                        profile_id,
-                        port,
-                        worker: Some(worker),
-                        joining: None,
-                        joined: false,
-                        closing: false,
-                        status: worker::Status::default(),
-                        failure: None,
-                        inputs: HashMap::new(),
-                        tickets: HashMap::new(),
-                        window: RequestWindow::default(),
-                    },
-                );
-                inner.starts.insert(request_id, (start, connection.clone()));
-                Ok(Reply::Started { connection })
             }
             Request::Send {
                 connection,

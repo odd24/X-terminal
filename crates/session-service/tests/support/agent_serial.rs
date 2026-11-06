@@ -457,3 +457,181 @@ async fn agent_serial_ipc_paced_tail_revokes_without_closing_the_shared_worker()
         service.stop(&mut desktop).await;
     }
 }
+
+#[tokio::test]
+async fn agent_serial_connect_retains_owner_without_inventory_read_or_control_authority() {
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let mut profile = portable();
+    profile.settings = config_store::Settings::Serial {
+        port: "COM7".into(),
+        baud_rate: 115200,
+        data_bits: 8,
+        stop_bits: 1,
+        parity: config_store::Parity::None,
+        flow: config_store::Flow::None,
+        dtr_on_open: false,
+        rts_on_open: Some(false),
+        encoding: config_store::Encoding::Utf8,
+    };
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    let SR::Inventory {
+        revision, devices, ..
+    } = call(&mut desktop, S::Inventory {}).await
+    else {
+        panic!()
+    };
+    let device_id = devices[0].device_id;
+    let scopes = vec![Scope {
+        target: Target::Profile {
+            profile_id: profile.id,
+        },
+        action: Action::Connect,
+    }];
+    let (_, token) = issue(&mut desktop, scopes.clone(), 30000).await;
+    let (_, other_token) = issue(&mut desktop, scopes, 30000).await;
+    let (mut client, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let (mut retry, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let (mut other, _) = Client::connect(&service.instance, other_token.expose(), service.pid)
+        .await
+        .unwrap();
+    let id = Uuid::new_v4();
+    let start = || S::Start {
+        profile_id: profile.id,
+        request_id: id,
+        revision,
+        device_id,
+    };
+    let (first, second) = tokio::join!(call(&mut client, start()), call(&mut retry, start()));
+    let SR::Started {
+        connection: created,
+    } = first
+    else {
+        panic!()
+    };
+    assert!(matches!(second, SR::Started { connection } if connection == created));
+    let connection = created.reference();
+    for caller in [&mut other, &mut desktop] {
+        assert_eq!(
+            error(
+                caller
+                    .request(Request::Serial { request: start() })
+                    .await
+                    .unwrap()
+            ),
+            ErrorCode::PermissionDenied
+        );
+    }
+    assert_eq!(
+        error(
+            client
+                .request(Request::Serial {
+                    request: S::Start {
+                        profile_id: profile.id,
+                        request_id: id,
+                        revision: Uuid::new_v4(),
+                        device_id
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidArgument
+    );
+    assert!(
+        matches!(ok(client.request(Request::List {}).await.unwrap()), Reply::Sessions(list) if list.is_empty())
+    );
+    for request in [
+        S::Inventory {},
+        S::Status { connection },
+        S::Close { connection },
+        S::Forget { connection },
+        write(connection, Uuid::new_v4(), b"never"),
+        S::Control {
+            connection,
+            request_id: Uuid::new_v4(),
+            line: s::Line::Dtr,
+            asserted: true,
+        },
+        S::Start {
+            profile_id: Uuid::new_v4(),
+            request_id: Uuid::new_v4(),
+            revision,
+            device_id,
+        },
+    ] {
+        assert_eq!(
+            error(client.request(Request::Serial { request }).await.unwrap()),
+            ErrorCode::PermissionDenied
+        );
+    }
+    assert_eq!(
+        error(
+            client
+                .request(Request::Screen { connection })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(
+            client
+                .request(agent(A::Acquire {
+                    connection,
+                    lifetime_ms: 1000
+                }))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    for _ in 0..400 {
+        if matches!(call(&mut desktop, S::Status { connection }).await, SR::Status(s) if s.connection.state == State::Connected)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(
+        matches!(call(&mut desktop, S::Status { connection }).await, SR::Status(s) if s.connection.state == State::Connected)
+    );
+    call(&mut desktop, S::Close { connection }).await;
+    for _ in 0..400 {
+        if matches!(call(&mut desktop, S::Status { connection }).await, SR::Status(s) if s.connection.state == State::Disconnected)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(
+        matches!(call(&mut desktop, S::Status { connection }).await, SR::Status(s) if s.connection.state == State::Disconnected)
+    );
+    call(&mut desktop, S::Forget { connection }).await;
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::DeleteProfile { id: profile.id },
+    )
+    .await;
+    // A fresh inventory revision must not turn a retained Start into a new open.
+    call(&mut desktop, S::Inventory {}).await;
+    assert!(
+        matches!(call(&mut retry, start()).await, SR::Started { connection } if connection == created)
+    );
+    assert!(
+        matches!(ok(desktop.request(Request::List {}).await.unwrap()), Reply::Sessions(list) if list.is_empty())
+    );
+    service.stop(&mut desktop).await;
+}

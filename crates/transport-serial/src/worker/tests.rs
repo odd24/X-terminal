@@ -119,7 +119,7 @@ fn gated(mut fake: Fake) -> (Worker, mpsc::Sender<()>, Arc<Mutex<Vec<Op>>>) {
     let (signal, entered) = mpsc::sync_channel(1);
     fake.gate = Some(gate);
     fake.entered = Some(signal);
-    let worker = Worker::start(move || Ok(fake)).unwrap();
+    let worker = Worker::start(move || Ok(fake), None).unwrap();
     entered.recv_timeout(Duration::from_secs(3)).unwrap();
     (worker, release, log)
 }
@@ -250,7 +250,7 @@ fn partial_write_failure_stops_the_connection_and_never_dispatches_queued_tail()
 fn slow_consumer_does_not_block_reads_and_missing_tail_is_an_explicit_gap() {
     let mut fake = Fake::new();
     fake.chunks = 40;
-    let mut worker = Worker::start(move || Ok(fake)).unwrap();
+    let mut worker = Worker::start(move || Ok(fake), None).unwrap();
     until(|| worker.is_finished());
     let status = worker.status();
     assert_eq!(status.read_bytes, (40 * READ_BYTES) as u64);
@@ -279,7 +279,7 @@ fn slow_consumer_does_not_block_reads_and_missing_tail_is_an_explicit_gap() {
 fn concurrent_consumer_accounts_for_every_byte_as_data_or_gap_without_false_offsets() {
     let mut fake = Fake::new();
     fake.chunks = 2000;
-    let mut worker = Worker::start(move || Ok(fake)).unwrap();
+    let mut worker = Worker::start(move || Ok(fake), None).unwrap();
     let mut cursor = 0;
     let mut gaps = 0;
     let deadline = Instant::now() + Duration::from_secs(3);
@@ -332,7 +332,8 @@ fn control_failure_is_visible_and_failed_break_cleanup_is_not_hidden() {
 
 #[test]
 fn open_failure_has_no_ready_connection_or_fabricated_exit_status() {
-    let mut worker = Worker::start::<Fake>(|| Err(io::ErrorKind::PermissionDenied.into())).unwrap();
+    let mut worker =
+        Worker::start::<Fake>(|| Err(io::ErrorKind::PermissionDenied.into()), None).unwrap();
     until(|| worker.is_finished());
     assert_eq!(
         worker.status().phase,

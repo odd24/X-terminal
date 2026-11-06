@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-06 P14串口Start子步完成：ADR-050 Profile Connect/原owner回执、配置await后及OS worker打开前许可/Close复核；218相关Rust、3 feature IPC/增强单项、严格检查与最终构建/17:58:00–18:06:08完整19入口PASS，普通服务8.82秒恢复/资源0。首语法/旧测试漏参失败、最终指纹/两提交冻结见P14；Disconnect/GUI Profile批准/真实桥及完整方案继续。Step-ID: P14。
+
+2026-11-06 P14在da165dd后按ADR-050实现串口Start精确Profile Connect、原owner回执/配置await后及OS worker打开前复核；库存/设备匹配保持，guard后重查stop覆盖等待期间Close。首拆分语法错误已修正，验证真实终态见P14，完整方案继续，Step-ID: P14。
+
 2026-11-06 P14 SSH Start子步完成：ADR-049精确Profile Connect/原Start认证owner、配置await后及实际连接首次poll复核；190相关Rust、最终严格检查/两单元复验、17:33:27–17:36:27实际构建与SSH/授权两原生专项PASS，资源0。首编译/clippy失败与准确范围见P14，串口Start/Disconnect/GUI/真实桥及完整方案继续。Step-ID: P14。
 
 2026-11-06 P14后继A从586a0e0干净接管并经前任明确放行，按ADR-049实现SSH Start精确Profile Connect、原有界回执owner及配置await后/传输首次poll复核。验证正在收取，准确终态见P14；串口Start/Disconnect/GUI及完整方案继续，Step-ID: P14。
@@ -109,7 +113,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
-| P14 | Agent 授权与调度（派发/管理/GUI阶段已有；全回归焦点问题/其他动作/真实桥/完整审计继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
+| P14 | Agent 授权与调度（派发/管理/GUI及Profile建连阶段已有；Disconnect/上下文范围/真实桥/完整审计继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | MCP 工具实现 | TODO | 待创建 | — |
 | P16 | Codex 真机闭环 | TODO | 待创建 | — |
 | P17 | 标签组与工作区 | TODO | 待创建 | — |

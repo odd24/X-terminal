@@ -18,6 +18,9 @@ struct Wire {
     partial: AtomicBool,
     writes: AtomicUsize,
     opens: AtomicUsize,
+    driver_opens: AtomicUsize,
+    open_pause: AtomicBool,
+    open_waiting: AtomicBool,
     burst: AtomicUsize,
 }
 struct Memory(Arc<Wire>);
@@ -98,7 +101,13 @@ impl Factory for Wire {
             metadata_failures: 1,
         })
     }
-    fn open(&self, _: Config, _: Device) -> io::Result<Worker> {
+    fn open(
+        &self,
+        _: Config,
+        _: Device,
+        dispatch: Option<worker::DispatchGuard>,
+    ) -> io::Result<Worker> {
+        let _ = dispatch;
         unreachable!("factory uses an Arc wrapper")
     }
 }
@@ -107,16 +116,38 @@ impl Factory for MemoryFactory {
     fn inventory(&self) -> io::Result<Inventory> {
         self.0.inventory()
     }
-    fn open(&self, _: Config, _: Device) -> io::Result<Worker> {
+    fn open(
+        &self,
+        _: Config,
+        _: Device,
+        dispatch: Option<worker::DispatchGuard>,
+    ) -> io::Result<Worker> {
         self.0.opens.fetch_add(1, Ordering::AcqRel);
-        Worker::test_backend(Memory(self.0.clone()))
+        let wire = self.0.clone();
+        let gate = self.0.clone();
+        let dispatch: worker::DispatchGuard = Arc::new(move || {
+            gate.open_waiting.store(true, Ordering::Release);
+            while gate.open_pause.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            dispatch.as_ref().is_none_or(|allow| allow())
+        });
+        Worker::test_backend_guarded(
+            move || {
+                wire.driver_opens.fetch_add(1, Ordering::AcqRel);
+                Ok(Memory(wire))
+            },
+            Some(dispatch),
+        )
     }
 }
 struct Temp(std::path::PathBuf);
 impl Temp {
     fn new() -> Self {
-        let path =
-            std::env::temp_dir().join(format!("shared-terminal-serial-service-{}", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!(
+            "shared-terminal-serial-service-中文-{}",
+            Uuid::new_v4()
+        ));
         std::fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -644,6 +675,7 @@ async fn creation_receipt_capacity_retires_ordered_history_but_keeps_opaque_dupl
     {
         let mut inner = manager.inner.lock().unwrap();
         let spec = Start {
+            owner: None,
             profile_id: profile,
             revision,
             device_id,
@@ -1172,4 +1204,156 @@ async fn serial_authenticated_receipts_keep_owners_and_independent_write_control
     assert_eq!(*wire.accepted.lock().unwrap(), b"abc");
     manager.close().await.unwrap();
     config.close().await.unwrap();
+}
+
+fn connect_identities(manager: &Manager, profile_id: Uuid, lifetime: u64) -> (Identity, Identity) {
+    use session_core::pairing::{Pairing, SecretToken};
+    let token = SecretToken::generate();
+    let mut store = manager.store.lock().unwrap();
+    store.pairing = Pairing::new(&token);
+    let now = store.now();
+    let desktop = store.pairing.authenticate(&token, now).unwrap();
+    let (agent, _, _) = store
+        .pairing
+        .issue_agent(
+            &desktop,
+            vec![Scope {
+                target: Target::Profile { profile_id },
+                action: Action::Connect,
+            }],
+            lifetime,
+            now,
+        )
+        .unwrap();
+    (desktop, agent)
+}
+#[tokio::test]
+async fn serial_connect_rechecks_revocation_and_expiry_after_confirmed_profile_wait() {
+    for expire in [false, true] {
+        let (_temp, config_worker, mut manager, wire, profile_id) = setup().await;
+        let (revision, device_id) = selection(&manager).await;
+        let profile = manager
+            .config
+            .request(Internal::Profile(profile_id))
+            .await
+            .unwrap();
+        let (desktop, agent) =
+            connect_identities(&manager, profile_id, if expire { 100 } else { 30000 });
+        let ticket = agent.ticket_id();
+        let (config, query) = Access::held_profile();
+        manager.config = config;
+        let manager = Arc::new(manager);
+        let cloned = manager.clone();
+        let pending = tokio::spawn(async move {
+            cloned
+                .handle_authenticated(
+                    &agent,
+                    Request::Start {
+                        profile_id,
+                        request_id: Uuid::new_v4(),
+                        revision,
+                        device_id,
+                    },
+                )
+                .await
+        });
+        let response = query.await;
+        if expire {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        } else {
+            let mut s = manager.store.lock().unwrap();
+            let now = s.now();
+            s.pairing.revoke(&desktop, ticket, now).unwrap();
+        }
+        response.send(Ok(profile)).ok().unwrap();
+        assert!(matches!(
+            pending.await.unwrap(),
+            Err(ErrorCode::PermissionDenied)
+        ));
+        assert!(manager.inner.lock().unwrap().entries.is_empty());
+        assert!(manager.inner.lock().unwrap().starts.is_empty());
+        assert_eq!(wire.opens.load(Ordering::Acquire), 0);
+        assert_eq!(wire.driver_opens.load(Ordering::Acquire), 0);
+        Arc::try_unwrap(manager)
+            .ok()
+            .unwrap()
+            .close()
+            .await
+            .unwrap();
+        config_worker.close().await.unwrap();
+    }
+}
+#[tokio::test]
+async fn serial_worker_connect_checks_before_actual_open_and_close_during_guard_cannot_reopen() {
+    for mode in ["revoke", "expire", "close"] {
+        let (_temp, config, manager, wire, profile_id) = setup().await;
+        let (revision, device_id) = selection(&manager).await;
+        let (desktop, agent) = connect_identities(
+            &manager,
+            profile_id,
+            if mode == "expire" { 300 } else { 30000 },
+        );
+        wire.open_pause.store(true, Ordering::Release);
+        let Reply::Started { connection } = manager
+            .handle_authenticated(
+                &agent,
+                Request::Start {
+                    profile_id,
+                    request_id: Uuid::new_v4(),
+                    revision,
+                    device_id,
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!()
+        };
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !wire.open_waiting.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(wire.driver_opens.load(Ordering::Acquire), 0);
+        match mode {
+            "expire" => tokio::time::sleep(Duration::from_millis(350)).await,
+            "close" => {
+                manager
+                    .handle_authenticated(
+                        &desktop,
+                        Request::Close {
+                            connection: connection.reference(),
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }
+            _ => {
+                let mut s = manager.store.lock().unwrap();
+                let now = s.now();
+                s.pairing.revoke(&desktop, agent.ticket_id(), now).unwrap();
+            }
+        }
+        wire.open_pause.store(false, Ordering::Release);
+        let status = status(
+            &manager,
+            connection.reference(),
+            if mode == "close" {
+                State::Disconnected
+            } else {
+                State::Failed
+            },
+        )
+        .await;
+        if mode != "close" {
+            assert_eq!(status.failure, Some(Failure::Cancelled));
+        }
+        assert_eq!(wire.driver_opens.load(Ordering::Acquire), 0);
+        assert!(wire.accepted.lock().unwrap().is_empty());
+        assert!(wire.controls.lock().unwrap().is_empty());
+        manager.close().await.unwrap();
+        config.close().await.unwrap();
+    }
 }

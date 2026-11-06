@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14串口Start沿[ADR-050](decisions/ADR-050.md)在原有界回执记录认证来源；Profile Connect经配置await后复核，保持库存/设备/端口匹配，OS worker打开前再复核同许可并检查Close取消。打开后的驱动动作不承诺撤回，不授新连接Read/Write/Control，准确结果见P14。
+
 P14 SSH Start沿[ADR-049](decisions/ADR-049.md)在原有界回执内记录认证来源，Profile Connect独立于新连接全部能力；配置await后及连接future首次poll在Store协调边界重验。主机/认证批准仍Desktop，准确结果见P14，串口Start/Disconnect与真实桥继续。
 
 P14尺寸增量按[ADR-048](decisions/ADR-048.md)：SSH2 Resize需要独立Control/lease并沿原认证输入FIFO/owner回执和派发复核；Desktop自身视口调整不接管。GUI Control按目标协议限定SSH尺寸或串口控制线，不能用于建连/断开/认证/广播。实际证据见P14，真实桥与其他动作继续。

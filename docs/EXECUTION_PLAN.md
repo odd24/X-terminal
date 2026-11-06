@@ -277,6 +277,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- 2026-11-06 串口Start子步：ADR-050保留库存revision/device_id/配置端口匹配，加入精确Profile Connect/原owner回执及配置await后、OS worker打开前许可和Close复核；结果见P14，GUI/Disconnect/真实桥继续。
+
 - 2026-11-06 SSH Start子步：ADR-049以精确Profile Connect、原Start认证owner与await后/传输首次poll复核接入，真实结果见P14；串口Start/Disconnect、GUI Profile批准及真实桥继续。
 
 - 尺寸增量：ADR-048接SSH Resize独立Control/lease/owner与原FIFO派发复核，Desktop视口调整不接管，GUI按协议明确Control；真实结果见P14。其余Connect/Disconnect/建连owner与完整审计/上下文继续。

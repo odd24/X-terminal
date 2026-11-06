@@ -176,14 +176,33 @@ impl Port for SerialConnection {
 impl Worker {
     #[cfg(feature = "test-backend")]
     pub fn test_backend<P: Port + 'static>(port: P) -> io::Result<Self> {
-        Self::start(move || Ok(port))
+        Self::start(move || Ok(port), None)
     }
     pub fn spawn(config: Config, selected: Device) -> io::Result<Self> {
+        Self::spawn_guarded(config, selected, None)
+    }
+    /// Runs the service's final authorization on the OS worker before opening a device.
+    pub fn spawn_guarded(
+        config: Config,
+        selected: Device,
+        dispatch: Option<DispatchGuard>,
+    ) -> io::Result<Self> {
         config.validate()?;
-        Self::start(move || SerialConnection::open_selected(&config, &selected))
+        Self::start(
+            move || SerialConnection::open_selected(&config, &selected),
+            dispatch,
+        )
+    }
+    #[cfg(feature = "test-backend")]
+    pub fn test_backend_guarded<P: Port + 'static>(
+        open: impl FnOnce() -> io::Result<P> + Send + 'static,
+        dispatch: Option<DispatchGuard>,
+    ) -> io::Result<Self> {
+        Self::start(open, dispatch)
     }
     fn start<P: Port + 'static>(
         open: impl FnOnce() -> io::Result<P> + Send + 'static,
+        dispatch: Option<DispatchGuard>,
     ) -> io::Result<Self> {
         let permit = Permit::acquire()?;
         let (commands, receiver) = mpsc::sync_channel(QUEUED_COMMANDS);
@@ -197,7 +216,10 @@ impl Worker {
             .spawn(move || {
                 let _permit = permit;
                 let end_guard = EndGuard(thread_state.clone());
-                let end = if thread_stop.load(Ordering::Acquire) {
+                let end = if thread_stop.load(Ordering::Acquire)
+                    || dispatch.as_ref().is_some_and(|allow| !allow())
+                    || thread_stop.load(Ordering::Acquire)
+                {
                     End::Cancelled
                 } else {
                     match open() {

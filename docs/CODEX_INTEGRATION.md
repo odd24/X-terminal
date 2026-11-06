@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14串口Start按[ADR-050](decisions/ADR-050.md)接Profile Connect/原回执owner及OS worker打开前许可；调用仍须精确库存revision/device_id，与配置端口一致，Agent无Inventory权限。原编号恢复不因库存刷新/配置删除而重开。GUI Profile批准、Disconnect与真实桥继续，结果见P14。
+
 P14 SSH Start已按[ADR-049](decisions/ADR-049.md)接精确Profile Connect与原回执owner；同来源重试只查原结果，跨来源UUID拒绝，配置等待/实际首次派发前重验。Connect不推导新连接Read/Write/租约或认证批准。GUI Profile选择、串口Start/Disconnect及真实stdio桥仍继续，结果见P14。
 
 P14按[ADR-048](decisions/ADR-048.md)开放Agent SSH2 Resize的独立Control/lease与共享FIFO回执；Write不推导尺寸控制。Desktop显示布局调整不触发接管，结果PipelineQueued仅代表发送管线，不表示远端PTY已应用。真实MCP桥仍未交付，Connect/Disconnect/建连owner、时间范围与完整审计继续。

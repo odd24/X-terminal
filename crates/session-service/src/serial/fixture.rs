@@ -10,11 +10,21 @@ impl Factory for MemoryFactory {
             metadata_failures: 0,
         })
     }
-    fn open(&self, config: Config, _: Device) -> io::Result<Worker> {
-        Worker::test_backend(Echo {
-            bytes: VecDeque::new(),
-            hardware: config.flow_control == serialport::FlowControl::Hardware,
-        })
+    fn open(
+        &self,
+        config: Config,
+        _: Device,
+        dispatch: Option<worker::DispatchGuard>,
+    ) -> io::Result<Worker> {
+        Worker::test_backend_guarded(
+            move || {
+                Ok(Echo {
+                    bytes: VecDeque::new(),
+                    hardware: config.flow_control == serialport::FlowControl::Hardware,
+                })
+            },
+            dispatch,
+        )
     }
 }
 struct Echo {
