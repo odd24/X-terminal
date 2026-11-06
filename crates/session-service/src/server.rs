@@ -121,6 +121,10 @@ impl Runtime {
                     ssh::Request::Write { .. }
                         | ssh::Request::WriteText { .. }
                         | ssh::Request::InputStatus { .. }
+                        | ssh::Request::Exec { .. }
+                        | ssh::Request::ExecStatus { .. }
+                        | ssh::Request::ExecCancel { .. }
+                        | ssh::Request::ExecRead { .. }
                 )
             {
                 store.pairing.require_desktop(identity, self.now())?;

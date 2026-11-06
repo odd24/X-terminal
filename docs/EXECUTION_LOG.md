@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-06 P14 exec子步完成：e07b500之后接同连接独立Exec/本人任务状态输出取消、客户端归属、最终spawn派发复核与原Start只查回执/不续租，用户Write和Desktop exec接管。最终176相关Rust/严格clippy/fmt、实际桌面构建及11:45:22–11:52:34完整18入口PASS/退出0，普通服务9.48秒真实恢复、资源0；指纹/未执行与两提交冻结见P14。串口worker/其他动作/GUI及完整方案继续，Step-ID: P14。
+
+2026-11-06 P14在e07b500之后继续exec任务认证归属/最终异步派发，保留Start只查原回执/不续租、用户输入及Desktop exec接管、未出队取消不可提前退休。首轮99服务/IPC及补充后严格clippy已验证，最终三包/原生结果见P14，不预填完成。Step-ID: P14。
+
 2026-11-06 P14 SSH认证输入子步完成：从b70d0e0核验获放行后，Write/WriteText进入原共享FIFO、固定许可/派发前复核、真实client回执归属及自动用户接管，真实生命周期退休同步。最终174相关Rust/四包严格clippy/fmt、46前端/lint、角色顺序补正后实际桌面构建及11:16:30–11:23:25完整18入口PASS/退出0，串口普通服务10.59秒实际恢复、资源0；新增观察者存在性拒绝及失败/最终指纹见P14。任务/串口分段/其他Agent动作/GUI及全方案继续，Step-ID: P14。
 
 2026-11-06 P14后继A已核验b70d0e0并获前任明确放行，开始SSH认证输入FIFO/客户端回执归属与自动用户接管子步。三包实际验证运行中，准确结果见P14；exec/串口worker/GUI和完整方案继续，不预填PASS。Step-ID: P14。
@@ -79,7 +83,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
-| P14 | Agent 授权与调度（核心/身份/SSH认证输入已验证；任务/串口worker/GUI继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
+| P14 | Agent 授权与调度（核心/身份/SSH认证输入及exec已验证；串口worker/其他动作/GUI继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | MCP 工具实现 | TODO | 待创建 | — |
 | P16 | Codex 真机闭环 | TODO | 待创建 | — |
 | P17 | 标签组与工作区 | TODO | 待创建 | — |

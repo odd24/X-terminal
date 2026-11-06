@@ -9,6 +9,7 @@ pub(super) struct Tasks {
     window: RequestWindow,
 }
 struct Task {
+    owner: Option<Uuid>,
     status: TaskStatus,
     output: Buffer,
     cancel: Cancellation,
@@ -31,6 +32,18 @@ impl Queued {
         )
     }
 }
+fn task_owner(identity: Option<&Identity>, store: &Store) -> Result<Option<Uuid>, ErrorCode> {
+    match identity {
+        Some(identity) if store.pairing.is_agent(identity, store.now())? => {
+            Ok(Some(identity.ticket_id()))
+        }
+        Some(identity) => {
+            store.pairing.require_desktop(identity, store.now())?;
+            Ok(None)
+        }
+        None => Ok(None),
+    }
+}
 impl Manager {
     pub(super) fn start_exec(
         &self,
@@ -40,14 +53,64 @@ impl Manager {
         timeout_ms: u64,
         max_output_bytes: usize,
     ) -> Result<ssh::Reply, ErrorCode> {
+        self.start_exec_as(
+            None,
+            connection,
+            request_id,
+            command,
+            timeout_ms,
+            max_output_bytes,
+        )
+    }
+    pub(super) fn start_exec_as(
+        &self,
+        identity: Option<&Identity>,
+        connection: ConnectionRef,
+        request_id: Uuid,
+        command: Sensitive,
+        timeout_ms: u64,
+        max_output_bytes: usize,
+    ) -> Result<ssh::Reply, ErrorCode> {
         let fingerprint = Fingerprint::exec(command.expose(), timeout_ms, max_output_bytes);
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-        let info = self
-            .store
-            .lock()
-            .map_err(|_| ErrorCode::InvalidState)?
-            .sessions
-            .info(connection)?;
+        let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let owner = task_owner(identity, &store)?;
+        // A retained same-owner retry only recovers a receipt; it does not dispatch again
+        // or require renewing a released lease. Unknown/new requests still require Exec.
+        if let Some(entry) = inner
+            .entries
+            .get(&connection.connection_id)
+            .filter(|entry| entry.reference == connection)
+            && let Some((old, id)) = entry.exec.requests.get(&request_id)
+        {
+            if entry.exec.items[id].owner != owner {
+                return Err(ErrorCode::PermissionDenied);
+            }
+            store.sessions.info(connection)?;
+            return if *old == fingerprint {
+                Ok(ssh::Reply::Exec(entry.exec.items[id].status.clone()))
+            } else {
+                Err(ErrorCode::InvalidArgument)
+            };
+        }
+        let now = store.now();
+        let authority = if let Some(identity) = identity.filter(|_| owner.is_some()) {
+            Some((
+                identity.clone(),
+                store.pairing.admit_input(
+                    identity,
+                    Scope {
+                        target: Target::Connection { connection },
+                        action: Action::Exec,
+                    },
+                    request_id,
+                    now,
+                )?,
+            ))
+        } else {
+            None
+        };
+        let info = store.sessions.info(connection)?;
         let total = inner
             .entries
             .values()
@@ -64,6 +127,9 @@ impl Manager {
             .get_mut(&connection.connection_id)
             .ok_or(ErrorCode::NotFound)?;
         if let Some((old, id)) = entry.exec.requests.get(&request_id) {
+            if entry.exec.items[id].owner != owner {
+                return Err(ErrorCode::PermissionDenied);
+            }
             return if *old == fingerprint {
                 Ok(ssh::Reply::Exec(entry.exec.items[id].status.clone()))
             } else {
@@ -89,6 +155,11 @@ impl Manager {
                 >= 4
         {
             return Err(ErrorCode::CapacityExceeded);
+        }
+        if let Some(desktop) = identity.filter(|_| owner.is_none()) {
+            store.pairing.takeover(desktop, connection, now)?;
+            entry.receipts.cancel_agent_pending();
+            entry.exec.cancel_agent_pending();
         }
         let sender = entry
             .commands
@@ -154,6 +225,7 @@ impl Manager {
         entry.exec.items.insert(
             task_id,
             Task {
+                owner,
                 status: status.clone(),
                 output: Buffer::default(),
                 cancel: Cancellation::default(),
@@ -163,7 +235,7 @@ impl Manager {
             },
         );
         permit.send(QueuedInput {
-            authority: None,
+            authority,
             id: request_id,
             input: Input::Exec(Queued {
                 task_id,
@@ -183,12 +255,19 @@ impl Manager {
         id: Uuid,
         cancel: bool,
     ) -> Result<ssh::Reply, ErrorCode> {
+        self.exec_status_as(None, connection, id, cancel)
+    }
+    pub(super) fn exec_status_as(
+        &self,
+        identity: Option<&Identity>,
+        connection: ConnectionRef,
+        id: Uuid,
+        cancel: bool,
+    ) -> Result<ssh::Reply, ErrorCode> {
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-        self.store
-            .lock()
-            .map_err(|_| ErrorCode::InvalidState)?
-            .sessions
-            .info(connection)?;
+        let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let owner = task_owner(identity, &store)?;
+        store.sessions.info(connection)?;
         let entry = inner
             .entries
             .get_mut(&connection.connection_id)
@@ -197,6 +276,9 @@ impl Manager {
             entry.exec.window.check(id)?;
         }
         let task = entry.exec.items.get_mut(&id).ok_or(ErrorCode::NotFound)?;
+        if owner.is_some() && task.owner != owner {
+            return Err(ErrorCode::PermissionDenied);
+        }
         if cancel && task.status.phase != TaskPhase::Finished {
             task.cancel.cancel();
             if task.status.phase == TaskPhase::Queued {
@@ -214,12 +296,20 @@ impl Manager {
         cursor: u64,
         max_bytes: usize,
     ) -> Result<ssh::Reply, ErrorCode> {
+        self.exec_read_as(None, connection, id, cursor, max_bytes)
+    }
+    pub(super) fn exec_read_as(
+        &self,
+        identity: Option<&Identity>,
+        connection: ConnectionRef,
+        id: Uuid,
+        cursor: u64,
+        max_bytes: usize,
+    ) -> Result<ssh::Reply, ErrorCode> {
         let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-        self.store
-            .lock()
-            .map_err(|_| ErrorCode::InvalidState)?
-            .sessions
-            .info(connection)?;
+        let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let owner = task_owner(identity, &store)?;
+        store.sessions.info(connection)?;
         let entry = inner
             .entries
             .get(&connection.connection_id)
@@ -228,6 +318,9 @@ impl Manager {
             entry.exec.window.check(id)?;
         }
         let task = entry.exec.items.get(&id).ok_or(ErrorCode::NotFound)?;
+        if owner.is_some() && task.owner != owner {
+            return Err(ErrorCode::PermissionDenied);
+        }
         Ok(ssh::Reply::ExecOutput {
             connection,
             task_id: id,
@@ -254,6 +347,24 @@ impl Task {
     }
 }
 impl Tasks {
+    pub(super) fn cancel_pending(&mut self, id: Uuid, dequeued: bool) {
+        if let Some(task) = self.items.get_mut(&id) {
+            if dequeued {
+                task.dequeued = true;
+            }
+            if task.status.phase == TaskPhase::Queued {
+                task.finish(ExecEnd::CancelledBeforeDispatch);
+            }
+        }
+    }
+    pub(super) fn cancel_agent_pending(&mut self) {
+        for task in self.items.values_mut() {
+            if task.owner.is_some() && task.status.phase == TaskPhase::Queued {
+                task.finish(ExecEnd::CancelledBeforeDispatch);
+            }
+        }
+    }
+
     fn oldest(&self) -> Option<(Uuid, u64)> {
         self.requests
             .iter()
@@ -305,6 +416,8 @@ pub(super) fn launch(
     inner: Arc<Mutex<Inner>>,
     reference: ConnectionRef,
     session: Arc<Ssh2Session>,
+    store: Arc<Mutex<Store>>,
+    authority: Option<(Identity, Permit)>,
 ) -> Result<(), Failure> {
     let cancel = {
         let mut all = inner.lock().map_err(|_| Failure::Transport)?;
@@ -318,10 +431,32 @@ pub(super) fn launch(
         if task.status.phase == TaskPhase::Finished {
             return Ok(());
         }
-        task.status.phase = TaskPhase::Running;
         task.cancel.clone()
     };
     jobs.spawn(async move {
+        {
+            let mut all = inner.lock().unwrap();
+            let mut store = store.lock().unwrap();
+            let Some(task) = all
+                .entries
+                .get_mut(&reference.connection_id)
+                .filter(|entry| entry.reference == reference)
+                .and_then(|entry| entry.exec.items.get_mut(&queued.task_id))
+            else {
+                return;
+            };
+            if task.status.phase == TaskPhase::Finished {
+                return;
+            }
+            let now = store.now();
+            if let Some((identity, permit)) = &authority
+                && store.pairing.dispatch_input(identity, permit, now).is_err()
+            {
+                task.finish(ExecEnd::CancelledBeforeDispatch);
+                return;
+            }
+            task.status.phase = TaskPhase::Running;
+        }
         let (output, mut receiver) = mpsc::channel(8);
         let work = session.exec_streaming(queued.encoded.expose(), queued.options, &cancel, output);
         let drain = async {
@@ -423,6 +558,7 @@ mod retention_tests {
             tasks.items.insert(
                 id,
                 Task {
+                    owner: (id == ordered).then(Uuid::new_v4),
                     status: TaskStatus {
                         task_id: id,
                         connection,
@@ -438,11 +574,12 @@ mod retention_tests {
                 },
             );
         }
-        tasks
-            .items
-            .get_mut(&ordered)
-            .unwrap()
-            .finish(ExecEnd::CancelledBeforeDispatch);
+        tasks.cancel_agent_pending();
+        assert_eq!(
+            tasks.items[&ordered].status.summary.as_ref().unwrap().end,
+            ExecEnd::CancelledBeforeDispatch
+        );
+        assert!(!tasks.items[&ordered].dequeued);
         tasks
             .items
             .get_mut(&opaque)

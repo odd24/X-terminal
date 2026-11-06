@@ -276,7 +276,7 @@
 ### P14 Agent 授权与输入调度
 
 - 状态：IN_PROGRESS；ADR-044核心独立范围/租约/接管/派发许可与审计先行，实际证据见[P14](records/P14.md)。服务/worker/GUI及真实Windows IPC继续，不能以核心通过当Agent已开放。
-- 服务增量：真实Agent身份/read范围及管理/租约/显式接管/审计已有软件证据。SSH Write/WriteText/InputStatus已接统一FIFO许可复核、认证回执归属与自动用户接管；准确最终验证见P14。exec/connect/control/disconnect、串口worker逐片段/任务归属及授权GUI仍继续，不从已有输入路径推断全部Agent控制已开放。
+- 服务增量：真实Agent身份/read范围及管理/租约/显式接管/审计已有软件证据。SSH Write/WriteText/InputStatus已接统一FIFO许可复核、认证回执归属与自动用户接管；准确最终验证见P14。SSH exec已接独立范围/任务归属、最终异步派发和原Start只查回执，实际最终结果见P14；connect/control/disconnect、串口worker逐片段/归属及授权GUI仍继续，不从SSH路径推断全部Agent控制已开放。
 - 依赖：P07、P09–P11。
 - 动作：read/write/exec/connect/control 范围；配对、限时授权、撤销、输入租约、用户接管、request_id 去重、审计。
 - 产物：策略引擎、授权/接管 UI、负向测试。

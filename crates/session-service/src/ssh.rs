@@ -74,6 +74,17 @@ struct QueuedInput {
     id: Uuid,
     input: Input,
 }
+impl QueuedInput {
+    fn cancel_pending(&self, entry: &mut Entry) {
+        match &self.input {
+            Input::Exec(queued) => entry.exec.cancel_pending(queued.task_id, true),
+            _ => {
+                entry.receipts.cancel_pending(self.id);
+            }
+        }
+    }
+}
+
 enum Answer {
     Host(bool),
     Credentials {
@@ -121,6 +132,34 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Exec {
+                connection,
+                request_id,
+                command,
+                timeout_ms,
+                max_output_bytes,
+            } => self.start_exec_as(
+                Some(identity),
+                connection,
+                request_id,
+                command,
+                timeout_ms,
+                max_output_bytes,
+            ),
+            ssh::Request::ExecStatus {
+                connection,
+                task_id,
+            } => self.exec_status_as(Some(identity), connection, task_id, false),
+            ssh::Request::ExecCancel {
+                connection,
+                task_id,
+            } => self.exec_status_as(Some(identity), connection, task_id, true),
+            ssh::Request::ExecRead {
+                connection,
+                task_id,
+                cursor,
+                max_bytes,
+            } => self.exec_read_as(Some(identity), connection, task_id, cursor, max_bytes),
             ssh::Request::Write {
                 connection,
                 request_id,
@@ -508,6 +547,7 @@ impl Manager {
         if let Some(desktop) = identity.filter(|_| owner.is_none()) {
             store.pairing.takeover(desktop, connection, now)?;
             entry.receipts.cancel_agent_pending();
+            entry.exec.cancel_agent_pending();
         }
         let sender = entry
             .commands
@@ -965,17 +1005,18 @@ impl Actor {
                 {
                     let now = store.now();
                     let _ = store.pairing.dispatch_input(identity, permit, now);
-                    entry.receipts.cancel_pending(command.id);
+                    command.cancel_pending(entry);
                     continue 'commands;
                 }
                 if !*entry.writable.borrow() {
                     continue;
                 }
                 let now = store.now();
-                if let Some((identity, permit)) = &command.authority
+                if !matches!(&command.input, Input::Exec(_))
+                    && let Some((identity, permit)) = &command.authority
                     && store.pairing.dispatch_input(identity, permit, now).is_err()
                 {
-                    entry.receipts.cancel_pending(command.id);
+                    command.cancel_pending(entry);
                     continue 'commands;
                 }
                 if !matches!(&command.input, Input::Exec(_)) && !entry.receipts.dispatch(command.id)
@@ -992,6 +1033,8 @@ impl Actor {
                         self.inner.clone(),
                         self.reference,
                         session.clone(),
+                        self.store.clone(),
+                        command.authority,
                     )?;
                     continue;
                 }

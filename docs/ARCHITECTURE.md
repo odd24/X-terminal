@@ -1,6 +1,6 @@
 # 架构与关键设计
 
-P14按[ADR-044](decisions/ADR-044.md)实施核心策略及Pairing真实Agent身份、独立read范围与管理/租约/审计通道。SSH Write/WriteText已接原共享FIFO、固定内部许可和真实client_id回执，用户输入服务端接管，派发前与撤销同锁复查；真实Windows IPC证据见[P14](records/P14.md)。exec/connect/control/disconnect、串口worker逐片段与任务归属、授权GUI及完整审计仍继续，不能从已接入的SSH输入推断全部Agent能力/MCP已开放。
+P14按[ADR-044](decisions/ADR-044.md)实施核心策略及Pairing真实Agent身份、独立read范围与管理/租约/审计通道。SSH Write/WriteText及独立Exec已接原共享FIFO、固定内部许可和真实client_id回执/任务归属；用户输入及主动Desktop exec接管，异步任务真正启动前再次与撤销同锁复查。自己的任务结果/取消不推导终端Read；保留Start重试只查原回执，不续租/重派发。真实Windows IPC证据见[P14](records/P14.md)。connect/control/disconnect、串口worker逐片段、授权GUI及完整审计仍继续，不能从SSH路径推断全部Agent能力/MCP已开放。
 
 状态：P01 桌面与构建版本见 [ADR-001](decisions/ADR-001.md)；传输/渲染/IPC/SDK 仍须经过 P02–P06 试验。不要把候选库写成已验证实现。
 

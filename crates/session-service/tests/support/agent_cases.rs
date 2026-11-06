@@ -304,15 +304,14 @@ async fn agent_lease_ownership_takeover_and_audit_are_enforced_by_real_pipe_iden
     assert!(
         matches!(ok(desktop.request(agent(A::Lease {connection:first})).await.unwrap()), Reply::Agent(AR::Lease(Some(found))) if found == l)
     );
-    // Exec and serial remain unavailable until their own actor/worker permit integration.
+    // Resize and serial control remain unavailable until their own scoped integration.
     for request in [
         Request::Ssh {
-            request: ssh::Request::Exec {
+            request: ssh::Request::Resize {
                 connection: first,
                 request_id: Uuid::new_v4(),
-                command: Sensitive::new("never-exec".into()),
-                timeout_ms: 1000,
-                max_output_bytes: 4096,
+                cols: 80,
+                rows: 24,
             },
         },
         Request::Serial {
@@ -778,6 +777,458 @@ async fn agent_ssh_queued_input_rechecks_release_expiry_revoke_and_manual_takeov
         })
         .await
         .unwrap();
+        service.stop(&mut desktop).await;
+    }
+}
+
+async fn agent_exec_start(
+    client: &mut Client,
+    connection: ConnectionRef,
+    id: Uuid,
+    command: &str,
+) -> ssh::TaskStatus {
+    let ssh::Reply::Exec(task) = ssh_call(
+        client,
+        ssh::Request::Exec {
+            connection,
+            request_id: id,
+            command: Sensitive::new(command.into()),
+            timeout_ms: 2000,
+            max_output_bytes: 4096,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    task
+}
+async fn agent_exec_done(
+    client: &mut Client,
+    connection: ConnectionRef,
+    id: Uuid,
+) -> ssh::TaskStatus {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let ssh::Reply::Exec(task) = ssh_call(
+                client,
+                ssh::Request::ExecStatus {
+                    connection,
+                    task_id: id,
+                },
+            )
+            .await
+            else {
+                panic!()
+            };
+            if task.phase == ssh::TaskPhase::Finished {
+                return task;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+#[tokio::test]
+async fn agent_exec_has_independent_scope_and_private_owned_tasks_on_the_same_transport() {
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let connection = ssh_connected_fixture(&mut desktop, &remote).await;
+    let permissions = vec![scope(connection, Action::Exec)];
+    let (_, token) = issue(&mut desktop, permissions.clone(), 30000).await;
+    let (_, other_token) = issue(&mut desktop, permissions, 30000).await;
+    let (mut executor, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let (mut other, _) = Client::connect(&service.instance, other_token.expose(), service.pid)
+        .await
+        .unwrap();
+    assert!(
+        matches!(ok(executor.request(Request::List {}).await.unwrap()),Reply::Sessions(list) if list.is_empty())
+    );
+    for request in [
+        Request::Screen { connection },
+        Request::Ssh {
+            request: input_write(connection, Uuid::new_v4(), b"forbidden-shell"),
+        },
+    ] {
+        assert_eq!(
+            error(executor.request(request).await.unwrap()),
+            ErrorCode::PermissionDenied
+        );
+    }
+    let Reply::ReadTicket {
+        token: observer_token,
+        ..
+    } = ok(desktop
+        .request(Request::IssueRead {
+            scopes: vec![connection],
+            lifetime_ms: 30000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let (mut observer, _) =
+        Client::connect(&service.instance, observer_token.expose(), service.pid)
+            .await
+            .unwrap();
+    for target in [
+        connection,
+        ConnectionRef {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        },
+    ] {
+        for request in [
+            ssh::Request::Exec {
+                connection: target,
+                request_id: Uuid::new_v4(),
+                command: Sensitive::new("never".into()),
+                timeout_ms: 1000,
+                max_output_bytes: 4096,
+            },
+            ssh::Request::ExecStatus {
+                connection: target,
+                task_id: Uuid::new_v4(),
+            },
+            ssh::Request::ExecRead {
+                connection: target,
+                task_id: Uuid::new_v4(),
+                cursor: 1,
+                max_bytes: 4096,
+            },
+            ssh::Request::ExecCancel {
+                connection: target,
+                task_id: Uuid::new_v4(),
+            },
+        ] {
+            assert_eq!(
+                error(observer.request(Request::Ssh { request }).await.unwrap()),
+                ErrorCode::PermissionDenied
+            );
+        }
+    }
+    let id = Uuid::new_v4();
+    let request = || ssh::Request::Exec {
+        connection,
+        request_id: id,
+        command: Sensitive::new("fail".into()),
+        timeout_ms: 2000,
+        max_output_bytes: 4096,
+    };
+    assert_eq!(
+        error(
+            executor
+                .request(Request::Ssh { request: request() })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InputBusy
+    );
+    let l = lease(&mut executor, connection, 10000).await;
+    let task = agent_exec_start(&mut executor, connection, id, "fail").await;
+    assert_eq!(
+        agent_exec_start(&mut executor, connection, id, "fail")
+            .await
+            .task_id,
+        task.task_id
+    );
+    let done = agent_exec_done(&mut executor, connection, task.task_id).await;
+    assert_eq!(done.summary.unwrap().exit_status, Some(7));
+    let ssh::Reply::ExecOutput { output, .. } = ssh_call(
+        &mut executor,
+        ssh::Request::ExecRead {
+            connection,
+            task_id: task.task_id,
+            cursor: 1,
+            max_bytes: 4096,
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert!(output.completed);
+    assert!(!output.events.is_empty());
+    assert_eq!(
+        remote.exec_calls.lock().unwrap().as_slice(),
+        &[b"fail".to_vec()]
+    );
+    assert!(remote.received.lock().unwrap().is_empty());
+    let running = agent_exec_start(&mut executor, connection, Uuid::new_v4(), "stall").await;
+    timeout(Duration::from_secs(3), async {
+        loop {
+            let ssh::Reply::ExecOutput { output, .. } = ssh_call(
+                &mut executor,
+                ssh::Request::ExecRead {
+                    connection,
+                    task_id: running.task_id,
+                    cursor: 1,
+                    max_bytes: 4096,
+                },
+            )
+            .await
+            else {
+                panic!()
+            };
+            if !output.events.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    ssh_call(
+        &mut executor,
+        ssh::Request::ExecCancel {
+            connection,
+            task_id: running.task_id,
+        },
+    )
+    .await;
+    let cancelled = agent_exec_done(&mut executor, connection, running.task_id)
+        .await
+        .summary
+        .unwrap();
+    assert_eq!(cancelled.end, ssh::ExecEnd::Cancelled);
+    assert!(cancelled.exit_status.is_none());
+    assert_eq!(
+        *remote.exec_calls.lock().unwrap(),
+        vec![b"fail".to_vec(), b"stall".to_vec()]
+    );
+    ok(executor
+        .request(agent(A::Release {
+            connection,
+            lease_id: l.lease_id,
+        }))
+        .await
+        .unwrap());
+    assert_eq!(
+        agent_exec_start(&mut executor, connection, id, "fail")
+            .await
+            .task_id,
+        task.task_id
+    );
+    lease(&mut other, connection, 10000).await;
+    for request in [
+        ssh::Request::ExecStatus {
+            connection,
+            task_id: task.task_id,
+        },
+        ssh::Request::ExecRead {
+            connection,
+            task_id: task.task_id,
+            cursor: 1,
+            max_bytes: 4096,
+        },
+        ssh::Request::ExecCancel {
+            connection,
+            task_id: task.task_id,
+        },
+        request(),
+    ] {
+        assert_eq!(
+            error(other.request(Request::Ssh { request }).await.unwrap()),
+            ErrorCode::PermissionDenied
+        );
+    }
+    let mut changed = request();
+    if let ssh::Request::Exec { command, .. } = &mut changed {
+        *command = Sensitive::new("changed".into());
+    }
+    assert_eq!(
+        error(
+            other
+                .request(Request::Ssh { request: changed })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(
+            desktop
+                .request(Request::Ssh { request: request() })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    // Takeover removes future execution rights, preserving own result queries/cancellation.
+    ssh_call(
+        &mut desktop,
+        input_write(connection, Uuid::new_v4(), b"user"),
+    )
+    .await;
+    agent_exec_done(&mut executor, connection, task.task_id).await;
+    assert_eq!(
+        agent_exec_start(&mut executor, connection, id, "fail")
+            .await
+            .task_id,
+        task.task_id
+    );
+    assert_eq!(
+        error(
+            executor
+                .request(Request::Ssh {
+                    request: ssh::Request::Exec {
+                        connection,
+                        request_id: Uuid::new_v4(),
+                        command: Sensitive::new("new-forbidden".into()),
+                        timeout_ms: 1000,
+                        max_output_bytes: 4096
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        *remote.exec_calls.lock().unwrap(),
+        vec![b"fail".to_vec(), b"stall".to_vec()]
+    );
+    assert!(matches!(
+        ssh_call(
+            &mut desktop,
+            ssh::Request::ExecStatus {
+                connection,
+                task_id: task.task_id
+            }
+        )
+        .await,
+        ssh::Reply::Exec(_)
+    ));
+    service.stop(&mut desktop).await;
+}
+#[tokio::test]
+async fn agent_queued_exec_is_cancelled_before_remote_dispatch_for_every_ownership_change() {
+    use session_core::input::InputState as I;
+    for mode in [
+        "release",
+        "expiry",
+        "revoke",
+        "user",
+        "explicit",
+        "user-exec",
+    ] {
+        let remote = ssh_fixture::Fixture::options(true).await;
+        let temp = ConfigTemp::new();
+        let mut service = temp.start().await;
+        let mut desktop = service.connect().await;
+        let connection = ssh_connected_fixture(&mut desktop, &remote).await;
+        let permissions = vec![
+            scope(connection, Action::Write),
+            scope(connection, Action::Exec),
+        ];
+        let (ticket_id, token) = issue(&mut desktop, permissions, 30000).await;
+        let (mut executor, _) = Client::connect(&service.instance, token.expose(), service.pid)
+            .await
+            .unwrap();
+        let l = lease(
+            &mut executor,
+            connection,
+            if mode == "expiry" { 300 } else { 10000 },
+        )
+        .await;
+        let blocker = Uuid::new_v4();
+        ssh_call(
+            &mut executor,
+            input_write(connection, blocker, &vec![b'b'; 65536]),
+        )
+        .await;
+        input_status(&mut executor, connection, blocker, |r| {
+            r.state == I::Dispatching
+        })
+        .await;
+        timeout(Duration::from_secs(3), async {
+            while remote.received.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let queued =
+            agent_exec_start(&mut executor, connection, Uuid::new_v4(), "never-exec").await;
+        assert_eq!(queued.phase, ssh::TaskPhase::Queued);
+        let mut user_task = None;
+        match mode {
+            "release" => {
+                ok(executor
+                    .request(agent(A::Release {
+                        connection,
+                        lease_id: l.lease_id,
+                    }))
+                    .await
+                    .unwrap());
+                lease(&mut executor, connection, 10000).await;
+            }
+            "expiry" => tokio::time::sleep(Duration::from_millis(350)).await,
+            "revoke" => {
+                ok(desktop
+                    .request(Request::Revoke { ticket_id })
+                    .await
+                    .unwrap());
+            }
+            "user" => {
+                ssh_call(
+                    &mut desktop,
+                    input_write(connection, Uuid::new_v4(), b"user"),
+                )
+                .await;
+            }
+            "user-exec" => {
+                user_task = Some(
+                    agent_exec_start(&mut desktop, connection, Uuid::new_v4(), "fresh-user-exec")
+                        .await
+                        .task_id,
+                );
+            }
+            _ => {
+                ok(desktop
+                    .request(agent(A::Takeover { connection }))
+                    .await
+                    .unwrap());
+            }
+        }
+        remote.unblock.notify_one();
+        input_status(&mut desktop, connection, blocker, |r| {
+            r.state == I::PipelineQueued
+        })
+        .await;
+        let done = agent_exec_done(&mut desktop, connection, queued.task_id).await;
+        assert_eq!(
+            done.summary.unwrap().end,
+            ssh::ExecEnd::CancelledBeforeDispatch
+        );
+        if let Some(id) = user_task {
+            assert_eq!(
+                agent_exec_done(&mut desktop, connection, id)
+                    .await
+                    .summary
+                    .unwrap()
+                    .exit_status,
+                Some(0)
+            );
+        }
+        let fence = Uuid::new_v4();
+        ssh_call(&mut desktop, input_write(connection, fence, b"fence")).await;
+        input_status(&mut desktop, connection, fence, |r| {
+            r.state == I::PipelineQueued
+        })
+        .await;
+        let expected = if mode == "user-exec" {
+            vec![b"fresh-user-exec".to_vec()]
+        } else {
+            vec![]
+        };
+        assert_eq!(*remote.exec_calls.lock().unwrap(), expected);
         service.stop(&mut desktop).await;
     }
 }
