@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14 Disconnect核心按ADR-051验证原owner/完整代次、重复只查、完成标记单调性、1024容量、pending/opaque不淘汰及UUIDv7同毫秒退役。模型不执行I/O；服务须另验真实Windows IPC、独立Disconnect/lease、关闭后原编号恢复、跨来源/撤权/到期与实际Actor/worker结束，不以领域Disconnected冒充传输结束。准确结果见P14。
+
 P14串口Start增量按ADR-050验证配置await后撤权不创建worker，以及OS worker打开前撤销/到期/Close不调用实际open；opt-in feature真实IPC验证同来源并发/重连、跨来源/越权拒绝及删除配置/刷新库存后不重开。内存端口不替代COM验收，实际终态见P14。
 
 P14 SSH Start增量按ADR-049验证Profile独立Connect、真实owner/并发同编号、删除Profile及移除连接后只查回执；确定性配置等待/Actor首次poll前撤权且对端socket未接受。准确结果见P14，不由服务阶段推导GUI、串口Start/Disconnect或真实MCP完成。

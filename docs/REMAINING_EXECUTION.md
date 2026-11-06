@@ -1,5 +1,7 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-06 Disconnect按ADR-051推进独立有界回执，原owner/精确代次及请求关闭与本地传输回收状态分开。核心先行，服务仍须独立Disconnect/lease、真实传输取消/回收与关闭后原编号恢复证据，GUI及真实桥未完成；整个R01–R16/P01–P25范围不变。
+
 2026-11-06 P14串口Start按ADR-050补精确Profile Connect、原回执owner及OS worker打开前许可/Close复核；库存版本/设备与端口匹配保持，真实验证见P14。Connect只开放服务路径，GUI Profile批准、Disconnect/SSH Reconnect/Forget、时间范围/授权形式/脱敏/完整审计与真实桥继续，完整方案不变。
 
 2026-11-06 P14 SSH Start按ADR-049接入Profile Connect、认证owner与await后/实际首次poll复核；真实结果见P14。GUI Profile批准、串口Start/Disconnect、SSH Reconnect/Forget、时间范围/授权形式/脱敏/完整审计与真实桥仍继续，完整方案不变。

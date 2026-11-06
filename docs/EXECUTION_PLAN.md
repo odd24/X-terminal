@@ -277,6 +277,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- 2026-11-06 Disconnect按ADR-051先建立认证owner/精确代次的独立有界回执，Requested与实际本地TransportEnded分离；核心结果见P14，服务/真实IPC、GUI与真实桥继续，不直接放宽旧Close。
+
 - 2026-11-06 串口Start子步：ADR-050保留库存revision/device_id/配置端口匹配，加入精确Profile Connect/原owner回执及配置await后、OS worker打开前许可和Close复核；结果见P14，GUI/Disconnect/真实桥继续。
 
 - 2026-11-06 SSH Start子步：ADR-049以精确Profile Connect、原Start认证owner与await后/传输首次poll复核接入，真实结果见P14；串口Start/Disconnect、GUI Profile批准及真实桥继续。
