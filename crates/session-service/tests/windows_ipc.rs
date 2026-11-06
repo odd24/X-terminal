@@ -1,4 +1,6 @@
 #![cfg(windows)]
+#[path = "support/agent_cases.rs"]
+mod agent_cases;
 #[path = "support/cleanup_cases.rs"]
 mod cleanup_cases;
 #[path = "support/logging_cases.rs"]

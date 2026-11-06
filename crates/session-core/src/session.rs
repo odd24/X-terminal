@@ -47,6 +47,7 @@ pub enum ErrorCode {
     InvalidState,
     NotConnected,
     PermissionDenied,
+    InputBusy,
     CapacityExceeded,
     RequestExpired,
     Unsupported,

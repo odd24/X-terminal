@@ -1,4 +1,5 @@
-//! In-memory capability identity. Full Agent write policy belongs to P14.
+//! In-memory capability identities. Transport dispatch must separately enforce P14 permits.
+use crate::access::{self, Action, Denial, Policy, Scope, Target};
 use crate::session::{ConnectionRef, ErrorCode};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -45,6 +46,7 @@ impl Identity {
 enum Authority {
     Desktop,
     Observer(Vec<ConnectionRef>),
+    Agent,
 }
 struct Ticket {
     identity: Identity,
@@ -53,6 +55,7 @@ struct Ticket {
 }
 pub struct Pairing {
     tickets: HashMap<[u8; 32], Ticket>,
+    policy: Policy,
 }
 
 impl Pairing {
@@ -67,6 +70,7 @@ impl Pairing {
         };
         Self {
             tickets: HashMap::from([(bootstrap.digest(), ticket)]),
+            policy: Policy::default(),
         }
     }
     pub fn authenticate(&self, token: &SecretToken, now_ms: u64) -> Result<Identity, ErrorCode> {
@@ -109,6 +113,19 @@ impl Pairing {
         match &self.ticket(identity, now_ms)?.authority {
             Authority::Desktop => Ok(()),
             Authority::Observer(scopes) if scopes.contains(&reference) => Ok(()),
+            Authority::Agent => self
+                .policy
+                .authorize(
+                    identity.ticket_id,
+                    Scope {
+                        target: Target::Connection {
+                            connection: reference,
+                        },
+                        action: Action::Read,
+                    },
+                    now_ms,
+                )
+                .map_err(policy_error),
             _ => Err(ErrorCode::PermissionDenied),
         }
     }
@@ -151,6 +168,146 @@ impl Pairing {
         );
         Ok((identity, token))
     }
+    pub fn is_agent(&self, identity: &Identity, now: u64) -> Result<bool, ErrorCode> {
+        Ok(matches!(
+            self.ticket(identity, now)?.authority,
+            Authority::Agent
+        ))
+    }
+    pub fn issue_agent(
+        &mut self,
+        desktop: &Identity,
+        scopes: Vec<Scope>,
+        lifetime_ms: u64,
+        now: u64,
+    ) -> Result<(Identity, SecretToken, u64), ErrorCode> {
+        self.require_desktop(desktop, now)?;
+        self.tickets.retain(|_, ticket| ticket.expires_at_ms > now);
+        if self.tickets.len() >= MAX_TICKETS {
+            return Err(ErrorCode::CapacityExceeded);
+        }
+        let identity = Identity {
+            ticket_id: Uuid::new_v4(),
+        };
+        let expires = self
+            .policy
+            .grant(identity.ticket_id, scopes, lifetime_ms, now)
+            .map_err(policy_error)?;
+        let token = SecretToken::generate();
+        self.tickets.insert(
+            token.digest(),
+            Ticket {
+                identity: identity.clone(),
+                authority: Authority::Agent,
+                expires_at_ms: expires,
+            },
+        );
+        Ok((identity, token, expires))
+    }
+    fn require_agent(&self, identity: &Identity, now: u64) -> Result<(), ErrorCode> {
+        if self.is_agent(identity, now)? {
+            Ok(())
+        } else {
+            Err(ErrorCode::PermissionDenied)
+        }
+    }
+    pub fn acquire_lease(
+        &mut self,
+        identity: &Identity,
+        connection: ConnectionRef,
+        lifetime_ms: u64,
+        now: u64,
+    ) -> Result<access::Lease, ErrorCode> {
+        self.require_agent(identity, now)?;
+        self.policy
+            .acquire(identity.ticket_id, connection, lifetime_ms, now)
+            .map_err(policy_error)
+    }
+    pub fn can_acquire(
+        &self,
+        identity: &Identity,
+        connection: ConnectionRef,
+        now: u64,
+    ) -> Result<(), ErrorCode> {
+        self.require_agent(identity, now)?;
+        if [
+            Action::Write,
+            Action::Exec,
+            Action::Control,
+            Action::Disconnect,
+            Action::Broadcast,
+        ]
+        .into_iter()
+        .any(|action| {
+            self.policy
+                .authorize(
+                    identity.ticket_id,
+                    Scope {
+                        target: Target::Connection { connection },
+                        action,
+                    },
+                    now,
+                )
+                .is_ok()
+        }) {
+            Ok(())
+        } else {
+            Err(ErrorCode::PermissionDenied)
+        }
+    }
+    pub fn release_lease(
+        &mut self,
+        identity: &Identity,
+        connection: ConnectionRef,
+        lease_id: Uuid,
+        now: u64,
+    ) -> Result<(), ErrorCode> {
+        self.require_agent(identity, now)?;
+        self.policy
+            .release(identity.ticket_id, connection, lease_id, now)
+            .map_err(policy_error)
+    }
+    pub fn lease(
+        &self,
+        identity: &Identity,
+        connection: ConnectionRef,
+        now: u64,
+    ) -> Result<Option<access::Lease>, ErrorCode> {
+        self.require_active(identity, now)?;
+        if self.require_desktop(identity, now).is_ok() {
+            return Ok(self.policy.lease(connection, now));
+        }
+        self.require_agent(identity, now)?;
+        // A caller may inspect only its own ownership; no scope or other owner is disclosed.
+        Ok(self
+            .policy
+            .lease(connection, now)
+            .filter(|l| l.client_id == identity.ticket_id))
+    }
+    pub fn takeover(
+        &mut self,
+        desktop: &Identity,
+        connection: ConnectionRef,
+        now: u64,
+    ) -> Result<(), ErrorCode> {
+        self.require_desktop(desktop, now)?;
+        self.policy.takeover(connection, now);
+        Ok(())
+    }
+    /// Service lifecycle hook; not an Agent RPC.
+    pub fn retire_connection(&mut self, connection: ConnectionRef, now: u64) {
+        self.policy.retire(connection, now);
+    }
+    pub fn audit(
+        &self,
+        desktop: &Identity,
+        cursor: u64,
+        limit: usize,
+        now: u64,
+    ) -> Result<access::AuditPage, ErrorCode> {
+        self.require_desktop(desktop, now)?;
+        self.policy.audit(cursor, limit).map_err(policy_error)
+    }
     pub fn revoke(
         &mut self,
         desktop: &Identity,
@@ -158,18 +315,28 @@ impl Pairing {
         now_ms: u64,
     ) -> Result<(), ErrorCode> {
         self.require_desktop(desktop, now_ms)?;
-        // Revoke observers only: a client cannot revoke the runtime's UI bootstrap.
+        // Never revoke the runtime's UI bootstrap.
         let key = self
             .tickets
             .iter()
             .find(|(_, ticket)| {
                 ticket.identity.ticket_id == ticket_id
-                    && matches!(ticket.authority, Authority::Observer(_))
+                    && !matches!(ticket.authority, Authority::Desktop)
             })
             .map(|(key, _)| *key)
             .ok_or(ErrorCode::NotFound)?;
         self.tickets.remove(&key);
+        self.policy.revoke(ticket_id, now_ms);
         Ok(())
+    }
+}
+
+pub fn policy_error(error: Denial) -> ErrorCode {
+    match error {
+        Denial::InvalidArgument => ErrorCode::InvalidArgument,
+        Denial::PermissionDenied => ErrorCode::PermissionDenied,
+        Denial::InputBusy => ErrorCode::InputBusy,
+        Denial::CapacityExceeded => ErrorCode::CapacityExceeded,
     }
 }
 
@@ -177,6 +344,97 @@ impl Pairing {
 mod tests {
     use super::*;
     use crate::session::ConnectionId;
+    #[test]
+    fn agent_tickets_cannot_issue_authority_and_revocation_releases_ownership() {
+        let bootstrap = SecretToken::generate();
+        let mut p = Pairing::new(&bootstrap);
+        let desktop = p.authenticate(&bootstrap, 0).unwrap();
+        let connection = ConnectionRef {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let scopes = vec![
+            Scope {
+                target: Target::Connection { connection },
+                action: Action::Read,
+            },
+            Scope {
+                target: Target::Connection { connection },
+                action: Action::Write,
+            },
+        ];
+        let (agent, token, expires) = p.issue_agent(&desktop, scopes.clone(), 1000, 0).unwrap();
+        assert_eq!(expires, 1000);
+        assert_eq!(
+            p.authenticate(&token, 1).unwrap().ticket_id(),
+            agent.ticket_id()
+        );
+        assert_eq!(
+            p.require_desktop(&agent, 1),
+            Err(ErrorCode::PermissionDenied)
+        );
+        assert!(matches!(
+            p.issue_agent(&agent, scopes, 100, 1),
+            Err(ErrorCode::PermissionDenied)
+        ));
+        assert!(matches!(
+            p.issue_read(&agent, vec![connection], 100, 1),
+            Err(ErrorCode::PermissionDenied)
+        ));
+        p.acquire_lease(&agent, connection, 100, 1).unwrap();
+        assert!(p.lease(&desktop, connection, 2).unwrap().is_some());
+        p.revoke(&desktop, agent.ticket_id(), 2).unwrap();
+        assert!(p.authenticate(&token, 3).is_err());
+        assert_eq!(
+            p.can_read(&agent, connection, 3),
+            Err(ErrorCode::PermissionDenied)
+        );
+        assert!(p.lease(&desktop, connection, 3).unwrap().is_none());
+        assert!(p.revoke(&desktop, desktop.ticket_id(), 3).is_err());
+    }
+    #[test]
+    fn agent_expiry_and_retired_generation_are_not_renewed_by_active_connections() {
+        let bootstrap = SecretToken::generate();
+        let mut p = Pairing::new(&bootstrap);
+        let desktop = p.authenticate(&bootstrap, 0).unwrap();
+        let connection = ConnectionRef {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let (agent, token, _) = p
+            .issue_agent(
+                &desktop,
+                vec![Scope {
+                    target: Target::Connection { connection },
+                    action: Action::Read,
+                }],
+                100,
+                0,
+            )
+            .unwrap();
+        assert_eq!(p.can_read(&agent, connection, 99), Ok(()));
+        assert!(p.authenticate(&token, 100).is_err());
+        assert_eq!(
+            p.can_read(&agent, connection, 100),
+            Err(ErrorCode::PermissionDenied)
+        );
+        p.retire_connection(connection, 50);
+        assert_eq!(
+            p.can_read(&agent, connection, 51),
+            Err(ErrorCode::PermissionDenied)
+        );
+        assert_eq!(
+            p.can_read(
+                &agent,
+                ConnectionRef {
+                    generation: 2,
+                    ..connection
+                },
+                51
+            ),
+            Err(ErrorCode::PermissionDenied)
+        );
+    }
     #[test]
     fn unknown_identity_and_self_promotion_fail() {
         let bootstrap = SecretToken::generate();

@@ -1,4 +1,5 @@
 //! Length-prefixed, strictly typed, local session IPC v1.
+pub mod agent;
 pub mod config;
 pub mod logging;
 pub mod serial;
@@ -97,6 +98,7 @@ impl Hello {
 pub enum ClientKind {
     Desktop,
     Observer,
+    Agent,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -118,6 +120,9 @@ pub struct RequestEnvelope {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Agent {
+        request: agent::Request,
+    },
     Logging {
         request: logging::Request,
     },
@@ -171,6 +176,9 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
+            Self::Agent { request } if !request.validate() => {
+                return Err(ErrorCode::InvalidArgument);
+            }
             Self::Logging { request } if !request.validate() => {
                 return Err(ErrorCode::InvalidArgument);
             }
@@ -247,6 +255,7 @@ impl Request {
     deny_unknown_fields
 )]
 pub enum Reply {
+    Agent(agent::Reply),
     Logging(logging::Reply),
     Serial(serial::Reply),
     Ssh(ssh::Reply),

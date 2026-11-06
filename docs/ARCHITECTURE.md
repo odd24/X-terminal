@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14按[ADR-044](decisions/ADR-044.md)增加session-core::access及Pairing中的独立Agent身份/范围/短租约，真实IPC管理/接管/审计通道与公共read过滤已接入，当前结果见[P14](records/P14.md)。旧SSH/串口/配置/日志控制仍Desktop专用，正式FIFO/worker二次派发、分段取消、任务归属和GUI尚须接入；不得将策略模块或租约回执当Agent写入/MCP已开放。人工接管核心保留观察、撤销该连接所有Agent操作范围，服务仅显式接管命令已接通，用户键盘自动接管仍随后实现。
+
 状态：P01 桌面与构建版本见 [ADR-001](decisions/ADR-001.md)；传输/渲染/IPC/SDK 仍须经过 P02–P06 试验。不要把候选库写成已验证实现。
 
 P02 渲染/增量解码与候选屏幕范围见 [ADR-005](decisions/ADR-005.md)：合成样本通过，vt100原始resize/reflow差异在P11.7补充普通屏有界重排，极限容量往返差异仍开放，服务screen不宣称与UI完全一致。

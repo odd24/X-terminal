@@ -1,5 +1,7 @@
 # Session IPC v1
 
+2026-11-06 P14新增agent管理/所有权命令族，见[ADR-044](../../docs/decisions/ADR-044.md)/[P14](../../docs/records/P14.md)。Desktop签发独立范围及期限，真实Agent身份可读取明确read范围；授权/租约/撤销/接管/审计按服务端身份校验。旧SSH/串口控制、配置/日志/认证仍Desktop专用，FIFO与worker派发许可尚须接入，不能把完整scope或lease回执当Agent写工具已开放。以下早期阶段描述保留历史，实际新契约以生产schema/当前步骤记录为准。
+
 P07.1 定义，P07.2 已实现原生 Windows 承载。每帧 u32 little-endian 长度 + UTF-8 JSON，1–524288 字节；正常 EOF 不等于部分头/主体。连接建立后首帧为 Hello，成功响应 id=0 的 welcome，然后发送带 u32 id 的 RequestEnvelope。请求串行、响应回显 id；角色不能由客户端声明。
 
 固定 schema：[v1.schema.json](v1.schema.json)，三个入口 hello/request/response。生成：

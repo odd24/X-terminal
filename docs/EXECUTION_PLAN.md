@@ -276,6 +276,7 @@
 ### P14 Agent 授权与输入调度
 
 - 状态：IN_PROGRESS；ADR-044核心独立范围/租约/接管/派发许可与审计先行，实际证据见[P14](records/P14.md)。服务/worker/GUI及真实Windows IPC继续，不能以核心通过当Agent已开放。
+- 服务增量：真实Agent身份/read范围及管理/租约/显式接管/审计已由真实Windows IPC与最终18入口回归验证；正式传输派发/分段自动接管/任务归属、授权GUI仍继续，旧控制通道不向Agent开放。准确结果/失败/余项见P14。
 - 依赖：P07、P09–P11。
 - 动作：read/write/exec/connect/control 范围；配对、限时授权、撤销、输入租约、用户接管、request_id 去重、审计。
 - 产物：策略引擎、授权/接管 UI、负向测试。

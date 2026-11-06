@@ -43,6 +43,39 @@ struct Runtime {
     shutdown: watch::Sender<bool>,
 }
 impl Runtime {
+    async fn handle_agent(
+        &self,
+        identity: &Identity,
+        request: agent::Request,
+    ) -> Result<Reply, ErrorCode> {
+        if !request.validate() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if let agent::Request::Grant { scopes, .. } = &request {
+            {
+                let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                store.pairing.require_desktop(identity, self.now())?;
+            }
+            // Only the existing configuration worker resolves Profile IDs. No paths or secrets.
+            for scope in scopes {
+                if let session_core::access::Target::Profile { profile_id } = scope.target {
+                    self.config
+                        .access()
+                        .request(crate::config::Internal::Profile(profile_id))
+                        .await
+                        .map_err(|e| {
+                            if matches!(e, config::ConfigError::NotFound) {
+                                ErrorCode::NotFound
+                            } else {
+                                ErrorCode::InvalidState
+                            }
+                        })?;
+                }
+            }
+        }
+        // Revalidate identity and all current connection generations after asynchronous work.
+        self.handle(identity, Request::Agent { request })
+    }
     async fn handle_logging(
         &self,
         identity: &Identity,
@@ -103,6 +136,68 @@ impl Runtime {
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         store.pairing.require_active(identity, now)?;
         match request {
+            Request::Agent { request } => {
+                use agent::{Reply as R, Request as A};
+                let reply = match request {
+                    A::Grant {
+                        scopes,
+                        lifetime_ms,
+                    } => {
+                        store.pairing.require_desktop(identity, now)?;
+                        for scope in &scopes {
+                            if let session_core::access::Target::Connection { connection } =
+                                scope.target
+                            {
+                                store.sessions.info(connection)?;
+                            }
+                        }
+                        let (agent, token, expires) =
+                            store
+                                .pairing
+                                .issue_agent(identity, scopes, lifetime_ms, now)?;
+                        R::Ticket {
+                            ticket_id: agent.ticket_id(),
+                            token: Sensitive::new(token.expose().to_string()),
+                            expires_at_ms: expires,
+                        }
+                    }
+                    A::Acquire {
+                        connection,
+                        lifetime_ms,
+                    } => {
+                        store.pairing.can_acquire(identity, connection, now)?;
+                        store.sessions.info(connection)?;
+                        R::Lease(Some(store.pairing.acquire_lease(
+                            identity,
+                            connection,
+                            lifetime_ms,
+                            now,
+                        )?))
+                    }
+                    A::Release {
+                        connection,
+                        lease_id,
+                    } => {
+                        store
+                            .pairing
+                            .release_lease(identity, connection, lease_id, now)?;
+                        R::Ok
+                    }
+                    A::Lease { connection } => {
+                        R::Lease(store.pairing.lease(identity, connection, now)?)
+                    }
+                    A::Takeover { connection } => {
+                        store.pairing.require_desktop(identity, now)?;
+                        store.sessions.info(connection)?;
+                        store.pairing.takeover(identity, connection, now)?;
+                        R::Ok
+                    }
+                    A::Audit { cursor, limit } => {
+                        R::Audit(store.pairing.audit(identity, cursor, limit, now)?)
+                    }
+                };
+                Ok(Reply::Agent(reply))
+            }
             Request::Ping {} => Ok(Reply::Pong {
                 service_id: self.service_id,
                 uptime_ms: now,
@@ -200,6 +295,7 @@ impl Runtime {
                             }
                             store.sessions.transition(connection, State::Failed)?;
                             let active = store.sessions.begin_connect(connection)?;
+                            store.pairing.retire_connection(connection, now);
                             Ok(Reply::Connection(
                                 store
                                     .sessions
@@ -211,6 +307,7 @@ impl Runtime {
                                 return Err(ErrorCode::Unsupported);
                             }
                             store.sessions.transition(connection, State::Closing)?;
+                            store.pairing.retire_connection(connection, now);
                             Ok(Reply::Connection(
                                 store.sessions.transition(connection, State::Disconnected)?,
                             ))
@@ -220,6 +317,7 @@ impl Runtime {
                                 return Err(ErrorCode::Unsupported);
                             }
                             store.sessions.remove(connection)?;
+                            store.pairing.retire_connection(connection, now);
                             Ok(Reply::Ok)
                         }
                         _ => Err(ErrorCode::Unsupported),
@@ -248,7 +346,11 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
         {
             ClientKind::Desktop
         } else {
-            ClientKind::Observer
+            if store.pairing.is_agent(&identity, runtime.now())? {
+                ClientKind::Agent
+            } else {
+                ClientKind::Observer
+            }
         };
         Ok::<_, ErrorCode>((identity, kind))
     })();
@@ -272,7 +374,11 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
                 reply: Reply::Welcome(Welcome {
                     protocol_version: PROTOCOL_VERSION,
                     service_id: runtime.service_id,
-                    client_id: Uuid::new_v4(),
+                    client_id: if matches!(kind, ClientKind::Agent) {
+                        identity.ticket_id()
+                    } else {
+                        Uuid::new_v4()
+                    },
                     kind,
                 }),
             },
@@ -286,6 +392,7 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
             frame = timeout(Duration::from_secs(30), read_frame(&mut pipe)) => match frame.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "idle client timeout"))?? { Some(value) => value, None => return Ok(()) }
         };
         let result = match request.request {
+            Request::Agent { request } => runtime.handle_agent(&identity, request).await,
             Request::Logging { request } => runtime.handle_logging(&identity, request).await,
             Request::Serial { request } => runtime.handle_serial(&identity, request).await,
             Request::Ssh { request } => runtime.handle_ssh(&identity, request).await,

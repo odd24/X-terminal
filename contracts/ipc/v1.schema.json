@@ -30,6 +30,18 @@
   },
   "request": {
     "$defs": {
+      "Action": {
+        "enum": [
+          "READ",
+          "WRITE",
+          "EXEC",
+          "CONNECT",
+          "CONTROL",
+          "DISCONNECT",
+          "BROADCAST"
+        ],
+        "type": "string"
+      },
       "ArchiveKind": {
         "enum": [
           "backup",
@@ -793,7 +805,7 @@
             "additionalProperties": false,
             "properties": {
               "op": {
-                "const": "logging",
+                "const": "agent",
                 "type": "string"
               },
               "request": {
@@ -810,7 +822,7 @@
             "additionalProperties": false,
             "properties": {
               "op": {
-                "const": "serial",
+                "const": "logging",
                 "type": "string"
               },
               "request": {
@@ -827,11 +839,28 @@
             "additionalProperties": false,
             "properties": {
               "op": {
-                "const": "ssh",
+                "const": "serial",
                 "type": "string"
               },
               "request": {
                 "$ref": "#/$defs/Request4"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "ssh",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/$defs/Request5"
               }
             },
             "required": [
@@ -1109,6 +1138,140 @@
         ]
       },
       "Request2": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "lifetime_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "grant",
+                "type": "string"
+              },
+              "scopes": {
+                "items": {
+                  "$ref": "#/$defs/Scope"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "op",
+              "scopes",
+              "lifetime_ms"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "lifetime_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "acquire",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "lifetime_ms"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "lease_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "release",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "lease_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "lease",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "takeover",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "limit": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "audit",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "cursor",
+              "limit"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Request3": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -1750,7 +1913,7 @@
           }
         ]
       },
-      "Request3": {
+      "Request4": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -1967,7 +2130,7 @@
           }
         ]
       },
-      "Request4": {
+      "Request5": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -2406,6 +2569,22 @@
           }
         ]
       },
+      "Scope": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "#/$defs/Action"
+          },
+          "target": {
+            "$ref": "#/$defs/Target"
+          }
+        },
+        "required": [
+          "target",
+          "action"
+        ],
+        "type": "object"
+      },
       "Sensitive": {
         "type": "string"
       },
@@ -2553,6 +2732,45 @@
           }
         ]
       },
+      "Target": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "kind": {
+                "const": "connection",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "profile",
+                "type": "string"
+              },
+              "profile_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "profile_id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "TerminalFont": {
         "enum": [
           "consolas",
@@ -2599,6 +2817,18 @@
   },
   "response": {
     "$defs": {
+      "Action": {
+        "enum": [
+          "READ",
+          "WRITE",
+          "EXEC",
+          "CONNECT",
+          "CONTROL",
+          "DISCONNECT",
+          "BROADCAST"
+        ],
+        "type": "string"
+      },
       "ArchiveInfo": {
         "additionalProperties": false,
         "properties": {
@@ -2733,6 +2963,110 @@
           "export"
         ],
         "type": "string"
+      },
+      "AuditEvent": {
+        "additionalProperties": false,
+        "description": "Metadata only: no tokens, commands, authentication answers, or terminal content.",
+        "properties": {
+          "client_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "denial": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Denial"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "$ref": "#/$defs/AuditKind"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Scope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timestamp_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seq",
+          "timestamp_ms",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AuditKind": {
+        "enum": [
+          "GRANTED",
+          "REVOKED",
+          "LEASE_ACQUIRED",
+          "LEASE_RELEASED",
+          "TAKEOVER",
+          "ADMITTED",
+          "DISPATCHED",
+          "DENIED",
+          "GENERATION_RETIRED"
+        ],
+        "type": "string"
+      },
+      "AuditPage": {
+        "additionalProperties": false,
+        "properties": {
+          "available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/$defs/AuditEvent"
+            },
+            "type": "array"
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "available_from",
+          "next_cursor",
+          "gap"
+        ],
+        "type": "object"
       },
       "Auth": {
         "enum": [
@@ -2921,7 +3255,8 @@
       "ClientKind": {
         "enum": [
           "desktop",
-          "observer"
+          "observer",
+          "agent"
         ],
         "type": "string"
       },
@@ -3392,6 +3727,15 @@
         ],
         "type": "object"
       },
+      "Denial": {
+        "enum": [
+          "INVALID_ARGUMENT",
+          "PERMISSION_DENIED",
+          "INPUT_BUSY",
+          "CAPACITY_EXCEEDED"
+        ],
+        "type": "string"
+      },
       "DesktopPreferences": {
         "additionalProperties": false,
         "properties": {
@@ -3468,6 +3812,7 @@
           "INVALID_STATE",
           "NOT_CONNECTED",
           "PERMISSION_DENIED",
+          "INPUT_BUSY",
           "CAPACITY_EXCEEDED",
           "REQUEST_EXPIRED",
           "UNSUPPORTED",
@@ -3958,6 +4303,34 @@
         ],
         "type": "string"
       },
+      "Lease": {
+        "additionalProperties": false,
+        "properties": {
+          "client_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "expires_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lease_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_id",
+          "client_id",
+          "connection",
+          "expires_at_ms"
+        ],
+        "type": "object"
+      },
       "Limits": {
         "additionalProperties": false,
         "properties": {
@@ -4355,7 +4728,7 @@
                 "$ref": "#/$defs/Reply2"
               },
               "type": {
-                "const": "logging",
+                "const": "agent",
                 "type": "string"
               }
             },
@@ -4372,7 +4745,7 @@
                 "$ref": "#/$defs/Reply3"
               },
               "type": {
-                "const": "serial",
+                "const": "logging",
                 "type": "string"
               }
             },
@@ -4387,6 +4760,23 @@
             "properties": {
               "data": {
                 "$ref": "#/$defs/Reply4"
+              },
+              "type": {
+                "const": "serial",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/Reply5"
               },
               "type": {
                 "const": "ssh",
@@ -4607,6 +4997,101 @@
         ]
       },
       "Reply2": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "additionalProperties": false,
+                "properties": {
+                  "expires_at_ms": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "ticket_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "token": {
+                    "$ref": "#/$defs/Sensitive"
+                  }
+                },
+                "required": [
+                  "ticket_id",
+                  "token",
+                  "expires_at_ms"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "const": "ticket",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Lease"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": {
+                "const": "lease",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/AuditPage"
+              },
+              "type": {
+                "const": "audit",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "ok",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Reply3": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -5271,7 +5756,7 @@
           }
         ]
       },
-      "Reply3": {
+      "Reply4": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -5454,7 +5939,7 @@
           }
         ]
       },
-      "Reply4": {
+      "Reply5": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -5653,6 +6138,22 @@
             "type": "object"
           }
         ]
+      },
+      "Scope": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "#/$defs/Action"
+          },
+          "target": {
+            "$ref": "#/$defs/Target"
+          }
+        },
+        "required": [
+          "target",
+          "action"
+        ],
+        "type": "object"
       },
       "ScreenSnapshot": {
         "additionalProperties": false,
@@ -5890,6 +6391,45 @@
           "FAILED"
         ],
         "type": "string"
+      },
+      "Target": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "kind": {
+                "const": "connection",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "profile",
+                "type": "string"
+              },
+              "profile_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "profile_id"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "TaskPhase": {
         "enum": [

@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-06 P14服务身份子步完成：cbd71d3核心后接独立Agent票据/read范围/授权及租约管理、显式接管/审计；169相关Rust（64真实IPC）及新增配置范围后4专项、四包严格clippy/fmt、46前端/lint、最终桌面构建通过。10:14:29–10:22:08完整18入口PASS/退出0，串口普通服务9.09秒真实恢复、资源0；失败/准确指纹及两提交冻结快照见P14。写入FIFO/worker/自动接管/任务归属/GUI、真实桥及全方案继续，旧传输控制仍拒绝Agent，P14/阶段门不当完成。Step-ID: P14。
+
+2026-11-06 P14服务身份子步验证中：核心策略实际提交cbd71d3；现接Pairing/真实Agent身份、精确read视图及严格授权/租约/接管/审计通道。新增负向/真实Windows IPC，结果见P14；实际写入FIFO/worker与GUI继续，现有控制路径仍Desktop专用，不将此阶段当完整Agent写入或P14完成。Step-ID: P14。
+
 2026-11-06 P14开始核心策略子步：从3260666干净接管且经前任明确放行，核对P07/P09–P11软件准入后按ADR-044实现独立范围/限时授权/短租约/人工接管/派发前复查及有界元数据审计。实际验证见P14；当前尚未开放Agent服务/GUI，真实IPC与完整调度继续，不关闭P14或任何父步骤/阶段门。Step-ID: P14。
 
 2026-11-06 P12基础用户说明完成：f1e8a5a之后新增ALPHA_USER_GUIDE并按代码/记录核对各已有入口与失败/结果不明/未完整语义，README修正旧编码/reflow/恢复另存描述。仅文档检查与diff审查，无新产品修改或功能重测；真实18入口与133/46项属于前一成果。P12/G1/全局矩阵及P14、SSH1桥和P15–P25继续，两实质成果后接续快照见P12。Step-ID: P12。
@@ -71,7 +75,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
-| P14 | Agent 授权与调度（核心策略先行；服务/GUI及真实IPC继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
+| P14 | Agent 授权与调度（核心策略/服务身份及管理IPC已验证；正式派发/GUI继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | MCP 工具实现 | TODO | 待创建 | — |
 | P16 | Codex 真机闭环 | TODO | 待创建 | — |
 | P17 | 标签组与工作区 | TODO | 待创建 | — |

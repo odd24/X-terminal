@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+2026-11-06 P14增量见[ADR-044](decisions/ADR-044.md)/[P14](records/P14.md)：服务已有独立Agent身份/精确read范围和授权/租约/显式接管/审计管理通道。实际MCP仍P06 mock，服务新身份不等于真实stdio桥已接通；传输派发检查/GUI/实际写工具继续，旧SSH/串口控制仍只供Desktop，不允许桥用Desktop票据绕过Agent策略。
+
 日期：2026-11-03；状态：P06 已有只读 mock stdio 原型，实际 Codex CLI app-server 客户端发现/调用通过；真实共享会话桥尚未实现。
 
 ## 当前可运行的 P06 原型
