@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14 SSH Disconnect服务按[ADR-051](decisions/ADR-051.md)使用精确ConnectionRef/request_id、独立Disconnect与lease，新请求取消原共享传输/任务并退休范围；原有效ticket同owner编号在范围退休/Forget后只取回执，不重派发。Requested不代表回收，TransportEnded仅本地Actor及传输引用已结束，不承诺远端动作撤销。真实验证见P14；串口Disconnect、GUI动作批准及实际stdio桥仍继续。
+
 P14串口Start按[ADR-050](decisions/ADR-050.md)接Profile Connect/原回执owner及OS worker打开前许可；调用仍须精确库存revision/device_id，与配置端口一致，Agent无Inventory权限。原编号恢复不因库存刷新/配置删除而重开。GUI Profile批准、Disconnect与真实桥继续，结果见P14。
 
 P14 SSH Start已按[ADR-049](decisions/ADR-049.md)接精确Profile Connect与原回执owner；同来源重试只查原结果，跨来源UUID拒绝，配置等待/实际首次派发前重验。Connect不推导新连接Read/Write/租约或认证批准。GUI Profile选择、串口Start/Disconnect及真实stdio桥仍继续，结果见P14。

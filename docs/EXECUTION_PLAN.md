@@ -277,6 +277,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- SSH服务增量：ADR-051接独立Disconnect/lease、严格原编号查询与认证归属，关闭后退休范围不阻断原有效ticket恢复回执；实际Actor/传输引用回收才完成，结果见P14。串口Disconnect/GUI/真实桥及整个方案继续。
+
 - 2026-11-06 Disconnect按ADR-051先建立认证owner/精确代次的独立有界回执，Requested与实际本地TransportEnded分离；核心结果见P14，服务/真实IPC、GUI与真实桥继续，不直接放宽旧Close。
 
 - 2026-11-06 串口Start子步：ADR-050保留库存revision/device_id/配置端口匹配，加入精确Profile Connect/原owner回执及配置await后、OS worker打开前许可和Close复核；结果见P14，GUI/Disconnect/真实桥继续。

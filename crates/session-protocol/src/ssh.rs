@@ -8,6 +8,14 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Disconnect {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
+    DisconnectStatus {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Reconnect {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -166,7 +174,15 @@ impl Request {
                     && (2..=500).contains(cols)
                     && (1..=200).contains(rows)
             }
-            Self::InputStatus {
+            Self::Disconnect {
+                connection,
+                request_id,
+            }
+            | Self::DisconnectStatus {
+                connection,
+                request_id,
+            }
+            | Self::InputStatus {
                 connection,
                 request_id,
             } => valid(*connection) && !request_id.is_nil(),
@@ -287,6 +303,7 @@ pub struct Status {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    Disconnect(session_core::disconnect::Receipt),
     Exec(TaskStatus),
     ExecOutput {
         connection: ConnectionRef,
@@ -347,6 +364,40 @@ pub struct TaskStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn numbered_disconnect_requires_exact_target_and_rejects_caller_authority() {
+        let connection = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        for query in [false, true] {
+            let request = if query {
+                Request::DisconnectStatus {
+                    connection,
+                    request_id: Uuid::new_v4(),
+                }
+            } else {
+                Request::Disconnect {
+                    connection,
+                    request_id: Uuid::new_v4(),
+                }
+            };
+            assert!(request.validate());
+            let mut value = serde_json::to_value(request).unwrap();
+            value["owner"] = serde_json::json!(Uuid::new_v4());
+            assert!(serde_json::from_value::<Request>(value.clone()).is_err());
+            value.as_object_mut().unwrap().remove("owner");
+            value["request_id"] = serde_json::json!(Uuid::nil());
+            assert!(
+                !serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            value["request_id"] = serde_json::json!(Uuid::new_v4());
+            value["connection"]["generation"] = serde_json::json!(0);
+            assert!(!serde_json::from_value::<Request>(value).unwrap().validate());
+        }
+    }
     #[test]
     fn text_input_is_bounded_scoped_sensitive_and_strict_unicode() {
         let connection = ConnectionRef {

@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14 SSH Disconnect按ADR-051使用独立Disconnect/lease及严格原编号/owner回执；Requested不等于本地传输结束，Actor结束且共享传输引用释放才可TransportEnded。退休/Forget后有效ticket原编号只查，不续租或再次关闭；旧无编号Close仍Desktop专用。串口Disconnect、GUI批准和真实stdio桥须独立验证，不从SSH路径推导。
+
 P14串口Start按ADR-050绑定原回执owner/精确Profile Connect，配置await后与OS worker实际打开前复核；库存revision/device_id/端口匹配及占用仍必需，guard等待期间Close后不得再open。仅合成内存端口/中文前缀根，feature IPC后实际desktop:build恢复普通服务；Connect不推导Read/Write/Control/Disconnect、库存枚举或GUI/真实桥交付。
 
 P14 SSH Start按ADR-049绑定原Start回执认证owner，Profile Connect不授新连接Read/Write/认证批准；配置await后及实际连接future首次poll重验同许可。SSH Reconnect/Forget、串口Start与Disconnect仍待独立接入，不从服务Connect推导GUI或真实stdio桥交付。

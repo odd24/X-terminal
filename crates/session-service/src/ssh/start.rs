@@ -143,6 +143,7 @@ impl Manager {
                 exit: None,
                 signal: None,
                 task: None,
+                transport: None,
             },
         );
         inner

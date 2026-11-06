@@ -1,4 +1,5 @@
 //! Service-owned SSH2 actors. Public control messages never carry private key bytes.
+mod disconnect;
 mod exec;
 mod history;
 mod reconnect;
@@ -56,6 +57,7 @@ struct Entry {
     exit: Option<u32>,
     signal: Option<String>,
     task: Option<JoinHandle<()>>,
+    transport: Option<std::sync::Weak<Ssh2Session>>,
 }
 enum Input {
     Exec(exec::Queued),
@@ -97,6 +99,7 @@ enum Answer {
 }
 #[derive(Default)]
 struct Inner {
+    disconnects: session_core::disconnect::Receipts,
     entries: HashMap<ConnectionId, Entry>,
     requests: HashMap<Uuid, (Start, ConnectionInfo)>,
     request_window: session_core::input::RequestWindow,
@@ -123,6 +126,14 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Disconnect {
+                connection,
+                request_id,
+            } => self.disconnect_as(Some(identity), connection, request_id, false),
+            ssh::Request::DisconnectStatus {
+                connection,
+                request_id,
+            } => self.disconnect_as(Some(identity), connection, request_id, true),
             ssh::Request::Start {
                 profile_id,
                 request_id,
@@ -246,6 +257,14 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Disconnect {
+                connection,
+                request_id,
+            } => self.disconnect_as(None, connection, request_id, false),
+            ssh::Request::DisconnectStatus {
+                connection,
+                request_id,
+            } => self.disconnect_as(None, connection, request_id, true),
             ssh::Request::Forget { connection } => self.forget(connection).await,
             ssh::Request::Reconnect {
                 connection,
@@ -925,9 +944,19 @@ impl Actor {
         {
             entry.failure = None;
         }
+        let session = Arc::new(session);
+        {
+            let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
+            let entry = inner
+                .entries
+                .get_mut(&self.reference.connection_id)
+                .filter(|entry| entry.reference == self.reference)
+                .ok_or(Failure::Transport)?;
+            entry.transport = Some(Arc::downgrade(&session));
+        }
         tokio::select! {
             result=self.read_shell(&mut receiver,&endpoint,&mut shell.reader)=>result,
-            result=self.write_shell(commands,shell.writer,Arc::new(session))=>result,
+            result=self.write_shell(commands,shell.writer,session)=>result,
         }
     }
     async fn write_shell(

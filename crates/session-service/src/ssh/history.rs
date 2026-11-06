@@ -56,7 +56,9 @@ impl Manager {
             task.abort();
             let _ = task.await;
         }
+        self.wait_transport_release(connection).await?;
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+        inner.disconnects.transport_ended(connection);
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         let now = store.now();
         store.pairing.retire_connection(connection, now);

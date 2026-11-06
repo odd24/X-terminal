@@ -2189,6 +2189,50 @@
           {
             "additionalProperties": false,
             "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "disconnect",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "disconnect_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "cols": {
                 "format": "uint32",
                 "minimum": 0,
@@ -6020,6 +6064,32 @@
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "disconnect",
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/$defs/State3"
+              }
+            },
+            "required": [
+              "result",
+              "request_id",
+              "connection",
+              "state"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
               "encoding": {
                 "$ref": "#/$defs/Encoding"
               },
@@ -6472,6 +6542,20 @@
           "FAILED"
         ],
         "type": "string"
+      },
+      "State3": {
+        "oneOf": [
+          {
+            "const": "REQUESTED",
+            "description": "Cancellation was dispatched locally. The transport may still be running.",
+            "type": "string"
+          },
+          {
+            "const": "TRANSPORT_ENDED",
+            "description": "The service has observed local transport task/worker cleanup completing.\nThis does not prove remote commands were undone or driver buffers drained.",
+            "type": "string"
+          }
+        ]
       },
       "Summary": {
         "additionalProperties": false,

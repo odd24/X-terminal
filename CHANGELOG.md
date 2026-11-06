@@ -1,5 +1,7 @@
 # 变更日志
 
+- P14：新增SSH独立Disconnect/lease与原owner/完整代次有界回执，关闭撤权后原编号只查；区分请求取消与本地Actor/传输引用回收，串口Disconnect/GUI/真实桥继续，准确验证见ADR-051/P14。
+
 - P14：串口Profile Connect绑定原Start认证归属，保持库存/设备匹配，并在OS worker实际打开前复核许可与Close取消；不授新连接其他能力。
 
 - P14：SSH Profile Connect使用认证Start回执归属、异步配置后及实际连接首次派发复核；不授新连接Read/Write或认证批准，准确验证见P14。

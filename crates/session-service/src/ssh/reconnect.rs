@@ -104,7 +104,9 @@ impl Manager {
             task.abort();
             let _ = task.await;
         }
+        self.wait_transport_release(connection).await?;
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+        inner.disconnects.transport_ended(connection);
         // Another connection can use the same global request ID while this restart
         // awaits cleanup. Resolve that collision before advancing either generation.
         if let Some((old, result)) = inner.requests.get(&id) {
@@ -151,6 +153,7 @@ impl Manager {
                 exit: None,
                 signal: None,
                 task: None,
+                transport: None,
             },
         );
         inner.requests.insert(

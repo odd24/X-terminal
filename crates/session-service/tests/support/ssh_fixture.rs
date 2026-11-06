@@ -384,6 +384,20 @@ impl Fixture {
         let (handle, channel) = self.shell.lock().unwrap().clone().unwrap();
         handle.data(channel, bytes.to_vec()).await.unwrap();
     }
+    pub async fn wait_disconnected(&self) {
+        let (handle, channel) = self.shell.lock().unwrap().clone().unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while handle
+                .data(channel, b"synthetic-close-probe".to_vec())
+                .await
+                .is_ok()
+            {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("synthetic SSH peer must observe connection end");
+    }
     pub async fn end(&self, code: u32) {
         let (handle, channel) = self.shell.lock().unwrap().clone().unwrap();
         handle.exit_status_request(channel, code).await.unwrap();

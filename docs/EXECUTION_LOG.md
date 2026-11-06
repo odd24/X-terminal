@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-06 P14 SSH Disconnect子步完成：ADR-051独立范围/lease、原owner有界回执与Actor/共享传输引用实际回收，关闭后原编号只查；201相关Rust及最后116服务/IPC/严格检查、实际构建和22:28:18–22:35:07完整19入口PASS，普通服务8.35秒恢复/资源0。准确范围/失败/最终指纹和两提交冻结见P14；串口Disconnect、GUI/真实桥与整个方案继续。Step-ID: P14。
+
+2026-11-06 P14 SSH Disconnect独立范围/lease/原owner回执与Actor/传输引用回收已实现，三包201项完整测试与最后增强3项真实IPC实际PASS。首新增测试字段错误/严格clippy测试模块位置失败已补正，最终静态/构建/原生真实终态见P14；串口Disconnect/GUI/真实桥及整个方案继续，Step-ID: P14。
+
 2026-11-06 后继A从09bc0d5干净接管并经前任明确放行；ADR-051建立Disconnect独立有界回执，原owner/精确代次、请求关闭与本地传输结束分开。62核心测试及严格clippy/fmt实际PASS；尚未服务/IPC/GUI开放，完整方案与全部阶段门继续，详见P14。Step-ID: P14。
 
 2026-11-06 P14串口Start子步完成：ADR-050 Profile Connect/原owner回执、配置await后及OS worker打开前许可/Close复核；218相关Rust、3 feature IPC/增强单项、严格检查与最终构建/17:58:00–18:06:08完整19入口PASS，普通服务8.82秒恢复/资源0。首语法/旧测试漏参失败、最终指纹/两提交冻结见P14；Disconnect/GUI Profile批准/真实桥及完整方案继续。Step-ID: P14。

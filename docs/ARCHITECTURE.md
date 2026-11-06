@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14 SSH Disconnect按[ADR-051](decisions/ADR-051.md)推进独立Disconnect/lease、原认证owner/精确代次的有界回执与只查编号恢复；Requested与Actor及共享传输引用实际回收的TransportEnded分开。旧无编号Close保持Desktop专用；串口Disconnect、GUI和真实桥须独立接入，准确验证见P14。
+
 P14串口Start沿[ADR-050](decisions/ADR-050.md)在原有界回执记录认证来源；Profile Connect经配置await后复核，保持库存/设备/端口匹配，OS worker打开前再复核同许可并检查Close取消。打开后的驱动动作不承诺撤回，不授新连接Read/Write/Control，准确结果见P14。
 
 P14 SSH Start沿[ADR-049](decisions/ADR-049.md)在原有界回执内记录认证来源，Profile Connect独立于新连接全部能力；配置await后及连接future首次poll在Store协调边界重验。主机/认证批准仍Desktop，准确结果见P14，串口Start/Disconnect与真实桥继续。
