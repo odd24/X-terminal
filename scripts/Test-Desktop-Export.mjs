@@ -34,7 +34,11 @@ async function completed(id) {
   await ui.waitFor(`document.querySelector('[aria-label="日志导出状态"]')?.textContent.includes('导出文件已保存到应用目录')&&document.querySelector('[aria-label="日志导出文件路径"]')?.value.includes(${JSON.stringify(id)})`);
   const location=await ui.evaluate(`document.querySelector('[aria-label="日志导出文件路径"]').value`);
   assert.equal(path.resolve(location),path.resolve(savedPath(id)));
-  const focus = await ui.evaluate(`(() => {const input=document.querySelector('[aria-label="日志导出文件路径"]');input.focus();return {readOnly:input.readOnly,active:document.activeElement===input,start:input.selectionStart,end:input.selectionEnd,length:input.value.length,disabled:input.matches(':disabled'),connected:input.isConnected,activeTag:document.activeElement?.tagName,activeLabel:document.activeElement?.getAttribute('aria-label')};})()`);
+  // activeElement alone is insufficient in an inactive native WebView: focus events may not run.
+  await ui.command("Page.bringToFront");
+  const focus = await ui.evaluate(`(() => {const input=document.querySelector('[aria-label="日志导出文件路径"]');const before={active:document.activeElement===input,hasFocus:document.hasFocus(),start:input.selectionStart,end:input.selectionEnd,value:input.value};const events=[];for(const type of ["focus","focusin","select"])input.addEventListener(type,()=>events.push({type,start:input.selectionStart,end:input.selectionEnd}),{once:true});input.focus();return {before,events,hasFocus:document.hasFocus(),readOnly:input.readOnly,active:document.activeElement===input,start:input.selectionStart,end:input.selectionEnd,length:input.value.length,disabled:input.matches(':disabled'),connected:input.isConnected,activeTag:document.activeElement?.tagName,activeLabel:document.activeElement?.getAttribute('aria-label')};})()`);
+  console.log("EXPORT_FOCUS_DIAGNOSTIC",JSON.stringify(focus));
+  assert.equal(focus.hasFocus,true,"the native WebView must have keyboard focus before testing its focus handler");
   assert.ok(focus.readOnly && focus.active && focus.start === 0 && focus.end === focus.length, `the complete path is keyboard-focusable and selected for copying: ${JSON.stringify(focus)}`);
   const bytes=await readFile(location);
   const receipt=await request({op:'export_status',...await scope()});
