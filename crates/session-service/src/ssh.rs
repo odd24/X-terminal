@@ -2,6 +2,7 @@
 mod exec;
 mod history;
 mod reconnect;
+mod start;
 use crate::{
     config::{Access, Internal, Value},
     server::Store,
@@ -33,6 +34,7 @@ use transport_ssh2::session::{
 use uuid::Uuid;
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Start {
+    owner: Option<Uuid>,
     previous: Option<ConnectionRef>,
     profile_id: Uuid,
     cols: u32,
@@ -112,17 +114,6 @@ impl Manager {
             config,
         }
     }
-    fn duplicate(&self, id: Uuid, start: Start) -> Result<Option<ConnectionInfo>, ErrorCode> {
-        let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-        match inner.requests.get(&id) {
-            Some((previous, connection)) if *previous == start => Ok(Some(connection.clone())),
-            Some(_) => Err(ErrorCode::InvalidArgument),
-            None => {
-                inner.request_window.check(id)?;
-                Ok(None)
-            }
-        }
-    }
     pub(crate) async fn handle_authenticated(
         &self,
         identity: &Identity,
@@ -132,6 +123,15 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Start {
+                profile_id,
+                request_id,
+                cols,
+                rows,
+            } => {
+                self.start_as(Some(identity), profile_id, request_id, cols, rows)
+                    .await
+            }
             ssh::Request::Resize {
                 connection,
                 request_id,
@@ -339,91 +339,8 @@ impl Manager {
                 cols,
                 rows,
             } => {
-                let start = Start {
-                    previous: None,
-                    profile_id,
-                    cols,
-                    rows,
-                };
-                if let Some(connection) = self.duplicate(request_id, start)? {
-                    return Ok(ssh::Reply::Started { connection });
-                }
-                let Value::Profile(profile) = self
-                    .config
-                    .request(Internal::Profile(profile_id))
+                self.start_as(None, profile_id, request_id, cols, rows)
                     .await
-                    .map_err(|_| ErrorCode::InvalidArgument)?
-                else {
-                    return Err(ErrorCode::InvalidState);
-                };
-                if !matches!(profile.settings, Settings::Ssh2 { .. }) {
-                    return Err(ErrorCode::Unsupported);
-                }
-                let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-                if let Some((previous, connection)) = inner.requests.get(&request_id) {
-                    return if *previous == start {
-                        Ok(ssh::Reply::Started {
-                            connection: connection.clone(),
-                        })
-                    } else {
-                        Err(ErrorCode::InvalidArgument)
-                    };
-                }
-                if inner.entries.len() >= MAX_CONNECTIONS {
-                    return Err(ErrorCode::CapacityExceeded);
-                }
-                inner.reserve_start(request_id)?;
-                let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-                let initial = store.sessions.create(Protocol::Ssh2)?;
-                let connection = store.sessions.begin_connect(initial.reference())?;
-                configure_output(
-                    &mut store.sessions,
-                    connection.reference(),
-                    &profile,
-                    rows,
-                    cols,
-                )?;
-                let cancel = Cancellation::default();
-                inner.entries.insert(
-                    connection.connection_id,
-                    Entry {
-                        reference: connection.reference(),
-                        restart_gate: Arc::new(tokio::sync::Mutex::new(())),
-                        exec: exec::Tasks::default(),
-                        writable: watch::channel(false).0,
-                        commands: None,
-                        receipts: Receipts::default(),
-                        profile_id,
-                        encoding: profile_encoding(&profile)?,
-                        cancel: cancel.clone(),
-                        challenge: None,
-                        answer: None,
-                        failure: None,
-                        exit: None,
-                        signal: None,
-                        task: None,
-                    },
-                );
-                inner
-                    .requests
-                    .insert(request_id, (start, connection.clone()));
-                let actor = Actor {
-                    inner: self.inner.clone(),
-                    store: self.store.clone(),
-                    config: self.config.clone(),
-                    reference: connection.reference(),
-                    cancel,
-                };
-                let task = tokio::spawn(async move {
-                    let result = actor.run(profile, cols, rows).await;
-                    actor.finish(result);
-                });
-                inner
-                    .entries
-                    .get_mut(&connection.connection_id)
-                    .unwrap()
-                    .task = Some(task);
-                Ok(ssh::Reply::Started { connection })
             }
             ssh::Request::Status { connection } => {
                 let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
@@ -901,6 +818,16 @@ impl Actor {
         }
     }
     async fn run(&self, profile: Profile, cols: u32, rows: u32) -> Result<(), Failure> {
+        self.run_as(profile, cols, rows, None, None).await
+    }
+    async fn run_as(
+        &self,
+        profile: Profile,
+        cols: u32,
+        rows: u32,
+        identity: Option<Identity>,
+        authority: Option<(Identity, Permit)>,
+    ) -> Result<(), Failure> {
         let Settings::Ssh2 {
             host,
             port,
@@ -917,19 +844,35 @@ impl Actor {
             port: *port,
         };
         let (sender, mut receiver) = mpsc::channel(1);
-        let mut session = self
-            .drive(
-                &mut receiver,
-                &endpoint,
-                Ssh2Session::connect(
-                    host,
-                    *port,
-                    sender,
-                    self.cancel.clone(),
-                    transport::Limits::default(),
-                ),
-            )
-            .await?;
+        let mut connecting = std::pin::pin!(Ssh2Session::connect(
+            host,
+            *port,
+            sender,
+            self.cancel.clone(),
+            transport::Limits::default(),
+        ));
+        let mut dispatched = false;
+        // First poll starts the actual transport operation. Revoke and this decision
+        // share Store; no socket/DNS future is polled using a pre-await permission.
+        let connecting = std::future::poll_fn(|cx| {
+            use std::future::Future;
+            if !dispatched {
+                let Ok(mut store) = self.store.lock() else {
+                    return std::task::Poll::Ready(Err(transport::Error::Transport));
+                };
+                if self.cancel.is_cancelled()
+                    || Manager::check_start(&mut store, identity.as_ref(), authority.as_ref(), true)
+                        .is_err()
+                {
+                    return std::task::Poll::Ready(Err(transport::Error::Cancelled));
+                }
+                dispatched = true;
+                connecting.as_mut().poll(cx)
+            } else {
+                connecting.as_mut().poll(cx)
+            }
+        });
+        let mut session = self.drive(&mut receiver, &endpoint, connecting).await?;
         self.transition(State::Authenticating)?;
         let mut authenticated = false;
         for _ in 0..3 {

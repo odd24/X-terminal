@@ -89,6 +89,7 @@ mod tests {
     fn opaque_start_receipts_remain_pinned_after_their_connections_are_removed() {
         let mut inner = Inner::default();
         let start = Start {
+            owner: None,
             previous: None,
             profile_id: Uuid::new_v4(),
             cols: 80,

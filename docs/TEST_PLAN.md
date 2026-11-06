@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14 SSH Start增量按ADR-049验证Profile独立Connect、真实owner/并发同编号、删除Profile及移除连接后只查回执；确定性配置等待/Actor首次poll前撤权且对端socket未接受。准确结果见P14，不由服务阶段推导GUI、串口Start/Disconnect或真实MCP完成。
+
 P14尺寸增量按ADR-048新增真实Windows IPC：独立Control/lease、无Read/Write扩大、Desktop Resize保留租约、编号去重/跨客户端归属，以及六类排队撤权的远端尺寸记录与FIFO fence；授权GUI扩展READ+WRITE+CONTROL固定范围。准确结果见P14，不能从合成SSH/默认截图推断实机或全局矩阵。
 
 P14授权GUI新增4前端实质测试：冻结代次/服务与一次性批准、严格回执及有效范围子集、仅编号恢复、精确租约/审计游标gap；test:desktop:agent以真实合成SSH按钮覆盖READ+WRITE批准/取消/切换、接管缩减、撤销/签发应答丢失实际命中、编号/预览重载与迟到关闭及512环覆盖分页。深浅共享截图仅默认窗口，完整T22/T23、真实桥交付/其他动作/持久审计继续，实际终态见P14。

@@ -1,5 +1,7 @@
 # 变更日志
 
+- P14：SSH Profile Connect使用认证Start回执归属、异步配置后及实际连接首次派发复核；不授新连接Read/Write或认证批准，准确验证见P14。
+
 P14：SSH2尺寸请求新增独立Agent Control/租约检查，沿同一FIFO和有界认证回执派发；桌面视口调整保留Agent租约，授权GUI可明确批准协议控制，实际验证见ADR-048/P14。
 
 P11.4：导出原生焦点测试先激活实际WebView并核对document.hasFocus，保留产品全选断言及真实事件诊断；完整19入口回归通过，前任失败证据仍保留。

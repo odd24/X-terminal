@@ -45,6 +45,27 @@ pub(crate) struct Access {
     sender: Option<mpsc::Sender<Message>>,
 }
 impl Access {
+    #[cfg(test)]
+    pub(crate) fn held_profile() -> (
+        Self,
+        impl std::future::Future<Output = oneshot::Sender<Result<Value, ConfigError>>>,
+    ) {
+        let (sender, mut receiver) = mpsc::channel(1);
+        (
+            Self {
+                sender: Some(sender),
+            },
+            async move {
+                match receiver.recv().await.unwrap() {
+                    Message::Internal {
+                        request: Internal::Profile(_),
+                        reply,
+                    } => reply,
+                    _ => panic!("expected a real configuration lookup"),
+                }
+            },
+        )
+    }
     pub(crate) async fn request(&self, request: Internal) -> Result<Value, ConfigError> {
         let (reply, receiver) = oneshot::channel();
         self.sender

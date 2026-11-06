@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-06 P14 SSH Start子步完成：ADR-049精确Profile Connect/原Start认证owner、配置await后及实际连接首次poll复核；190相关Rust、最终严格检查/两单元复验、17:33:27–17:36:27实际构建与SSH/授权两原生专项PASS，资源0。首编译/clippy失败与准确范围见P14，串口Start/Disconnect/GUI/真实桥及完整方案继续。Step-ID: P14。
+
+2026-11-06 P14后继A从586a0e0干净接管并经前任明确放行，按ADR-049实现SSH Start精确Profile Connect、原有界回执owner及配置await后/传输首次poll复核。验证正在收取，准确终态见P14；串口Start/Disconnect/GUI及完整方案继续，Step-ID: P14。
+
 2026-11-06 P14 SSH尺寸子步完成：ADR-048独立Control/lease/owner与原FIFO复核、Desktop Resize不接管及GUI范围已接；187相关Rust/严格检查、50前端/lint、实际最终构建/扩展授权专项及16:49:41–16:57:30完整19入口PASS，普通服务9.96秒恢复、资源0。首轮测试预期失败及最终指纹/两提交冻结见P14，P14/所有阶段门/完整方案仍开放。Step-ID: P14。
 
 2026-11-06 P14在fe56c4c后按ADR-048补SSH Resize独立Control/lease/真实owner与原FIFO派发复核，Desktop视口变化不接管；两新增真实IPC与GUI Control批准范围正在验证，准确终态见P14，不预填完成。完整方案继续。Step-ID: P14。

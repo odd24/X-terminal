@@ -9,6 +9,7 @@ impl Manager {
     ) -> Result<Option<ConnectionInfo>, ErrorCode> {
         let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         match inner.requests.get(&id) {
+            Some((old, _)) if old.owner.is_some() => Err(ErrorCode::PermissionDenied),
             Some((old, result))
                 if old.previous == Some(connection) && old.cols == cols && old.rows == rows =>
             {
@@ -107,6 +108,9 @@ impl Manager {
         // Another connection can use the same global request ID while this restart
         // awaits cleanup. Resolve that collision before advancing either generation.
         if let Some((old, result)) = inner.requests.get(&id) {
+            if old.owner.is_some() {
+                return Err(ErrorCode::PermissionDenied);
+            }
             return if old.previous == Some(connection) && old.cols == cols && old.rows == rows {
                 Ok(ssh::Reply::Started {
                     connection: result.clone(),
@@ -153,6 +157,7 @@ impl Manager {
             id,
             (
                 Start {
+                    owner: None,
                     previous: Some(connection),
                     profile_id,
                     cols,

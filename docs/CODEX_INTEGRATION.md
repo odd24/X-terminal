@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14 SSH Start已按[ADR-049](decisions/ADR-049.md)接精确Profile Connect与原回执owner；同来源重试只查原结果，跨来源UUID拒绝，配置等待/实际首次派发前重验。Connect不推导新连接Read/Write/租约或认证批准。GUI Profile选择、串口Start/Disconnect及真实stdio桥仍继续，结果见P14。
+
 P14按[ADR-048](decisions/ADR-048.md)开放Agent SSH2 Resize的独立Control/lease与共享FIFO回执；Write不推导尺寸控制。Desktop显示布局调整不触发接管，结果PipelineQueued仅代表发送管线，不表示远端PTY已应用。真实MCP桥仍未交付，Connect/Disconnect/建连owner、时间范围与完整审计继续。
 
 P14按[ADR-047](decisions/ADR-047.md)接共享授权管理GUI及Desktop专用无token投影：固定当前ConnectionRef/独立能力/期限，一次性明确批准、原编号查询撤销、租约与人工接管/有界审计。sessionStorage仅编号恢复，未知/重载不重新签发。真实MCP桥还须实现受控原生token交付，不将token暴露到WebView/剪贴板/argv/env/磁盘或把Desktop bootstrap给桥；GUI批准不意味着实际Codex已经连接。其他动作/完整持久审计继续，准确结果见P14。

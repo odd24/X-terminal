@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14 SSH Start沿[ADR-049](decisions/ADR-049.md)在原有界回执内记录认证来源，Profile Connect独立于新连接全部能力；配置await后及连接future首次poll在Store协调边界重验。主机/认证批准仍Desktop，准确结果见P14，串口Start/Disconnect与真实桥继续。
+
 P14尺寸增量按[ADR-048](decisions/ADR-048.md)：SSH2 Resize需要独立Control/lease并沿原认证输入FIFO/owner回执和派发复核；Desktop自身视口调整不接管。GUI Control按目标协议限定SSH尺寸或串口控制线，不能用于建连/断开/认证/广播。实际证据见P14，真实桥与其他动作继续。
 
 P14授权面板沿ADR-047复用公共Panel/Field/tokens，GrantApproval冻结完整代次/独立范围/期限且一次性消费；只编号恢复，原生保持无token投影，严查原编号/当前有效范围与有界审计gap。面板不代替真实stdio桥交付，也不开放尚未接传输的Connect/Disconnect/SSH Resize/广播；实际验证见P14。

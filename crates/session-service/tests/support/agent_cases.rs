@@ -49,7 +49,7 @@ async fn connect_grants_resolve_saved_profiles_and_do_not_implicitly_authorize_c
         }),
         Request::Ssh {
             request: ssh::Request::Start {
-                profile_id: profile.id,
+                profile_id: Uuid::new_v4(),
                 request_id: Uuid::new_v4(),
                 cols: 80,
                 rows: 24,
@@ -2089,5 +2089,184 @@ async fn agent_ssh_resize_requires_independent_control_and_preserves_owned_recei
         vec![(80, 24), (127, 39), (129, 39), (133, 39)]
     );
     assert!(remote.received.lock().unwrap().is_empty());
+    service.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+async fn agent_ssh_connect_owns_start_receipt_without_read_or_approval_authority() {
+    use ssh::{Challenge as H, Request as S};
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let profile = ssh_profile(&remote, config_store::Auth::Password);
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: replace_password(&remote.password),
+        },
+    )
+    .await;
+    let scopes = vec![Scope {
+        target: Target::Profile {
+            profile_id: profile.id,
+        },
+        action: Action::Connect,
+    }];
+    let (_, token) = issue(&mut desktop, scopes.clone(), 30000).await;
+    let (_, other_token) = issue(&mut desktop, scopes, 30000).await;
+    let (mut client, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let (mut other, _) = Client::connect(&service.instance, other_token.expose(), service.pid)
+        .await
+        .unwrap();
+    let id = Uuid::new_v4();
+    let start = || S::Start {
+        profile_id: profile.id,
+        request_id: id,
+        cols: 80,
+        rows: 24,
+    };
+    let (mut retry, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let (first, second) = tokio::join!(
+        ssh_call(&mut client, start()),
+        ssh_call(&mut retry, start())
+    );
+    let ssh::Reply::Started {
+        connection: created,
+    } = first
+    else {
+        panic!()
+    };
+    assert!(matches!(second, ssh::Reply::Started { connection } if connection == created));
+    let connection = created.reference();
+    for caller in [&mut other, &mut desktop] {
+        assert_eq!(
+            error(
+                caller
+                    .request(Request::Ssh { request: start() })
+                    .await
+                    .unwrap()
+            ),
+            ErrorCode::PermissionDenied
+        );
+    }
+    assert_eq!(
+        error(
+            client
+                .request(Request::Ssh {
+                    request: S::Start {
+                        profile_id: profile.id,
+                        request_id: id,
+                        cols: 81,
+                        rows: 24
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidArgument
+    );
+    assert!(
+        matches!(ok(client.request(Request::List {}).await.unwrap()), Reply::Sessions(list) if list.is_empty())
+    );
+    let host = ssh_status(&mut desktop, connection, |s| {
+        matches!(s.challenge, Some(H::HostKey { .. }))
+    })
+    .await;
+    for request in [
+        Request::Screen { connection },
+        agent(A::Acquire {
+            connection,
+            lifetime_ms: 1000,
+        }),
+        Request::Ssh {
+            request: S::Status { connection },
+        },
+        Request::Ssh {
+            request: S::AnswerHost {
+                connection,
+                challenge_id: host.challenge.as_ref().unwrap().id(),
+                approve: true,
+            },
+        },
+        Request::Ssh {
+            request: S::Close { connection },
+        },
+        Request::Ssh {
+            request: S::Reconnect {
+                connection,
+                request_id: Uuid::new_v4(),
+                cols: 80,
+                rows: 24,
+            },
+        },
+    ] {
+        assert_eq!(
+            error(client.request(request).await.unwrap()),
+            ErrorCode::PermissionDenied
+        );
+    }
+    ssh_call(
+        &mut desktop,
+        S::AnswerHost {
+            connection,
+            challenge_id: host.challenge.unwrap().id(),
+            approve: true,
+        },
+    )
+    .await;
+    let auth = ssh_status(&mut desktop, connection, |s| {
+        matches!(s.challenge, Some(H::Credentials { .. }))
+    })
+    .await;
+    assert_eq!(
+        error(
+            client
+                .request(Request::Ssh {
+                    request: S::Authenticate {
+                        connection,
+                        challenge_id: auth.challenge.as_ref().unwrap().id(),
+                        use_saved: true,
+                        password: None
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    ssh_call(
+        &mut desktop,
+        S::Authenticate {
+            connection,
+            challenge_id: auth.challenge.unwrap().id(),
+            use_saved: true,
+            password: None,
+        },
+    )
+    .await;
+    ssh_status(&mut desktop, connection, |s| {
+        s.connection.state == State::Connected
+    })
+    .await;
+    // Deleting the profile and retiring/removing the connection cannot replay the old Start.
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::DeleteProfile { id: profile.id },
+    )
+    .await;
+    ssh_call(&mut desktop, S::Close { connection }).await;
+    ssh_call(&mut desktop, S::Forget { connection }).await;
+    assert!(
+        matches!(ssh_call(&mut retry, start()).await, ssh::Reply::Started { connection } if connection == created)
+    );
+    assert!(
+        matches!(ok(desktop.request(Request::List {}).await.unwrap()), Reply::Sessions(list) if list.is_empty())
+    );
     service.stop(&mut desktop).await;
 }
