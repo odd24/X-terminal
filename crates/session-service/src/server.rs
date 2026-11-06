@@ -152,7 +152,8 @@ impl Runtime {
             if !store.pairing.is_agent(identity, self.now())?
                 || !matches!(
                     request,
-                    ssh::Request::Write { .. }
+                    ssh::Request::Resize { .. }
+                        | ssh::Request::Write { .. }
                         | ssh::Request::WriteText { .. }
                         | ssh::Request::InputStatus { .. }
                         | ssh::Request::Exec { .. }

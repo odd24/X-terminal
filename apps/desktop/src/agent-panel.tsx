@@ -56,7 +56,7 @@ export function AgentPanel({ serviceId, target, close }: { serviceId: string; ta
     <p>读取范围包含该代次服务当前有界保留的原始输出、解码文本与屏幕；不包含持久日志/导出、认证秘密或其他连接。写入、独立 exec 与控制线分别批准；变更操作还需 Agent 自己取得最长60秒的独占租约。</p>
     <fieldset disabled={busy || unresolved}><legend>批准当前目标</legend>
       <small aria-label="Agent批准目标">{target ? `${target.protocol} · ${targetText(target)}` : '尚无活动连接'}</small>
-      <p>默认未选择能力。Connect/Disconnect、SSH尺寸控制和广播尚未开放；合成会话只提供测试读取。</p>
+      <p>默认未选择能力。Connect/Disconnect和广播尚未开放；协议控制仅为SSH尺寸或串口控制线；合成会话只提供测试读取。</p>
       {available.map(action => <label className="check" key={action}><input type="checkbox" aria-label={`授权${actionName[action]}`} checked={selected.includes(action)} onChange={event => { invalidate(); setSelected(previous => event.target.checked ? [...previous, action] : previous.filter(item => item !== action)); }} />{actionName[action]}</label>)}
       <Field label="授权期限（秒，1–1800）"><input type="number" min={1} max={1800} aria-label="Agent授权秒数" value={seconds} onChange={event => { invalidate(); setSeconds(Number(event.target.value)); }} /></Field>
       <button disabled={!target || !selected.length} onClick={() => { try { if (!target) return; setProposal(approval.current.prepare(serviceId, target, selected, seconds)); setConsent(false); setMessage('请核对固定目标、能力和期限；尚未签发。'); } catch (error) { invalidate(); setMessage(String(error)); } }}>预览Agent授权</button>

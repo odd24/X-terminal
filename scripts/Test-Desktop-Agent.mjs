@@ -93,9 +93,10 @@ try {
   await ui.waitFor(`document.querySelector('[aria-label="Agent批准目标"]')?.textContent.includes(${JSON.stringify(sshId)})`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权读取终端"]').checked`), false);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权写入终端"]').checked`), false);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权协议控制（SSH尺寸/串口控制线）"]').checked`), false);
   const toggle = label => ui.evaluate(`document.querySelector('[aria-label=${JSON.stringify(label)}]').click()`);
   const prepare = async (write = false) => {
-    await toggle('授权读取终端'); if (write) await toggle('授权写入终端');
+    await toggle('授权读取终端'); if (write) { await toggle('授权写入终端'); await toggle('授权协议控制（SSH尺寸/串口控制线）'); }
     await ui.fill('Agent授权秒数', '300'); await ui.click('预览Agent授权');
     await ui.waitFor(`!!(${button('确认批准Agent')})`); await toggle('同意本次Agent范围');
   };
@@ -117,11 +118,11 @@ try {
   let saved = await storage(); assert.deepEqual(Object.keys(saved).sort(), ['request_id', 'service_id']);
   let managed = await call({ op: 'grant_status', request_id: saved.request_id });
   assert.ok(managed.data.approved_scopes.every(s => JSON.stringify(s.target.connection) === JSON.stringify(sshRef)));
-  assert.deepEqual(managed.data.approved_scopes.map(s => s.action).sort(), ['READ', 'WRITE']);
+  assert.deepEqual(managed.data.approved_scopes.map(s => s.action).sort(), ['CONTROL', 'READ', 'WRITE']);
   await ui.click('查询当前输入租约');
   await ui.waitFor(`document.querySelector('[aria-label="Agent租约详情"]')?.textContent.includes('没有有效输入租约')`);
   await ui.click('人工接管当前连接'); await ui.click('取消Agent变更');
-  assert.equal((await call({ op: 'grant_status', request_id: saved.request_id })).data.summary.effective_scope_count, 2);
+  assert.equal((await call({ op: 'grant_status', request_id: saved.request_id })).data.summary.effective_scope_count, 3);
   await ui.click('人工接管当前连接'); await ui.click('确认Agent变更');
   await ui.waitFor(`document.querySelector('[aria-label="Agent管理状态"]').textContent.includes('已人工接管')`);
   await ui.click('查询原Agent编号');
@@ -201,7 +202,7 @@ try {
   await ui.click('关闭外观');
   await ui.evaluate(`document.querySelector('.auxiliary-panels').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-light-synthetic.png');
-  console.log('PASS Agent GUI: fixed SSH generation/independent READ+WRITE, no default consent, cancel/switch/one-shot approval, scope reduction, original revoke/lost grant recovery, ID-only reload, late-close and bounded audit gap');
+  console.log('PASS Agent GUI: fixed SSH generation/independent READ+WRITE+SSH CONTROL, no default consent, cancel/switch/one-shot approval, scope reduction, original revoke/lost grant recovery, ID-only reload, late-close and bounded audit gap');
   await ui.close(); ui = await launchDesktop(directory, { fixture: true });
   assert.deepEqual((await call({ op: 'grant_list' })).data, []);
   await assert.rejects(call({ op: 'grant_status', request_id }));

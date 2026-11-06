@@ -132,6 +132,17 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Resize {
+                connection,
+                request_id,
+                cols,
+                rows,
+            } => self.enqueue_from(
+                Some(identity),
+                connection,
+                request_id,
+                Input::Resize { cols, rows },
+            ),
             ssh::Request::Exec {
                 connection,
                 request_id,
@@ -516,7 +527,11 @@ impl Manager {
                     identity,
                     Scope {
                         target: Target::Connection { connection },
-                        action: Action::Write,
+                        action: if matches!(&input, Input::Resize { .. }) {
+                            Action::Control
+                        } else {
+                            Action::Write
+                        },
                     },
                     id,
                     now,
@@ -526,6 +541,12 @@ impl Manager {
             None
         };
         let info = store.sessions.info(connection)?;
+        if owner.is_some()
+            && matches!(&input, Input::Resize { .. })
+            && info.protocol != Protocol::Ssh2
+        {
+            return Err(ErrorCode::PermissionDenied);
+        }
         let entry = inner
             .entries
             .get_mut(&connection.connection_id)
@@ -544,7 +565,9 @@ impl Manager {
         if entry.cancel.is_cancelled() || entry.challenge.is_some() || !*entry.writable.borrow() {
             return Err(ErrorCode::InvalidState);
         }
-        if let Some(desktop) = identity.filter(|_| owner.is_none()) {
+        if let Some(desktop) =
+            identity.filter(|_| owner.is_none() && !matches!(&input, Input::Resize { .. }))
+        {
             store.pairing.takeover(desktop, connection, now)?;
             entry.receipts.cancel_agent_pending();
             entry.exec.cancel_agent_pending();

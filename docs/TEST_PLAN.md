@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14尺寸增量按ADR-048新增真实Windows IPC：独立Control/lease、无Read/Write扩大、Desktop Resize保留租约、编号去重/跨客户端归属，以及六类排队撤权的远端尺寸记录与FIFO fence；授权GUI扩展READ+WRITE+CONTROL固定范围。准确结果见P14，不能从合成SSH/默认截图推断实机或全局矩阵。
+
 P14授权GUI新增4前端实质测试：冻结代次/服务与一次性批准、严格回执及有效范围子集、仅编号恢复、精确租约/审计游标gap；test:desktop:agent以真实合成SSH按钮覆盖READ+WRITE批准/取消/切换、接管缩减、撤销/签发应答丢失实际命中、编号/预览重载与迟到关闭及512环覆盖分页。深浅共享截图仅默认窗口，完整T22/T23、真实桥交付/其他动作/持久审计继续，实际终态见P14。
 
 P14按ADR-047增加宿主管理白名单/无token投影测试与test:desktop:agent真实WebView/Tauri/NamedPipe专项，覆盖原编号去重/应答丢失命中、接管后有效范围、撤销/到期/重载/服务重启。仅合成连接；管理通道不冒充GUI、Agent交付或完整T13–T17，准确结果见P14。

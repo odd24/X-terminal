@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14尺寸控制按ADR-048接SSH2 Control/lease及原FIFO/认证回执，Desktop视口调整不接管；test:desktop:agent扩展READ+WRITE+CONTROL默认无勾选/固定范围和接管后仅Read，仍须前置实际desktop:build。Control仅按目标协议为SSH尺寸或串口控制线，不推导Connect/Disconnect/广播或真实MCP桥交付。
+
 P14授权GUI扩展test:desktop:agent，前置desktop:build与gui_ssh_fixture（npm入口会编译），覆盖实际合成SSH的固定代次/READ+WRITE批准、默认无勾选/取消/切换/一次性、接管后有效范围、撤销与签发真实fetch丢应答命中、只编号重载/预览重载不签发、关闭迟到及512审计环覆盖分页。token仍不入WebView；原生/GUI批准不代表真实stdio桥交付，默认深浅截图不能替代全局DPI/输入法。只shared-terminal-agent-ui-中文-临时根，不接实机。
 
 P14管理通道新增npm run test:desktop:agent（前置desktop:build，完整回归第19入口），仅shared-terminal-agent-ui-中文-自建根/合成会话。agent_management_request只提供Desktop管理白名单，原生独立回复剥离token，不向WebView提供Agent Acquire/Release。通道通过不代表授权GUI或真实桥交付；接管后ACTIVE仍须核对effective_scopes，原编号恢复不续期，服务重启清空回执，审计512环不等于持久全量。

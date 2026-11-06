@@ -277,6 +277,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- 尺寸增量：ADR-048接SSH Resize独立Control/lease/owner与原FIFO派发复核，Desktop视口调整不接管，GUI按协议明确Control；真实结果见P14。其余Connect/Disconnect/建连owner与完整审计/上下文继续。
+
 - 桌面增量：ADR-047无token原生管理投影及共享授权面板，固定目标/范围/期限、原编号恢复撤销、租约/人工接管和分页审计；准确验证见P14。真实桥交付/其他动作/完整持久审计继续，不标整步完成。
 
 - 状态：IN_PROGRESS；ADR-044核心独立范围/租约/接管/派发许可与审计先行，实际证据见[P14](records/P14.md)。服务/worker/GUI及真实Windows IPC继续，不能以核心通过当Agent已开放。

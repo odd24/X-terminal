@@ -74,7 +74,7 @@ export function restoreSlot(raw: string | null): Slot | undefined {
 }
 export function supportedActions(target: Connection): Action[] {
   if (target.state !== 'CONNECTED') return [];
-  if (target.protocol === 'SSH2') return ['READ', 'WRITE', 'EXEC'];
+  if (target.protocol === 'SSH2') return ['READ', 'WRITE', 'EXEC', 'CONTROL'];
   if (target.protocol === 'SERIAL') return ['READ', 'WRITE', 'CONTROL'];
   if (target.protocol === 'FIXTURE') return ['READ'];
   return [];
@@ -99,5 +99,5 @@ export class GrantApproval {
     return proposal;
   }
 }
-export const actionName: Record<Action, string> = { READ: '读取终端', WRITE: '写入终端', EXEC: '独立 exec', CONTROL: '串口控制线', CONNECT: '建立配置连接', DISCONNECT: '断开连接', BROADCAST: '广播' };
+export const actionName: Record<Action, string> = { READ: '读取终端', WRITE: '写入终端', EXEC: '独立 exec', CONTROL: '协议控制（SSH尺寸/串口控制线）', CONNECT: '建立配置连接', DISCONNECT: '断开连接', BROADCAST: '广播' };
 export function scopeText(scope: Scope): string { return `${actionName[scope.action]} · ${scope.target.kind === 'profile' ? `配置 ${scope.target.profile_id}` : `${scope.target.connection.connection_id} / 代次 ${scope.target.connection.generation}`}`; }

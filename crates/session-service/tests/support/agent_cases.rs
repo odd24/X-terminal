@@ -311,7 +311,7 @@ async fn agent_lease_ownership_takeover_and_audit_are_enforced_by_real_pipe_iden
     assert!(
         matches!(ok(desktop.request(agent(A::Lease {connection:first})).await.unwrap()), Reply::Agent(AR::Lease(Some(found))) if found == l)
     );
-    // SSH resize remains unavailable; a fixture connection is never a serial target.
+    // Neither protocol control entry accepts a synthetic fixture connection.
     for request in [
         Request::Ssh {
             request: ssh::Request::Resize {
@@ -520,6 +520,12 @@ async fn agent_ssh_write_uses_shared_connection_and_authentic_receipt_owner() {
         },
     ] {
         for request in [
+            ssh::Request::Resize {
+                connection: target,
+                request_id: Uuid::new_v4(),
+                cols: 125,
+                rows: 41,
+            },
             ssh::Request::InputStatus {
                 connection: target,
                 request_id: Uuid::new_v4(),
@@ -1735,5 +1741,353 @@ async fn managed_grant_unread_real_pipe_reply_and_concurrent_retries_recover_one
         session_core::pairing::grants::State::Revoked
     );
     assert!(none.is_none());
+    service.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+async fn agent_ssh_queued_resize_rechecks_authority_before_wire_dispatch() {
+    use session_core::input::InputState as I;
+    for mode in [
+        "release",
+        "expiry",
+        "grant-expiry",
+        "revoke",
+        "user",
+        "explicit",
+    ] {
+        let remote = ssh_fixture::Fixture::options(true).await;
+        let temp = ConfigTemp::new();
+        let mut service = temp.start().await;
+        let mut desktop = service.connect().await;
+        let connection = ssh_connected_fixture(&mut desktop, &remote).await;
+        let scopes = vec![
+            scope(connection, Action::Read),
+            scope(connection, Action::Write),
+            scope(connection, Action::Control),
+        ];
+        let (ticket_id, token) = issue(
+            &mut desktop,
+            scopes,
+            if mode == "grant-expiry" { 600 } else { 30000 },
+        )
+        .await;
+        let (mut writer, _) = Client::connect(&service.instance, token.expose(), service.pid)
+            .await
+            .unwrap();
+        let l = lease(
+            &mut writer,
+            connection,
+            if matches!(mode, "expiry" | "grant-expiry") {
+                300
+            } else {
+                10000
+            },
+        )
+        .await;
+        let first = Uuid::new_v4();
+        let queued = Uuid::new_v4();
+        ssh_call(
+            &mut writer,
+            input_write(connection, first, &vec![b'a'; 65536]),
+        )
+        .await;
+        input_status(&mut writer, connection, first, |r| {
+            r.state == I::Dispatching
+        })
+        .await;
+        timeout(Duration::from_secs(3), async {
+            while remote.received.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let ssh::Reply::Input(receipt) = ssh_call(
+            &mut writer,
+            ssh::Request::Resize {
+                connection,
+                request_id: queued,
+                cols: 137,
+                rows: 43,
+            },
+        )
+        .await
+        else {
+            panic!()
+        };
+        assert_eq!(receipt.state, I::Pending);
+        let user_id = Uuid::new_v4();
+        match mode {
+            "release" => {
+                ok(writer
+                    .request(agent(A::Release {
+                        connection,
+                        lease_id: l.lease_id,
+                    }))
+                    .await
+                    .unwrap());
+                lease(&mut writer, connection, 10000).await;
+            }
+            "expiry" => tokio::time::sleep(Duration::from_millis(350)).await,
+            "grant-expiry" => tokio::time::sleep(Duration::from_millis(650)).await,
+            "revoke" => {
+                ok(desktop
+                    .request(Request::Revoke { ticket_id })
+                    .await
+                    .unwrap());
+            }
+            "user" => {
+                ssh_call(&mut desktop, input_write(connection, user_id, b"user")).await;
+            }
+            _ => {
+                ok(desktop
+                    .request(agent(A::Takeover { connection }))
+                    .await
+                    .unwrap());
+            }
+        }
+        remote.unblock.notify_one();
+        input_status(&mut desktop, connection, first, |r| {
+            r.state == I::PipelineQueued
+        })
+        .await;
+        input_status(&mut desktop, connection, queued, |r| {
+            r.state == I::CancelledBeforeDispatch
+        })
+        .await;
+        if mode == "user" {
+            input_status(&mut desktop, connection, user_id, |r| {
+                r.state == I::PipelineQueued
+            })
+            .await;
+        }
+        // A wire-visible FIFO fence and later resize prove the invalidated item was consumed.
+        let barrier = Uuid::new_v4();
+        ssh_call(&mut desktop, input_write(connection, barrier, b"barrier")).await;
+        input_status(&mut desktop, connection, barrier, |r| {
+            r.state == I::PipelineQueued
+        })
+        .await;
+        timeout(Duration::from_secs(3), async {
+            loop {
+                let bytes = remote.received.lock().unwrap().concat();
+                if bytes.ends_with(b"barrier") {
+                    assert!(!bytes.windows(14).any(|w| w == b"forbidden-tail"));
+                    assert_eq!(bytes.len(), 65536 + if mode == "user" { 4 } else { 0 } + 7);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let after = Uuid::new_v4();
+        ssh_call(
+            &mut desktop,
+            ssh::Request::Resize {
+                connection,
+                request_id: after,
+                cols: 139,
+                rows: 47,
+            },
+        )
+        .await;
+        input_status(&mut desktop, connection, after, |r| {
+            r.state == I::PipelineQueued
+        })
+        .await;
+        timeout(Duration::from_secs(3), async {
+            while !remote.sizes.lock().unwrap().contains(&(139, 47)) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            !remote.sizes.lock().unwrap().contains(&(137, 43)),
+            "cancelled resize reached the SSH peer: {mode}"
+        );
+        service.stop(&mut desktop).await;
+    }
+}
+
+#[tokio::test]
+async fn agent_ssh_resize_requires_independent_control_and_preserves_owned_receipts() {
+    use session_core::input::InputState as I;
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let connection = ssh_connected_fixture(&mut desktop, &remote).await;
+    let resize = |id, cols| ssh::Request::Resize {
+        connection,
+        request_id: id,
+        cols,
+        rows: 39,
+    };
+    let (_, write_token) = issue(&mut desktop, vec![scope(connection, Action::Write)], 30000).await;
+    let (mut writer, _) = Client::connect(&service.instance, write_token.expose(), service.pid)
+        .await
+        .unwrap();
+    let write_lease = lease(&mut writer, connection, 10000).await;
+    assert_eq!(
+        error(
+            writer
+                .request(Request::Ssh {
+                    request: resize(Uuid::new_v4(), 121)
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    ok(writer
+        .request(agent(A::Release {
+            connection,
+            lease_id: write_lease.lease_id,
+        }))
+        .await
+        .unwrap());
+    let (_, token) = issue(
+        &mut desktop,
+        vec![scope(connection, Action::Control)],
+        30000,
+    )
+    .await;
+    let (_, other_token) = issue(
+        &mut desktop,
+        vec![scope(connection, Action::Control)],
+        30000,
+    )
+    .await;
+    let (mut client, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let (mut other, _) = Client::connect(&service.instance, other_token.expose(), service.pid)
+        .await
+        .unwrap();
+    assert_eq!(
+        error(
+            client
+                .request(Request::Ssh {
+                    request: resize(Uuid::new_v4(), 123)
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InputBusy
+    );
+    let l = lease(&mut client, connection, 10000).await;
+    assert_eq!(
+        error(
+            client
+                .request(Request::Screen { connection })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(
+            client
+                .request(Request::Ssh {
+                    request: input_write(connection, Uuid::new_v4(), b"never")
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    let id = Uuid::new_v4();
+    ssh_call(&mut client, resize(id, 127)).await;
+    input_status(&mut client, connection, id, |r| {
+        r.state == I::PipelineQueued
+    })
+    .await;
+    // A desktop viewport resize must not take the Agent's lease or control scope.
+    let desktop_id = Uuid::new_v4();
+    ssh_call(&mut desktop, resize(desktop_id, 129)).await;
+    input_status(&mut desktop, connection, desktop_id, |r| {
+        r.state == I::PipelineQueued
+    })
+    .await;
+    assert!(
+        matches!(ok(client.request(agent(A::Lease { connection })).await.unwrap()), Reply::Agent(AR::Lease(Some(found))) if found == l)
+    );
+    ssh_call(&mut client, resize(id, 127)).await;
+    assert_eq!(
+        error(
+            client
+                .request(Request::Ssh {
+                    request: resize(id, 131)
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidArgument
+    );
+    assert_eq!(
+        error(
+            other
+                .request(Request::Ssh {
+                    request: resize(id, 127)
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InputBusy
+    );
+    assert_eq!(
+        error(
+            other
+                .request(Request::Ssh {
+                    request: ssh::Request::InputStatus {
+                        connection,
+                        request_id: id
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    // Release and reacquire permits an independent owner, but cannot transfer the first receipt.
+    ok(client
+        .request(agent(A::Release {
+            connection,
+            lease_id: l.lease_id,
+        }))
+        .await
+        .unwrap());
+    lease(&mut other, connection, 10000).await;
+    assert_eq!(
+        error(
+            other
+                .request(Request::Ssh {
+                    request: resize(id, 127)
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    let fence = Uuid::new_v4();
+    ssh_call(&mut other, resize(fence, 133)).await;
+    input_status(&mut other, connection, fence, |r| {
+        r.state == I::PipelineQueued
+    })
+    .await;
+    timeout(Duration::from_secs(3), async {
+        while !remote.sizes.lock().unwrap().contains(&(133, 39)) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        *remote.sizes.lock().unwrap(),
+        vec![(80, 24), (127, 39), (129, 39), (133, 39)]
+    );
+    assert!(remote.received.lock().unwrap().is_empty());
     service.stop(&mut desktop).await;
 }

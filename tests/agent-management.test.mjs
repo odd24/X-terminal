@@ -17,9 +17,10 @@ test('approval freezes independent scopes and exact service/connection generatio
   for(const altered of [{...target,generation:2},{...target,protocol:'SERIAL'},{...target,state:'FAILED'},{...target,connection_id:request}]) {
     const p=approval.prepare(ticket,target,['READ'],1);assert.throws(()=>approval.consume(ticket,altered,p));
   }
-  for(const actions of [[],['READ','READ'],['CONNECT'],['DISCONNECT'],['CONTROL'],['BROADCAST']]) assert.throws(()=>approval.prepare(ticket,target,actions,1));
+  for(const actions of [[],['READ','READ'],['CONNECT'],['DISCONNECT'],['BROADCAST']]) assert.throws(()=>approval.prepare(ticket,target,actions,1));
   for(const time of [0,-1,1.5,1801,NaN,Infinity]) assert.throws(()=>approval.prepare(ticket,target,['READ'],time));
   const p=approval.prepare(ticket,target,['READ'],1);approval.invalidate();assert.throws(()=>approval.consume(ticket,target,p));
+  assert.deepEqual(approval.prepare(ticket,target,['CONTROL'],1).scopes,[scope('CONTROL')]);
   assert.deepEqual(supportedActions({...target,protocol:'SERIAL'}),['READ','WRITE','CONTROL']);
 });
 test('grant response cannot substitute target, restore removed scope, leak token, or misstate terminal validity',()=>{

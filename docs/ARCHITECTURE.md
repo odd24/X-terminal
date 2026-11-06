@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14尺寸增量按[ADR-048](decisions/ADR-048.md)：SSH2 Resize需要独立Control/lease并沿原认证输入FIFO/owner回执和派发复核；Desktop自身视口调整不接管。GUI Control按目标协议限定SSH尺寸或串口控制线，不能用于建连/断开/认证/广播。实际证据见P14，真实桥与其他动作继续。
+
 P14授权面板沿ADR-047复用公共Panel/Field/tokens，GrantApproval冻结完整代次/独立范围/期限且一次性消费；只编号恢复，原生保持无token投影，严查原编号/当前有效范围与有界审计gap。面板不代替真实stdio桥交付，也不开放尚未接传输的Connect/Disconnect/SSH Resize/广播；实际验证见P14。
 
 P14按[ADR-047](decisions/ADR-047.md)接Desktop专用agent_management_request白名单，使用原配置Pipe，原生独立回复只返回回执/范围/租约与有界审计，协议token不进入WebView。没有Agent租约写入口/通用RPC；实际GUI与真实stdio桥受控交付分别继续，结果见P14。
