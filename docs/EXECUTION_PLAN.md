@@ -277,6 +277,9 @@
 
 ### P14 Agent 授权与输入调度
 
+- 配置批准增量：ADR-052新增profile_revision Connect，配置线程匹配版本后返回不可变快照、原编号只查；原ID范围不冒充固定版本。实际验证见P14，GUI/真实桥及完整范围继续。
+
+
 - GUI Disconnect增量：SSH2/SERIAL同固定代次面板独立批准，明确关闭请求/回收和批准不执行动作；test:desktop:agent第19入口覆盖两协议并恢复普通服务，准确结果见P14。Profile Connect/真实桥及完整范围继续。
 
 - 串口Disconnect增量：按ADR-051独立范围/lease/原owner回执与实际OS worker join接入，回报通道丢失不虚报完成，tick/Forget前保存终态；实际结果见P14，GUI/真实桥及整个方案继续。

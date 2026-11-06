@@ -1,5 +1,8 @@
 # 架构与关键设计
 
+P14按[ADR-052](decisions/ADR-052.md)新增精确Profile/revision Connect范围，配置线程核对全局revision后返回本次不可变配置快照，原Start回执保持只查；旧ID目标保留不同语义。实际派发仍重验同许可，不授新连接范围、lease/库存/认证批准。GUI与真实stdio交付结果见P14，完整方案继续。
+
+
 P14授权GUI按ADR-047/051给SSH2/SERIAL增加独立Disconnect，固定原代次/期限、默认无勾选，批准只签发不关闭。选择及预览明确关闭请求/实际回收/原编号语义；接管后有效范围撤下Disconnect。SSH/独立串口GUI结果见P14，实际Agent token交付/stdio桥仍未完成。
 
 P14串口Disconnect沿[ADR-051](decisions/ADR-051.md)接独立Disconnect/lease和认证owner原编号回执；实际OS worker join返回才完成，本地取消/Ended状态或回报通道丢失不能充当回收证据。tick/Forget前保存终态，关闭退休后只查原编号不重开/重关。内存IPC/原生准确结果见P14；GUI、真实桥及COM独立验证。

@@ -55,6 +55,14 @@ impl Request {
                         Target::Connection { connection } => {
                             valid_connection(connection) && s.action != Action::Connect
                         }
+                        Target::ProfileRevision {
+                            profile_id,
+                            revision,
+                        } => {
+                            !profile_id.is_nil()
+                                && !revision.is_nil()
+                                && s.action == Action::Connect
+                        }
                         Target::Profile { profile_id } => {
                             !profile_id.is_nil() && s.action == Action::Connect
                         }
@@ -109,6 +117,31 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn profile_revision_requires_explicit_non_nil_version_and_connect_only() {
+        let profile_id = Uuid::new_v4();
+        let revision = Uuid::new_v4();
+        for (version, action, valid) in [
+            (revision, Action::Connect, true),
+            (Uuid::nil(), Action::Connect, false),
+            (revision, Action::Control, false),
+        ] {
+            let request = Request::Grant {
+                request_id: Uuid::new_v4(),
+                scopes: vec![Scope {
+                    target: Target::ProfileRevision {
+                        profile_id,
+                        revision: version,
+                    },
+                    action,
+                }],
+                lifetime_ms: 1000,
+            };
+            assert_eq!(request.validate(), valid);
+        }
+        let value = serde_json::json!({"op":"grant","request_id":Uuid::new_v4(),"scopes":[{"target":{"kind":"profile_revision","profile_id":profile_id},"action":"CONNECT"}],"lifetime_ms":1000});
+        assert!(serde_json::from_value::<Request>(value).is_err());
+    }
     #[test]
     fn strict_agent_contract_rejects_role_paths_duplicates_and_invalid_ranges() {
         for value in [

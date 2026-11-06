@@ -477,14 +477,20 @@ async fn agent_serial_connect_retains_owner_without_inventory_read_or_control_au
         rts_on_open: Some(false),
         encoding: config_store::Encoding::Utf8,
     };
-    config_call(
+    let config::ConfigReply::SavedProfile {
+        revision: config_revision,
+        ..
+    } = config_call(
         &mut desktop,
         config::ConfigRequest::SaveProfile {
             profile: profile.clone(),
             credential: config::CredentialEdit::Keep {},
         },
     )
-    .await;
+    .await
+    else {
+        panic!()
+    };
     let SR::Inventory {
         revision, devices, ..
     } = call(&mut desktop, S::Inventory {}).await
@@ -493,8 +499,9 @@ async fn agent_serial_connect_retains_owner_without_inventory_read_or_control_au
     };
     let device_id = devices[0].device_id;
     let scopes = vec![Scope {
-        target: Target::Profile {
+        target: Target::ProfileRevision {
             profile_id: profile.id,
+            revision: config_revision,
         },
         action: Action::Connect,
     }];
@@ -622,6 +629,41 @@ async fn agent_serial_connect_retains_owner_without_inventory_read_or_control_au
         matches!(call(&mut desktop, S::Status { connection }).await, SR::Status(s) if s.connection.state == State::Disconnected)
     );
     call(&mut desktop, S::Forget { connection }).await;
+    // Changed opening control-line policy cannot be picked up by this old approval.
+    if let config_store::Settings::Serial {
+        dtr_on_open,
+        rts_on_open,
+        ..
+    } = &mut profile.settings
+    {
+        *dtr_on_open = true;
+        *rts_on_open = Some(true);
+    }
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    assert_eq!(
+        error(
+            client
+                .request(Request::Serial {
+                    request: S::Start {
+                        profile_id: profile.id,
+                        request_id: Uuid::new_v4(),
+                        revision,
+                        device_id
+                    }
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidArgument
+    );
+
     config_call(
         &mut desktop,
         config::ConfigRequest::DeleteProfile { id: profile.id },

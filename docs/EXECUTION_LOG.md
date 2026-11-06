@@ -1,5 +1,11 @@
 # 执行台账
 
+2026-11-06 Profile/revision Connect服务子步完成：ADR-052、63核心/25协议/41服务/79真实IPC首轮208项、最终协议26项/串口feature5项与严格检查/schema PASS；实际desktop:build及两协议Agent专项PASS，普通服务8.79秒真实恢复。固定Profile GUI下一子步、真实stdio桥及完整方案继续，准确范围/指纹见P14。Step-ID: P14。
+
+
+2026-11-06 后继A从38ccbbc只读核验并获明确放行后按ADR-052实现Profile/revision Connect范围、配置线程版本比较与同许可最终派发；保留原ID目标的不同语义与原编号只查。新增/增强核心及两协议真实IPC验证正在运行，准确结果见P14。GUI/真实桥与整个R01–R16/P01–P25继续，不预填完成。Step-ID: P14。
+
+
 2026-11-06 两协议Disconnect授权GUI子步完成：SSH2/SERIAL独立默认无勾选/固定代次，批准不关闭，接管撤下Disconnect；50前端/lint、实际构建/两协议专项与23:14:07–23:19:54最终完整19入口PASS/退出0，两次串口普通服务实际恢复/资源0。首轮第19重载就绪失败及修正、最终指纹/两提交冻结见P14；第一成果0961b6c，Profile Connect/真实桥与完整方案继续。Step-ID: P14。
 
 2026-11-06 前置0961b6c后实施SSH2/SERIAL独立Disconnect授权GUI，复用公共能力选择/固定代次预览并明确批准不关闭/Requested与实际回收。50前端测试/lint及新增脚本语法检查PASS，最终原生专项/完整19入口结果见P14，不预填通过。Step-ID: P14。

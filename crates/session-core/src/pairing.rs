@@ -214,6 +214,35 @@ impl Pairing {
             Err(ErrorCode::PermissionDenied)
         }
     }
+    /// Choose the exact approved configuration revision before asynchronous lookup.
+    /// Legacy Profile grants remain ID-only; a revision grant never falls back to one.
+    pub fn admit_connect(
+        &mut self,
+        identity: &Identity,
+        profile_id: Uuid,
+        request_id: Uuid,
+        now: u64,
+    ) -> Result<access::Permit, ErrorCode> {
+        self.require_agent(identity, now)?;
+        let scopes = self.policy.effective_scopes(identity.ticket_id, now);
+        let bound: Vec<_> = scopes
+            .iter()
+            .filter(|s| {
+                matches!(s.target,
+            Target::ProfileRevision { profile_id: id, .. } if id == profile_id)
+            })
+            .copied()
+            .collect();
+        // Multiple revisions are ambiguous: do not choose an arbitrary configuration.
+        if bound.len() > 1 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let scope = bound.first().copied().unwrap_or(Scope {
+            target: Target::Profile { profile_id },
+            action: Action::Connect,
+        });
+        self.admit_input(identity, scope, request_id, now)
+    }
     /// Capture the current lease in an opaque queue permit; callers cannot supply an owner.
     pub fn admit_input(
         &mut self,
@@ -228,7 +257,7 @@ impl Pairing {
                 .policy
                 .lease(connection, now)
                 .map(|lease| lease.lease_id),
-            Target::Profile { .. } => None,
+            Target::Profile { .. } | Target::ProfileRevision { .. } => None,
         };
         self.policy
             .admit(identity.ticket_id, scope, lease, request_id, now)

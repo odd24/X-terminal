@@ -1,5 +1,8 @@
 # Codex 首版接入方案
 
+P14按[ADR-052](decisions/ADR-052.md)新增profile_revision目标，精确Profile ID和配置库revision上的Connect。Start先匹配版本并读取不可变配置快照，再复核同许可派发；配置变更后不能以旧批准使用新参数，原Start编号仍只查。旧profile目标保持ID语义，不把它当固定配置。GUI/真实桥交付准确结果见P14，Connect不授新连接范围、lease、库存或认证批准。
+
+
 P14现有授权面板可对SSH2/SERIAL明确批准独立Disconnect，默认不勾选；固定ConnectionRef/期限，批准不执行动作，不代取租约或授其他能力。接管后的有效范围撤下断开能力，原批准只读保留。第19原生入口覆盖两协议（串口为内存worker），准确结果见P14；真实stdio桥安全交付、Profile Connect批准与完整上下文/审计继续。
 
 P14串口新增严格Disconnect/DisconnectStatus，原有效ticket/原owner编号在范围退休与Forget后只恢复回执、不续租或再取消新worker。新请求需要独立Disconnect/lease，Write/Connect/Control不推导；只有实际join返回才能TransportEnded，回报丢失保持Requested。准确结果见P14/ADR-051，GUI批准与实际stdio桥仍须独立交付。

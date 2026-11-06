@@ -29,6 +29,7 @@ pub enum Action {
 pub enum Target {
     Connection { connection: ConnectionRef },
     Profile { profile_id: Uuid },
+    ProfileRevision { profile_id: Uuid, revision: Uuid },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -43,6 +44,10 @@ impl Scope {
             Target::Profile { profile_id } => {
                 !profile_id.is_nil() && self.action == Action::Connect
             }
+            Target::ProfileRevision {
+                profile_id,
+                revision,
+            } => !profile_id.is_nil() && !revision.is_nil() && self.action == Action::Connect,
             Target::Connection { connection } => {
                 !connection.connection_id.0.is_nil()
                     && connection.generation != 0
@@ -83,6 +88,15 @@ pub struct Permit {
     client_id: Uuid,
     scope: Scope,
     lease_id: Option<Uuid>,
+}
+
+impl Permit {
+    pub fn profile_revision(&self) -> Option<Uuid> {
+        match self.scope.target {
+            Target::ProfileRevision { revision, .. } => Some(revision),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

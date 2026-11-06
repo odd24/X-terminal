@@ -66,15 +66,9 @@ impl Manager {
             let authority = match (identity, owner) {
                 (Some(identity), Some(_)) => Some((
                     identity.clone(),
-                    store.pairing.admit_input(
-                        identity,
-                        Scope {
-                            target: Target::Profile { profile_id },
-                            action: Action::Connect,
-                        },
-                        request_id,
-                        now,
-                    )?,
+                    store
+                        .pairing
+                        .admit_connect(identity, profile_id, request_id, now)?,
                 )),
                 _ => None,
             };
@@ -87,7 +81,16 @@ impl Manager {
             cols,
             rows,
         };
-        let lookup = self.config.request(Internal::Profile(profile_id)).await;
+        let query = authority
+            .as_ref()
+            .and_then(|(_, permit)| permit.profile_revision())
+            .map_or(Internal::Profile(profile_id), |revision| {
+                Internal::ProfileRevision {
+                    id: profile_id,
+                    revision,
+                }
+            });
+        let lookup = self.config.request(query).await;
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         Self::start_owner(&store, identity)?;

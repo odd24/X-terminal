@@ -78,12 +78,22 @@ impl Runtime {
             }
             // Only the existing configuration worker resolves Profile IDs. No paths or secrets.
             for scope in scopes {
-                if let session_core::access::Target::Profile { profile_id } = scope.target {
-                    let lookup = self
-                        .config
-                        .access()
-                        .request(crate::config::Internal::Profile(profile_id))
-                        .await;
+                use session_core::access::Target;
+                let query = match scope.target {
+                    Target::Profile { profile_id } => {
+                        Some(crate::config::Internal::Profile(profile_id))
+                    }
+                    Target::ProfileRevision {
+                        profile_id,
+                        revision,
+                    } => Some(crate::config::Internal::ProfileRevision {
+                        id: profile_id,
+                        revision,
+                    }),
+                    _ => None,
+                };
+                if let Some(query) = query {
+                    let lookup = self.config.access().request(query).await;
                     // Another in-flight copy may have completed while this
                     // configuration request waited, including before a deletion.
                     {

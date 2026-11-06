@@ -2910,6 +2910,29 @@
               "profile_id"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "profile_revision",
+                "type": "string"
+              },
+              "profile_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "profile_id",
+              "revision"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -6695,6 +6718,29 @@
             "required": [
               "kind",
               "profile_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "profile_revision",
+                "type": "string"
+              },
+              "profile_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "profile_id",
+              "revision"
             ],
             "type": "object"
           }

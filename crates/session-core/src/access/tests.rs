@@ -357,3 +357,57 @@ fn lease_and_scope_limits_are_independent_and_expiry_reclaims_capacity() {
         Err(Denial::InvalidArgument)
     );
 }
+
+#[test]
+fn profile_revision_cannot_authorize_other_revisions_or_connection_actions() {
+    let mut policy = Policy::default();
+    let client = Uuid::new_v4();
+    let profile_id = Uuid::new_v4();
+    let revision = Uuid::new_v4();
+    let scope = Scope {
+        target: Target::ProfileRevision {
+            profile_id,
+            revision,
+        },
+        action: Action::Connect,
+    };
+    policy.grant(client, vec![scope], 1000, 0).unwrap();
+    let permit = policy
+        .admit(client, scope, None, Uuid::new_v4(), 1)
+        .unwrap();
+    assert_eq!(permit.profile_revision(), Some(revision));
+    policy.dispatch(&permit, 2).unwrap();
+    for wrong in [
+        Scope {
+            target: Target::Profile { profile_id },
+            ..scope
+        },
+        Scope {
+            target: Target::ProfileRevision {
+                profile_id,
+                revision: Uuid::new_v4(),
+            },
+            ..scope
+        },
+    ] {
+        assert!(
+            policy
+                .admit(client, wrong, None, Uuid::new_v4(), 2)
+                .is_err()
+        );
+    }
+    for action in [
+        Action::Read,
+        Action::Write,
+        Action::Control,
+        Action::Disconnect,
+    ] {
+        assert!(
+            policy
+                .grant(Uuid::new_v4(), vec![Scope { action, ..scope }], 1000, 0)
+                .is_err()
+        );
+    }
+    policy.revoke(client, 3);
+    assert!(policy.dispatch(&permit, 4).is_err());
+}

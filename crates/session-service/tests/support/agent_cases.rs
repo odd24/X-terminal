@@ -2272,3 +2272,88 @@ async fn agent_ssh_connect_owns_start_receipt_without_read_or_approval_authority
     );
     service.stop(&mut desktop).await;
 }
+
+#[tokio::test]
+async fn agent_profile_revision_freezes_connect_configuration_and_receipt() {
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let mut profile = ssh_profile(&remote, config_store::Auth::Password);
+    let config::ConfigReply::SavedProfile { revision, .. } = config_call(
+        &mut desktop,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: replace_password(&remote.password),
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    let scopes = vec![Scope {
+        target: Target::ProfileRevision {
+            profile_id: profile.id,
+            revision,
+        },
+        action: Action::Connect,
+    }];
+    let (ticket, token) = issue(&mut desktop, scopes.clone(), 30000).await;
+    let (mut client, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let id = Uuid::new_v4();
+    let start = |request_id| Request::Ssh {
+        request: ssh::Request::Start {
+            profile_id: profile.id,
+            request_id,
+            cols: 80,
+            rows: 24,
+        },
+    };
+    let original = ok(client.request(start(id)).await.unwrap());
+    assert!(matches!(original, Reply::Ssh(ssh::Reply::Started { .. })));
+    // Even a name-only edit changes the global revision; no future open with old approval.
+    profile.name = "合成配置已编辑".into();
+    config_call(
+        &mut desktop,
+        config::ConfigRequest::SaveProfile {
+            profile: profile.clone(),
+            credential: config::CredentialEdit::Keep {},
+        },
+    )
+    .await;
+    assert_eq!(
+        error(client.request(start(Uuid::new_v4())).await.unwrap()),
+        ErrorCode::InvalidArgument
+    );
+    assert_eq!(
+        serde_json::to_value(ok(client.request(start(id)).await.unwrap())).unwrap(),
+        serde_json::to_value(original).unwrap()
+    );
+    assert_eq!(
+        error(
+            desktop
+                .request(agent(A::Grant {
+                    request_id: Uuid::new_v4(),
+                    scopes,
+                    lifetime_ms: 30000
+                }))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    assert!(
+        matches!(ok(client.request(Request::List {}).await.unwrap()), Reply::Sessions(v) if v.is_empty())
+    );
+    ok(desktop
+        .request(Request::Revoke { ticket_id: ticket })
+        .await
+        .unwrap());
+    assert_eq!(
+        error(client.request(start(id)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    service.stop(&mut desktop).await;
+}

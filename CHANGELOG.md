@@ -1,5 +1,8 @@
 # 变更日志
 
+- P14：按ADR-052新增绑定配置revision的Profile Connect范围与配置线程核对，不把原ID范围当固定版本；真实结果见P14，GUI/真正stdio桥仍独立推进。
+
+
 - P14：SSH2/SERIAL授权面板增加默认未选的独立Disconnect、固定代次与回收语义说明；批准不关闭，接管撤下有效Disconnect。第19原生入口追加独立内存串口GUI/普通服务恢复，准确验证见P14；Profile Connect/真实桥继续。
 
 - P14：串口新增独立Disconnect/lease、原owner编号回执与实际worker join终态；回报通道丢失不标已回收，Forget后旧编号不影响重开连接。真实验证见P14/ADR-051，GUI及真实桥继续。

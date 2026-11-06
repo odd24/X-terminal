@@ -25,6 +25,10 @@ enum Message {
 pub(crate) enum Internal {
     LoggingDirectory,
     Profile(Uuid),
+    ProfileRevision {
+        id: Uuid,
+        revision: Uuid,
+    },
     Credential(Profile),
     Review(config_store::HostKey),
     Approve {
@@ -58,7 +62,7 @@ impl Access {
             async move {
                 match receiver.recv().await.unwrap() {
                     Message::Internal {
-                        request: Internal::Profile(_),
+                        request: Internal::Profile(_) | Internal::ProfileRevision { .. },
                         reply,
                     } => reply,
                     _ => panic!("expected a real configuration lookup"),
@@ -208,6 +212,12 @@ impl State {
                     .ok_or(ConfigError::Storage)?
                     .to_path_buf(),
             )),
+            Internal::ProfileRevision { id, revision } => {
+                if self.revision != revision {
+                    return Err(ConfigError::Conflict);
+                }
+                self.internal(Internal::Profile(id))
+            }
             Internal::Profile(id) => Ok(Value::Profile(
                 self.store
                     .profile(id)

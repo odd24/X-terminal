@@ -1,5 +1,8 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-06 按ADR-052推进Profile/revision Connect固定配置语义；原ID范围契约保留但不作为GUI固定版本批准。实际核心/两协议IPC与原生终态见P14，GUI独立预览/配置变化/初始线行为、真实桥及整个R01–R16/P01–P25继续，不因新目标存在宣称完整授权完成。
+
+
 2026-11-06 串口Disconnect服务/真实join及SSH2/SERIAL独立Disconnect授权GUI两成果完成，232相关Rust/5 feature IPC属于首成果，50前端/lint与最终完整19入口23:14:07–23:19:54实际PASS/退出0、普通服务两次恢复/资源0；首轮重载就绪失败及最终指纹见P14。不关闭父P14或阶段门。下一Profile Connect GUI固定配置/串口初始线行为，随后独立Reconnect/Forget、读取时间范围/授权形式/脱敏/完整拒绝及持久审计、真实stdio桥与整个P15–P25持续，不重做已完成能力或缩小R01–R16/P01–P25目标。
 
 2026-11-06 GUI独立Disconnect按ADR-047/051接SSH2/SERIAL固定代次批准，准确实际验证见P14，不由源码存在预填PASS。下一Profile Connect须固定配置/串口初始DTR/RTS打开行为；SSH Reconnect/Forget仍须独立设计，读取时间范围/单次或任务形式/脱敏/完整拒绝与持久审计、P15安全token交付真实stdio桥/P16同连接及P17–P25继续，完整目标不缩减。
