@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14按ADR-047增加宿主管理白名单/无token投影测试与test:desktop:agent真实WebView/Tauri/NamedPipe专项，覆盖原编号去重/应答丢失命中、接管后有效范围、撤销/到期/重载/服务重启。仅合成连接；管理通道不冒充GUI、Agent交付或完整T13–T17，准确结果见P14。
+
 P14管理增量覆盖固定签发编号去重/不续期、接管后有效范围/撤销和到期token擦除、128回执/opaque保留/有序退休拒绝、严格参数及最大回复帧；真实Windows IPC补原编号多客户端恢复/角色拒绝/删除Profile与退休连接/到期重启、真实Pipe不读签发应答及并发重复。准确结果见P14/ADR-046；GUI/MCP/完整持久审计仍未由该子步通过。
 
 P14串口增量按ADR-045新增OS线程/真实Pairing测试及opt-in serial-ui-fixture下真实Windows IPC：排队输入/控制不派发、短写每次复核、七种撤权下精确已接受前缀/未发送尾部/用户同连接fence、独立Write/Control与客户端回执归属、Observer存在/不存在目标先拒绝。准确终态/失败见P14，不把内存回显当COM驱动验收，不从专项推断GUI/MCP/完整T13–T17通过。

@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent_management;
 mod export_save;
 mod service;
 mod terminal_clipboard;
@@ -130,6 +131,28 @@ async fn logging_request(
         _ => {
             *channel = None;
             Err("LOG_CHANNEL_UNAVAILABLE".into())
+        }
+    }
+}
+
+#[tauri::command]
+async fn agent_management_request(
+    state: State<'_, Desktop>,
+    request: agent_management::Request,
+) -> Result<agent_management::Reply, String> {
+    let request = request.into_protocol()?;
+    // Management can await Profile lookups. Keep it off the terminal/input pipe.
+    let mut channel = state.1.lock().await;
+    let client = channel.as_mut().ok_or("AGENT_CHANNEL_UNAVAILABLE")?;
+    match client.request(Request::Agent { request }).await {
+        Ok(session_protocol::Response::Ok {
+            reply: Reply::Agent(reply),
+            ..
+        }) => Ok(reply.into()),
+        Ok(session_protocol::Response::Error { code, .. }) => Err(code.to_string()),
+        _ => {
+            *channel = None;
+            Err("AGENT_CHANNEL_UNAVAILABLE".into())
         }
     }
 }
@@ -377,6 +400,7 @@ fn main() {
             fixture_lifecycle,
             config_request,
             logging_request,
+            agent_management_request,
             export_save_request,
             config_directory
         ])
