@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14串口Disconnect新增确定性阻塞worker仍Requested/禁止Forget与重开、容量失败不取消、open guard等待期间Disconnect零实际打开、join回报通道丢失不虚报回收；严格协议拒绝无编号/代次0/自填owner。opt-in serial-ui-fixture真实Windows IPC独立验证lease/范围/归属、部分写前缀与排队取消、跨Pipe原编号/Forget后重开不被旧请求关闭、不读实际Pipe应答后查询及撤销/到期拒绝。内存端口不代表COM；准确终态见P14，GUI/真实桥另验。
+
 P14 SSH Disconnect增加领域Disconnected但Actor被确定性阻塞时仍Requested、回执容量失败不取消；严格协议拒绝调用者owner。真实Pipe覆盖独立范围/lease/跨来源、并发重复、运行exec取消及合成SSH对端结束；不读实际Pipe应答后原编号恢复、重连新代次不重关、Forget后恢复与撤销后拒绝分别验证。真实终态见P14，不推导串口Disconnect/GUI或真实MCP桥。
 
 P14 Disconnect核心按ADR-051验证原owner/完整代次、重复只查、完成标记单调性、1024容量、pending/opaque不淘汰及UUIDv7同毫秒退役。模型不执行I/O；服务须另验真实Windows IPC、独立Disconnect/lease、关闭后原编号恢复、跨来源/撤权/到期与实际Actor/worker结束，不以领域Disconnected冒充传输结束。准确结果见P14。

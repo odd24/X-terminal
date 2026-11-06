@@ -45,6 +45,14 @@ pub enum Request {
     Close {
         connection: ConnectionRef,
     },
+    Disconnect {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
+    DisconnectStatus {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Forget {
         connection: ConnectionRef,
     },
@@ -93,6 +101,14 @@ impl Request {
                 ..
             }
             | Self::InputStatus {
+                connection,
+                request_id,
+            }
+            | Self::Disconnect {
+                connection,
+                request_id,
+            }
+            | Self::DisconnectStatus {
                 connection,
                 request_id,
             } => valid(connection) && !request_id.is_nil(),
@@ -162,6 +178,7 @@ pub struct Status {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    Disconnect(session_core::disconnect::Receipt),
     Inventory {
         revision: Uuid,
         devices: Vec<DeviceSummary>,
@@ -179,6 +196,39 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn disconnect_requires_original_number_and_generation_without_caller_owner() {
+        let connection = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        for op in ["disconnect", "disconnect_status"] {
+            let mut value = serde_json::json!({"op": op, "connection": connection, "request_id": Uuid::new_v4()});
+            assert!(
+                serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            value["owner"] = serde_json::json!(Uuid::new_v4());
+            assert!(serde_json::from_value::<Request>(value.clone()).is_err());
+            value.as_object_mut().unwrap().remove("owner");
+            value["connection"]["generation"] = serde_json::json!(0);
+            assert!(
+                !serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            value["connection"]["generation"] = serde_json::json!(1);
+            value["request_id"] = serde_json::json!(Uuid::nil());
+            assert!(
+                !serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            value.as_object_mut().unwrap().remove("request_id");
+            assert!(serde_json::from_value::<Request>(value).is_err());
+        }
+    }
     #[test]
     fn serial_contract_requires_scopes_bounds_and_redacts_payloads() {
         let connection = ConnectionRef {

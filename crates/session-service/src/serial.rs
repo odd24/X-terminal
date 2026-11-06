@@ -22,6 +22,7 @@ use transport_serial::{
     worker::{self, Worker},
 };
 use uuid::Uuid;
+mod disconnect;
 mod entry;
 #[cfg(feature = "serial-ui-fixture")]
 mod fixture;
@@ -83,6 +84,7 @@ struct Entry {
 }
 #[derive(Default)]
 struct Inner {
+    disconnects: session_core::disconnect::Receipts,
     revision: Uuid,
     devices: HashMap<Uuid, Device>,
     entries: HashMap<ConnectionId, Entry>,
@@ -141,6 +143,8 @@ impl Manager {
                         | Request::Send { .. }
                         | Request::Control { .. }
                         | Request::InputStatus { .. }
+                        | Request::Disconnect { .. }
+                        | Request::DisconnectStatus { .. }
                 )
             {
                 store.pairing.require_desktop(identity, now)?;
@@ -162,6 +166,14 @@ impl Manager {
         }
         self.tick();
         match request {
+            Request::Disconnect {
+                connection,
+                request_id,
+            } => self.disconnect_as(identity, connection, request_id, false),
+            Request::DisconnectStatus {
+                connection,
+                request_id,
+            } => self.disconnect_as(identity, connection, request_id, true),
             Request::Inventory {} => {
                 let factory = self.factory.clone();
                 let inventory = tokio::task::spawn_blocking(move || factory.inventory())
@@ -316,7 +328,8 @@ impl Manager {
                     .ok_or(ErrorCode::NotFound)?;
                 match request {
                     Request::Status { .. } => {
-                        let cleanup_pending = info.state == State::Closing && !entry.joined;
+                        let cleanup_pending =
+                            !entry.joined && (entry.closing || info.state == State::Failed);
                         Ok(Reply::Status(serial::Status {
                             hardware_rts: entry.hardware_rts,
                             encoding: entry.encoding.clone(),
@@ -365,6 +378,7 @@ impl Manager {
                         let now = store.now();
                         store.pairing.retire_connection(connection, now);
                         store.sessions.remove(connection)?;
+                        inner.observe_disconnect(connection);
                         inner.entries.remove(&connection.connection_id);
                         Ok(Reply::Accepted)
                     }
@@ -528,6 +542,15 @@ impl Manager {
         let mut store = self.store.lock().unwrap();
         for entry in inner.entries.values_mut() {
             entry.poll(&mut store);
+        }
+        let ended: Vec<_> = inner
+            .entries
+            .values()
+            .filter(|entry| entry.joined)
+            .map(|entry| entry.reference)
+            .collect();
+        for connection in ended {
+            inner.observe_disconnect(connection);
         }
     }
     pub(crate) async fn close(self) -> io::Result<()> {

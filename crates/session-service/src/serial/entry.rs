@@ -100,13 +100,14 @@ impl Entry {
         }
         if let Some(joining) = &self.joining {
             let result = match joining.try_recv() {
-                Ok(result) => Some(result),
-                Err(mpsc::TryRecvError::Disconnected) => Some(Err(Failure::WorkerFailed)),
+                Ok(result) => Some((true, result)),
+                // A lost reporting task is not proof that it called join.
+                Err(mpsc::TryRecvError::Disconnected) => Some((false, Err(Failure::WorkerFailed))),
                 Err(mpsc::TryRecvError::Empty) => None,
             };
-            if let Some(result) = result {
+            if let Some((joined, result)) = result {
                 self.joining = None;
-                self.joined = true;
+                self.joined = joined;
                 match result {
                     Ok(status) => {
                         self.status = status;
@@ -132,7 +133,7 @@ impl Entry {
                     }
                     Err(error) => self.failure = Some(error),
                 }
-                let target = if self.closing {
+                let target = if self.closing && joined {
                     State::Disconnected
                 } else {
                     State::Failed

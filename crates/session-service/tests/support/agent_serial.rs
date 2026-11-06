@@ -1,5 +1,7 @@
 //! Real Windows IPC with the opt-in OS-thread memory port, never native COM.
 use super::*;
+#[path = "agent_serial_disconnect.rs"]
+mod disconnect_cases;
 use session_protocol::serial::{self as s, InputState, Reply as SR, Request as S};
 
 async fn call(client: &mut Client, request: S) -> SR {

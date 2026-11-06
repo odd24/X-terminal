@@ -1,4 +1,6 @@
 use super::*;
+#[path = "tests_disconnect.rs"]
+mod disconnect_tests;
 use session_protocol::{
     SensitiveBytes,
     config::{ConfigRequest, CredentialEdit},
@@ -21,6 +23,7 @@ struct Wire {
     driver_opens: AtomicUsize,
     open_pause: AtomicBool,
     open_waiting: AtomicBool,
+    read_waiting: AtomicBool,
     burst: AtomicUsize,
 }
 struct Memory(Arc<Wire>);
@@ -36,6 +39,7 @@ impl worker::Port for Memory {
             .sum::<usize>() as u32)
     }
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<transport_serial::ReadOutcome> {
+        self.0.read_waiting.store(true, Ordering::Release);
         while self.0.pause.load(Ordering::Acquire) {
             std::thread::sleep(Duration::from_millis(1));
         }

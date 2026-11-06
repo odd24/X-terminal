@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14串口Disconnect沿[ADR-051](decisions/ADR-051.md)接独立Disconnect/lease和认证owner原编号回执；实际OS worker join返回才完成，本地取消/Ended状态或回报通道丢失不能充当回收证据。tick/Forget前保存终态，关闭退休后只查原编号不重开/重关。内存IPC/原生准确结果见P14；GUI、真实桥及COM独立验证。
+
 P14 SSH Disconnect按[ADR-051](decisions/ADR-051.md)推进独立Disconnect/lease、原认证owner/精确代次的有界回执与只查编号恢复；Requested与Actor及共享传输引用实际回收的TransportEnded分开。旧无编号Close保持Desktop专用；串口Disconnect、GUI和真实桥须独立接入，准确验证见P14。
 
 P14串口Start沿[ADR-050](decisions/ADR-050.md)在原有界回执记录认证来源；Profile Connect经配置await后复核，保持库存/设备/端口匹配，OS worker打开前再复核同许可并检查Close取消。打开后的驱动动作不承诺撤回，不授新连接Read/Write/Control，准确结果见P14。

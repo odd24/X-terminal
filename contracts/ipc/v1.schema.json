@@ -2172,6 +2172,50 @@
                 "$ref": "#/$defs/ConnectionRef"
               },
               "op": {
+                "const": "disconnect",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "disconnect_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
                 "const": "forget",
                 "type": "string"
               }
@@ -3777,7 +3821,7 @@
             "$ref": "#/$defs/Protocol"
           },
           "state": {
-            "$ref": "#/$defs/State2"
+            "$ref": "#/$defs/State3"
           }
         },
         "required": [
@@ -5878,6 +5922,32 @@
           {
             "additionalProperties": false,
             "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "disconnect",
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/$defs/State2"
+              }
+            },
+            "required": [
+              "result",
+              "request_id",
+              "connection",
+              "state"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "devices": {
                 "items": {
                   "$ref": "#/$defs/DeviceSummary"
@@ -6073,7 +6143,7 @@
                 "type": "string"
               },
               "state": {
-                "$ref": "#/$defs/State3"
+                "$ref": "#/$defs/State2"
               }
             },
             "required": [
@@ -6533,17 +6603,6 @@
         "type": "string"
       },
       "State2": {
-        "enum": [
-          "DISCONNECTED",
-          "CONNECTING",
-          "AUTHENTICATING",
-          "CONNECTED",
-          "CLOSING",
-          "FAILED"
-        ],
-        "type": "string"
-      },
-      "State3": {
         "oneOf": [
           {
             "const": "REQUESTED",
@@ -6556,6 +6615,17 @@
             "type": "string"
           }
         ]
+      },
+      "State3": {
+        "enum": [
+          "DISCONNECTED",
+          "CONNECTING",
+          "AUTHENTICATING",
+          "CONNECTED",
+          "CLOSING",
+          "FAILED"
+        ],
+        "type": "string"
       },
       "Summary": {
         "additionalProperties": false,

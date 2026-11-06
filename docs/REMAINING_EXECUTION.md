@@ -1,5 +1,7 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-06 串口Disconnect独立范围/lease与原owner有界回执已接实现，OS worker实际join才TransportEnded，回报丢失保持Requested并拒绝Forget。真实测试终态见P14，不能由实现预填PASS。下一GUI独立Disconnect批准、Profile Connect、SSH Reconnect/Forget、读取时间范围/授权形式/脱敏/持久审计及P15真正桥与完整R01–R16/P01–P25继续。
+
 2026-11-06 SSH Disconnect沿ADR-051接独立范围/lease、原owner回执和实际本地回收；原编号恢复不重关新代次，具体验证见P14。串口Disconnect仍须OS worker实际join/有界回执接入；SSH Reconnect/Forget的Agent动作、GUI Profile/Disconnect批准、时间范围/授权形式/脱敏/完整审计与真正stdio桥及全部P15–P25继续，不因两个本地成果缩减完整目标。
 
 2026-11-06 Disconnect按ADR-051推进独立有界回执，原owner/精确代次及请求关闭与本地传输回收状态分开。核心先行，服务仍须独立Disconnect/lease、真实传输取消/回收与关闭后原编号恢复证据，GUI及真实桥未完成；整个R01–R16/P01–P25范围不变。
