@@ -1,0 +1,28 @@
+import type { Profile } from './config-api';
+import { uuid, type Scope } from './agent-management.ts';
+
+export type ProfileProposal = { service_id: string; profile_id: string; revision: string; name: string; protocol: string; description: string; lifetime_ms: number; scopes: Scope[] };
+export function profileDescription(profile: Profile): string {
+  const s = profile.settings;
+  if (s.protocol === 'ssh2') return `${s.host}:${s.port} · 用户 ${s.username} · 认证 ${s.auth} · 编码 ${s.encoding} · 主机信任与凭据使用仍需Desktop批准`;
+  if (s.protocol === 'serial') return `${s.port} · ${s.baud_rate} · ${s.data_bits}/${s.parity}/${s.stop_bits} · 流控 ${s.flow} · 编码 ${s.encoding} · 初始DTR ${s.dtr_on_open ? '开启' : '关闭'} · 初始RTS ${s.rts_on_open === null ? '由硬件流控管理' : s.rts_on_open ? '开启' : '关闭'}`;
+  throw new Error('此协议尚未开放Agent建连批准。');
+}
+export class ProfileGrantApproval {
+  private current?: ProfileProposal;
+  invalidate() { this.current = undefined; }
+  prepare(service_id: string, revision: string, profile: Profile, seconds: number): ProfileProposal {
+    this.invalidate();
+    if (!uuid(service_id) || !uuid(revision) || !uuid(profile.id) || !Number.isSafeInteger(seconds) || seconds < 1 || seconds > 1800) throw new Error('请核对已保存配置、版本与1–1800秒期限。');
+    const scopes: Scope[] = [Object.freeze({ target: Object.freeze({ kind: 'profile_revision', profile_id: profile.id, revision }), action: 'CONNECT' })];
+    Object.freeze(scopes);
+    this.current = Object.freeze({ service_id, profile_id: profile.id, revision, name: profile.name, protocol: profile.settings.protocol.toUpperCase(), description: profileDescription(profile), lifetime_ms: seconds * 1000, scopes });
+    return this.current;
+  }
+  consume(service_id: string, revision: string | undefined, profile_id: string, proposal: ProfileProposal): ProfileProposal {
+    const valid = this.current === proposal && proposal.service_id === service_id && proposal.revision === revision && proposal.profile_id === profile_id;
+    this.invalidate();
+    if (!valid) throw new Error('配置预览已失效；请重新读取并核对。');
+    return proposal;
+  }
+}

@@ -1,5 +1,8 @@
 # 界面与交互规范
 
+P14 Profile Connect复用AgentPanel/Field/fieldset/tokens，当前连接能力与已保存配置建连分开，默认不选目标/不同意。预览完整Profile/revision及非秘密参数、串口初始DTR/RTS、期限和Connect边界；取消优先焦点，变更需重读重新预览，不把旧同意自动用于新配置。原编号管理复用无token投影，实际两协议GUI见P14，不替代全局DPIIME或真实stdio桥。
+
+
 P14 SSH2/SERIAL独立Disconnect复用公共能力选择与固定代次预览，默认无勾选；明确批准不会关闭连接，实际动作需独立租约。选择/预览说明Requested与本地回收的区别、原请求编号恢复和已发送动作不能撤回。人工接管撤下Disconnect，旧批准/当前有效范围分别显示；不增加独立色板/字体。第19入口的SSH及内存串口实际GUI证据见P14，真实桥/全局DPIIME另验。
 
 P14 Control沿ADR-048在SSH2与SERIAL目标上分别表示尺寸或控制线，复用同一公共选择/预览/范围文本，默认无勾选，不增加配色/字体。桌面视口变化不是人工输入接管；实际GUI结果见P14，仍非真实DPI/完整全局矩阵。

@@ -4,6 +4,8 @@ import type { Connection, ConnectionRef } from './ssh-api';
 import { Field, Panel } from './ui';
 import { GrantApproval, actionName, checkedAudit, checkedGrant, checkedLease, checkedList, restoreSlot, scopeText, slotKey, supportedActions, uuid, type Action, type AuditPage, type GrantView, type Lease, type Proposal, type Slot, type Summary } from './agent-management';
 import { requestId } from './request-id';
+import { ProfileGrantPanel } from './profile-grant-panel';
+import { readConfiguration } from './config-api';
 
 const call = (request: Record<string, unknown>) => invoke<unknown>('agent_management_request', { request });
 const readSlot = () => { try { return restoreSlot(sessionStorage.getItem(slotKey)); } catch { return undefined; } };
@@ -11,6 +13,7 @@ const targetText = (connection: ConnectionRef) => `${connection.connection_id} /
 
 export function AgentPanel({ serviceId, target, close }: { serviceId: string; target?: Connection; close(): void }) {
   const approval = useRef(new GrantApproval());
+  const [mode, setMode] = useState('connection');
   const [selected, setSelected] = useState<Action[]>([]);
   const [seconds, setSeconds] = useState(300);
   const [proposal, setProposal] = useState<Proposal>();
@@ -54,16 +57,29 @@ export function AgentPanel({ serviceId, target, close }: { serviceId: string; ta
     <p role="status" aria-label="Agent管理状态">{message}</p>
     <small>服务 {serviceId} · 凭据只在原生/服务内存中。真实 MCP 桥交付尚未接入；本面板不提供 token 复制或保存。</small>
     <p>读取范围包含该代次服务当前有界保留的原始输出、解码文本与屏幕；不包含持久日志/导出、认证秘密或其他连接。写入、独立 exec、协议控制与断开连接分别批准；变更操作还需 Agent 自己取得最长60秒的独占租约。</p>
-    <fieldset disabled={busy || unresolved}><legend>批准当前目标</legend>
+    <Field label="授权目标类型"><select aria-label="Agent授权类型" disabled={busy} value={mode} onChange={event => { invalidate(); setMode(event.target.value); }}><option value="connection">当前连接能力</option><option value="profile">已保存配置建连</option></select></Field>
+    {mode === 'profile' && <ProfileGrantPanel serviceId={serviceId} disabled={busy || unresolved} submit={(approved, current) => {
+      if (flight.current) return Promise.resolve();
+      return run(async () => {
+        const snapshot = await readConfiguration();
+        if (!alive.current || !current()) return;
+        if (snapshot.revision !== approved.revision || !snapshot.profiles.some(item => item.id === approved.profile_id && item.settings.protocol.toUpperCase() === approved.protocol)) throw new Error('配置版本已变化或目标已删除；请重新读取并预览');
+        const id = requestId(); remember(id); setView(undefined);
+        const result = checkedGrant(await call({ op: 'grant', request_id: id, scopes: approved.scopes, lifetime_ms: approved.lifetime_ms }), id);
+        if (!alive.current) return;
+        setView(result); setMessage('已签发限时授权：仅固定配置版本的Connect，尚未建连或向真实桥交付。');
+      });
+    }} />}
+    {mode === 'connection' && <fieldset disabled={busy || unresolved}><legend>批准当前目标</legend>
       <small aria-label="Agent批准目标">{target ? `${target.protocol} · ${targetText(target)}` : '尚无活动连接'}</small>
-      <p>默认未选择能力。建立配置连接和广播尚未开放；协议控制仅为SSH尺寸或串口控制线；合成会话只提供测试读取。</p>
+      <p>默认未选择能力。配置建连请切换授权目标类型；广播尚未开放；协议控制仅为SSH尺寸或串口控制线；合成会话只提供测试读取。</p>
       {available.map(action => <label className="check" key={action}><input type="checkbox" aria-label={`授权${actionName[action]}`} checked={selected.includes(action)} onChange={event => { invalidate(); setSelected(previous => event.target.checked ? [...previous, action] : previous.filter(item => item !== action)); }} />{actionName[action]}</label>)}
       {selected.includes('DISCONNECT') && <p aria-label="Agent断开范围说明">断开仅限以上连接代次，取消该连接的排队输入与任务，并撤下此代次自动化范围和租约。请求关闭不等于本地传输已回收，实际回收须查询原请求编号；不能撤回已发送字节或远端已执行动作。批准授权本身不会断开连接，也不授予读取、写入、控制或重连能力。</p>}
       <Field label="授权期限（秒，1–1800）"><input type="number" min={1} max={1800} aria-label="Agent授权秒数" value={seconds} onChange={event => { invalidate(); setSeconds(Number(event.target.value)); }} /></Field>
       <button disabled={!target || !selected.length} onClick={() => { try { if (!target) return; setProposal(approval.current.prepare(serviceId, target, selected, seconds)); setConsent(false); setMessage('请核对固定目标、能力和期限；尚未签发。'); } catch (error) { invalidate(); setMessage(String(error)); } }}>预览Agent授权</button>
-    </fieldset>
+    </fieldset>}
     {unresolved && <p>保留编号的签发结果尚未核对；请先查询原编号，当前禁止再次签发。</p>}
-    {proposal && <fieldset disabled={busy}><legend>核对本次授权</legend>
+    {mode === 'connection' && proposal && <fieldset disabled={busy}><legend>核对本次授权</legend>
       <small aria-label="Agent授权预览">{proposal.protocol} · {targetText(proposal.connection)} · {proposal.lifetime_ms / 1000} 秒</small>
       <ul>{proposal.scopes.map(scope => <li key={scope.action}>{scopeText(scope)}</li>)}</ul>
       {proposal.scopes.some(scope => scope.action === 'DISCONNECT') && <p>断开权限仅适用于此固定代次，需独立租约；原编号用于恢复关闭回执，Requested表示请求关闭，TransportEnded表示本地传输回收，不代表远端动作已撤销。</p>}

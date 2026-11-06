@@ -1,5 +1,11 @@
 # 执行台账
 
+2026-11-07 固定Profile/revision Connect GUI子步完成：51前端/lint、实际最终构建/两协议专项与00:03:08–00:09:38完整19入口PASS/退出0，普通服务两次实际恢复/资源0。双击保护首失败修正、首完整Explorer观察失败/另存复验EBUSY与诊断增强、被拒绝的自建残留清理及最终指纹/两提交冻结均见P14；首成果6c23700，Agent重连/移除/上下文/真实桥和完整方案继续。Step-ID: P14。
+
+
+2026-11-06 前置6c23700后实施Profile/revision Connect独立GUI，固定参数/初始线/版本并批准前重读，51前端/lint及脚本语法PASS。最终实际构建/两协议专项/完整19入口真实终态见P14，不预填通过；真实桥及完整R01–R16/P01–P25持续。Step-ID: P14。
+
+
 2026-11-06 Profile/revision Connect服务子步完成：ADR-052、63核心/25协议/41服务/79真实IPC首轮208项、最终协议26项/串口feature5项与严格检查/schema PASS；实际desktop:build及两协议Agent专项PASS，普通服务8.79秒真实恢复。固定Profile GUI下一子步、真实stdio桥及完整方案继续，准确范围/指纹见P14。Step-ID: P14。
 
 

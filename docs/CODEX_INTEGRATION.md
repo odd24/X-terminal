@@ -1,5 +1,8 @@
 # Codex 首版接入方案
 
+P14授权GUI独立提供已保存SSH2/SERIAL固定revision Connect，默认无目标/无同意；预览非秘密配置及串口初始DTR/RTS，批准前重读同版本。批准只签发，不连接、不授新代次范围/lease/库存/认证；原编号恢复不续期。第19两协议真实GUI准确结果见P14，仍不等于Agent token已交真正stdio桥。
+
+
 P14按[ADR-052](decisions/ADR-052.md)新增profile_revision目标，精确Profile ID和配置库revision上的Connect。Start先匹配版本并读取不可变配置快照，再复核同许可派发；配置变更后不能以旧批准使用新参数，原Start编号仍只查。旧profile目标保持ID语义，不把它当固定配置。GUI/真实桥交付准确结果见P14，Connect不授新连接范围、lease、库存或认证批准。
 
 

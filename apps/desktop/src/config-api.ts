@@ -61,7 +61,7 @@ export async function config(request: ConfigRequest): Promise<Reply> {
   if (reply.result === 'error') throw new Error(messages[reply.code] ?? '配置请求失败。');
   return reply;
 }
-export async function readConfiguration(): Promise<{ folders: Folder[]; profiles: Profile[] }> {
+export async function readConfiguration(): Promise<{ folders: Folder[]; profiles: Profile[]; revision: string }> {
   // One revision across both collections. A conflict is surfaced, never silently merged.
   let revision: string | null = null;
   const folders: Folder[] = []; const profiles: Profile[] = [];
@@ -75,5 +75,6 @@ export async function readConfiguration(): Promise<{ folders: Folder[]; profiles
       offset = reply.next_offset;
     }
   }
-  return { folders, profiles };
+  if (!revision) throw new Error("配置版本缺失。");
+  return { folders, profiles, revision };
 }

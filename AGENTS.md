@@ -1,5 +1,8 @@
 # 仓库执行规则
 
+P14配置建连GUI按ADR-052独立选择已保存SSH2/SERIAL的profile_revision Connect，默认无目标/无同意、固定配置参数/期限，批准前重读同revision且不建连；串口初始DTR/RTS明确。第19两协议专项覆盖编辑/删除/重载/真实fetch丢应答/关闭迟到，只Agent中文前缀根且串口finally实际恢复普通服务；真实stdio桥仍独立交付。
+
+
 P14 Profile Connect按ADR-052新增profile_revision固定配置库版本目标，仅Connect；原profile ID范围不冒充固定版本。Start原编号优先只查，配置线程匹配revision后返回不可变Profile快照，await后与实际派发前仍复核同许可；库变更保守阻止后续新Start，在途快照不混用新参数。GUI须明确串口初始DTR/RTS，不从服务路径推导批准或真实stdio桥。
 
 

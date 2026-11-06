@@ -1,3 +1,4 @@
+import { checkProfileConnect } from './lib/AgentProfileChecks.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -103,6 +104,7 @@ try {
   assert.equal(await ui.evaluate(`!!(${button('确认批准Agent')})`), false);
   await ui.click('查询原Agent编号');
   await ui.waitFor(`document.querySelector('[aria-label="Agent授权详情"]')?.textContent.includes('有效范围 0')`);
+  await checkProfileConnect(ui, profile);
   console.log('PASS serial Agent GUI: default-none independent DISCONNECT only, cancel/switch/one-shot, exact target, no implicit read/write/control/lease/close, worker join receipt/Forget recovery, retired effective scopes and ID-only reload; synthetic memory port, no COM');
 } finally {
   try {

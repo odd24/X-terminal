@@ -1,7 +1,7 @@
 import type { Connection, ConnectionRef } from './ssh-api';
 
 export type Action = 'READ' | 'WRITE' | 'EXEC' | 'CONTROL' | 'CONNECT' | 'DISCONNECT' | 'BROADCAST';
-export type Scope = { target: { kind: 'connection'; connection: ConnectionRef } | { kind: 'profile'; profile_id: string }; action: Action };
+export type Scope = { target: { kind: 'connection'; connection: ConnectionRef } | { kind: 'profile'; profile_id: string } | { kind: 'profile_revision'; profile_id: string; revision: string }; action: Action };
 export type Summary = { request_id: string; ticket_id: string; expires_at_ms: number; state: 'ACTIVE' | 'EXPIRED' | 'REVOKED'; effective_scope_count: number };
 export type GrantView = { summary: Summary; approved_scopes: Scope[]; effective_scopes: Scope[] };
 export type Slot = { service_id: string; request_id: string };
@@ -21,10 +21,12 @@ function checkedScope(v: unknown): Scope {
   if (!exact(v, ['target', 'action']) || !actions.includes(v.action as Action) || !object(v.target)) throw fail();
   if (v.target.kind === 'connection') {
     if (!exact(v.target, ['kind', 'connection']) || !connection(v.target.connection) || v.action === 'CONNECT') throw fail();
+  } else if (v.target.kind === 'profile_revision') {
+    if (!exact(v.target, ['kind', 'profile_id', 'revision']) || !uuid(v.target.profile_id) || !uuid(v.target.revision) || v.action !== 'CONNECT') throw fail();
   } else if (v.target.kind !== 'profile' || !exact(v.target, ['kind', 'profile_id']) || !uuid(v.target.profile_id) || v.action !== 'CONNECT') throw fail();
   return v as Scope;
 }
-const scopeKey = (s: Scope) => s.target.kind === 'profile' ? `p:${s.target.profile_id}:${s.action}` : `c:${s.target.connection.connection_id}:${s.target.connection.generation}:${s.action}`;
+const scopeKey = (s: Scope) => s.target.kind !== 'connection' ? `p:${s.target.profile_id}:${s.target.kind === 'profile_revision' ? s.target.revision : 'id'}:${s.action}` : `c:${s.target.connection.connection_id}:${s.target.connection.generation}:${s.action}`;
 function checkedSummary(v: unknown): Summary {
   if (!exact(v, ['request_id', 'ticket_id', 'expires_at_ms', 'state', 'effective_scope_count']) || !uuid(v.request_id) || !uuid(v.ticket_id) || !integer(v.expires_at_ms, 1) || !['ACTIVE', 'EXPIRED', 'REVOKED'].includes(v.state as string) || !integer(v.effective_scope_count) || v.effective_scope_count > 64 || (v.state !== 'ACTIVE' && v.effective_scope_count !== 0)) throw fail();
   return v as Summary;
@@ -100,4 +102,4 @@ export class GrantApproval {
   }
 }
 export const actionName: Record<Action, string> = { READ: '读取终端', WRITE: '写入终端', EXEC: '独立 exec', CONTROL: '协议控制（SSH尺寸/串口控制线）', CONNECT: '建立配置连接', DISCONNECT: '断开连接', BROADCAST: '广播' };
-export function scopeText(scope: Scope): string { return `${actionName[scope.action]} · ${scope.target.kind === 'profile' ? `配置 ${scope.target.profile_id}` : `${scope.target.connection.connection_id} / 代次 ${scope.target.connection.generation}`}`; }
+export function scopeText(scope: Scope): string { return `${actionName[scope.action]} · ${scope.target.kind !== 'connection' ? `配置 ${scope.target.profile_id} / ${scope.target.kind === 'profile_revision' ? `配置版本 ${scope.target.revision}` : '仅ID范围（不固定配置）'}` : `${scope.target.connection.connection_id} / 代次 ${scope.target.connection.generation}`}`; }

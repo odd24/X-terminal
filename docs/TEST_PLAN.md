@@ -1,5 +1,8 @@
 # 验证与验收计划
 
+P14 Profile Connect第19入口共用AgentProfileChecks，在SSH/独立内存串口真实WebView验证固定Profile/revision/参数/初始DTR/RTS、默认无目标与同意、取消/切换/外部编辑/删除后不签发、双击只签发一次且不建连、预览重载不签发、真实fetch丢应答命中后仅查询及held响应关闭不重开。编号槽仅service_id/request_id；token无原生投影，串口finally核对普通服务恢复。准确结果见P14，不冒充真实Agent stdio/COM或全局DPIIME。
+
+
 P14按ADR-052增加配置revision范围隔离/动作拒绝/撤销，真实Windows SSH及内存串口IPC核对配置修改后新Start拒绝、原回执保持与既有归属/权限边界。GUI另须测试默认未选、固定配置参数/初始DTR/RTS、切换/修改/删除/重载/丢应答/迟到，串口finally实际恢复普通服务；准确终态见P14，真实stdio/COM不从专项推导。
 
 

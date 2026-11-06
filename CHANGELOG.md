@@ -1,5 +1,8 @@
 # 变更日志
 
+- P14：共享授权界面增加SSH2/SERIAL固定Profile/revision Connect批准，明确非秘密参数与串口初始线，批准前重读配置；真实验证见P14，token不入WebView、真正stdio桥另交付。
+
+
 - P14：按ADR-052新增绑定配置revision的Profile Connect范围与配置线程核对，不把原ID范围当固定版本；真实结果见P14，GUI/真正stdio桥仍独立推进。
 
 

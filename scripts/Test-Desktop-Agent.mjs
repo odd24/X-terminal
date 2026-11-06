@@ -1,3 +1,4 @@
+import { checkProfileConnect } from './lib/AgentProfileChecks.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -215,6 +216,7 @@ try {
   await ui.evaluate(`document.querySelector('.auxiliary-panels').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-light-synthetic.png');
   console.log('PASS Agent GUI: fixed SSH generation/independent READ+WRITE+SSH CONTROL+DISCONNECT, approval does not close, no default consent, cancel/switch/one-shot approval, takeover removes Disconnect, original revoke/lost grant recovery, ID-only reload, late-close and bounded audit gap');
+  await checkProfileConnect(ui, profile);
   await ui.close(); ui = await launchDesktop(directory, { fixture: true });
   assert.deepEqual((await call({ op: 'grant_list' })).data, []);
   await assert.rejects(call({ op: 'grant_status', request_id }));

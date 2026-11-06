@@ -1,3 +1,4 @@
+import { ProfileGrantApproval } from '../apps/desktop/src/profile-grant.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GrantApproval, checkedGrant, checkedList, checkedLease, checkedAudit, restoreSlot, supportedActions } from '../apps/desktop/src/agent-management.ts';
@@ -50,4 +51,21 @@ test('lease exact target and bounded audit cursor/gap are checked without accept
   const page={type:'audit',data:{events:[{seq:5,timestamp_ms:9,kind:'TAKEOVER',client_id:ticket,scope:scope('WRITE'),request_id:null,denial:null}],available_from:4,next_cursor:5,gap:true}};
   assert.equal(checkedAudit(page,0).gap,true);
   for(const edit of [v=>v.data.gap=false,v=>v.data.events[0].seq=6,v=>v.data.next_cursor=6,v=>v.data.events[0].token='secret',v=>v.data.events[0].timestamp_ms=-1]) {const v=structuredClone(page);edit(v);assert.throws(()=>checkedAudit(v,0));}
+});
+
+test('profile approval freezes version and opening policy, never authorizes connection actions, consumes once',()=>{
+  const approval=new ProfileGrantApproval();
+  const profile={id,name:'合成串口',settings:{protocol:'serial',port:'COM7',baud_rate:115200,data_bits:8,stop_bits:1,parity:'none',flow:'none',dtr_on_open:true,rts_on_open:false,encoding:'utf8'}};
+  const p=approval.prepare(ticket,request,profile,30);
+  profile.settings.dtr_on_open=false;profile.name='changed';
+  assert.equal(p.name,'合成串口');assert.ok(p.description.includes('初始DTR 开启'));assert.ok(p.description.includes('初始RTS 关闭'));
+  assert.deepEqual(p.scopes,[{target:{kind:'profile_revision',profile_id:id,revision:request},action:'CONNECT'}]);
+  assert.throws(()=>p.scopes[0].target.revision=id);
+  assert.equal(approval.consume(ticket,request,id,p),p);assert.throws(()=>approval.consume(ticket,request,id,p));
+  for(const [service,rev,selected] of [[id,request,id],[ticket,id,id],[ticket,request,ticket]]) {const q=approval.prepare(ticket,request,profile,1);assert.throws(()=>approval.consume(service,rev,selected,q));}
+  assert.throws(()=>approval.prepare(ticket,request,{...profile,settings:{protocol:'ssh1'}},1));
+  const q=approval.prepare(ticket,request,profile,1);approval.invalidate();assert.throws(()=>approval.consume(ticket,request,id,q));
+  const v=view();v.data.approved_scopes=p.scopes;v.data.effective_scopes=structuredClone(p.scopes);
+  assert.equal(checkedGrant(v,request).effective_scopes[0].target.revision,request);
+  v.data.effective_scopes[0].target.revision=id;assert.throws(()=>checkedGrant(v,request));
 });

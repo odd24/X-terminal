@@ -277,6 +277,9 @@
 
 ### P14 Agent 授权与输入调度
 
+- Profile GUI增量：共享授权面板独立批准已保存SSH2/SERIAL固定revision配置，明确串口初始线、批准前重读、变更后重新预览与原编号恢复；准确验证见P14，不由GUI推导真实stdio桥。
+
+
 - 配置批准增量：ADR-052新增profile_revision Connect，配置线程匹配版本后返回不可变快照、原编号只查；原ID范围不冒充固定版本。实际验证见P14，GUI/真实桥及完整范围继续。
 
 

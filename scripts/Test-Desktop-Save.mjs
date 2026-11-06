@@ -47,4 +47,8 @@ try {
   await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);await ui.click('终端日志');await ui.waitFor(`!!document.querySelector('[aria-label="历史日志工具"]')`);await ui.evaluate(`document.querySelector('[aria-label="历史日志工具"]').open=true`);await state('已恢复另存编号');await ui.click('查询另存结果');await state('另存失败');
   assert.deepEqual(await readFile(sourcePath),original);assert.equal((await readdir(output)).filter(name=>name.endsWith('.partial')).length,0);
   await ui.screenshot('desktop-save-synthetic.png');console.log('PASS native save picker/publication/explicit replacement/backup/scope/dedup/lost reply/cancel/lease/tamper/reload/open directory; synthetic only');
-} finally {await ui?.close();assert.equal(path.dirname(path.resolve(directory)),path.resolve(tmpdir()));assert.ok(path.basename(directory).startsWith('shared-terminal-save-ui-中文-'));await rm(directory,{recursive:true,force:true});}
+} catch(error) {
+  console.error('SAVE_BODY_FAILURE', error);
+  if(ui) { try { console.error('SAVE_UI_STATE',await ui.evaluate(`document.querySelector('[aria-label="导出另存状态"]')?.textContent`)); await ui.screenshot('desktop-save-failure-synthetic.png'); } catch(diagnosticError) { console.error('SAVE_DIAGNOSTIC_FAILURE',String(diagnosticError)); } }
+  throw error;
+} finally {await ui?.close();assert.equal(path.dirname(path.resolve(directory)),path.resolve(tmpdir()));assert.ok(path.basename(directory).startsWith('shared-terminal-save-ui-中文-'));await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
