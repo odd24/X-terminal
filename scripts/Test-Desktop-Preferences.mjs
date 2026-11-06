@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
@@ -18,9 +19,10 @@ async function key(letter, shift=false) {
 async function toggle(label) { await ui.evaluate(`document.querySelector('[aria-label="${label}"]').click()`); }
 try {
   await open();
+  await ui.fill('终端配色','black_green');
   await ui.fill('应用主题','light'); await ui.fill('终端等宽字体','cascadia'); await ui.fill('字号',22);
   await toggle('Ctrl+C选区复制'); await toggle('Ctrl+V粘贴'); await toggle('右键粘贴');
-  const expected={theme:'light',terminal_font:'cascadia',font_size:22,ctrl_c_copy:false,ctrl_v_paste:true,right_click_paste:true};
+  const expected={theme:'light',terminal_font:'cascadia',terminal_palette:'black_green',font_size:22,ctrl_c_copy:false,ctrl_v_paste:true,right_click_paste:true};
   assert.notDeepEqual((await call({op:'preferences'})).preferences,expected,'editing does not silently persist');
   await ui.click('保存桌面偏好'); await message('已保存'); assert.deepEqual((await call({op:'preferences'})).preferences,expected);
   await ui.evaluate('window.__preferencesReloadMarker=true'); await ui.command('Page.reload');
@@ -29,9 +31,27 @@ try {
   assert.equal(await ui.evaluate('document.documentElement.dataset.theme'),'light');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'22');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端等宽字体"]').value`),'cascadia');
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端配色"]').value`),'black_green');
   for(const [label,value] of [['Ctrl+C选区复制',false],['Ctrl+V粘贴',true],['右键粘贴',true]]) assert.equal(await ui.evaluate(`document.querySelector('[aria-label="${label}"]').checked`),value);
   await ui.click('新建合成会话'); await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
   const [connection]=await ui.invoke('service_list'); const ref={connection_id:connection.connection_id,generation:connection.generation};
+  const originalText=await ui.invoke('service_read_text',{connection:ref,cursor:1});
+  const colors = () => ui.evaluate(`(()=>{const s=getComputedStyle(document.documentElement);const probe=document.createElement('span');probe.style.color=s.getPropertyValue('--terminal-foreground');document.body.append(probe);const foreground=getComputedStyle(probe).color;probe.remove();return {background:getComputedStyle(document.querySelector('.terminal')).backgroundColor,foreground,ui:s.backgroundColor,viewport:getComputedStyle(document.querySelector('.xterm-viewport')).backgroundColor};})()`);
+  assert.deepEqual(await colors(),{background:'rgb(0, 0, 0)',foreground:'rgb(128, 255, 128)',ui:'rgb(243, 245, 248)',viewport:'rgb(0, 0, 0)'});
+  const originalScreen=await ui.invoke('service_screen',{connection:ref});
+  await ui.fill('终端配色','black_white');
+  assert.equal((await colors()).foreground,'rgb(238, 238, 238)');
+  await ui.fill('应用主题','dark');
+  assert.equal((await colors()).foreground,'rgb(238, 238, 238)');
+  await ui.fill('终端配色','follow_theme');
+  assert.equal((await colors()).background,'rgb(16, 23, 32)');
+  await ui.fill('应用主题','light');
+  assert.equal((await colors()).background,'rgb(255, 255, 255)');
+  await ui.fill('终端配色','black_green');
+  const currentScreen=await ui.invoke('service_screen',{connection:ref});
+  assert.equal(currentScreen.contents,originalScreen.contents,'palette does not rewrite service screen');
+  await ui.screenshot('desktop-palette-native.png');
+  assert.deepEqual(await ui.invoke('service_read_text',{connection:ref,cursor:1}),originalText,'palette preserves derived text and source scope');
   const read=cursor=>ui.invoke('service_read',{connection:ref,cursor}); let cursor=(await read(1)).next_cursor;
   async function bytes(expectedBytes) {
     let result;
@@ -102,7 +122,20 @@ try {
   await ui.evaluate(`document.querySelector('[aria-label="桌面偏好状态"]').scrollIntoView({block:'center'})`);
   await ui.screenshot('desktop-preferences-native.png');
   await ui.close();ui=null;
+  // Convert only our stopped synthetic directory to the exact old schema-3 shape.
+  const legacy = new DatabaseSync(path.join(directory,'config.sqlite'));
+  const oldPreferences=JSON.parse(legacy.prepare('SELECT value FROM desktop_preferences WHERE id=1').get().value);
+  delete oldPreferences.terminal_palette;
+  legacy.prepare('UPDATE desktop_preferences SET value=? WHERE id=1').run(JSON.stringify(oldPreferences));
+  legacy.exec('DELETE FROM schema_migrations WHERE version=4; PRAGMA user_version=3'); legacy.close();
   await open(); assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'24');
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端配色"]').value`),'follow_theme','old database defaults only the new palette');
+  assert.deepEqual((await call({op:'preferences'})).preferences,{...oldPreferences,terminal_palette:'follow_theme'});
+  const migrationFiles=(await readdir(directory)).filter(name=>/^config-before-v3-[0-9a-f-]+\.sqlite$/.test(name));
+  assert.equal(migrationFiles.length,1);
+  const migration=new DatabaseSync(path.join(directory,migrationFiles[0]),{readOnly:true});
+  assert.equal(migration.prepare('PRAGMA user_version').get().user_version,3);
+  assert.deepEqual(JSON.parse(migration.prepare('SELECT value FROM desktop_preferences WHERE id=1').get().value),oldPreferences);migration.close();
   assert.equal((await ui.invoke('service_list')).length,0,'service restart restores preferences without recreating sessions');
   await ui.close();ui=null;
   const second=await mkdtemp(path.join(tmpdir(),'shared-terminal-preferences-ui-中文-'));roots.push(second);

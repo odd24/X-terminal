@@ -354,6 +354,14 @@ mod preference_tests {
         value["preferences"]["terminal_font"] = "unknown".into();
         assert!(serde_json::from_value::<ConfigRequest>(value.clone()).is_err());
         value["preferences"]["terminal_font"] = "consolas".into();
+        value["preferences"]["terminal_palette"] = "unknown".into();
+        assert!(serde_json::from_value::<ConfigRequest>(value.clone()).is_err());
+        value["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("terminal_palette");
+        assert!(serde_json::from_value::<ConfigRequest>(value.clone()).is_err());
+        value["preferences"]["terminal_palette"] = "black_green".into();
         value["revision"] = Uuid::nil().to_string().into();
         assert!(
             !serde_json::from_value::<ConfigRequest>(value.clone())

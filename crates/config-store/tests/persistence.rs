@@ -742,7 +742,7 @@ fn make_v2(path: &Path) {
     store.put_profile(profile()).unwrap();
     drop(store);
     let conn = Connection::open(path).unwrap();
-    conn.execute_batch("DROP TABLE desktop_preferences; DELETE FROM schema_migrations WHERE version=3; PRAGMA user_version=2").unwrap();
+    conn.execute_batch("DROP TABLE desktop_preferences; DELETE FROM schema_migrations WHERE version>=3; PRAGMA user_version=2").unwrap();
 }
 #[test]
 fn preferences_v2_migration_and_readonly_old_backup_preserve_original() {
@@ -783,7 +783,7 @@ fn preferences_v2_migration_and_readonly_old_backup_preserve_original() {
             .unwrap()
             .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
             .unwrap(),
-        3
+        4
     );
     drop(store);
     assert!(Store::open(&path).unwrap().migration_backup.is_none());
@@ -806,6 +806,7 @@ fn preferences_restart_directory_isolation_backup_digest_and_transactional_resto
     let changed = DesktopPreferences {
         theme: ThemeChoice::Light,
         terminal_font: TerminalFont::Cascadia,
+        terminal_palette: config_model::TerminalPalette::BlackGreen,
         font_size: 28,
         ctrl_c_copy: false,
         ctrl_v_paste: true,
@@ -887,7 +888,7 @@ fn invalid_corrupt_missing_and_external_newer_preferences_do_not_silently_reset(
         Err(Error::Schema)
     ));
     assert_eq!(std::fs::read(&path).unwrap(), before);
-    sql.execute_batch("PRAGMA user_version=3").unwrap();
+    sql.execute_batch("PRAGMA user_version=4").unwrap();
     drop(store);
     let valid = serde_json::to_value(DesktopPreferences::default()).unwrap();
     for value in [
@@ -970,4 +971,156 @@ fn preference_restore_failure_rolls_back_other_configuration_tables() {
         Err(Error::Corrupt)
     ));
     assert_eq!(store.profiles().unwrap(), vec![current]);
+}
+
+// Build an actual pre-palette database, including its original strict JSON shape.
+fn make_v3(path: &Path) -> DesktopPreferences {
+    let mut store = Store::open(path).unwrap();
+    let preferences = DesktopPreferences {
+        theme: ThemeChoice::Light,
+        font_size: 24,
+        ctrl_v_paste: true,
+        ..Default::default()
+    };
+    store.put_profile(profile()).unwrap();
+    store.put_preferences(&preferences).unwrap();
+    drop(store);
+    let mut value = serde_json::to_value(&preferences).unwrap();
+    value.as_object_mut().unwrap().remove("terminal_palette");
+    let sql = Connection::open(path).unwrap();
+    sql.execute(
+        "UPDATE desktop_preferences SET value=?1",
+        [value.to_string()],
+    )
+    .unwrap();
+    sql.execute_batch("DELETE FROM schema_migrations WHERE version=4; PRAGMA user_version=3")
+        .unwrap();
+    preferences
+}
+#[test]
+fn palette_migrates_v3_and_old_backup_is_read_only_with_existing_preferences() {
+    let temp = Temp::new();
+    let path = temp.path("旧配色.sqlite");
+    let expected = make_v3(&path);
+    let before = std::fs::read(&path).unwrap();
+    let image = Store::read_backup(&path).unwrap();
+    assert_eq!(image.preferences, expected);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let mut store = Store::open(&path).unwrap();
+    assert_eq!(store.preferences().unwrap(), expected);
+    let backup = store.migration_backup.as_ref().unwrap().clone();
+    assert_eq!(
+        Store::read_backup(&backup).unwrap().digest().unwrap(),
+        image.digest().unwrap()
+    );
+    let old = Connection::open(&backup).unwrap();
+    assert_eq!(
+        old.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
+            .unwrap(),
+        3
+    );
+    let old_json: String = old
+        .query_row("SELECT value FROM desktop_preferences", [], |r| r.get(0))
+        .unwrap();
+    assert!(!old_json.contains("terminal_palette"));
+    drop(old);
+    let mut changed = expected.clone();
+    changed.terminal_palette = TerminalPalette::BlackGreen;
+    store.put_preferences(&changed).unwrap();
+    assert_ne!(
+        store.image().unwrap().digest().unwrap(),
+        image.digest().unwrap()
+    );
+    store
+        .restore_image(
+            &image,
+            &image.digest().unwrap(),
+            &temp.path("安全副本.sqlite"),
+        )
+        .unwrap();
+    assert_eq!(store.preferences().unwrap(), expected);
+    assert_eq!(
+        Store::read_backup(&temp.path("安全副本.sqlite"))
+            .unwrap()
+            .preferences,
+        changed
+    );
+    drop(store);
+    assert!(Store::open(&path).unwrap().migration_backup.is_none());
+    assert_eq!(Store::read_backup(&backup).unwrap().preferences, expected);
+}
+#[test]
+fn palette_migration_failure_preserves_v3_and_current_missing_field_is_corrupt() {
+    let temp = Temp::new();
+    let path = temp.path("失败.sqlite");
+    make_v3(&path);
+    let sql = Connection::open(&path).unwrap();
+    sql.execute_batch("CREATE TRIGGER fail_palette_migration BEFORE INSERT ON schema_migrations WHEN NEW.version=4 BEGIN SELECT RAISE(ABORT,'synthetic migration failure'); END").unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(Store::open(&path).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        sql.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
+            .unwrap(),
+        3
+    );
+    let json: String = sql
+        .query_row("SELECT value FROM desktop_preferences", [], |r| r.get(0))
+        .unwrap();
+    assert!(!json.contains("terminal_palette"));
+    sql.execute_batch("DROP TRIGGER fail_palette_migration; PRAGMA user_version=4")
+        .unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(Store::open(&path).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn duplicate_preference_fields_are_rejected_for_both_legacy_and_current_versions() {
+    let temp = Temp::new();
+    for version in [3, 4] {
+        let path = temp.path(&format!("重复字段-{version}.sqlite"));
+        if version == 3 {
+            make_v3(&path);
+        } else {
+            drop(Store::open(&path).unwrap());
+        }
+        let sql = Connection::open(&path).unwrap();
+        let json: String = sql
+            .query_row("SELECT value FROM desktop_preferences", [], |r| r.get(0))
+            .unwrap();
+        let duplicate = json.replacen('{', "{\"theme\":\"dark\",", 1);
+        sql.execute("UPDATE desktop_preferences SET value=?1", [duplicate])
+            .unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(Store::open(&path).is_err());
+        assert!(Store::read_backup(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+}
+
+#[test]
+fn ignored_palette_update_cannot_commit_a_new_version_with_old_json() {
+    let temp = Temp::new();
+    let path = temp.path("忽略更新.sqlite");
+    make_v3(&path);
+    let sql = Connection::open(&path).unwrap();
+    sql.execute_batch("CREATE TRIGGER ignore_palette BEFORE UPDATE ON desktop_preferences BEGIN SELECT RAISE(IGNORE); END").unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(matches!(Store::open(&path), Err(Error::Corrupt)));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        sql.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        sql.query_row::<i64, _, _>(
+            "SELECT count(*) FROM schema_migrations WHERE version=4",
+            [],
+            |r| r.get(0)
+        )
+        .unwrap(),
+        0
+    );
 }

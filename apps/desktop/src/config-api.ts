@@ -30,7 +30,7 @@ export type ConfigRequest = { op: 'preferences' }
 // File import is Desktop-only; file bytes are read inside the service.
 type Page = { result: 'page'; revision: string; folders: Folder[]; profiles: Profile[]; next_offset: number | null; missing_credential_profiles: string[] };
 export type ArchiveInfo = { id: string; kind: 'backup' | 'export'; filename: string; bytes: number; modified_ms: number };
-export type DesktopPreferences = { theme: 'dark' | 'light' | 'system'; terminal_font: 'consolas' | 'cascadia'; font_size: number; ctrl_c_copy: boolean; ctrl_v_paste: boolean; right_click_paste: boolean };
+export type DesktopPreferences = { theme: 'dark' | 'light' | 'system'; terminal_font: 'consolas' | 'cascadia'; terminal_palette: 'follow_theme' | 'black_green' | 'black_white'; font_size: number; ctrl_c_copy: boolean; ctrl_v_paste: boolean; right_click_paste: boolean };
 export type BackupPreview = { result: 'backup_preview'; id: string; digest: string; folders: number; profiles: number; host_keys: number; missing_credentials: number; current_revision: string | null; sample_profiles: string[]; preferences: DesktopPreferences };
 export type Reply = { result: 'preferences'; preferences: DesktopPreferences; revision: string } | Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null }
   | { result: 'credentials_page'; revision: string; entries: CredentialInfo[]; next_offset: number | null }

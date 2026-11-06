@@ -145,3 +145,5 @@ P12基础撰写新增npm run test:desktop:compose（前置desktop:build，自建
 
 
 P12偏好按ADR-042使用配置schema3/单例及Desktop专用preferences/save_preferences，迁移前备份、schema2备份只读默认；备份摘要/事务恢复含偏好，便携配置排除。新增npm run test:desktop:preferences（前置desktop:build，完整回归第18入口），只shared-terminal-preferences-ui-中文-根，实际WebView保存/重载/服务重启/目录隔离、键盘/系统复制/右键精确合成字节、旧revision与真实fetch丢应答命中/不重试。字体/习惯保存不代表草稿/正文/同意或P17工作区已持久化，仍不等于全局DPI/实机/跨版本恢复验收。
+
+P12终端配色按ADR-043升级schema 4，跟随应用/黑底绿字/黑底白字仅共享tokens，禁止JS私有色板。schema 3只读旧偏好补follow_theme且严格拒绝缺失/重复/未知旧字段，schema 4与IPC配色必填；迁移前备份/失败回滚/镜像摘要/安全副本须覆盖。原生preferences/archives扩展方案与备份预览，默认截图不替代真实DPI/输入法矩阵。

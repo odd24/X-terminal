@@ -55,7 +55,7 @@ try {
   await ui.evaluate(`document.querySelector('[aria-label="应用主题"]').focus()`);
   await ui.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
   await ui.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
-  assert.equal(await ui.evaluate(`document.activeElement.getAttribute('aria-label')`), '终端等宽字体');
+  assert.equal(await ui.evaluate(`document.activeElement.getAttribute('aria-label')`), '终端配色');
   assert.equal(await ui.evaluate(`getComputedStyle(document.activeElement).outlineStyle`), 'solid');
   await ui.fill('终端等宽字体', 'cascadia');
   await ui.waitFor(`getComputedStyle(document.querySelector('.xterm-char-measure-element')).fontFamily.startsWith('"Cascadia Mono"')`);

@@ -18,7 +18,7 @@ try {
   await open(); await configMessage('配置已加载');
   await ui.fill('配置名称', 'Archive original'); await ui.fill('主机', 'example.invalid'); await ui.fill('用户名', 'synthetic'); await ui.fill('凭据操作', 'replace'); await ui.fill('新密码', 'synthetic archive UI password'); await ui.click('保存配置'); await configMessage('配置已保存');
   const initialPreferences = await call({ op: 'preferences' });
-  const backedPreferences = { ...initialPreferences.preferences, theme: 'light', font_size: 22, ctrl_v_paste: true };
+  const backedPreferences = { ...initialPreferences.preferences, theme: 'light', terminal_palette: 'black_green', font_size: 22, ctrl_v_paste: true };
   assert.equal((await call({ op: 'save_preferences', revision: initialPreferences.revision, preferences: backedPreferences })).result, 'preferences');
   await ui.click('创建配置备份'); await archiveMessage('配置备份已保存');
   const backup = (await call({ op: 'archives' })).entries.find(entry => entry.kind === 'backup');
@@ -36,6 +36,7 @@ try {
   assert.ok(await ui.evaluate(`document.querySelector('[aria-label="备份桌面偏好"]').textContent.includes('22')`));
   assert.ok(await ui.evaluate(`document.querySelector('[aria-label="确认恢复备份"]').parentElement.textContent.includes('桌面偏好')`));
   await ui.evaluate(`document.querySelector('[aria-label="备份桌面偏好"]').scrollIntoView({block:'center'})`);
+  assert.ok(await ui.evaluate(`document.querySelector('[aria-label="备份桌面偏好"]').textContent.includes('黑底绿字')`));
   await ui.screenshot('desktop-preferences-backup-native.png');
   assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='替换当前配置').disabled`), true);
   await ui.fill('配置名称', 'Archive changed again'); await ui.click('保存配置'); await configMessage('配置已保存');

@@ -59,7 +59,7 @@ function App() {
   const allowExit = useRef(false);
   const liveConnections = useRef<Connection[]>([]);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
-  const [preferences, setPreferences] = useState<DesktopPreferences>({ theme: 'dark', terminal_font: 'consolas', font_size: 15, ctrl_c_copy: true, ctrl_v_paste: false, right_click_paste: false });
+  const [preferences, setPreferences] = useState<DesktopPreferences>({ theme: 'dark', terminal_font: 'consolas', terminal_palette: 'follow_theme', font_size: 15, ctrl_c_copy: true, ctrl_v_paste: false, right_click_paste: false });
   const preferenceRef = useRef(preferences); preferenceRef.current = preferences;
   const theme: ThemeChoice = preferences.theme, terminalFont: TerminalFont = preferences.terminal_font;
   const fontSize = preferences.font_size;
@@ -428,6 +428,7 @@ function App() {
     const apply = () => {
       document.documentElement.dataset.theme = theme === 'system' ? (systemTheme.matches ? 'dark' : 'light') : theme;
       document.documentElement.dataset.terminalFont = terminalFont;
+      document.documentElement.dataset.terminalPalette = preferences.terminal_palette;
       if (runtime.current) {
         const appearance = terminalAppearance();
         runtime.current.term.options.theme = appearance.theme;
@@ -438,7 +439,7 @@ function App() {
     apply();
     systemTheme.addEventListener('change', apply);
     return () => systemTheme.removeEventListener('change', apply);
-  }, [theme, terminalFont]);
+  }, [theme, terminalFont, preferences.terminal_palette]);
 
   useEffect(() => { if (runtime.current) { runtime.current.term.options.fontSize = fontSize; runtime.current.fit.fit(); } }, [fontSize]);
 

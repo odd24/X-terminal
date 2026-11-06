@@ -13,6 +13,9 @@ export function AppearancePanel({ theme, font, setTheme, setFont, preferences, b
       <Field label="应用主题"><select aria-label="应用主题" value={theme} onChange={event => setTheme(event.target.value as ThemeChoice)}>
         <option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option>
       </select></Field>
+      <Field label="终端配色"><select aria-label="终端配色" value={preferences.terminal_palette} onChange={event => update({ terminal_palette: event.target.value as DesktopPreferences['terminal_palette'] })}>
+        <option value="follow_theme">跟随应用主题</option><option value="black_green">黑底绿字</option><option value="black_white">黑底白字</option>
+      </select></Field>
       <Field label="终端等宽字体"><select aria-label="终端等宽字体" value={font} onChange={event => setFont(event.target.value as TerminalFont)}>
         <option value="consolas">Consolas</option><option value="cascadia">Cascadia Mono（未安装时使用 Consolas）</option>
       </select></Field>

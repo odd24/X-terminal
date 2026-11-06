@@ -115,3 +115,35 @@
 :root[data-terminal-font="cascadia"] {
   --font-terminal: "Cascadia Mono", Consolas, "Microsoft YaHei UI", "Microsoft YaHei", monospace;
 }
+
+/* Explicit terminal schemes keep ANSI colors distinct and follow the shared font. */
+:root[data-terminal-palette="black_green"],
+:root[data-terminal-palette="black_white"] {
+  --terminal-background: #000000;
+  --terminal-cursor-accent: #000000;
+  --terminal-selection-background: #354b61;
+  --terminal-black: #202020;
+  --terminal-red: #ef8585;
+  --terminal-green: #86d98d;
+  --terminal-yellow: #e5d17c;
+  --terminal-blue: #8ab8f5;
+  --terminal-magenta: #d5a0ea;
+  --terminal-cyan: #80d9da;
+  --terminal-white: #d9d9d9;
+  --terminal-bright-black: #929292;
+  --terminal-bright-red: #ffaaaa;
+  --terminal-bright-green: #aaffaa;
+  --terminal-bright-yellow: #fff0aa;
+  --terminal-bright-blue: #bbd6ff;
+  --terminal-bright-magenta: #ebc2ff;
+  --terminal-bright-cyan: #b0ffff;
+  --terminal-bright-white: #ffffff;
+}
+:root[data-terminal-palette="black_green"] {
+  --terminal-foreground: #80ff80;
+  --terminal-cursor: #80ff80;
+}
+:root[data-terminal-palette="black_white"] {
+  --terminal-foreground: #eeeeee;
+  --terminal-cursor: #eeeeee;
+}

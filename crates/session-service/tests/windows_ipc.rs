@@ -3195,6 +3195,7 @@ async fn desktop_preferences_are_revision_guarded_isolated_backed_up_and_survive
     assert_eq!(preferences, config_store::DesktopPreferences::default());
     let changed = config_store::DesktopPreferences {
         theme: config_store::ThemeChoice::System,
+        terminal_palette: config_store::TerminalPalette::BlackGreen,
         font_size: 22,
         ctrl_v_paste: true,
         ..preferences

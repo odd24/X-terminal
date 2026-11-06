@@ -265,11 +265,20 @@ pub enum TerminalFont {
     Consolas,
     Cascadia,
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalPalette {
+    #[default]
+    FollowTheme,
+    BlackGreen,
+    BlackWhite,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DesktopPreferences {
     pub theme: ThemeChoice,
     pub terminal_font: TerminalFont,
+    pub terminal_palette: TerminalPalette,
     pub font_size: u8,
     pub ctrl_c_copy: bool,
     pub ctrl_v_paste: bool,
@@ -280,6 +289,7 @@ impl Default for DesktopPreferences {
         Self {
             theme: ThemeChoice::Dark,
             terminal_font: TerminalFont::Consolas,
+            terminal_palette: TerminalPalette::FollowTheme,
             font_size: 15,
             ctrl_c_copy: true,
             ctrl_v_paste: false,

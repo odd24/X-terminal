@@ -18,8 +18,31 @@ pub(super) fn read(connection: &Connection) -> Result<DesktopPreferences> {
     if count != 1 {
         return Err(Error::Corrupt);
     }
-    let preferences: DesktopPreferences =
-        serde_json::from_str(&value).map_err(|_| Error::Corrupt)?;
+    let preferences: DesktopPreferences = if metadata(connection)?.1 == 3 {
+        // Versioned legacy shape keeps duplicate, unknown and missing field rejection.
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyPreferences {
+            theme: crate::ThemeChoice,
+            terminal_font: crate::TerminalFont,
+            font_size: u8,
+            ctrl_c_copy: bool,
+            ctrl_v_paste: bool,
+            right_click_paste: bool,
+        }
+        let old: LegacyPreferences = serde_json::from_str(&value).map_err(|_| Error::Corrupt)?;
+        DesktopPreferences {
+            theme: old.theme,
+            terminal_font: old.terminal_font,
+            terminal_palette: crate::TerminalPalette::FollowTheme,
+            font_size: old.font_size,
+            ctrl_c_copy: old.ctrl_c_copy,
+            ctrl_v_paste: old.ctrl_v_paste,
+            right_click_paste: old.right_click_paste,
+        }
+    } else {
+        serde_json::from_str(&value).map_err(|_| Error::Corrupt)?
+    };
     preferences.validate().map_err(|_| Error::Corrupt)?;
     Ok(preferences)
 }

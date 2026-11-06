@@ -13,7 +13,7 @@ use std::{
 use uuid::Uuid;
 
 const APP_ID: i64 = 0x5354544d;
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -140,7 +140,18 @@ impl Store {
             if version < 2 {
                 tx.execute_batch(V2)?;
             }
-            tx.execute_batch(V3)?;
+            if version < 3 {
+                tx.execute_batch(V3)?;
+            }
+            let preferences = preferences::read(&tx)?;
+            if tx.execute(
+                "UPDATE desktop_preferences SET value=?1 WHERE id=1",
+                params![serde_json::to_string(&preferences)?],
+            )? != 1
+            {
+                return Err(Error::Corrupt);
+            }
+            tx.execute_batch("INSERT INTO schema_migrations VALUES(4); PRAGMA user_version=4;")?;
         }
         tx.commit()?;
         check(&connection)?;

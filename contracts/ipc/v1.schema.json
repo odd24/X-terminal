@@ -598,6 +598,9 @@
           "terminal_font": {
             "$ref": "#/$defs/TerminalFont"
           },
+          "terminal_palette": {
+            "$ref": "#/$defs/TerminalPalette"
+          },
           "theme": {
             "$ref": "#/$defs/ThemeChoice"
           }
@@ -605,6 +608,7 @@
         "required": [
           "theme",
           "terminal_font",
+          "terminal_palette",
           "font_size",
           "ctrl_c_copy",
           "ctrl_v_paste",
@@ -2556,6 +2560,14 @@
         ],
         "type": "string"
       },
+      "TerminalPalette": {
+        "enum": [
+          "follow_theme",
+          "black_green",
+          "black_white"
+        ],
+        "type": "string"
+      },
       "ThemeChoice": {
         "description": "Non-secret, data-directory-scoped desktop preferences. No text, paths or grants.",
         "enum": [
@@ -3401,6 +3413,9 @@
           "terminal_font": {
             "$ref": "#/$defs/TerminalFont"
           },
+          "terminal_palette": {
+            "$ref": "#/$defs/TerminalPalette"
+          },
           "theme": {
             "$ref": "#/$defs/ThemeChoice"
           }
@@ -3408,6 +3423,7 @@
         "required": [
           "theme",
           "terminal_font",
+          "terminal_palette",
           "font_size",
           "ctrl_c_copy",
           "ctrl_v_paste",
@@ -5888,6 +5904,14 @@
         "enum": [
           "consolas",
           "cascadia"
+        ],
+        "type": "string"
+      },
+      "TerminalPalette": {
+        "enum": [
+          "follow_theme",
+          "black_green",
+          "black_white"
         ],
         "type": "string"
       },

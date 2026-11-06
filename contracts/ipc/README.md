@@ -99,3 +99,5 @@ Desktop专用logging增加recovery_export_start/status/cancel，请求只含conn
 返回result=recovery_export，包含connection/log_id/request_id/phase/failure/incomplete/bytes/sha256/recovered，incomplete始终true；仅COMPLETED有长度、64位小写生产SHA-256及RecoveryExportSummary（recovered_records/recovered_raw_bytes/recovered_gap_bytes/next_cursor/stop）。COMPLETED只证明显式未完整产物同步发布，END_OF_AVAILABLE也不表示源完整；QUEUED/RUNNING/CANCELLING/CANCELLED/FAILED/REMOVED产物字段为null。原普通ExportInfo形状保持，不能把恢复ID经普通export_status取得“完整”回执。
 
 两种模式共用原export worker/8队列/64回执/有序退休水位与磁盘8项/256MiB尝试，不增加容量；状态/取消不等待磁盘。晚取消以已经发布为准；清理共享注册将恢复任务标REMOVED，撤下恢复统计/长度/指纹，保留模式，旧Start不重跑/不转模式。不透明ID不自动回收；重启不恢复回执，也不覆盖同UUID残留目录。真实Windows IPC和原生通道证据见P11.4；恢复导出/另存按钮尚未从通道测试推断完成。
+
+Desktop专用配置偏好沿用revision保护，terminal_palette必填且仅follow_theme/black_green/black_white，拒绝未知/缺失字段；旧schema 2/3仅在服务存储读取兼容，IPC不偷偷补缺省。数据库迁移前备份/摘要恢复与回退见ADR-043及P12，不开放通用路径/Agent配置权限。

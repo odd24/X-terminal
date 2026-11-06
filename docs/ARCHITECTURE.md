@@ -137,7 +137,7 @@ P11.4服务整理采用独立8队列actor、4个30秒句柄快照和128回执，
 P11.7按[ADR-038](decisions/ADR-038.md)实现普通屏单元格有界重排，screen正文使用物理视口行；parser=vt100-0.18.1+local.2、resize_reflow=true仅表示普通屏重排能力。活动光标组、替代屏沿用xterm默认语义，满容量极窄/极宽序列仍有精确记录的BUG-001差异；原始/文本流不受布局调整影响。
 
 
-P12按[ADR-042](decisions/ADR-042.md)将有限桌面偏好存于同一数据目录的schema 3 SQLite单例，Desktop专用配置线程/16队列、revision保护和备份摘要/事务恢复共用。schema 2旧备份只读构造默认偏好，原文件不改写；便携Profile交换不带偏好。当前主窗口应用接入继续，不能持久化草稿/正文/同意或借全局WebView存储跨目录覆盖。
+P12按[ADR-042](decisions/ADR-042.md)/[ADR-043](decisions/ADR-043.md)将有限桌面偏好存于同一数据目录的schema 4 SQLite单例，Desktop专用配置线程/16队列、revision保护和备份摘要/事务恢复共用。schema 2旧备份只读构造默认偏好，schema 3保留原偏好并补跟随应用配色，原文件不改写；升级前唯一备份，失败事务回滚，当前格式/IPC字段严格必填。应用主题与终端配色独立，tokens/terminalAppearance共用；便携Profile交换不带偏好。主窗口已接明确保存/读取及习惯，不能持久化草稿/正文/同意或借全局WebView存储跨目录覆盖。
 
 
 P12主窗口在service_id就绪后读取本数据目录偏好，明确保存才写入；失败/未知撤销窗口可写revision并只由显式读取核对，不自动重发。GUI备份恢复退休旧偏好应答并应用权威值；快捷键/右键继续原统一剪贴板与输入队列。无终端正文/草稿/同意持久化。
