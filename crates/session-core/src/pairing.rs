@@ -211,6 +211,69 @@ impl Pairing {
             Err(ErrorCode::PermissionDenied)
         }
     }
+    /// Capture the current lease in an opaque queue permit; callers cannot supply an owner.
+    pub fn admit_input(
+        &mut self,
+        identity: &Identity,
+        scope: Scope,
+        request_id: Uuid,
+        now: u64,
+    ) -> Result<access::Permit, ErrorCode> {
+        self.require_agent(identity, now)?;
+        let lease = match scope.target {
+            Target::Connection { connection } => self
+                .policy
+                .lease(connection, now)
+                .map(|lease| lease.lease_id),
+            Target::Profile { .. } => None,
+        };
+        self.policy
+            .admit(identity.ticket_id, scope, lease, request_id, now)
+            .map_err(policy_error)
+    }
+    /// Must share the service lock with the final scheduler decision, after all waits.
+    pub fn dispatch_input(
+        &mut self,
+        identity: &Identity,
+        permit: &access::Permit,
+        now: u64,
+    ) -> Result<(), ErrorCode> {
+        self.require_agent(identity, now)?;
+        self.policy
+            .dispatch_for(identity.ticket_id, permit, now)
+            .map_err(policy_error)
+    }
+    pub fn check_input(
+        &self,
+        identity: &Identity,
+        permit: &access::Permit,
+        now: u64,
+    ) -> Result<(), ErrorCode> {
+        self.require_agent(identity, now)?;
+        self.policy
+            .check_for(identity.ticket_id, permit, now)
+            .map_err(policy_error)
+    }
+    pub fn check_action(
+        &self,
+        identity: &Identity,
+        scope: Scope,
+        now: u64,
+    ) -> Result<(), ErrorCode> {
+        self.require_agent(identity, now)?;
+        self.policy
+            .authorize(identity.ticket_id, scope, now)
+            .map_err(policy_error)?;
+        if let Target::Connection { connection } = scope.target
+            && !self
+                .policy
+                .lease(connection, now)
+                .is_some_and(|lease| lease.client_id == identity.ticket_id)
+        {
+            return Err(ErrorCode::InputBusy);
+        }
+        Ok(())
+    }
     pub fn acquire_lease(
         &mut self,
         identity: &Identity,
@@ -536,5 +599,63 @@ mod tests {
             Err(ErrorCode::CapacityExceeded)
         ));
         assert!(pairing.issue_read(&desktop, vec![scope], 20, 10).is_ok());
+    }
+    #[test]
+    fn queued_identity_permits_do_not_cross_clients_or_survive_lease_and_ticket_changes() {
+        let bootstrap = SecretToken::generate();
+        let mut pairing = Pairing::new(&bootstrap);
+        let desktop = pairing.authenticate(&bootstrap, 0).unwrap();
+        let connection = ConnectionRef {
+            connection_id: crate::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let scope = Scope {
+            target: Target::Connection { connection },
+            action: Action::Write,
+        };
+        let (alice, _, _) = pairing.issue_agent(&desktop, vec![scope], 1000, 0).unwrap();
+        let (bob, _, _) = pairing.issue_agent(&desktop, vec![scope], 1000, 0).unwrap();
+        assert_eq!(
+            pairing.check_action(&alice, scope, 1),
+            Err(ErrorCode::InputBusy)
+        );
+        let lease = pairing.acquire_lease(&alice, connection, 100, 1).unwrap();
+        let permit = pairing
+            .admit_input(&alice, scope, Uuid::new_v4(), 2)
+            .unwrap();
+        assert_eq!(
+            pairing.dispatch_input(&bob, &permit, 3),
+            Err(ErrorCode::PermissionDenied)
+        );
+        pairing.dispatch_input(&alice, &permit, 3).unwrap();
+        pairing
+            .release_lease(&alice, connection, lease.lease_id, 4)
+            .unwrap();
+        pairing.acquire_lease(&alice, connection, 100, 5).unwrap();
+        assert_eq!(
+            pairing.check_input(&alice, &permit, 6),
+            Err(ErrorCode::InputBusy)
+        );
+        let next = pairing
+            .admit_input(&alice, scope, Uuid::new_v4(), 7)
+            .unwrap();
+        assert_eq!(
+            pairing.check_input(&alice, &next, 105),
+            Err(ErrorCode::InputBusy)
+        );
+        pairing.takeover(&desktop, connection, 106).unwrap();
+        assert_eq!(
+            pairing.check_input(&alice, &next, 107),
+            Err(ErrorCode::PermissionDenied)
+        );
+        assert_eq!(
+            pairing.check_action(&bob, scope, 107),
+            Err(ErrorCode::PermissionDenied)
+        );
+        pairing.revoke(&desktop, alice.ticket_id(), 108).unwrap();
+        assert_eq!(
+            pairing.dispatch_input(&alice, &next, 109),
+            Err(ErrorCode::PermissionDenied)
+        );
     }
 }

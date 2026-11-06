@@ -102,6 +102,7 @@ pub struct Receipt {
     pub failure: Option<InputFailure>,
 }
 struct Record {
+    owner: Option<Uuid>,
     fingerprint: Fingerprint,
     receipt: Receipt,
 }
@@ -111,6 +112,61 @@ pub struct Receipts {
     window: RequestWindow,
 }
 impl Receipts {
+    /// Transport actors use authenticated ticket IDs; None denotes the local Desktop source.
+    /// Ownership is retained with the receipt and expires through the same retirement window.
+    pub fn lookup_owned(
+        &self,
+        owner: Option<Uuid>,
+        id: Uuid,
+        fingerprint: Fingerprint,
+    ) -> Result<Option<Receipt>, ErrorCode> {
+        self.check_owner(owner, id)?;
+        self.lookup(id, fingerprint)
+    }
+    pub fn get_owned(&self, owner: Option<Uuid>, id: Uuid) -> Result<Receipt, ErrorCode> {
+        self.check_owner(owner, id)?;
+        self.get(id)
+    }
+    fn check_owner(&self, owner: Option<Uuid>, id: Uuid) -> Result<(), ErrorCode> {
+        if self
+            .records
+            .get(&id)
+            .is_some_and(|record| record.owner != owner)
+        {
+            return Err(ErrorCode::PermissionDenied);
+        }
+        Ok(())
+    }
+    pub fn remember_owned(
+        &mut self,
+        owner: Option<Uuid>,
+        id: Uuid,
+        fingerprint: Fingerprint,
+    ) -> Result<Receipt, ErrorCode> {
+        self.check_owner(owner, id)?;
+        let receipt = self.remember(id, fingerprint)?;
+        self.records.get_mut(&id).expect("remembered receipt").owner = owner;
+        Ok(receipt)
+    }
+    /// Cancel exactly one pending item. Dispatched work keeps its delivery uncertainty.
+    pub fn cancel_pending(&mut self, id: Uuid) -> bool {
+        if let Some(record) = self.records.get_mut(&id)
+            && record.receipt.state == InputState::Pending
+        {
+            record.receipt.state = InputState::CancelledBeforeDispatch;
+            record.receipt.failure = Some(InputFailure::Cancelled);
+            return true;
+        }
+        false
+    }
+    pub fn cancel_agent_pending(&mut self) {
+        for record in self.records.values_mut() {
+            if record.owner.is_some() && record.receipt.state == InputState::Pending {
+                record.receipt.state = InputState::CancelledBeforeDispatch;
+                record.receipt.failure = Some(InputFailure::Cancelled);
+            }
+        }
+    }
     pub fn lookup(&self, id: Uuid, fingerprint: Fingerprint) -> Result<Option<Receipt>, ErrorCode> {
         match self.records.get(&id) {
             Some(record) if record.fingerprint == fingerprint => Ok(Some(record.receipt.clone())),
@@ -174,6 +230,7 @@ impl Receipts {
         self.records.insert(
             id,
             Record {
+                owner: None,
                 fingerprint,
                 receipt: receipt.clone(),
             },
@@ -402,6 +459,69 @@ mod tests {
         assert_eq!(
             receipts.remember(Uuid::nil(), fingerprint),
             Err(ErrorCode::InvalidArgument)
+        );
+    }
+    #[test]
+    fn authenticated_receipts_reject_foreign_ids_and_takeover_preserves_dispatched_uncertainty() {
+        let mut receipts = Receipts::default();
+        let alice = Some(Uuid::new_v4());
+        let bob = Some(Uuid::new_v4());
+        let pending = ordered(1, 1);
+        let sent = ordered(1, 2);
+        let user = ordered(1, 3);
+        let fingerprint = Fingerprint::write(b"private");
+        for id in [pending, sent] {
+            receipts.remember_owned(alice, id, fingerprint).unwrap();
+        }
+        receipts.remember_owned(None, user, fingerprint).unwrap();
+        assert!(receipts.dispatch(sent));
+        for owner in [bob, None] {
+            assert_eq!(
+                receipts.get_owned(owner, pending),
+                Err(ErrorCode::PermissionDenied)
+            );
+            assert_eq!(
+                receipts.lookup_owned(owner, pending, Fingerprint::write(b"changed")),
+                Err(ErrorCode::PermissionDenied)
+            );
+            assert_eq!(
+                receipts.remember_owned(owner, pending, fingerprint),
+                Err(ErrorCode::PermissionDenied)
+            );
+        }
+        receipts.cancel_agent_pending();
+        assert_eq!(
+            receipts.get_owned(alice, pending).unwrap().state,
+            InputState::CancelledBeforeDispatch
+        );
+        assert_eq!(
+            receipts.get_owned(alice, sent).unwrap().state,
+            InputState::Dispatching
+        );
+        assert_eq!(
+            receipts.get_owned(None, user).unwrap().state,
+            InputState::Pending
+        );
+        assert!(!receipts.cancel_pending(sent));
+        assert!(!receipts.dispatch(pending));
+        receipts.complete(sent, Err(InputFailure::Transport));
+        assert_eq!(
+            receipts.get_owned(alice, sent).unwrap().state,
+            InputState::Unknown
+        );
+        for stamp in 2..1100 {
+            let id = ordered(stamp, 1);
+            receipts.remember_owned(bob, id, fingerprint).unwrap();
+            receipts.dispatch(id);
+            receipts.complete(id, Ok(Some(7)));
+        }
+        assert_eq!(
+            receipts.get_owned(bob, sent),
+            Err(ErrorCode::RequestExpired)
+        );
+        assert_eq!(
+            receipts.remember_owned(bob, sent, fingerprint),
+            Err(ErrorCode::RequestExpired)
         );
     }
 }

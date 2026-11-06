@@ -20,7 +20,13 @@ use uuid::Uuid;
 
 pub(crate) struct Store {
     pub(crate) sessions: Sessions,
-    pairing: Pairing,
+    pub(crate) pairing: Pairing,
+    started: Instant,
+}
+impl Store {
+    pub(crate) fn now(&self) -> u64 {
+        self.started.elapsed().as_millis().min(u64::MAX as u128) as u64
+    }
 }
 #[cfg(test)]
 impl Store {
@@ -28,6 +34,7 @@ impl Store {
         Arc::new(Mutex::new(Self {
             sessions: Sessions::default(),
             pairing: Pairing::new(&SecretToken::generate()),
+            started: Instant::now(),
         }))
     }
 }
@@ -108,9 +115,21 @@ impl Runtime {
         {
             let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
             store.pairing.require_active(identity, self.now())?;
-            store.pairing.require_desktop(identity, self.now())?;
+            if !store.pairing.is_agent(identity, self.now())?
+                || !matches!(
+                    request,
+                    ssh::Request::Write { .. }
+                        | ssh::Request::WriteText { .. }
+                        | ssh::Request::InputStatus { .. }
+                )
+            {
+                store.pairing.require_desktop(identity, self.now())?;
+            }
         }
-        self.ssh.handle(request).await.map(Reply::Ssh)
+        self.ssh
+            .handle_authenticated(identity, request)
+            .await
+            .map(Reply::Ssh)
     }
     async fn handle_config(
         &self,
@@ -429,9 +448,11 @@ pub async fn serve_with_config(
     let mut listener = security.create(&name, true)?;
     let (shutdown, mut stopping) = watch::channel(false);
     let config = crate::config::ConfigWorker::start(directory)?;
+    let started = Instant::now();
     let store = Arc::new(Mutex::new(Store {
         sessions: Sessions::default(),
         pairing: Pairing::new(&bootstrap),
+        started,
     }));
     let ssh = crate::ssh::Manager::new(store.clone(), config.access());
     let serial = crate::serial::Manager::new(store.clone(), config.access());
@@ -445,7 +466,7 @@ pub async fn serve_with_config(
         serial,
         store,
         service_id: Uuid::new_v4(),
-        started: Instant::now(),
+        started,
         fixture,
         shutdown,
     });

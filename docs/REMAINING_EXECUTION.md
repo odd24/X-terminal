@@ -1,5 +1,7 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-06 P14 SSH派发子步已将Write/WriteText/InputStatus接入真实认证来源、同FIFO许可复核与有界回执归属/自动用户接管，最终174相关Rust及完整18入口原生回归证据见P14；仍需exec/串口逐片段、connect/control/disconnect、管理GUI/幂等签发与真实MCP。已派发请求不承诺撤回。
+
 P14服务身份增量：Pairing/Agent角色及管理/租约通道、公共read范围已有软件实现与真实Windows IPC验证，准确结果见最新P14。完整写入/exec/connect/control的FIFO/worker派发与分段接管、任务归属、授权GUI与真实MCP仍未接通；旧控制通道继续Desktop专用，不能从完整scope签发成功推断功能已开放。
 
 2026-11-06 P14已按CR-001核对P07/P09–P11软件准入并开始ADR-044核心策略子步；独立范围/短租约/人工接管/派发前复查与有界元数据审计的实际证据见P14。服务身份、统一队列/worker、GUI与真实IPC尚须接入，Agent仍未开放，不当完整授权或阶段门完成；完整R01–R16/P01–P25继续。

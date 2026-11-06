@@ -163,6 +163,7 @@ impl Manager {
             },
         );
         permit.send(QueuedInput {
+            authority: None,
             id: request_id,
             input: Input::Exec(Queued {
                 task_id,

@@ -390,6 +390,8 @@ impl Manager {
                         Err(ErrorCode::NotFound)
                     }
                     Request::Close { .. } => {
+                        let now = store.now();
+                        store.pairing.retire_connection(connection, now);
                         entry.closing = true;
                         if let Some(worker) = &entry.worker {
                             worker.cancel();
@@ -409,6 +411,8 @@ impl Manager {
                         {
                             return Err(ErrorCode::InvalidState);
                         }
+                        let now = store.now();
+                        store.pairing.retire_connection(connection, now);
                         store.sessions.remove(connection)?;
                         inner.entries.remove(&connection.connection_id);
                         Ok(Reply::Accepted)

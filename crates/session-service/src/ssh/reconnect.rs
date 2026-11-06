@@ -117,6 +117,8 @@ impl Manager {
         }
         inner.reserve_start(id)?;
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let now = store.now();
+        store.pairing.retire_connection(connection, now);
         let current = store.sessions.begin_connect(connection)?;
         configure_output(
             &mut store.sessions,

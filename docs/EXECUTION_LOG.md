@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-06 P14 SSH认证输入子步完成：从b70d0e0核验获放行后，Write/WriteText进入原共享FIFO、固定许可/派发前复核、真实client回执归属及自动用户接管，真实生命周期退休同步。最终174相关Rust/四包严格clippy/fmt、46前端/lint、角色顺序补正后实际桌面构建及11:16:30–11:23:25完整18入口PASS/退出0，串口普通服务10.59秒实际恢复、资源0；新增观察者存在性拒绝及失败/最终指纹见P14。任务/串口分段/其他Agent动作/GUI及全方案继续，Step-ID: P14。
+
+2026-11-06 P14后继A已核验b70d0e0并获前任明确放行，开始SSH认证输入FIFO/客户端回执归属与自动用户接管子步。三包实际验证运行中，准确结果见P14；exec/串口worker/GUI和完整方案继续，不预填PASS。Step-ID: P14。
+
 2026-11-06 P14服务身份子步完成：cbd71d3核心后接独立Agent票据/read范围/授权及租约管理、显式接管/审计；169相关Rust（64真实IPC）及新增配置范围后4专项、四包严格clippy/fmt、46前端/lint、最终桌面构建通过。10:14:29–10:22:08完整18入口PASS/退出0，串口普通服务9.09秒真实恢复、资源0；失败/准确指纹及两提交冻结快照见P14。写入FIFO/worker/自动接管/任务归属/GUI、真实桥及全方案继续，旧传输控制仍拒绝Agent，P14/阶段门不当完成。Step-ID: P14。
 
 2026-11-06 P14服务身份子步验证中：核心策略实际提交cbd71d3；现接Pairing/真实Agent身份、精确read视图及严格授权/租约/接管/审计通道。新增负向/真实Windows IPC，结果见P14；实际写入FIFO/worker与GUI继续，现有控制路径仍Desktop专用，不将此阶段当完整Agent写入或P14完成。Step-ID: P14。
@@ -75,7 +79,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
-| P14 | Agent 授权与调度（核心策略/服务身份及管理IPC已验证；正式派发/GUI继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
+| P14 | Agent 授权与调度（核心/身份/SSH认证输入已验证；任务/串口worker/GUI继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | MCP 工具实现 | TODO | 待创建 | — |
 | P16 | Codex 真机闭环 | TODO | 待创建 | — |
 | P17 | 标签组与工作区 | TODO | 待创建 | — |

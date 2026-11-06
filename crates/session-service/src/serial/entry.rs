@@ -138,6 +138,8 @@ impl Entry {
                     State::Failed
                 };
                 let _ = store.sessions.transition(self.reference, target);
+                let now = store.now();
+                store.pairing.retire_connection(self.reference, now);
             }
         }
     }

@@ -412,6 +412,18 @@ impl Policy {
         );
         result
     }
+    pub fn dispatch_for(&mut self, client: Uuid, permit: &Permit, now: u64) -> Result<(), Denial> {
+        if permit.client_id != client {
+            return Err(Denial::PermissionDenied);
+        }
+        self.dispatch(permit, now)
+    }
+    pub fn check_for(&self, client: Uuid, permit: &Permit, now: u64) -> Result<(), Denial> {
+        if permit.client_id != client {
+            return Err(Denial::PermissionDenied);
+        }
+        self.check(permit, now)
+    }
     pub fn audit(&self, cursor: u64, limit: usize) -> Result<AuditPage, Denial> {
         if limit == 0 || limit > 128 || cursor > self.next_seq {
             return Err(Denial::InvalidArgument);

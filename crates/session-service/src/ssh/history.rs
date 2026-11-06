@@ -58,6 +58,8 @@ impl Manager {
         }
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let now = store.now();
+        store.pairing.retire_connection(connection, now);
         store.sessions.remove(connection)?;
         inner.entries.remove(&connection.connection_id);
         // Start/reconnect receipts remain independently bounded. Forgetting a connection

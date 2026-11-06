@@ -9,6 +9,10 @@ use crate::{
 use config_store::{Auth, HostEndpoint, HostKey, HostKeyStatus, HostProtocol, Profile, Settings};
 use session_core::input::{Fingerprint, InputFailure, Receipts};
 use session_core::session::*;
+use session_core::{
+    access::{Action, Permit, Scope, Target},
+    pairing::Identity,
+};
 use session_protocol::{
     Sensitive,
     ssh::{self, Challenge, Failure},
@@ -66,6 +70,7 @@ impl Input {
     }
 }
 struct QueuedInput {
+    authority: Option<(Identity, Permit)>,
     id: Uuid,
     input: Input,
 }
@@ -105,6 +110,85 @@ impl Manager {
                 inner.request_window.check(id)?;
                 Ok(None)
             }
+        }
+    }
+    pub(crate) async fn handle_authenticated(
+        &self,
+        identity: &Identity,
+        request: ssh::Request,
+    ) -> Result<ssh::Reply, ErrorCode> {
+        if !request.validate() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        match request {
+            ssh::Request::Write {
+                connection,
+                request_id,
+                bytes,
+            } => self.enqueue_from(Some(identity), connection, request_id, Input::Write(bytes)),
+            ssh::Request::WriteText {
+                connection,
+                request_id,
+                text,
+            } => {
+                let encoding = {
+                    let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    let now = store.now();
+                    if store.pairing.is_agent(identity, now)? {
+                        // Reject scopes/leases before resolving encoding or transport existence.
+                        store.pairing.check_action(
+                            identity,
+                            Scope {
+                                target: Target::Connection { connection },
+                                action: Action::Write,
+                            },
+                            now,
+                        )?;
+                    } else {
+                        store.pairing.require_desktop(identity, now)?;
+                    }
+                    store.sessions.info(connection)?;
+                    inner
+                        .entries
+                        .get(&connection.connection_id)
+                        .ok_or(ErrorCode::NotFound)?
+                        .encoding
+                        .clone()
+                };
+                let bytes = encode_text(&encoding, text.expose())?;
+                self.enqueue_from(
+                    Some(identity),
+                    connection,
+                    request_id,
+                    Input::Write(session_protocol::SensitiveBytes::new(bytes)),
+                )
+            }
+            ssh::Request::InputStatus {
+                connection,
+                request_id,
+            } => {
+                let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                store.pairing.require_active(identity, store.now())?;
+                store.sessions.info(connection)?;
+                let entry = inner
+                    .entries
+                    .get(&connection.connection_id)
+                    .ok_or(ErrorCode::NotFound)?;
+                let receipt = if store.pairing.require_desktop(identity, store.now()).is_ok() {
+                    entry.receipts.get(request_id)?
+                } else {
+                    if !store.pairing.is_agent(identity, store.now())? {
+                        return Err(ErrorCode::PermissionDenied);
+                    }
+                    entry
+                        .receipts
+                        .get_owned(Some(identity.ticket_id()), request_id)?
+                };
+                Ok(ssh::Reply::Input(receipt))
+            }
+            other => self.handle(other).await,
         }
     }
     pub(crate) async fn handle(&self, request: ssh::Request) -> Result<ssh::Reply, ErrorCode> {
@@ -321,6 +405,8 @@ impl Manager {
                     .entries
                     .get_mut(&connection.connection_id)
                     .ok_or(ErrorCode::NotFound)?;
+                let now = store.now();
+                store.pairing.retire_connection(connection, now);
                 entry.cancel.cancel();
                 entry.exec.finish_all(true);
                 entry.commands = None;
@@ -364,13 +450,43 @@ impl Manager {
         id: Uuid,
         input: Input,
     ) -> Result<ssh::Reply, ErrorCode> {
+        self.enqueue_from(None, connection, id, input)
+    }
+    fn enqueue_from(
+        &self,
+        identity: Option<&Identity>,
+        connection: ConnectionRef,
+        id: Uuid,
+        input: Input,
+    ) -> Result<ssh::Reply, ErrorCode> {
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-        let info = self
-            .store
-            .lock()
-            .map_err(|_| ErrorCode::InvalidState)?
-            .sessions
-            .info(connection)?;
+        let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let now = store.now();
+        let owner = match identity {
+            Some(identity) if store.pairing.is_agent(identity, now)? => Some(identity.ticket_id()),
+            Some(identity) => {
+                store.pairing.require_desktop(identity, now)?;
+                None
+            }
+            None => None,
+        };
+        let authority = if let Some(identity) = identity.filter(|_| owner.is_some()) {
+            Some((
+                identity.clone(),
+                store.pairing.admit_input(
+                    identity,
+                    Scope {
+                        target: Target::Connection { connection },
+                        action: Action::Write,
+                    },
+                    id,
+                    now,
+                )?,
+            ))
+        } else {
+            None
+        };
+        let info = store.sessions.info(connection)?;
         let entry = inner
             .entries
             .get_mut(&connection.connection_id)
@@ -379,7 +495,7 @@ impl Manager {
         if entry.exec.contains(id) {
             return Err(ErrorCode::InvalidArgument);
         }
-        if let Some(receipt) = entry.receipts.lookup(id, fingerprint)? {
+        if let Some(receipt) = entry.receipts.lookup_owned(owner, id, fingerprint)? {
             return Ok(ssh::Reply::Input(receipt));
         }
         entry.exec.check_available(id)?;
@@ -388,6 +504,10 @@ impl Manager {
         }
         if entry.cancel.is_cancelled() || entry.challenge.is_some() || !*entry.writable.borrow() {
             return Err(ErrorCode::InvalidState);
+        }
+        if let Some(desktop) = identity.filter(|_| owner.is_none()) {
+            store.pairing.takeover(desktop, connection, now)?;
+            entry.receipts.cancel_agent_pending();
         }
         let sender = entry
             .commands
@@ -398,8 +518,12 @@ impl Manager {
             mpsc::error::TrySendError::Full(_) => ErrorCode::CapacityExceeded,
             _ => ErrorCode::NotConnected,
         })?;
-        let receipt = entry.receipts.remember(id, fingerprint)?;
-        permit.send(QueuedInput { id, input });
+        let receipt = entry.receipts.remember_owned(owner, id, fingerprint)?;
+        permit.send(QueuedInput {
+            authority,
+            id,
+            input,
+        });
         Ok(ssh::Reply::Input(receipt))
     }
     fn answer(
@@ -484,12 +608,15 @@ impl Actor {
         if entry.cancel.is_cancelled() {
             return Err(Failure::Cancelled);
         }
-        self.store
-            .lock()
-            .map_err(|_| Failure::Transport)?
+        let mut store = self.store.lock().map_err(|_| Failure::Transport)?;
+        store
             .sessions
             .transition(self.reference, state)
             .map_err(|_| Failure::Transport)?;
+        if matches!(state, State::Disconnected | State::Failed) {
+            let now = store.now();
+            store.pairing.retire_connection(self.reference, now);
+        }
         Ok(())
     }
     async fn ask(&self, challenge: Challenge) -> Result<Answer, Failure> {
@@ -815,10 +942,11 @@ impl Actor {
                 .subscribe()
         };
         let mut jobs = tokio::task::JoinSet::new();
-        loop {
+        'commands: loop {
             let command = tokio::select! {biased;_=self.cancel.cancelled()=>return Err(Failure::Cancelled),Some(result)=jobs.join_next(),if !jobs.is_empty()=>{result.map_err(|_|Failure::Transport)?;continue;},value=commands.recv()=>value.ok_or(Failure::Transport)?};
             loop {
-                tokio::select! {biased;_=self.cancel.cancelled()=>return Err(Failure::Cancelled),value=ready.wait_for(|value|*value)=>{value.map_err(|_|Failure::Transport)?;}}
+                // Periodic wake also settles expired/revoked pending input while rekey is paused.
+                tokio::select! {biased;_=self.cancel.cancelled()=>return Err(Failure::Cancelled),value=ready.wait_for(|value|*value)=>{value.map_err(|_|Failure::Transport)?;},_=tokio::time::sleep(Duration::from_millis(25))=>{}}
                 let mut inner = self.inner.lock().map_err(|_| Failure::Transport)?;
                 let entry = inner
                     .entries
@@ -828,8 +956,27 @@ impl Actor {
                 if entry.cancel.is_cancelled() {
                     return Err(Failure::Cancelled);
                 }
+                let mut store = self.store.lock().map_err(|_| Failure::Transport)?;
+                if let Some((identity, permit)) = &command.authority
+                    && store
+                        .pairing
+                        .check_input(identity, permit, store.now())
+                        .is_err()
+                {
+                    let now = store.now();
+                    let _ = store.pairing.dispatch_input(identity, permit, now);
+                    entry.receipts.cancel_pending(command.id);
+                    continue 'commands;
+                }
                 if !*entry.writable.borrow() {
                     continue;
+                }
+                let now = store.now();
+                if let Some((identity, permit)) = &command.authority
+                    && store.pairing.dispatch_input(identity, permit, now).is_err()
+                {
+                    entry.receipts.cancel_pending(command.id);
+                    continue 'commands;
                 }
                 if !matches!(&command.input, Input::Exec(_)) && !entry.receipts.dispatch(command.id)
                 {
@@ -968,6 +1115,9 @@ impl Actor {
                 .sessions
                 .transition(self.reference, State::Failed);
         }
+        let mut store = self.store.lock().unwrap();
+        let now = store.now();
+        store.pairing.retire_connection(self.reference, now);
         entry.cancel.cancel();
     }
 }

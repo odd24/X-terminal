@@ -10,7 +10,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -22,7 +22,8 @@ struct Server {
     observations: Arc<Mutex<Vec<Observation>>>,
     received: Arc<Mutex<Vec<Vec<u8>>>>,
     sizes: Arc<Mutex<Vec<(u32, u32)>>>,
-    stall: bool,
+    stall: Arc<AtomicBool>,
+    unblock: Arc<tokio::sync::Notify>,
     client_key: russh::keys::PublicKey,
     password: Arc<String>,
     attempts: Arc<AtomicUsize>,
@@ -144,8 +145,8 @@ impl server::Handler for Server {
             .lock()
             .unwrap()
             .push(Observation::Data(bytes.to_vec()));
-        if self.stall {
-            std::future::pending::<()>().await;
+        if self.stall.swap(false, Ordering::SeqCst) {
+            self.unblock.notified().await;
         }
         session.data(channel, bytes.to_vec())?;
         Ok(())
@@ -284,6 +285,7 @@ impl server::Handler for Server {
     }
 }
 pub struct Fixture {
+    pub unblock: Arc<tokio::sync::Notify>,
     pub exec_calls: Arc<Mutex<Vec<Vec<u8>>>>,
     pub observations: Arc<Mutex<Vec<Observation>>>,
     pub received: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -322,6 +324,7 @@ impl Fixture {
         let sizes = Arc::new(Mutex::new(Vec::new()));
         let observations = Arc::new(Mutex::new(Vec::new()));
         let exec_calls = Arc::new(Mutex::new(Vec::new()));
+        let unblock = Arc::new(tokio::sync::Notify::new());
         let mut server = Server {
             writers: HashMap::new(),
             producers: HashMap::new(),
@@ -329,7 +332,8 @@ impl Fixture {
             observations: observations.clone(),
             received: received.clone(),
             sizes: sizes.clone(),
-            stall,
+            stall: Arc::new(AtomicBool::new(stall)),
+            unblock: unblock.clone(),
             client_key: client_key.public_key().clone(),
             password: password.clone(),
             attempts: attempts.clone(),
@@ -360,6 +364,7 @@ impl Fixture {
         });
         let shutdown = rx.await.unwrap();
         Self {
+            unblock,
             exec_calls,
             observations,
             received,

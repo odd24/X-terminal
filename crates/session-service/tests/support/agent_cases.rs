@@ -304,15 +304,8 @@ async fn agent_lease_ownership_takeover_and_audit_are_enforced_by_real_pipe_iden
     assert!(
         matches!(ok(desktop.request(agent(A::Lease {connection:first})).await.unwrap()), Reply::Agent(AR::Lease(Some(found))) if found == l)
     );
-    // Full scopes and a lease do not expose transport actions before the FIFO permit integration.
+    // Exec and serial remain unavailable until their own actor/worker permit integration.
     for request in [
-        Request::Ssh {
-            request: ssh::Request::Write {
-                connection: first,
-                request_id: Uuid::new_v4(),
-                bytes: SensitiveBytes::new(b"never-send".to_vec()),
-            },
-        },
         Request::Ssh {
             request: ssh::Request::Exec {
                 connection: first,
@@ -486,4 +479,305 @@ async fn agent_expiry_generation_and_release_do_not_extend_authority() {
             .is_err()
     );
     fixture.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+async fn agent_ssh_write_uses_shared_connection_and_authentic_receipt_owner() {
+    use session_core::input::InputState as I;
+    let remote = ssh_fixture::Fixture::start().await;
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let connection = ssh_connected_fixture(&mut desktop, &remote).await;
+    let Reply::ReadTicket {
+        token: observer_token,
+        ..
+    } = ok(desktop
+        .request(Request::IssueRead {
+            scopes: vec![connection],
+            lifetime_ms: 30000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let (mut observer, _) =
+        Client::connect(&service.instance, observer_token.expose(), service.pid)
+            .await
+            .unwrap();
+    for target in [
+        connection,
+        ConnectionRef {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        },
+    ] {
+        for request in [
+            ssh::Request::InputStatus {
+                connection: target,
+                request_id: Uuid::new_v4(),
+            },
+            input_write(target, Uuid::new_v4(), b"observer"),
+            ssh::Request::WriteText {
+                connection: target,
+                request_id: Uuid::new_v4(),
+                text: Sensitive::new("observer".into()),
+            },
+        ] {
+            assert_eq!(
+                error(observer.request(Request::Ssh { request }).await.unwrap()),
+                ErrorCode::PermissionDenied
+            );
+        }
+    }
+    let scopes = vec![
+        scope(connection, Action::Read),
+        scope(connection, Action::Write),
+    ];
+    let (_, token) = issue(&mut desktop, scopes.clone(), 30000).await;
+    let (_, second_token) = issue(&mut desktop, scopes, 30000).await;
+    let (mut writer, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let (mut other, _) = Client::connect(&service.instance, second_token.expose(), service.pid)
+        .await
+        .unwrap();
+    let id = Uuid::new_v4();
+    assert_eq!(
+        error(
+            writer
+                .request(Request::Ssh {
+                    request: input_write(connection, id, b"one")
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InputBusy
+    );
+    let l = lease(&mut writer, connection, 10000).await;
+    for _ in 0..2 {
+        ssh_call(&mut writer, input_write(connection, id, b"one")).await;
+    }
+    input_status(&mut writer, connection, id, |r| {
+        r.state == I::PipelineQueued
+    })
+    .await;
+    let text_id = Uuid::new_v4();
+    ssh_call(
+        &mut writer,
+        ssh::Request::WriteText {
+            connection,
+            request_id: text_id,
+            text: Sensitive::new("中文\r\n".into()),
+        },
+    )
+    .await;
+    input_status(&mut writer, connection, text_id, |r| {
+        r.state == I::PipelineQueued
+    })
+    .await;
+    timeout(Duration::from_secs(3), async {
+        while remote.received.lock().unwrap().concat() != "one中文\r\n".as_bytes() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    ok(writer
+        .request(agent(A::Release {
+            connection,
+            lease_id: l.lease_id,
+        }))
+        .await
+        .unwrap());
+    lease(&mut other, connection, 10000).await;
+    for request in [
+        input_write(connection, id, b"one"),
+        input_write(connection, id, b"different"),
+        ssh::Request::InputStatus {
+            connection,
+            request_id: id,
+        },
+    ] {
+        assert_eq!(
+            error(other.request(Request::Ssh { request }).await.unwrap()),
+            ErrorCode::PermissionDenied
+        );
+    }
+    // Desktop can inspect uncertain Agent delivery, but cannot repurpose its request ID.
+    input_status(&mut desktop, connection, id, |r| {
+        r.state == I::PipelineQueued
+    })
+    .await;
+    assert_eq!(
+        error(
+            desktop
+                .request(Request::Ssh {
+                    request: input_write(connection, id, b"one")
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    ssh_call(
+        &mut desktop,
+        input_write(connection, Uuid::new_v4(), b"user"),
+    )
+    .await;
+    assert_eq!(
+        error(
+            other
+                .request(Request::Ssh {
+                    request: input_write(connection, Uuid::new_v4(), b"must-not-send")
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert!(matches!(
+        ok(writer
+            .request(Request::Screen { connection })
+            .await
+            .unwrap()),
+        Reply::Screen(_)
+    ));
+    ssh_call(&mut desktop, ssh::Request::Close { connection }).await;
+    assert_eq!(
+        error(
+            writer
+                .request(Request::Screen { connection })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert!(matches!(
+        ok(desktop
+            .request(agent(A::Lease { connection }))
+            .await
+            .unwrap()),
+        Reply::Agent(AR::Lease(None))
+    ));
+    service.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+async fn agent_ssh_queued_input_rechecks_release_expiry_revoke_and_manual_takeover() {
+    use session_core::input::InputState as I;
+    for mode in ["release", "expiry", "revoke", "user", "explicit"] {
+        let remote = ssh_fixture::Fixture::options(true).await;
+        let temp = ConfigTemp::new();
+        let mut service = temp.start().await;
+        let mut desktop = service.connect().await;
+        let connection = ssh_connected_fixture(&mut desktop, &remote).await;
+        let scopes = vec![
+            scope(connection, Action::Read),
+            scope(connection, Action::Write),
+        ];
+        let (ticket_id, token) = issue(&mut desktop, scopes, 30000).await;
+        let (mut writer, _) = Client::connect(&service.instance, token.expose(), service.pid)
+            .await
+            .unwrap();
+        let l = lease(
+            &mut writer,
+            connection,
+            if mode == "expiry" { 300 } else { 10000 },
+        )
+        .await;
+        let first = Uuid::new_v4();
+        let queued = Uuid::new_v4();
+        ssh_call(
+            &mut writer,
+            input_write(connection, first, &vec![b'a'; 65536]),
+        )
+        .await;
+        input_status(&mut writer, connection, first, |r| {
+            r.state == I::Dispatching
+        })
+        .await;
+        timeout(Duration::from_secs(3), async {
+            while remote.received.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let ssh::Reply::Input(receipt) = ssh_call(
+            &mut writer,
+            input_write(connection, queued, b"forbidden-tail"),
+        )
+        .await
+        else {
+            panic!()
+        };
+        assert_eq!(receipt.state, I::Pending);
+        let user_id = Uuid::new_v4();
+        match mode {
+            "release" => {
+                ok(writer
+                    .request(agent(A::Release {
+                        connection,
+                        lease_id: l.lease_id,
+                    }))
+                    .await
+                    .unwrap());
+                lease(&mut writer, connection, 10000).await;
+            }
+            "expiry" => tokio::time::sleep(Duration::from_millis(350)).await,
+            "revoke" => {
+                ok(desktop
+                    .request(Request::Revoke { ticket_id })
+                    .await
+                    .unwrap());
+            }
+            "user" => {
+                ssh_call(&mut desktop, input_write(connection, user_id, b"user")).await;
+            }
+            _ => {
+                ok(desktop
+                    .request(agent(A::Takeover { connection }))
+                    .await
+                    .unwrap());
+            }
+        }
+        remote.unblock.notify_one();
+        input_status(&mut desktop, connection, first, |r| {
+            r.state == I::PipelineQueued
+        })
+        .await;
+        input_status(&mut desktop, connection, queued, |r| {
+            r.state == I::CancelledBeforeDispatch
+        })
+        .await;
+        if mode == "user" {
+            input_status(&mut desktop, connection, user_id, |r| {
+                r.state == I::PipelineQueued
+            })
+            .await;
+        }
+        // FIFO barrier proves the actor consumed the invalidated item, with no forbidden bytes.
+        let barrier = Uuid::new_v4();
+        ssh_call(&mut desktop, input_write(connection, barrier, b"barrier")).await;
+        input_status(&mut desktop, connection, barrier, |r| {
+            r.state == I::PipelineQueued
+        })
+        .await;
+        timeout(Duration::from_secs(3), async {
+            loop {
+                let bytes = remote.received.lock().unwrap().concat();
+                if bytes.ends_with(b"barrier") {
+                    assert!(!bytes.windows(14).any(|w| w == b"forbidden-tail"));
+                    assert_eq!(bytes.len(), 65536 + if mode == "user" { 4 } else { 0 } + 7);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        service.stop(&mut desktop).await;
+    }
 }
