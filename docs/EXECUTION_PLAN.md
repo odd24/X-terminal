@@ -275,6 +275,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- 桌面增量：ADR-047无token原生管理投影及共享授权面板，固定目标/范围/期限、原编号恢复撤销、租约/人工接管和分页审计；准确验证见P14。真实桥交付/其他动作/完整持久审计继续，不标整步完成。
+
 - 状态：IN_PROGRESS；ADR-044核心独立范围/租约/接管/派发许可与审计先行，实际证据见[P14](records/P14.md)。服务/worker/GUI及真实Windows IPC继续，不能以核心通过当Agent已开放。
 - 服务增量：真实Agent身份/read范围及管理/租约/显式接管/审计已有软件证据。SSH Write/WriteText/InputStatus已接统一FIFO许可复核、认证回执归属与自动用户接管；准确最终验证见P14。SSH exec已接独立范围/任务归属、最终异步派发和原Start只查回执，实际最终结果见P14；connect/control/disconnect、串口worker逐片段/归属及授权GUI仍继续，不从SSH路径推断全部Agent控制已开放。
 - 串口增量：ADR-045将Write/Send/Control及本人InputStatus接同OS worker逐片段许可/回执归属/自动接管，实际验证见P14。Connect/Disconnect/建连owner及幂等授权GUI继续，不由此标整步完成。

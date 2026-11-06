@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14按[ADR-047](decisions/ADR-047.md)接共享授权管理GUI及Desktop专用无token投影：固定当前ConnectionRef/独立能力/期限，一次性明确批准、原编号查询撤销、租约与人工接管/有界审计。sessionStorage仅编号恢复，未知/重载不重新签发。真实MCP桥还须实现受控原生token交付，不将token暴露到WebView/剪贴板/argv/env/磁盘或把Desktop bootstrap给桥；GUI批准不意味着实际Codex已经连接。其他动作/完整持久审计继续，准确结果见P14。
+
 P14签发管理按[ADR-046](decisions/ADR-046.md)要求Grant固定request_id，同编号同范围集合/期限恢复原ticket/token及原到期，不新授权。管理清单无token，单项查询区分原批准与有效范围；过期/撤销不返回token，重启无旧回执，不自动换ID/重发。服务查询能力不代表GUI或真实stdio工具已接入，不把恢复票据等同恢复执行权限。
 
 P14串口Write/Send/Control及本人InputStatus的服务接入见[ADR-045](decisions/ADR-045.md)/[P14](records/P14.md)：真实Agent需要独立范围/租约，每个OS写片段前重验同一许可；用户输入/控制接管仅停止未发送尾部，driver_accepted是已知驱动下界，串口没有退出码。原编号结果不明只查询，不换ID重发。实际stdio桥仍未接入，不能使用Desktop票据绕过Agent策略；其他动作/授权GUI继续。

@@ -11,6 +11,7 @@ import { TerminalWriter } from './terminal-writer';
 import { OutputDecoder } from './output-decoder';
 import { terminalAppearance, type ThemeChoice, type TerminalFont } from './appearance';
 import { AppearancePanel } from './appearance-panel';
+import { AgentPanel } from './agent-panel';
 import { ComposePanel } from './compose-panel';
 import { ComposeDrafts, type ComposeTarget } from './compose-drafts';
 import { SessionTree } from './session-tree';
@@ -59,6 +60,7 @@ function App() {
   const allowExit = useRef(false);
   const liveConnections = useRef<Connection[]>([]);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [preferences, setPreferences] = useState<DesktopPreferences>({ theme: 'dark', terminal_font: 'consolas', terminal_palette: 'follow_theme', font_size: 15, ctrl_c_copy: true, ctrl_v_paste: false, right_click_paste: false });
   const preferenceRef = useRef(preferences); preferenceRef.current = preferences;
   const theme: ThemeChoice = preferences.theme, terminalFont: TerminalFont = preferences.terminal_font;
@@ -556,6 +558,7 @@ function App() {
       <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
       <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
       <button onClick={() => setAppearanceOpen(open => !open)}>外观</button>
+      <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
       <label>字号 <input aria-label="字号" disabled={preferencesBusy} type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
     </nav>
@@ -577,6 +580,7 @@ function App() {
     {tabMessage && <div role="status" aria-label="标签操作状态">{tabMessage}</div>}
     </section>
     <aside className="auxiliary-panels" aria-label="辅助工具">
+    {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {closing && <section className="config-panel" aria-label="关闭标签确认"><h2>关闭连接标签</h2><p>{tabName(closing)} · {closing.protocol} · {closing.connection_id} / 代次 {closing.generation}</p><p>关闭连接会停止未发送输入；已发送动作不会撤销。保留连接仅隐藏标签，输出仍由服务有界保留，之后可从完整列表重新打开。</p><button disabled={tabBusy} onClick={() => void confirmClose()}>关闭连接并隐藏标签</button><button disabled={tabBusy} onClick={() => { hideTab(closing); setClosing(undefined); }}>保留连接隐藏标签</button><button disabled={tabBusy} autoFocus onClick={() => setClosing(undefined)}>取消关闭标签</button></section>}
     {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
@@ -604,7 +608,7 @@ function App() {
         <span aria-label="活动编码">编码：{activeDetails?.encoding === 'utf8' ? 'UTF-8' : activeDetails?.encoding.toUpperCase() ?? (active?.protocol === 'FIXTURE' ? 'UTF-8（合成）' : active ? '读取中' : '—')}</span>
         <span aria-label="终端视口尺寸" title="本地终端列×行；SSH PTY请求有上限，串口没有远端PTY">视口：{viewport.cols}×{viewport.rows}</span>
         <span aria-label="日志状态" role="status">日志：{activeLog}</span>
-        <span aria-label="权限状态">{failure || inputFailure ? '桌面输入已停止' : inputReady && ['SSH2', 'SERIAL'].includes(active?.protocol ?? '') ? '桌面输入可用' : inputReady && active?.protocol === 'FIXTURE' ? '合成输入（仅测试）' : '桌面输入未就绪'} · Agent 授权界面尚未开放</span>
+        <span aria-label="权限状态">{failure || inputFailure ? '桌面输入已停止' : inputReady && ['SSH2', 'SERIAL'].includes(active?.protocol ?? '') ? '桌面输入可用' : inputReady && active?.protocol === 'FIXTURE' ? '合成输入（仅测试）' : '桌面输入未就绪'} · Agent 授权可管理，真实桥尚未接入</span>
       </div>
       <details className="connection-details"><summary>连接与服务详情</summary><span>{active && `${active.connection_id} / ${active.generation} · `}{service && `服务 ${service.service_id} · `}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</span></details>
     </footer>

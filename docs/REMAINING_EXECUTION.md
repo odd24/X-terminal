@@ -1,5 +1,11 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-06 P14 GUI实现与专项已有证据，但本轮三次完整19入口未通过，最新export已聚焦而选区折叠143..143（readOnly/connected=true、:disabled=false）；首轮save选择器发现失败、两轮export焦点失败及准确源码/指纹见P14末节。下一独立子步优先定位P11.4此交互，不能放宽全选断言或将专项/前序入口拼成全通过；修复独立提交、产品重构建后完成完整回归，再持续其他P14与全方案。P14/阶段门保持开放。
+
+2026-11-06 P14完整性复核：当前access::Scope只有精确ConnectionRef/Profile与Action，Read覆盖该代次当前有界保留输出；本轮GUI如实显示这一范围，尚无CODEX_INTEGRATION“选择时间范围”的服务端读取下界/上界约束。ARCHITECTURE所列单次确认/限时任务形式、服务端输出脱敏策略与完整拒绝RPC/取消/持久审计也不能由限时票据/一次性GUI签发推导完成。后续须逐项设计/实现/实测，不修改原需求以适应现状，不将本面板作为完整P14/R13验收。
+
+2026-11-06 P14按ADR-047接无token桌面管理通道与共享授权面板，固定目标/范围/期限、原编号查询撤销、租约/接管和分页审计，实际验证见最新P14。真实stdio桥受控交付仍未接入，Connect/Disconnect/SSH Resize/建连owner与完整持久审计继续；不能从GUI批准成功推断Codex已连接，完整R01–R16/P01–P25不变。
+
 2026-11-06 P14授权管理增量按ADR-046补固定签发编号/幂等回执、可查询原状态/无token摘要清单和原编号幂等撤销，实际验证见最新P14。授权GUI可据此处理应答未知但尚未接入，Connect/Disconnect/建连owner、其他控制/完整持久审计、P15真正桥与完整方案继续。
 
 2026-11-06 P14串口增量按ADR-045接入Write/Send/Control和本人InputStatus、同OS worker逐片段/短写许可复核、回执owner与用户接管，实际验证状态见最新P14。Start/Inventory/Status/Close/Forget仍Desktop专用，Connect/Disconnect/建连owner、幂等可查询签发/GUI、完整持久审计及真正MCP继续；不从内存串口推断COM验收。

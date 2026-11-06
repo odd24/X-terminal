@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-06 P14授权GUI阶段保留IN_PROGRESS：固定目标/范围/期限和原编号管理/有效范围/租约接管/分页审计已实现，50前端/lint、实际最终构建/授权原生专项PASS。三轮完整19入口均FAIL，最新14:48:53在export路径聚焦成功但全选折叠143..143；原选择器失败/两轮focus及未执行入口不抹去，准确终态/指纹/两提交冻结见P14。后继优先独立修复P11.4该交互并重构建/完整回归，再持续P14其他动作/真实桥及整个方案，Step-ID: P14。
+
+2026-11-06 P14在a85997c之后接共享授权管理GUI：固定目标/独立能力/期限与一次性批准、原编号查询撤销/租约接管、当前有效范围及分页审计；只编号恢复，token不入WebView。50前端测试已通过，最终lint/实际构建/扩展原生及完整19入口结果见P14，不预填全步完成。Step-ID: P14。
+
 2026-11-06 P14 Desktop管理通道子步完成：8宿主测试/严格clippy/fmt、14:15:17–14:18:12实际桌面构建与新test:desktop:agent真实WebView/IPC全部PASS，token只在原生剥离、原编号/有效范围/撤销/到期/重启和丢应答命中已核对。GUI下一子步/最终完整19入口继续，详细范围与未执行见P14/ADR-047，Step-ID: P14。
 
 2026-11-06 P14后继A从9a93cf4干净接管并获前任明确放行，按ADR-047接Desktop专用管理无令牌投影通道；token不进WebView，原编号恢复/有效范围/撤销继续沿ADR-046。实际验证见P14，GUI/真实桥交付及完整方案继续，不预填完成。Step-ID: P14。
@@ -95,7 +99,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
-| P14 | Agent 授权与调度（核心/身份/SSH认证输入及exec已验证；串口worker/其他动作/GUI继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
+| P14 | Agent 授权与调度（派发/管理/GUI阶段已有；全回归焦点问题/其他动作/真实桥/完整审计继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | MCP 工具实现 | TODO | 待创建 | — |
 | P16 | Codex 真机闭环 | TODO | 待创建 | — |
 | P17 | 标签组与工作区 | TODO | 待创建 | — |
