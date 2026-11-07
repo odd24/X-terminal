@@ -111,7 +111,8 @@ async fn agent_serial_protected_output_reads_actual_worker_and_preserves_desktop
     let mut desktop = service.connect().await;
     let c = connected(&mut desktop).await;
     let expected = b"public synthetic-secret\r\nvisible\r\nlast-padding-row\r\n";
-    call(&mut desktop, write(c, Uuid::new_v4(), expected)).await;
+    let write_id = Uuid::new_v4();
+    call(&mut desktop, write(c, write_id, expected)).await;
     timeout(Duration::from_secs(3), async {
         while bytes(&mut desktop, c).await != expected {
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -190,5 +191,61 @@ async fn agent_serial_protected_output_reads_actual_worker_and_preserves_desktop
         ErrorCode::PermissionDenied
     );
     assert_eq!(bytes(&mut desktop, c).await, expected);
+    use session_core::rpc_audit::{Area, OriginKind, Phase, Verb};
+    use session_protocol::rpc_audit::{Reply as AuditReply, View as AuditView};
+    let Reply::RpcAudit(AuditReply::Info {
+        through_cursor,
+        persistent,
+        record_failures,
+        ..
+    }) = ok(desktop
+        .request(Request::RpcAudit {
+            view: AuditView::Info {},
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    assert!(!persistent);
+    assert_eq!(record_failures, 0);
+    let mut cursor = 0;
+    let mut events = Vec::new();
+    while cursor < through_cursor {
+        let Reply::RpcAudit(AuditReply::Page { page, .. }) = ok(desktop
+            .request(Request::RpcAudit {
+                view: AuditView::Page {
+                    cursor,
+                    through_cursor,
+                    limit: 128,
+                },
+            })
+            .await
+            .unwrap())
+        else {
+            panic!()
+        };
+        cursor = page.next_cursor;
+        events.extend(page.events);
+    }
+    assert!(events.iter().any(|e| e.attempt.request.area == Area::Serial
+        && e.attempt.request.verb == Verb::Write
+        && e.attempt.request.request_id == Some(write_id)
+        && e.attempt.origin.kind == OriginKind::Desktop
+        && e.phase == Phase::ReturnedOk {}));
+    assert!(events.iter().any(
+        |e| e.attempt.origin.client_id == Some(receipt.summary.ticket_id)
+            && e.attempt.request.area == Area::Session
+            && e.attempt.request.verb == Verb::Read
+            && e.phase
+                == Phase::ReturnedError {
+                    code: ErrorCode::PermissionDenied
+                }
+    ));
+    assert!(
+        !serde_json::to_string(&events)
+            .unwrap()
+            .contains("synthetic-secret")
+    );
     service.stop(&mut desktop).await;
 }

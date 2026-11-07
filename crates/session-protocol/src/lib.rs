@@ -3,6 +3,7 @@ pub mod agent;
 pub mod config;
 pub mod logging;
 pub mod operation;
+pub mod rpc_audit;
 pub mod serial;
 pub mod ssh;
 use schemars::JsonSchema;
@@ -121,6 +122,9 @@ pub struct RequestEnvelope {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    RpcAudit {
+        view: rpc_audit::View,
+    },
     Agent {
         request: agent::Request,
     },
@@ -187,6 +191,11 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
+            Self::RpcAudit { view } => {
+                if !view.valid() {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+            }
             Self::ProtectedContext {
                 connection,
                 window,
@@ -292,6 +301,7 @@ impl Request {
     deny_unknown_fields
 )]
 pub enum Reply {
+    RpcAudit(rpc_audit::Reply),
     Agent(agent::Reply),
     Logging(logging::Reply),
     Serial(serial::Reply),

@@ -1,6 +1,6 @@
 # 架构与关键设计
 
-P14完整拒绝审计按[ADR-058](decisions/ADR-058.md)独立请求尝试模型，与策略许可环/业务完成回执分开：纯枚举/UUID/整数/请求scope，无正文或任意错误字符串；握手身份、handler返回、本地写帧与取消各保留事实，固定水位/覆盖可见。当前只有核心，服务边界/独立持久writer及同步失败/GUI必须另验证，不把512环当完整持久审计，结果见[P14](records/P14.md)。
+P14完整拒绝审计按[ADR-058](decisions/ADR-058.md)独立请求流，与策略许可环/业务完成回执分开：纯枚举/UUID/整数/scope声明/资源ID，无正文或任意错误字符串；服务穷尽typed分类并记录真实握手/帧/32接入拒绝/handler返回/写帧及取消，Desktop只读固定水位/覆盖与record_failures，明示persistent=false。独立持久writer/同步失败/历史GUI继续，不把512环当完整持久审计；缺阶段不推断完整身份或结果，实际证据见[P14](records/P14.md)。
 
 P14输出脱敏按[ADR-057](decisions/ADR-057.md)采用票据固定策略、服务授权完整连续段先投影后分页；服务规则Zeroizing内存，回执仅随机ID/模式/数量及私有带盐相等证明。ProtectedContext与本人ExecReadProtected独立返回，受保护票据旧raw/text/screen/context/exec入口拒绝；屏幕命中整行隐藏、未知控制/字段前文整屏隐藏，原输出/解析/日志不改。GUI明确选择保护、固定完整规则预览，原生管理继续无bearer投影，重载仅原编号；实际软件证据见[P14](records/P14.md)，真实桥继续。
 

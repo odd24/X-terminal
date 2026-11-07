@@ -920,6 +920,23 @@
             "additionalProperties": false,
             "properties": {
               "op": {
+                "const": "rpc_audit",
+                "type": "string"
+              },
+              "view": {
+                "$ref": "#/$defs/View"
+              }
+            },
+            "required": [
+              "op",
+              "view"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
                 "const": "agent",
                 "type": "string"
               },
@@ -1038,7 +1055,7 @@
                 "type": "string"
               },
               "view": {
-                "$ref": "#/$defs/View2"
+                "$ref": "#/$defs/View3"
               },
               "window": {
                 "anyOf": [
@@ -1069,7 +1086,7 @@
                 "type": "string"
               },
               "view": {
-                "$ref": "#/$defs/View3"
+                "$ref": "#/$defs/View4"
               },
               "window": {
                 "$ref": "#/$defs/TimeWindow"
@@ -1627,7 +1644,7 @@
                 "type": "string"
               },
               "view": {
-                "$ref": "#/$defs/View"
+                "$ref": "#/$defs/View2"
               }
             },
             "required": [
@@ -3425,6 +3442,54 @@
                 "type": "integer"
               },
               "kind": {
+                "const": "page",
+                "type": "string"
+              },
+              "limit": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "cursor",
+              "through_cursor",
+              "limit"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "View2": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "info",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
                 "const": "text",
                 "type": "string"
               },
@@ -3449,7 +3514,7 @@
           }
         ]
       },
-      "View2": {
+      "View3": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -3516,7 +3581,7 @@
           }
         ]
       },
-      "View3": {
+      "View4": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -3784,6 +3849,45 @@
           "export"
         ],
         "type": "string"
+      },
+      "Area": {
+        "enum": [
+          "TRANSPORT",
+          "SESSION",
+          "AGENT",
+          "SSH2",
+          "SERIAL",
+          "CONFIGURATION",
+          "LOGGING"
+        ],
+        "type": "string"
+      },
+      "Attempt": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/$defs/Origin"
+          },
+          "request": {
+            "$ref": "#/$defs/Descriptor"
+          },
+          "started_seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "started_seq",
+          "origin",
+          "request"
+        ],
+        "type": "object"
       },
       "AuditEvent": {
         "additionalProperties": false,
@@ -4557,6 +4661,58 @@
         ],
         "type": "string"
       },
+      "Descriptor": {
+        "additionalProperties": false,
+        "description": "Coarse, exhaustive service classification, with no caller text/paths/digests.\nRequested scope is a claim to audit, never proof of actual authorization.",
+        "properties": {
+          "area": {
+            "$ref": "#/$defs/Area"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requested_scope": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Scope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Resource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verb": {
+            "$ref": "#/$defs/Verb"
+          },
+          "wire_id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "area",
+          "verb"
+        ],
+        "type": "object"
+      },
       "DesktopPreferences": {
         "additionalProperties": false,
         "properties": {
@@ -4643,6 +4799,32 @@
         "type": "string"
       },
       "Event": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt": {
+            "$ref": "#/$defs/Attempt"
+          },
+          "phase": {
+            "$ref": "#/$defs/Phase"
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "time": {
+            "$ref": "#/$defs/Time"
+          }
+        },
+        "required": [
+          "seq",
+          "time",
+          "attempt",
+          "phase"
+        ],
+        "type": "object"
+      },
+      "Event2": {
         "additionalProperties": false,
         "properties": {
           "bytes": {
@@ -5094,7 +5276,7 @@
             "type": "boolean"
           },
           "phase": {
-            "$ref": "#/$defs/Phase"
+            "$ref": "#/$defs/Phase2"
           },
           "protocol": {
             "$ref": "#/$defs/Protocol"
@@ -5200,6 +5382,23 @@
           "PIPELINE_QUEUED",
           "UNKNOWN",
           "CANCELLED_BEFORE_DISPATCH"
+        ],
+        "type": "string"
+      },
+      "IoReason": {
+        "enum": [
+          "TIMEOUT",
+          "INVALID_FRAME",
+          "CLOSED",
+          "OTHER"
+        ],
+        "type": "string"
+      },
+      "IoStage": {
+        "enum": [
+          "HELLO_READ",
+          "REQUEST_READ",
+          "REPLY_WRITE"
         ],
         "type": "string"
       },
@@ -5457,6 +5656,49 @@
         ],
         "type": "object"
       },
+      "Origin": {
+        "additionalProperties": false,
+        "properties": {
+          "client_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/$defs/OriginKind"
+          },
+          "peer_pid": {
+            "description": "Only an OS observation; never copied from a Hello or RPC argument.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pipe_id": {
+            "description": "Server-generated pipe identity, separate from the authenticated ticket.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pipe_id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "OriginKind": {
+        "enum": [
+          "UNAUTHENTICATED",
+          "DESKTOP",
+          "OBSERVER",
+          "AGENT"
+        ],
+        "type": "string"
+      },
       "OutputEvent": {
         "additionalProperties": false,
         "properties": {
@@ -5538,6 +5780,45 @@
         "additionalProperties": false,
         "properties": {
           "available_from": {
+            "description": "Exclusive cursor before the first retained event.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/$defs/Event"
+            },
+            "type": "array"
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "description": "Cursor is exclusive: the last returned event sequence.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "through_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "next_cursor",
+          "available_from",
+          "through_cursor",
+          "gap"
+        ],
+        "type": "object"
+      },
+      "Page2": {
+        "additionalProperties": false,
+        "properties": {
+          "available_from": {
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -5547,7 +5828,7 @@
           },
           "events": {
             "items": {
-              "$ref": "#/$defs/Event"
+              "$ref": "#/$defs/Event2"
             },
             "type": "array"
           },
@@ -5578,6 +5859,143 @@
         "type": "string"
       },
       "Phase": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "received",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Only the server's actual authentication result may supply this identity.",
+            "properties": {
+              "client_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "kind": {
+                "const": "authenticated",
+                "type": "string"
+              },
+              "origin_kind": {
+                "$ref": "#/$defs/OriginKind"
+              }
+            },
+            "required": [
+              "kind",
+              "client_id",
+              "origin_kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A returned Ok reply, not successful execution of its target action.",
+            "properties": {
+              "kind": {
+                "const": "returned_ok",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "kind": {
+                "const": "returned_error",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Connection admission failed before a typed request/handler or response.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "kind": {
+                "const": "admission_rejected",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Local write_frame completed, not a client acknowledgement.",
+            "properties": {
+              "kind": {
+                "const": "reply_written",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "io_failure",
+                "type": "string"
+              },
+              "reason": {
+                "$ref": "#/$defs/IoReason"
+              },
+              "stage": {
+                "$ref": "#/$defs/IoStage"
+              }
+            },
+            "required": [
+              "kind",
+              "stage",
+              "reason"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "abandoned",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Phase2": {
         "enum": [
           "REMOVED",
           "RELEASED",
@@ -5834,7 +6252,7 @@
                 "$ref": "#/$defs/Reply2"
               },
               "type": {
-                "const": "agent",
+                "const": "rpc_audit",
                 "type": "string"
               }
             },
@@ -5851,7 +6269,7 @@
                 "$ref": "#/$defs/Reply3"
               },
               "type": {
-                "const": "logging",
+                "const": "agent",
                 "type": "string"
               }
             },
@@ -5868,7 +6286,7 @@
                 "$ref": "#/$defs/Reply4"
               },
               "type": {
-                "const": "serial",
+                "const": "logging",
                 "type": "string"
               }
             },
@@ -5883,6 +6301,23 @@
             "properties": {
               "data": {
                 "$ref": "#/$defs/Reply5"
+              },
+              "type": {
+                "const": "serial",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/Reply6"
               },
               "type": {
                 "const": "ssh",
@@ -6020,7 +6455,7 @@
             "additionalProperties": false,
             "properties": {
               "data": {
-                "$ref": "#/$defs/Reply7"
+                "$ref": "#/$defs/Reply8"
               },
               "type": {
                 "const": "context",
@@ -6037,7 +6472,7 @@
             "additionalProperties": false,
             "properties": {
               "data": {
-                "$ref": "#/$defs/Reply8"
+                "$ref": "#/$defs/Reply9"
               },
               "type": {
                 "const": "protected_context",
@@ -6137,6 +6572,82 @@
         ]
       },
       "Reply2": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "active_attempts": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "persistent": {
+                "type": "boolean"
+              },
+              "record_failures": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "info",
+                "type": "string"
+              },
+              "service_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "result",
+              "service_id",
+              "through_cursor",
+              "active_attempts",
+              "record_failures",
+              "persistent"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "$ref": "#/$defs/Page"
+              },
+              "persistent": {
+                "type": "boolean"
+              },
+              "record_failures": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "page",
+                "type": "string"
+              },
+              "service_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "service_id",
+              "page",
+              "record_failures",
+              "persistent"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Reply3": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -6250,7 +6761,7 @@
           }
         ]
       },
-      "Reply3": {
+      "Reply4": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -6557,7 +7068,7 @@
                 "type": "boolean"
               },
               "phase": {
-                "$ref": "#/$defs/Phase"
+                "$ref": "#/$defs/Phase2"
               },
               "protocol": {
                 "$ref": "#/$defs/Protocol"
@@ -6915,7 +7426,7 @@
           }
         ]
       },
-      "Reply4": {
+      "Reply5": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -7150,7 +7661,7 @@
           }
         ]
       },
-      "Reply5": {
+      "Reply6": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -7159,7 +7670,7 @@
                 "$ref": "#/$defs/ConnectionRef"
               },
               "output": {
-                "$ref": "#/$defs/Reply6"
+                "$ref": "#/$defs/Reply7"
               },
               "result": {
                 "const": "exec_protected_output",
@@ -7277,7 +7788,7 @@
                 "$ref": "#/$defs/ConnectionRef"
               },
               "output": {
-                "$ref": "#/$defs/Page"
+                "$ref": "#/$defs/Page2"
               },
               "result": {
                 "const": "exec_output",
@@ -7428,7 +7939,7 @@
           }
         ]
       },
-      "Reply6": {
+      "Reply7": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -7483,7 +7994,7 @@
           }
         ]
       },
-      "Reply7": {
+      "Reply8": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -7567,7 +8078,7 @@
           }
         ]
       },
-      "Reply8": {
+      "Reply9": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -7655,6 +8166,50 @@
           "screen_rows_hidden"
         ],
         "type": "object"
+      },
+      "Resource": {
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/$defs/ResourceKind"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "type": "object"
+      },
+      "ResourceKind": {
+        "enum": [
+          "CONNECTION",
+          "TICKET",
+          "GRANT",
+          "TASK",
+          "OPERATION",
+          "PROFILE",
+          "FOLDER",
+          "CREDENTIAL",
+          "ARCHIVE",
+          "LOG",
+          "EXPORT",
+          "CONFIGURATION_REVISION"
+        ],
+        "type": "string"
       },
       "Scope": {
         "additionalProperties": false,
@@ -8211,6 +8766,26 @@
         ],
         "type": "string"
       },
+      "Time": {
+        "additionalProperties": false,
+        "properties": {
+          "elapsed_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unix_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unix_ms",
+          "elapsed_ms"
+        ],
+        "type": "object"
+      },
       "TimeWindow": {
         "additionalProperties": false,
         "properties": {
@@ -8231,6 +8806,38 @@
           "until_ms"
         ],
         "type": "object"
+      },
+      "Verb": {
+        "enum": [
+          "HELLO",
+          "RECEIVE",
+          "PING",
+          "LIST",
+          "READ",
+          "SCREEN",
+          "WRITE",
+          "EXEC",
+          "CONNECT",
+          "CONTROL",
+          "DISCONNECT",
+          "RECONNECT",
+          "FORGET",
+          "AUTHORIZE",
+          "REVOKE",
+          "ACQUIRE",
+          "RELEASE",
+          "TAKEOVER",
+          "STATUS",
+          "CANCEL",
+          "INSPECT",
+          "CONFIGURE",
+          "LOG",
+          "EXPORT",
+          "MAINTAIN",
+          "AUDIT",
+          "FIXTURE"
+        ],
+        "type": "string"
       },
       "View": {
         "additionalProperties": false,

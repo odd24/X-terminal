@@ -39,6 +39,7 @@ impl Store {
     }
 }
 struct Runtime {
+    request_audit: crate::request_audit::Audit,
     logging: crate::logging::Manager,
     config: crate::config::ConfigWorker,
     ssh: crate::ssh::Manager,
@@ -273,6 +274,10 @@ impl Runtime {
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         store.pairing.require_active(identity, now)?;
         match request {
+            Request::RpcAudit { view } => {
+                store.pairing.require_desktop(identity, now)?;
+                self.request_audit.query(view).map(Reply::RpcAudit)
+            }
             Request::Agent { request } => {
                 use agent::{Reply as R, Request as A};
                 let reply = match request {
@@ -530,10 +535,51 @@ impl Runtime {
 }
 
 async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Result<()> {
-    let hello: Hello = timeout(Duration::from_secs(5), read_frame(&mut pipe))
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "hello timeout"))??
-        .ok_or_else(|| io::Error::other("missing hello"))?;
+    use crate::request_audit::{io_reason, origin_kind, write_response};
+    use session_core::rpc_audit::{
+        Area, Descriptor, IoReason, IoStage, Origin, OriginKind, Phase, Verb,
+    };
+    let unverified = Origin {
+        pipe_id: Uuid::new_v4(),
+        client_id: None,
+        kind: OriginKind::Unauthenticated,
+        peer_pid: crate::request_audit::peer_pid(&pipe),
+    };
+    let hello_guard = runtime.request_audit.begin(
+        unverified,
+        Descriptor {
+            area: Area::Transport,
+            verb: Verb::Hello,
+            wire_id: None,
+            request_id: None,
+            requested_scope: None,
+            resource: None,
+        },
+    )?;
+    let hello: Hello = match timeout(Duration::from_secs(5), read_frame(&mut pipe)).await {
+        Ok(Ok(Some(hello))) => hello,
+        Ok(Ok(None)) => {
+            hello_guard.end(Phase::IoFailure {
+                stage: IoStage::HelloRead,
+                reason: IoReason::Closed,
+            })?;
+            return Ok(());
+        }
+        Ok(Err(error)) => {
+            hello_guard.end(Phase::IoFailure {
+                stage: IoStage::HelloRead,
+                reason: io_reason(&error),
+            })?;
+            return Err(error);
+        }
+        Err(_) => {
+            hello_guard.end(Phase::IoFailure {
+                stage: IoStage::HelloRead,
+                reason: IoReason::Timeout,
+            })?;
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "hello timeout"));
+        }
+    };
     let result = (|| {
         hello.validate()?;
         let token = SecretToken::parse(hello.token.expose().to_string())?;
@@ -557,40 +603,50 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
     let (identity, kind) = match result {
         Ok(value) => value,
         Err(code) => {
-            timeout(
-                Duration::from_secs(5),
-                write_frame(&mut pipe, &Response::Error { id: 0, code }),
-            )
-            .await??;
+            hello_guard.returned(Err(code))?;
+            write_response(&mut pipe, hello_guard, &Response::Error { id: 0, code }).await?;
             return Ok(());
         }
     };
-    timeout(
-        Duration::from_secs(5),
-        write_frame(
-            &mut pipe,
-            &Response::Ok {
-                id: 0,
-                reply: Reply::Welcome(Welcome {
-                    protocol_version: PROTOCOL_VERSION,
-                    service_id: runtime.service_id,
-                    client_id: if matches!(kind, ClientKind::Agent) {
-                        identity.ticket_id()
-                    } else {
-                        Uuid::new_v4()
-                    },
-                    kind,
-                }),
-            },
-        ),
+    hello_guard.authenticated(identity.ticket_id(), origin_kind(kind))?;
+    hello_guard.returned(Ok(()))?;
+    write_response(
+        &mut pipe,
+        hello_guard,
+        &Response::Ok {
+            id: 0,
+            reply: Reply::Welcome(Welcome {
+                protocol_version: PROTOCOL_VERSION,
+                service_id: runtime.service_id,
+                client_id: if matches!(kind, ClientKind::Agent) {
+                    identity.ticket_id()
+                } else {
+                    unverified.pipe_id
+                },
+                kind,
+            }),
+        },
     )
-    .await??;
+    .await?;
+    let origin = Origin {
+        client_id: Some(identity.ticket_id()),
+        kind: origin_kind(kind),
+        ..unverified
+    };
     let mut shutdown = runtime.shutdown.subscribe();
     loop {
         let request: RequestEnvelope = tokio::select! {
             _ = shutdown.changed() => return Ok(()),
-            frame = timeout(Duration::from_secs(30), read_frame(&mut pipe)) => match frame.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "idle client timeout"))?? { Some(value) => value, None => return Ok(()) }
+            frame = timeout(Duration::from_secs(30), read_frame(&mut pipe)) => match frame {
+                Ok(Ok(Some(value)))=>value,
+                Ok(Ok(None))=>{runtime.request_audit.read_failure(origin,IoStage::RequestRead,IoReason::Closed)?;return Ok(());},
+                Ok(Err(error))=>{runtime.request_audit.read_failure(origin,IoStage::RequestRead,io_reason(&error))?;return Err(error);},
+                Err(_)=>{runtime.request_audit.read_failure(origin,IoStage::RequestRead,IoReason::Timeout)?;return Err(io::Error::new(io::ErrorKind::TimedOut,"idle client timeout"));},
+            }
         };
+        let guard = runtime
+            .request_audit
+            .begin(origin, request.request.audit_descriptor(request.id))?;
         let result = match request.request {
             Request::Agent { request } => runtime.handle_agent(&identity, request).await,
             Request::Logging { request } => runtime.handle_logging(&identity, request).await,
@@ -599,6 +655,7 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
             Request::Config { request } => runtime.handle_config(&identity, request).await,
             request => runtime.handle(&identity, request),
         };
+        guard.returned(result.as_ref().map(|_| ()).map_err(|code| *code))?;
         let response = match result {
             Ok(reply) => Response::Ok {
                 id: request.id,
@@ -609,7 +666,7 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
                 code,
             },
         };
-        timeout(Duration::from_secs(5), write_frame(&mut pipe, &response)).await??;
+        write_response(&mut pipe, guard, &response).await?;
     }
 }
 
@@ -640,13 +697,15 @@ pub async fn serve_with_config(
     let logging = crate::logging::Manager::new(store.clone(), config.access())?;
     #[cfg(feature = "serial-ui-fixture")]
     let serial = if fixture { serial.ui_fixture() } else { serial };
+    let service_id = Uuid::new_v4();
     let runtime = Arc::new(Runtime {
+        request_audit: crate::request_audit::Audit::new(service_id, started),
         logging,
         config,
         ssh,
         serial,
         store,
-        service_id: Uuid::new_v4(),
+        service_id,
         started,
         fixture,
         shutdown,
@@ -672,6 +731,10 @@ pub async fn serve_with_config(
                 if tasks.len() < 32 && let Ok(permit) = permits.clone().try_acquire_owned() {
                     let runtime = runtime.clone();
                     tasks.spawn(async move { let _permit = permit; let _ = connection(active, runtime).await; });
+                } else {
+                    // No unbounded task or fabricated response when admission is full.
+                    // Metadata bookkeeping failures increment the visible failure count.
+                    let _ = runtime.request_audit.reject_capacity(&active);
                 }
             }
         }

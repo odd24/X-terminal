@@ -3,6 +3,7 @@ mod archives;
 pub mod client;
 mod config;
 mod logging;
+mod request_audit;
 pub mod security;
 mod serial;
 mod server;

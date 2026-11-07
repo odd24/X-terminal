@@ -7,6 +7,8 @@ mod cleanup_cases;
 mod logging_cases;
 #[path = "support/presentation_cases.rs"]
 mod presentation_cases;
+#[path = "support/rpc_audit_cases.rs"]
+mod rpc_audit_cases;
 use session_core::{PROTOCOL_VERSION, pairing::SecretToken, session::*};
 use session_protocol::*;
 use session_service::{client::Client, security::pipe_name};

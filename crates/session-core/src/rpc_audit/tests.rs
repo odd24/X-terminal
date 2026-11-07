@@ -1,4 +1,56 @@
 use super::*;
+
+#[test]
+fn connection_admission_rejection_is_not_a_handler_result_or_a_written_response() {
+    let mut ring = Ring::default();
+    let authenticated = origin();
+    let unverified = Origin {
+        client_id: None,
+        kind: OriginKind::Unauthenticated,
+        ..authenticated
+    };
+    let hello = Descriptor {
+        area: Area::Transport,
+        verb: Verb::Hello,
+        wire_id: None,
+        request_id: None,
+        requested_scope: None,
+        resource: None,
+    };
+    let first = ring.begin(time(1), unverified, hello).unwrap();
+    ring.end(
+        first.attempt.attempt_id,
+        time(2),
+        Phase::AdmissionRejected {
+            code: ErrorCode::CapacityExceeded,
+        },
+    )
+    .unwrap();
+    let request = ring.begin(time(3), authenticated, request()).unwrap();
+    assert_eq!(
+        ring.end(
+            request.attempt.attempt_id,
+            time(4),
+            Phase::AdmissionRejected {
+                code: ErrorCode::CapacityExceeded
+            }
+        ),
+        Err(ErrorCode::InvalidState)
+    );
+    ring.end(request.attempt.attempt_id, time(4), Phase::Abandoned {})
+        .unwrap();
+    let page = ring.page(0, 4, 128).unwrap();
+    assert_eq!(
+        page.events[1].phase,
+        Phase::AdmissionRejected {
+            code: ErrorCode::CapacityExceeded
+        }
+    );
+    assert!(page.events.iter().all(|e| !matches!(
+        e.phase,
+        Phase::ReturnedOk {} | Phase::ReturnedError { .. } | Phase::ReplyWritten {}
+    )));
+}
 use crate::{
     access::{Action, Target},
     session::{ConnectionId, ConnectionRef},
@@ -23,6 +75,7 @@ fn request() -> Descriptor {
         verb: Verb::Write,
         wire_id: Some(7),
         request_id: Some(Uuid::new_v4()),
+        resource: None,
         requested_scope: Some(Scope {
             target: Target::Connection {
                 connection: ConnectionRef {
@@ -124,6 +177,7 @@ fn origin_and_failure_phases_are_checked_without_accepting_caller_secrets_or_suc
         wire_id: None,
         request_id: None,
         requested_scope: None,
+        resource: None,
     };
     let start = ring.begin(time(1), unauth, request).unwrap();
     ring.end(
@@ -276,6 +330,7 @@ fn successful_handshake_binds_server_observed_identity_without_rewriting_the_una
         wire_id: None,
         request_id: None,
         requested_scope: None,
+        resource: None,
     };
     let first = ring.begin(time(1), unauth, desc).unwrap();
     let id = first.attempt.attempt_id;

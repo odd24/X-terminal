@@ -90,6 +90,31 @@ pub struct Descriptor {
     pub wire_id: Option<u32>,
     pub request_id: Option<Uuid>,
     pub requested_scope: Option<Scope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<Resource>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResourceKind {
+    Connection,
+    Ticket,
+    Grant,
+    Task,
+    Operation,
+    Profile,
+    Folder,
+    Credential,
+    Archive,
+    Log,
+    Export,
+    ConfigurationRevision,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Resource {
+    pub kind: ResourceKind,
+    pub id: Uuid,
+    pub connection: Option<crate::session::ConnectionRef>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -124,6 +149,10 @@ pub enum Phase {
     /// A returned Ok reply, not successful execution of its target action.
     ReturnedOk {},
     ReturnedError {
+        code: ErrorCode,
+    },
+    /// Connection admission failed before a typed request/handler or response.
+    AdmissionRejected {
         code: ErrorCode,
     },
     /// Local write_frame completed, not a client acknowledgement.
@@ -304,6 +333,12 @@ impl Ring {
         let seq = self.next()?;
         let live = self.active.get(&id).ok_or(ErrorCode::NotFound)?;
         let allowed = match phase {
+            Phase::AdmissionRejected { .. } => {
+                !live.returned
+                    && !live.identity_recorded
+                    && live.attempt.origin.kind == OriginKind::Unauthenticated
+                    && live.attempt.request.area == Area::Transport
+            }
             Phase::ReplyWritten {} => live.returned,
             Phase::IoFailure {
                 stage: IoStage::ReplyWrite,
