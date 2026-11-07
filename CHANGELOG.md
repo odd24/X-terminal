@@ -1,5 +1,7 @@
 # 变更日志
 
+- 执行流程：完整能力统一规划并按影响验证，减少重复回归与非必要聊天交接；原功能范围和验收标准保持，详见D05执行记录。
+
 - P14：Agent 授权 GUI 增加 SSH Reconnect 双范围批准：同一次预览固定旧代次 Reconnect 与原 Profile/revision Connect，批准不自动重连。合成 SSH WebView/IPC 专项通过；Forget 与真实 stdio 桥仍未交付，见 P14。
 
 
