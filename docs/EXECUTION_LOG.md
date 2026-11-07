@@ -129,6 +129,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | D03 | 实机后验收与独立开发准入 CR-001 | DONE | [D03](records/D03.md) | Step-ID: D03 |
 | D04 | 现代简洁界面与全局样式/字体统一规则 CR-002 | DONE | [D04](records/D04.md) | Step-ID: D04 |
 | D04.1 | 常用 Xshell 界面操作参考与验收细化 | DONE | [D04.1](records/D04.1.md) | Step-ID: D04.1 |
+| D04.2 | Apple Mac 全局 UI/视效/布局方向 CR-004 归档 | DONE | [D04.2](records/D04.2.md) | Step-ID: D04.2 |
 | D05 | 多会话隔离开发与串行集成方案归档（未启动） | DONE | [D05](records/D05.md) | Step-ID: D05 |
 | D05.1 | 完整可复制启动与自动接续指令归档（未启动） | DONE | [D05.1](records/D05.1.md) | Step-ID: D05.1 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
