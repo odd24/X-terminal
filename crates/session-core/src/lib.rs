@@ -3,6 +3,7 @@
 pub mod access;
 pub mod capture;
 pub mod disconnect;
+pub mod forget;
 pub mod input;
 pub mod pairing;
 pub mod presentation;

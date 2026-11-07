@@ -1,5 +1,7 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-07 Forget按ADR-054先建立独立完成账本，核心验证见P14；服务独立范围/lease与真实回收、GUI/真实桥另行推进。完整R01–R16/P01–P25及全部未完成验收保持，不由模型推导交付。
+
 2026-11-07 SSH Reconnect服务及GUI双范围批准子步已有软件验证：217相关Rust/Windows IPC及竞态、三包严格clippy/fmt、53前端/lint、实际desktop:build与test:desktop:agent通过；GUI批准不触发重连，合成SSH不代表真实桥。Forget、读取时间范围/任务授权/脱敏/完整拒绝和持久审计、真实stdio桥、P16–P25与所有阶段门继续，详见P14。
 
 2026-11-07 ADR-053 SSH Reconnect服务子步已完成软件验证：217相关Rust/真实Windows IPC、三包严格clippy/fmt、协议schema和52前端/lint通过，gate/配置/清理等待竞态覆盖见P14。Agent Forget、重连GUI组合批准、读取时间范围/单次任务授权/脱敏/完整拒绝与持久审计、真实stdio桥/P16及全部P17–P25继续，完整R01–R16/P01–P25目标不变。
