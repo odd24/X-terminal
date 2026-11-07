@@ -17,6 +17,7 @@ use uuid::Uuid;
 use windows_sys::Win32::System::JobObjects::*;
 
 pub struct Service {
+    instance: String,
     pub config_client: Option<Client>,
     child: Child,
     _job: OwnedHandle,
@@ -122,6 +123,7 @@ impl Service {
         .await?
         .0;
         Ok(Self {
+            instance,
             config_client: Some(config_client),
             child,
             _job: job,
@@ -151,6 +153,16 @@ impl Service {
                 Err("SERVICE_UNAVAILABLE".into())
             }
         }
+    }
+    pub fn endpoint(&self) -> Result<(String, u32, Uuid), String> {
+        if self.failed {
+            return Err("SERVICE_UNAVAILABLE".into());
+        }
+        Ok((
+            self.instance.clone(),
+            self.child.id().ok_or("SERVICE_UNAVAILABLE")?,
+            self.service_id,
+        ))
     }
 
     pub async fn status(&mut self) -> Result<Status, String> {

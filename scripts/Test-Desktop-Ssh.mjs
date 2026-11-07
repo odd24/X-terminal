@@ -51,7 +51,7 @@ try {
   let connection = (await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
   assert.equal(connection.generation,2);
   await ui.waitFor(`document.querySelector('footer [aria-label="活动编码"]')?.textContent==='编码：UTF-8' && document.querySelector('footer [aria-label="权限状态"]')?.textContent.includes('桌面输入可用')`);
-  assert.equal(await ui.evaluate(`document.querySelector('footer [aria-label="权限状态"]').textContent.includes('Agent 授权可管理，真实桥尚未接入')`),true,'Desktop readiness does not imply Agent authorization');
+  assert.equal(await ui.evaluate(`document.querySelector('footer [aria-label="权限状态"]').textContent.includes('Agent 授权可管理，MCP需独立配对')`),true,'Desktop readiness does not imply Agent authorization');
   // Fill and cross the receipt cap through the real Desktop adapter, then use real keyboard input.
   // Historical timestamps keep the new GUI request above the retired watermark after the loop.
   const orderedInputId = index => `00000000-${index.toString(16).padStart(4,'0')}-7000-8000-000000000001`;

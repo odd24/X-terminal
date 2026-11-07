@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+2026-11-07初版桥按[ADR-059](decisions/ADR-059.md)采用原生Agent代理：stdio不持有bearer，只经当前用户Pipe向原生转发9个基本工具，再由独立Agent身份进入原会话服务；没有另开SSH shell或借用Desktop权限。实际启动参数来自“MCP 初版连接”，仅本次endpoint/PID，用户核对实际桥进程与P14原授权后一次批准。受保护读取强制使用原策略；原编号与最后派发仍由服务验证。实际双协议stdio软件证据见[P15](records/P15.md)，工具契约为[initial-tools.json](../contracts/mcp/initial-tools.json)。下方完整v1拟定工具仍留后续，实际Codex测试属P16，不修改全局配置。
+
 P14按[ADR-058](decisions/ADR-058.md)直接持久记录RPC/Policy有限元数据，队列与同步分水位、有限保留/坏尾/失败可见；历史只供Desktop读取，不是Agent工具或权限来源。已知记录故障拒绝新Agent授权/lease/admit/final dispatch及完整/窗口新正文读取；原编号安全回执、本人原任务结果、释放/撤销/人工接管保持，不重放或续期。桥应展示原错误并只查询原编号，不能借用Desktop bootstrap绕过故障；真实stdio交付和工具继续P15。
 
 P14按[ADR-057](decisions/ADR-057.md)提供固定票据输出保护及完整规则GUI批准。受保护票据必须用ProtectedContext Info/Text/Screen（可带原OutputWindow）与本人ExecReadProtected；先Info取through_cursor再固定源seq分页，不能调用旧Read/ReadText/Screen/Context/ExecRead，Raw明确拒绝，不回退原文。策略由服务原票据提供，Agent不能传规则/ID覆盖，仍核对Read或本人exec；报告分别说明原源缺口/结束、边界保护、控制重写及隐藏屏幕行。远端exit_signal也受原策略，原始缓冲/日志不改。签发/查询只公开随机策略ID/模式/数量，规则、盐、相等摘要和token不进入WebView回执。GUI批准不执行/取lease或交付token，P15真实桥须明确识别保护元数据并使用对应入口；准确软件证据见[P14](records/P14.md)。

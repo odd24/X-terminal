@@ -343,6 +343,8 @@
 
 ### P15 MCP 工具实现
 
+- 初版9工具最小能力已完成并真实双协议验证，满足本版P16前置；完整v1其余工具仍IN_PROGRESS，按CR-005留后续，不能因此拖住初版或冒称全v1。原生Agent代理/固定进程与原授权配对、真实共享字节/保护/权限/资源证据及失败修正见[P15](records/P15.md)。
+
 - 依赖：P06、P11、P14。
 - 动作：按 CODEX_INTEGRATION.md 实现 schema、read/screen/send/wait/exec/serial/tasks/export；cursor 缺口、超时、长任务和错误语义。
 - 产物：真实 MCP 桥接、契约样本、安装路径发现设计。

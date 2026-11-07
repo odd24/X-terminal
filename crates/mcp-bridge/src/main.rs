@@ -4,6 +4,8 @@ use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::time::Duration;
+#[cfg(windows)]
+mod live;
 
 const CONNECTION: &str = "mock-p06-connection";
 const OUTPUT: &str = "MOCK ONLY: 中文合成输出\r\nNo device is connected.\r\n";
@@ -116,12 +118,18 @@ impl ServerHandler for MockBridge {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(windows)]
+    if args.first().is_some_and(|arg| arg == "--stdio") {
+        return live::run(&args).await;
+    }
     let delay = match args.as_slice() {
         [mode] if mode == "--mock" => 0,
         [mode, flag, value] if mode == "--mock" && flag == "--mock-delay-ms" => {
             value.parse::<u64>()?
         }
-        _ => anyhow::bail!("P06 prototype requires --mock; no real service available"),
+        _ => anyhow::bail!(
+            "use explicit --mock, or --stdio --broker INSTANCE --desktop-pid PID on Windows"
+        ),
     };
     anyhow::ensure!(delay <= 30000, "mock delay exceeds test bound");
     eprintln!("terminal-mcp P06 MOCK ONLY; no device or credentials");

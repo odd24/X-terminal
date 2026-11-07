@@ -608,7 +608,7 @@ function App() {
         <span aria-label="活动编码">编码：{activeDetails?.encoding === 'utf8' ? 'UTF-8' : activeDetails?.encoding.toUpperCase() ?? (active?.protocol === 'FIXTURE' ? 'UTF-8（合成）' : active ? '读取中' : '—')}</span>
         <span aria-label="终端视口尺寸" title="本地终端列×行；SSH PTY请求有上限，串口没有远端PTY">视口：{viewport.cols}×{viewport.rows}</span>
         <span aria-label="日志状态" role="status">日志：{activeLog}</span>
-        <span aria-label="权限状态">{failure || inputFailure ? '桌面输入已停止' : inputReady && ['SSH2', 'SERIAL'].includes(active?.protocol ?? '') ? '桌面输入可用' : inputReady && active?.protocol === 'FIXTURE' ? '合成输入（仅测试）' : '桌面输入未就绪'} · Agent 授权可管理，真实桥尚未接入</span>
+        <span aria-label="权限状态">{failure || inputFailure ? '桌面输入已停止' : inputReady && ['SSH2', 'SERIAL'].includes(active?.protocol ?? '') ? '桌面输入可用' : inputReady && active?.protocol === 'FIXTURE' ? '合成输入（仅测试）' : '桌面输入未就绪'} · Agent 授权可管理，MCP需独立配对</span>
       </div>
       <details className="connection-details"><summary>连接与服务详情</summary><span>{active && `${active.connection_id} / ${active.generation} · `}{service && `服务 ${service.service_id} · `}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</span></details>
     </footer>

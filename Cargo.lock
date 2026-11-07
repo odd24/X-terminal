@@ -2399,7 +2399,11 @@ dependencies = [
  "schemars 1.2.3",
  "serde",
  "serde_json",
+ "session-core",
+ "session-protocol",
+ "session-service",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

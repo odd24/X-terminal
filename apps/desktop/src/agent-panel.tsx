@@ -11,6 +11,7 @@ import { checkedOperationReply, operationFingerprint } from './operation-grant';
 import type { Redaction } from './output-protection';
 import { OutputProtectionEditor, OutputProtectionPreview } from './output-protection-editor';
 import { AuditHistoryPanel } from './audit-history-panel';
+import { BridgePanel } from './bridge-panel';
 
 const call = (request: Record<string, unknown>) => invoke<unknown>('agent_management_request', { request });
 const readSlot = () => { try { return restoreSlot(sessionStorage.getItem(slotKey)); } catch { return undefined; } };
@@ -65,7 +66,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
   const task = form === 'timed_task' ? { task_id: taskId, label: taskLabel } : undefined;
   return <Panel title="Agent 授权" label="Agent授权面板" close={() => { invalidate(); close(); }} closeLabel="关闭Agent授权">
     <p role="status" aria-label="Agent管理状态">{message}</p>
-    <small>服务 {serviceId} · 凭据只在原生/服务内存中。真实 MCP 桥交付尚未接入；本面板不提供 token 复制或保存。</small>
+    <small>服务 {serviceId} · 凭据只在原生/服务内存中。MCP需在下方单独绑定原授权；本面板不提供 token 复制或保存。</small>
     <p>Read包含本代次当前有界保留输出与授权期间后续输出；可明确启用下方输出保护，保护票据不提供原始字节。不包含持久日志/导出、认证秘密或其他连接。写入、独立 exec、协议控制与断开连接分别批准；变更操作还需 Agent 自己取得最长60秒的独占租约。</p>
     <Field label="授权形式"><select aria-label="Agent授权形式" disabled={busy || unresolved} value={form} onChange={event => { invalidate(); setForm(event.target.value); setSelected([]); setRedaction(undefined); setMode('connection'); setTaskLabel(''); setTaskId(requestId()); }}><option value="scoped">限时范围授权</option><option value="timed_task">限时任务（固定任务说明和范围）</option><option value="single_operation">单次完整操作（固定编号和参数）</option></select></Field>
     {form === 'timed_task' && <><Field label="本次任务说明（最多80字符）"><input aria-label="Agent任务说明" value={taskLabel} maxLength={80} onChange={event => { invalidate(); setTaskLabel(event.target.value); }} /></Field><small>任务 {taskId} · 说明不增加权限，取消任务须撤销本票据；不能撤回已执行动作。</small></>}
@@ -175,6 +176,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
           }
         });
       }}>确认Agent变更</button></fieldset>}
+    <BridgePanel serviceId={serviceId} grantId={view?.summary.request_id} />
     <AuditHistoryPanel serviceId={serviceId} />
     <details><summary>本服务审计与上下文范围</summary><p>最多512条策略元数据环，单页最多128；只显示本页，不拼成无限历史。服务相对时间不是北京时间日期。缺口表示更早条目已覆盖，跨服务历史请使用上方持久审计入口。</p>
       <div className="config-actions"><button disabled={busy} onClick={() => void run(async () => { const result = checkedAudit(await call({ op: 'audit', cursor: 0, limit: 128 }), 0); if (alive.current) { setAudit(result); setMessage('已读取首个保留审计页；未读取终端正文。'); } })}>读取保留审计</button><button disabled={busy || !audit} onClick={() => { if (!audit) return; const cursor = audit.next_cursor; void run(async () => { const result = checkedAudit(await call({ op: 'audit', cursor, limit: 128 }), cursor); if (alive.current) { setAudit(result); setMessage('已读取下一审计页；之前页未在窗口无限累积。'); } }); }}>下一页审计</button></div>

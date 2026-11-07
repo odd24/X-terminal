@@ -16,3 +16,9 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 schemars = "=1.2.3"
 anyhow = "=1.0.104"
+session-protocol = { path = "../session-protocol" }
+session-core = { path = "../session-core" }
+uuid = { version = "=1.29.0", features = ["serde"] }
+
+[target.'cfg(windows)'.dependencies]
+session-service = { path = "../session-service" }

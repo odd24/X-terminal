@@ -2,6 +2,7 @@
 
 mod agent_management;
 mod audit_history;
+mod bridge_manager;
 mod export_save;
 mod service;
 mod terminal_clipboard;
@@ -177,6 +178,36 @@ async fn audit_history_request(
             Err("AUDIT_CHANNEL_UNAVAILABLE".into())
         }
     }
+}
+
+#[tauri::command]
+async fn bridge_management_request(
+    state: State<'_, Desktop>,
+    broker: State<'_, bridge_manager::Manager>,
+    request: bridge_manager::Management,
+) -> Result<serde_json::Value, String> {
+    let value = match request {
+        bridge_manager::Management::Info {} => serde_json::to_value(broker.info()?),
+        bridge_manager::Management::Preview {
+            pending_id,
+            grant_request_id,
+        } => serde_json::to_value(
+            broker
+                .prepare(&state.1, pending_id, grant_request_id)
+                .await?,
+        ),
+        bridge_manager::Management::Approve { preview_id } => {
+            let endpoint = {
+                let service = state.0.lock().await;
+                service
+                    .as_ref()
+                    .map_err(|_| "SERVICE_UNAVAILABLE")?
+                    .endpoint()?
+            };
+            serde_json::to_value(broker.approve(&state.1, endpoint, preview_id).await?)
+        }
+    };
+    value.map_err(|_| "INVALID_BRIDGE_REPLY".into())
 }
 
 #[tauri::command]
@@ -380,6 +411,12 @@ fn main() {
                     .and_then(|service| service.config_client.take()),
             ));
             let weak_config = Arc::downgrade(&configuration);
+            if let Ok(service) = &service {
+                let (_, _, service_id) = service.endpoint().map_err(|_| "SERVICE_UNAVAILABLE")?;
+                app.manage(tauri::async_runtime::block_on(async {
+                    bridge_manager::Manager::start(service_id)
+                })?);
+            }
             let shared = Arc::new(Mutex::new(service));
             let weak = Arc::downgrade(&shared);
             app.manage(export_save::Manager::new(directory.clone())?);
@@ -424,6 +461,7 @@ fn main() {
             logging_request,
             agent_management_request,
             audit_history_request,
+            bridge_management_request,
             export_save_request,
             config_directory
         ])
@@ -434,6 +472,9 @@ fn main() {
             handle.state::<export_save::Manager>().cancel_all();
             let state = handle.state::<Desktop>();
             tauri::async_runtime::block_on(async {
+                if let Some(broker) = handle.try_state::<bridge_manager::Manager>() {
+                    broker.close().await;
+                }
                 if let Ok(service) = state.0.lock().await.as_mut() {
                     service.stop().await;
                 }

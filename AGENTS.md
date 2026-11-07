@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P15初版按ADR-059使用当前用户Pipe/OS桥PID与同目录映像、30秒一次固定原签发预览；原生持独立Agent Client，stdio不持bearer，不得借Desktop bootstrap转发。只9个读/屏幕/文本发与lease/回执工具，保护票据强制ProtectedContext；原生Agent IO失效关闭流，UNKNOWN_DELIVERY不重放。test:desktop:mcp前置desktop:build，完整第20入口，只shared-terminal-mcp-ui-中文-自建根/合成SSH/内存串口，finally实际恢复普通服务。初版最小P15已验证可直接进P16，完整工具/实机/全局矩阵留后续，不扩初版门槛。
+
 2026-11-07初版优先级以[CR-005](docs/changes/CR-005.md)为准：尽快交付可用初版，P14在途必要收尾后优先P15/P16最小安全共享会话闭环与基本交付检查；一般完善转迭代，不再把全部R01–R16/P01–P25作为本版结束门槛，未完需求保留且不得冒称完整v1通过。只有实际越权/秘密泄露/用户数据损坏/基本路径不可用才阻塞；必要安全不削减，按影响最小必要验证，无变更/失败/实质风险不重跑旧套，不追加精修或常规审批。
 
 P14审计按ADR-058分RPC尝试与Policy事件直接typed送入独立terminal-audit有界JSONL（8段各1MiB/1024条、1024队列），accepted不等于synced，轮转/内部缺号/坏尾/失败明确；仅自身独占已验证句柄退休审计段，不触及终端日志/配置/用户文件。已知故障拒绝新Agent许可/派发及完整/窗口新正文读取，窗口fallback不得吞CapacityExceeded；原编号回执/本人原任务结果/释放/撤销/接管保留，不能撤回已开始动作。Desktop历史独立只读白名单、精确整数文本/固定同步水位，关闭重载不自动读取；test:desktop:agent实际fetch故障/原生投影与串口finally普通恢复按P14记录，不从审计历史恢复授权或推断真实stdio桥完成。
