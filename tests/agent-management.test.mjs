@@ -76,3 +76,24 @@ test('profile approval freezes version and opening policy, never authorizes conn
   assert.equal(checkedGrant(v,request).effective_scopes[0].target.revision,request);
   v.data.effective_scopes[0].target.revision=id;assert.throws(()=>checkedGrant(v,request));
 });
+
+test('SSH reconnect approval freezes both exact old generation and fixed profile revision as one consent',()=>{
+  const approval=new ProfileGrantApproval();
+  const profile={id,name:'合成SSH',settings:{protocol:'ssh2',host:'example.test',port:22,username:'tester',auth:'agent',encoding:'utf8'}};
+  const old={...target,state:'DISCONNECTED',profile_id:id};
+  const p=approval.prepare(ticket,request,profile,45,old);
+  old.generation=2; profile.name='changed';
+  assert.equal(p.name,'合成SSH'); assert.equal(p.lifetime_ms,45000);
+  assert.deepEqual(p.scopes,[
+    {target:{kind:'connection',connection:{connection_id:id,generation:1}},action:'RECONNECT'},
+    {target:{kind:'profile_revision',profile_id:id,revision:request},action:'CONNECT'},
+  ]);
+  assert.equal(approval.consume(ticket,request,id,p),p);
+  const v=view();v.data.approved_scopes=p.scopes;v.data.effective_scopes=structuredClone(p.scopes);v.data.summary.effective_scope_count=2;
+  assert.equal(checkedGrant(v,request).effective_scopes.length,2);
+  assert.throws(()=>approval.prepare(ticket,request,profile,45,{...target,profile_id:id}));
+  assert.throws(()=>approval.prepare(ticket,request,profile,45,{...old,protocol:'SERIAL',state:'FAILED'}));
+  assert.throws(()=>approval.prepare(ticket,request,profile,45,{...old,profile_id:ticket}));
+  assert.throws(()=>approval.prepare(ticket,request,profile,45,{...old,connection_id:'bad'}));
+  assert.throws(()=>approval.prepare(ticket,request,profile,45,{...old,generation:0}));
+});

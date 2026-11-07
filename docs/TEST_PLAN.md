@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14 SSH Reconnect GUI扩展test:desktop:agent合成SSH真实WebView：只为已断开原SSH2目标展示匹配Profile，预览同时冻结旧代次Reconnect与固定revision Connect，默认无同意，批准前复读版本，取消/单次消费并断言签发不自动重连；前端拒绝已连接/非SSH2/profile不匹配。GUI批准不代表真实stdio桥/Forget，详细证据见P14。
+
 P14 ADR-053新增SSH Reconnect双许可/lease与精确旧代次测试，确定性覆盖gate、配置和旧Actor清理await后的撤权/接管/释放重取/到期及新Actor首poll撤权，不得产生未授权generation或socket；真实Windows IPC验证无隐式能力、固定revision变化拒绝、原owner丢应答恢复、跨来源拒绝、删除/退休后不重放。保留Desktop重连/移除与容量回归；准确终态见P14，GUI/stdio与实机不从服务测试推导。
 
 P14 Profile Connect第19入口共用AgentProfileChecks，在SSH/独立内存串口真实WebView验证固定Profile/revision/参数/初始DTR/RTS、默认无目标与同意、取消/切换/外部编辑/删除后不签发、双击只签发一次且不建连、预览重载不签发、真实fetch丢应答命中后仅查询及held响应关闭不重开。编号槽仅service_id/request_id；token无原生投影，串口finally核对普通服务恢复。准确结果见P14，不冒充真实Agent stdio/COM或全局DPIIME。

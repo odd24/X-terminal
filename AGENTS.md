@@ -1,6 +1,6 @@
 # 仓库执行规则
 
-P14 SSH Reconnect按ADR-053独立旧代次Reconnect/lease与固定Profile/revision Connect双许可，gate/配置/清理await后重验，原owner原编号优先只查；推进generation退役旧范围，新Actor首poll仍核对独立Connect，不继承旧lease/读写/认证。旧Forget仍Desktop专用，GUI组合批准/真实桥独立交付。
+P14 SSH Reconnect按ADR-053独立旧代次Reconnect/lease与固定Profile/revision Connect双许可，gate/配置/清理await后重验，原owner原编号优先只查；推进generation退役旧范围，新Actor首poll仍核对独立Connect，不继承旧lease/读写/认证。共享Agent授权GUI以单次预览批准旧SSH代次+原配置revision双范围，批准本身不重连；test:desktop:agent合成SSH覆盖，真实stdio桥/Forget继续独立交付。
 
 P14配置建连GUI按ADR-052独立选择已保存SSH2/SERIAL的profile_revision Connect，默认无目标/无同意、固定配置参数/期限，批准前重读同revision且不建连；串口初始DTR/RTS明确。第19两协议专项覆盖编辑/删除/重载/真实fetch丢应答/关闭迟到，只Agent中文前缀根且串口finally实际恢复普通服务；真实stdio桥仍独立交付。
 
@@ -16,7 +16,7 @@ P14 SSH Disconnect按ADR-051使用独立Disconnect/lease及严格原编号/owner
 
 P14串口Start按ADR-050绑定原回执owner/精确Profile Connect，配置await后与OS worker实际打开前复核；库存revision/device_id/端口匹配及占用仍必需，guard等待期间Close后不得再open。仅合成内存端口/中文前缀根，feature IPC后实际desktop:build恢复普通服务；Connect不推导Read/Write/Control/Disconnect、库存枚举或GUI/真实桥交付。
 
-P14 SSH Start按ADR-049绑定原Start回执认证owner，Profile Connect不授新连接Read/Write/认证批准；配置await后及实际连接future首次poll重验同许可。SSH Reconnect/Forget、串口Start与Disconnect仍待独立接入，不从服务Connect推导GUI或真实stdio桥交付。
+P14 SSH Start按ADR-049绑定原Start回执认证owner，Profile Connect不授新连接Read/Write/认证批准；配置await后及实际连接future首次poll重验同许可。SSH Reconnect服务与双范围GUI批准按ADR-053已接入；Agent Forget仍待独立接入，串口Start/Disconnect不得互相推导，服务/GUI批准不代表真实stdio桥。
 
 P14尺寸控制按ADR-048接SSH2 Control/lease及原FIFO/认证回执，Desktop视口调整不接管；test:desktop:agent扩展READ+WRITE+CONTROL默认无勾选/固定范围和接管后仅Read，仍须前置实际desktop:build。Control仅按目标协议为SSH尺寸或串口控制线，不推导Connect/Disconnect/广播或真实MCP桥交付。
 

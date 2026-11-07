@@ -11,7 +11,7 @@ const call = (request: Record<string, unknown>) => invoke<unknown>('agent_manage
 const readSlot = () => { try { return restoreSlot(sessionStorage.getItem(slotKey)); } catch { return undefined; } };
 const targetText = (connection: ConnectionRef) => `${connection.connection_id} / 代次 ${connection.generation}`;
 
-export function AgentPanel({ serviceId, target, close }: { serviceId: string; target?: Connection; close(): void }) {
+export function AgentPanel({ serviceId, target, profileId, close }: { serviceId: string; target?: Connection; profileId?: string; close(): void }) {
   const approval = useRef(new GrantApproval());
   const [mode, setMode] = useState('connection');
   const [selected, setSelected] = useState<Action[]>([]);
@@ -29,7 +29,7 @@ export function AgentPanel({ serviceId, target, close }: { serviceId: string; ta
   const [message, setMessage] = useState('选择能力并预览后明确批准。关闭/重载不恢复同意；本入口不发送终端输入。');
   const targetKey = target ? `${target.connection_id}:${target.generation}:${target.protocol}:${target.state}` : '';
   useEffect(() => { alive.current = true; return () => { alive.current = false; approval.current.invalidate(); }; }, []);
-  useEffect(() => { approval.current.invalidate(); setProposal(undefined); setConsent(false); setSelected([]); setConfirmation(undefined); setLease(undefined); }, [serviceId, targetKey]);
+  useEffect(() => { approval.current.invalidate(); setMode('connection'); setProposal(undefined); setConsent(false); setSelected([]); setConfirmation(undefined); setLease(undefined); }, [serviceId, targetKey]);
   const invalidate = () => { approval.current.invalidate(); setProposal(undefined); setConsent(false); };
   const remember = (id: string) => {
     const saved = { service_id: serviceId, request_id: id };
@@ -57,8 +57,8 @@ export function AgentPanel({ serviceId, target, close }: { serviceId: string; ta
     <p role="status" aria-label="Agent管理状态">{message}</p>
     <small>服务 {serviceId} · 凭据只在原生/服务内存中。真实 MCP 桥交付尚未接入；本面板不提供 token 复制或保存。</small>
     <p>读取范围包含该代次服务当前有界保留的原始输出、解码文本与屏幕；不包含持久日志/导出、认证秘密或其他连接。写入、独立 exec、协议控制与断开连接分别批准；变更操作还需 Agent 自己取得最长60秒的独占租约。</p>
-    <Field label="授权目标类型"><select aria-label="Agent授权类型" disabled={busy} value={mode} onChange={event => { invalidate(); setMode(event.target.value); }}><option value="connection">当前连接能力</option><option value="profile">已保存配置建连</option></select></Field>
-    {mode === 'profile' && <ProfileGrantPanel serviceId={serviceId} disabled={busy || unresolved} submit={(approved, current) => {
+    <Field label="授权目标类型"><select aria-label="Agent授权类型" disabled={busy} value={mode} onChange={event => { invalidate(); setMode(event.target.value); }}><option value="connection">当前连接能力</option><option value="profile">已保存配置建连</option><option value="reconnect" disabled={!target || target.protocol !== 'SSH2' || !profileId || !['DISCONNECTED', 'FAILED'].includes(target.state)}>SSH2旧代次重连（双范围）</option></select></Field>
+    {(mode === 'profile' || mode === 'reconnect') && <ProfileGrantPanel key={`${mode}:${targetKey}`} serviceId={serviceId} disabled={busy || unresolved} reconnectTarget={mode === 'reconnect' && target && profileId ? { ...target, profile_id: profileId } : undefined} submit={(approved, current) => {
       if (flight.current) return Promise.resolve();
       return run(async () => {
         const snapshot = await readConfiguration();
@@ -67,7 +67,7 @@ export function AgentPanel({ serviceId, target, close }: { serviceId: string; ta
         const id = requestId(); remember(id); setView(undefined);
         const result = checkedGrant(await call({ op: 'grant', request_id: id, scopes: approved.scopes, lifetime_ms: approved.lifetime_ms }), id);
         if (!alive.current) return;
-        setView(result); setMessage('已签发限时授权：仅固定配置版本的Connect，尚未建连或向真实桥交付。');
+        setView(result); setMessage(mode === 'reconnect' ? '已签发限时双范围授权；尚未执行重连，旧代次能力不会迁移，真实桥尚未交付。' : '已签发限时授权：仅固定配置版本的Connect，尚未建连或向真实桥交付。');
       });
     }} />}
     {mode === 'connection' && <fieldset disabled={busy || unresolved}><legend>批准当前目标</legend>

@@ -1,5 +1,8 @@
 # 变更日志
 
+- P14：Agent 授权 GUI 增加 SSH Reconnect 双范围批准：同一次预览固定旧代次 Reconnect 与原 Profile/revision Connect，批准不自动重连。合成 SSH WebView/IPC 专项通过；Forget 与真实 stdio 桥仍未交付，见 P14。
+
+
 - P14：SSH Agent Reconnect新增独立旧代次Reconnect/lease与固定Profile/revision Connect双许可，原owner编号只查询；gate、配置与清理等待后重验，并在新Actor连接前复核Connect。新代次不继承旧权限/租约；Forget、GUI组合批准与真实stdio桥继续独立交付。验证边界见ADR-053/P14。
 
 - P14：共享授权界面增加SSH2/SERIAL固定Profile/revision Connect批准，明确非秘密参数与串口初始线，批准前重读配置；真实验证见P14，token不入WebView、真正stdio桥另交付。

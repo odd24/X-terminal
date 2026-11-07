@@ -1,6 +1,8 @@
 # 执行台账
 
-2026-11-07 后继A从f944e02核验并获明确放行后，按ADR-053接入SSH Reconnect双范围/旧代次lease、固定配置快照、原owner账本和gate/配置/清理后许可复核。最终217相关Rust/真实Windows IPC测试、三包严格clippy/fmt、协议schema及52前端/lint实际PASS，gate/配置/清理等待竞态覆盖和具体失败修正见P14。Forget/GUI组合批准/上下文权限/持久审计/真实桥及完整R01–R16/P01–P25持续；本子步尚未commit。Step-ID: P14。
+2026-11-07 P14 SSH Reconnect GUI组合批准子步完成：共享面板同一固定预览绑定旧代次Reconnect及原Profile/revision Connect，批准前重读且不自动重连；53前端测试/lint、实际desktop:build与test:desktop:agent（含SSH组合及串口回归）通过。首次测试驱动checkbox未落选失败后改用真实WebView click并增加状态诊断；串口finally普通服务构建成功，相关进程0。GUI仅合成SSH，不等于Forget或真实stdio桥；完整P14与R01–R16/P01–P25继续，详情见P14。Step-ID: P14。
+
+2026-11-07 后继A从f944e02核验并获明确放行后，按ADR-053接入SSH Reconnect双范围/旧代次lease、固定配置快照、原owner账本和gate/配置/清理后许可复核。最终217相关Rust/真实Windows IPC测试、三包严格clippy/fmt、协议schema及52前端/lint实际PASS，gate/配置/清理等待竞态覆盖和具体失败修正见P14。Forget/上下文权限/持久审计/真实桥及完整R01–R16/P01–P25持续；服务子步提交bcb08c3，GUI组合批准后续见本日记录。Step-ID: P14。
 
 2026-11-07 固定Profile/revision Connect GUI子步完成：51前端/lint、实际最终构建/两协议专项与00:03:08–00:09:38完整19入口PASS/退出0，普通服务两次实际恢复/资源0。双击保护首失败修正、首完整Explorer观察失败/另存复验EBUSY与诊断增强、被拒绝的自建残留清理及最终指纹/两提交冻结均见P14；首成果6c23700，Agent重连/移除/上下文/真实桥和完整方案继续。Step-ID: P14。
 

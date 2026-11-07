@@ -1,5 +1,7 @@
 # 界面与交互规范
 
+P14 SSH Reconnect批准复用共享Agent授权/Profile表单与tokens，只为已断开的原SSH2代次开放；预览须同时展示精确旧ConnectionRef及Reconnect、原Profile固定revision及Connect、非秘密配置摘要和期限。默认不同意，模式/代次变化立即销毁旧预览；批准只签发双范围授权，不触发重连。继续使用共享Field/fieldset/状态文字，不新增单页字体或色板；合成SSH WebView验证见P14，真实stdio桥、Forget和全局T22/T23矩阵仍独立验收。
+
 P14 Profile Connect复用AgentPanel/Field/fieldset/tokens，当前连接能力与已保存配置建连分开，默认不选目标/不同意。预览完整Profile/revision及非秘密参数、串口初始DTR/RTS、期限和Connect边界；取消优先焦点，变更需重读重新预览，不把旧同意自动用于新配置。原编号管理复用无token投影，实际两协议GUI见P14，不替代全局DPIIME或真实stdio桥。
 
 

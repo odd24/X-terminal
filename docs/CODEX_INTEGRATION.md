@@ -1,6 +1,8 @@
 # Codex 首版接入方案
 
-Agent SSH Reconnect服务路径见[ADR-053](decisions/ADR-053.md)：精确结束旧ConnectionRef独立Reconnect与新lease，并另需同ticket的固定Profile/revision Connect；原编号只查创建时回执，不表示当前在线，不因配置/连接删除重建。退役不继承读写/认证/lease，新Actor首poll仍验Connect。GUI组合批准与真实stdio token交付仍继续，不能用Desktop票据代替。
+P14 Agent授权GUI现支持SSH Reconnect双范围：只为已断开SSH2原代次列出匹配Profile，预览同时绑定旧ConnectionRef/Reconnect与固定Profile/revision Connect，默认无勾选、一次性批准且批准前重读版本；批准本身不执行重连。认证/主机信任仍由Desktop处理，合成SSH结果见[P14](records/P14.md)，Forget与真实stdio桥继续独立交付。
+
+Agent SSH Reconnect服务路径见[ADR-053](decisions/ADR-053.md)：精确结束旧ConnectionRef独立Reconnect与新lease，并另需同ticket的固定Profile/revision Connect；原编号只查创建时回执，不表示当前在线，不因配置/连接删除重建。退役不继承读写/认证/lease，新Actor首poll仍验Connect。GUI组合批准已接入合成SSH面板，真实stdio token交付仍继续，不能用Desktop票据代替。
 
 P14授权GUI独立提供已保存SSH2/SERIAL固定revision Connect，默认无目标/无同意；预览非秘密配置及串口初始DTR/RTS，批准前重读同版本。批准只签发，不连接、不授新代次范围/lease/库存/认证；原编号恢复不续期。第19两协议真实GUI准确结果见P14，仍不等于Agent token已交真正stdio桥。
 

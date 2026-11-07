@@ -215,6 +215,31 @@ try {
   await ui.click('关闭外观');
   await ui.evaluate(`document.querySelector('.auxiliary-panels').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-light-synthetic.png');
+  await ui.invoke('ssh_request', { request: { op: 'close', connection: sshRef } });
+  assert.equal((await ui.invoke('service_list')).find(c => c.connection_id === sshId).state, 'DISCONNECTED');
+  await ui.waitFor(`!!(${button('Agent 授权')})`);
+  await ui.waitFor(`!document.querySelector('[aria-label="Agent授权类型"] option[value="reconnect"]').disabled`);
+  await ui.fill('Agent授权类型', 'reconnect');
+  await ui.click('读取重连固定配置');
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="Agent建连配置"]')?.options??[]).some(o=>o.value===${JSON.stringify(profile.id)})`);
+  await ui.fill('Agent建连配置', profile.id);
+  await ui.click('预览Agent重连双范围');
+  await ui.waitFor(`!!(${button('确认批准Agent重连')})`);
+  assert.match(await ui.evaluate(`document.querySelector('[aria-label="Agent建连预览"]').textContent`), new RegExp(`${sshId}.*旧代次 ${sshRef.generation}.*配置版本`));
+  await ui.evaluate(`document.querySelector('[aria-label="同意Agent重连双范围"]').click()`);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="同意Agent重连双范围"]').checked`), true);
+  const beforeReconnectGrant = await count();
+  await ui.click('确认批准Agent重连');
+  try { await ui.waitFor(`document.querySelector('[aria-label="Agent管理状态"]').textContent.includes('已签发限时双范围授权')`); }
+  catch (error) { throw new Error(`${error.message}; visible status=${await ui.evaluate(`document.querySelector('[aria-label="Agent管理状态"]')?.textContent`)}; consent=${await ui.evaluate(`document.querySelector('[aria-label="同意Agent重连双范围"]')?.checked`)}; disabled=${await ui.evaluate(`${button('确认批准Agent重连')}?.disabled`)}`); }
+  assert.equal(await count(), beforeReconnectGrant + 1);
+  const reconnectSlot = await storage();
+  const reconnectGrant = await call({ op: 'grant_status', request_id: reconnectSlot.request_id });
+  assert.deepEqual(reconnectGrant.data.approved_scopes, [
+    { target: { kind: 'connection', connection: sshRef }, action: 'RECONNECT' },
+    { target: { kind: 'profile_revision', profile_id: profile.id, revision: reconnectGrant.data.approved_scopes[1].target.revision }, action: 'CONNECT' },
+  ]);
+  assert.equal((await ui.invoke('service_list')).find(c => c.connection_id === sshId).state, 'DISCONNECTED', 'grant approval never reconnects');
   console.log('PASS Agent GUI: fixed SSH generation/independent READ+WRITE+SSH CONTROL+DISCONNECT, approval does not close, no default consent, cancel/switch/one-shot approval, takeover removes Disconnect, original revoke/lost grant recovery, ID-only reload, late-close and bounded audit gap');
   await checkProfileConnect(ui, profile);
   await ui.close(); ui = await launchDesktop(directory, { fixture: true });

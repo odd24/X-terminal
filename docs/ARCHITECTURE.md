@@ -1,6 +1,6 @@
 # 架构与关键设计
 
-P14 SSH Reconnect按[ADR-053](decisions/ADR-053.md)使用旧代次独立Reconnect/lease及固定Profile/revision Connect双许可；原owner/原编号先查有界回执，gate/配置/清理await后重验，旧代次退休与新Actor Connect首poll分开。新代次不继承任何旧连接范围/租约；Forget/GUI组合批准及真实stdio桥继续，准确实测见P14。
+P14 SSH Reconnect按[ADR-053](decisions/ADR-053.md)使用旧代次独立Reconnect/lease及固定Profile/revision Connect双许可；原owner/原编号先查有界回执，gate/配置/清理await后重验，旧代次退休与新Actor Connect首poll分开。新代次不继承任何旧连接范围/租约；共享Agent GUI现以单次明确批准冻结两范围且不自动重连，Forget和真实stdio桥仍继续，准确实测见P14。
 
 P14按[ADR-052](decisions/ADR-052.md)新增精确Profile/revision Connect范围，配置线程核对全局revision后返回本次不可变配置快照，原Start回执保持只查；旧ID目标保留不同语义。实际派发仍重验同许可，不授新连接范围、lease/库存/认证批准。GUI与真实stdio交付结果见P14，完整方案继续。
 
