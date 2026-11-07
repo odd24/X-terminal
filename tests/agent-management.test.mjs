@@ -1,11 +1,99 @@
 import { ProfileGrantApproval } from '../apps/desktop/src/profile-grant.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GrantApproval, checkedGrant, checkedList, checkedLease, checkedAudit, restoreSlot, supportedActions, scopeText, parseReadWindow } from '../apps/desktop/src/agent-management.ts';
+import { GrantApproval, checkedGrant, checkedTask, checkedTaskReply, grantRequest, checkedList, checkedLease, checkedAudit, restoreSlot, supportedActions, scopeText, parseReadWindow } from '../apps/desktop/src/agent-management.ts';
+import { OperationApproval, emptyDraft, singleActions, hexBytes, operationFingerprint, checkedOperationReply } from '../apps/desktop/src/operation-grant.ts';
 const id='11111111-1111-4111-8111-111111111111', request='22222222-2222-7222-8222-222222222222', ticket='33333333-3333-4333-8333-333333333333';
 const connection={connection_id:id,generation:1}, target={...connection,protocol:'SSH2',state:'CONNECTED'};
 const scope=action=>({target:{kind:'connection',connection:{...connection}},action});
 const view=()=>({type:'grant',data:{summary:{request_id:request,ticket_id:ticket,expires_at_ms:300000,state:'ACTIVE',effective_scope_count:1},approved_scopes:[scope('READ'),scope('WRITE')],effective_scopes:[scope('READ')]}});
+
+test('task consent binds immutable description and UUID across connection and profile forms',()=>{
+  const task={task_id:request,label:'有限诊断'}, approval=new GrantApproval();
+  const p=approval.prepare(ticket,target,['WRITE'],30,undefined,task);
+  task.label='changed'; assert.equal(p.task.label,'有限诊断'); assert.throws(()=>p.task.label='changed');
+  assert.throws(()=>approval.consume(ticket,target,p,task));
+  const q=approval.prepare(ticket,target,['READ'],30,undefined,task);
+  assert.equal(approval.consume(ticket,target,q,task),q);
+  assert.equal(grantRequest(request,q).op,'grant_task');
+  const profile={id,name:'合成配置',settings:{protocol:'ssh2',host:'example.test',port:22,username:'tester',auth:'password',encoding:'utf8'}};
+  const a=new ProfileGrantApproval(), r=a.prepare(ticket,request,profile,30,undefined,task);
+  assert.equal(r.task.label,'changed');
+  assert.throws(()=>a.consume(ticket,request,id,r,{...task,task_id:id}));
+  for(const label of ['', ' leading', 'trailing ', 'line\nfeed', '中'.repeat(86)]) assert.throws(()=>checkedTask({task_id:request,label}));
+  assert.throws(()=>checkedTask({task_id:'bad',label:'task'}));
+  const v=view(); v.data.form={kind:'timed_task',...task};
+  assert.equal(checkedTaskReply(checkedGrant(v,request),task).form.label,'changed');
+  assert.throws(()=>checkedTaskReply(checkedGrant(v,request),{...task,label:'other'}));
+  assert.throws(()=>checkedTaskReply(checkedGrant(v,request),task,[scope('WRITE')]));
+  const invalid=structuredClone(v);invalid.data.form.body='secret'; assert.throws(()=>checkedGrant(invalid,request));
+});
+
+const sshProfile={id,name:'合成SSH',settings:{protocol:'ssh2',host:'example.test',port:22,username:'tester',auth:'password',encoding:'utf8'}};
+const serialProfile={id,name:'合成串口',settings:{protocol:'serial',port:'COM7',baud_rate:115200,data_bits:8,stop_bits:1,parity:'none',flow:'none',dtr_on_open:true,rts_on_open:false,encoding:'utf8'}};
+const baseContext={service_id:ticket,target,original_profile_id:id,encoding:'utf8'};
+test('single operation covers all 14 typed protocol mutations with exact minimal scopes and full visible parameters',async()=>{
+  const cases=[
+    ['SSH2','start','CONNECT'],['SSH2','reconnect','RECONNECT'],['SSH2','write','WRITE'],['SSH2','write_text','WRITE'],['SSH2','exec','EXEC'],['SSH2','resize','CONTROL'],['SSH2','disconnect','DISCONNECT'],['SSH2','forget_start','FORGET'],
+    ['SERIAL','start','CONNECT'],['SERIAL','send','WRITE'],['SERIAL','write','WRITE'],['SERIAL','control','CONTROL'],['SERIAL','disconnect','DISCONNECT'],['SERIAL','forget_start','FORGET'],
+  ];
+  const hashes=new Set();
+  for(const [protocol,action,permission] of cases){
+    const ended=['reconnect','forget_start'].includes(action);
+    const c={...baseContext,target:{...target,protocol,state:ended?'DISCONNECTED':'CONNECTED'},profile:protocol==='SSH2'?sshProfile:serialProfile,revision:request,device:{revision:ticket,device_id:request,port:'COM7'}};
+    const draft={...emptyDraft(),action,text:'中\r\n  <tag>',hex:'00 ff 0d 0a',cols:91,rows:33,line:'BREAK',asserted:true,ending:'cr_lf',chunk_bytes:2,interval_ms:3};
+    const a=new OperationApproval(),p=a.prepare(c,draft,30,request);
+    assert.equal(p.operation.protocol,protocol);assert.equal(p.operation.request.op,action);assert.equal(p.operation.request.request_id,request);
+    assert.equal(p.scopes[0].action,permission);assert.equal(p.scopes.some(s=>s.action==='READ'),false);assert.equal(p.scopes.length,action==='reconnect'?2:1);
+    assert.throws(()=>p.operation.request.request_id=ticket);assert.throws(()=>p.scopes.push(scope('READ')));
+    const description=JSON.stringify(p.description);assert.ok(description.includes(request));
+    if(protocol==='SERIAL'&&action==='start'){assert.match(description,/初始DTR 开启/);assert.match(description,/初始RTS 关闭/);assert.ok(description.includes(ticket));}
+    const fingerprint=await operationFingerprint(p.operation); hashes.add(fingerprint);
+    const v=view();v.data.approved_scopes=structuredClone(p.scopes);v.data.effective_scopes=structuredClone(p.scopes);v.data.summary.effective_scope_count=p.scopes.length;
+    v.data.form={kind:'single_operation',operation:{request_id:request,fingerprint}};
+    assert.equal(checkedOperationReply(checkedGrant(v,request),p,fingerprint),v.data);
+    assert.throws(()=>checkedOperationReply(checkedGrant(v,request),p,'0'.repeat(64)));
+    assert.equal(a.consume(c,draft,p),p);assert.throws(()=>a.consume(c,draft,p));
+  }
+  assert.equal(hashes.size,14,'protocol and mutation kind are part of the canonical fingerprint');
+});
+test('single previews cannot survive any operation edit, target/state/source/version/device change',()=>{
+  const contexts=[
+    {c:baseContext,d:{...emptyDraft(),action:'write_text',text:'literal\r\n'}},
+    {c:{...baseContext,target:{...target,state:'DISCONNECTED'},profile:sshProfile,revision:request},d:{...emptyDraft(),action:'reconnect'}},
+    {c:{...baseContext,profile:serialProfile,revision:request,device:{revision:ticket,device_id:request,port:'COM7'}},d:{...emptyDraft(),action:'start'}},
+  ];
+  for(const {c,d} of contexts){
+    const edits=[x=>x.service_id=id];
+    if(d.action!=='start') edits.push(x=>x.target={...x.target,generation:2},x=>x.target={...x.target,state:'FAILED'});
+    if(d.action==='write_text') edits.push(x=>x.encoding='gbk');
+    if(['start','reconnect'].includes(d.action)) edits.push(x=>x.revision=id,x=>x.profile={...x.profile,name:'changed'});
+    if(d.action==='start') edits.push(x=>x.device={...x.device,revision:id},x=>x.device={...x.device,device_id:id});
+    for(const edit of edits){
+      const a=new OperationApproval(),p=a.prepare(c,d,30,request),changed=structuredClone(c);edit(changed);
+      assert.throws(()=>a.consume(changed,d,p));
+    }
+    const a=new OperationApproval(),p=a.prepare(c,d,30,request);assert.throws(()=>a.consume(c,{...d,text:'changed'},p));
+    const q=a.prepare(c,d,30,request);a.invalidate();assert.throws(()=>a.consume(c,d,q));
+  }
+  const a=new OperationApproval();
+  assert.throws(()=>a.prepare({...baseContext,profile:serialProfile,revision:request,device:{revision:ticket,device_id:request,port:'COM8'}},{...emptyDraft(),action:'start'},30,request));
+  assert.throws(()=>a.prepare({...baseContext,target:{...target,state:'DISCONNECTED'},profile:sshProfile,original_profile_id:ticket,revision:request},{...emptyDraft(),action:'reconnect'},30,request));
+});
+test('single malformed payloads, legacy actions and incompatible state never produce approval',()=>{
+  const a=new OperationApproval();
+  assert.deepEqual(singleActions(),['start']);assert.equal(emptyDraft().action,'');
+  for(const patch of [{action:'write',hex:'0'},{action:'write',hex:'GG'},{action:'exec',text:'bad\0'},{action:'exec',text:'ok',max_output_bytes:0},{action:'resize',cols:1},{action:'exec',text:'ok',timeout_ms:86400001},{action:'close'},{action:'authenticate'},{action:''}]) assert.throws(()=>a.prepare(baseContext,{...emptyDraft(),...patch},30,request));
+  assert.throws(()=>a.prepare({...baseContext,encoding:undefined},{...emptyDraft(),action:'write_text',text:'ok'},30,request));
+  for(const patch of [{text:'',ending:'none'},{text:'01',format:'hex',chunk_bytes:0},{text:'ff '.repeat(65536),format:'hex',ending:'cr'},{text:'x'.repeat(102),chunk_bytes:1,interval_ms:1000}]) assert.throws(()=>a.prepare({...baseContext,target:{...target,protocol:'SERIAL'}},{...emptyDraft(),action:'send',...patch},30,request));
+  const p=a.prepare({...baseContext,target:{...target,protocol:'SERIAL'}},{...emptyDraft(),action:'send',format:'hex',text:'',ending:'cr'},30,request);assert.equal(p.operation.request.content,'');
+  assert.deepEqual(hexBytes('00 ff\r\n0A'),[0,255,10]);
+});
+test('single response metadata rejects broad read, self-declared data, uppercase digest and incomplete reconnect scope',()=>{
+  const v=view();v.data.approved_scopes=[scope('WRITE')];v.data.effective_scopes=[scope('WRITE')];v.data.form={kind:'single_operation',operation:{request_id:request,fingerprint:'a'.repeat(64)}};
+  assert.equal(checkedGrant(v,request).form.kind,'single_operation');
+  for(const edit of [x=>x.data.form.operation.fingerprint='A'.repeat(64),x=>x.data.form.operation.request_id='bad',x=>x.data.form.body='secret',x=>x.data.form.operation.token='secret',x=>x.data.form=null,x=>x.data.form={kind:'scoped'},x=>{x.data.approved_scopes=[scope('READ')];x.data.effective_scopes=[scope('READ')];},x=>{x.data.approved_scopes=[scope('RECONNECT')];x.data.effective_scopes=[scope('RECONNECT')];}]){const changed=structuredClone(v);edit(changed);assert.throws(()=>checkedGrant(changed,request));}
+});
 
 test('time-window metadata is strict, preserves exact approved limits and names the reconstructed view',()=>{
   const windowScope={target:{kind:'output_window',connection,window:{from_ms:1000,until_ms:2000}},action:'READ'};

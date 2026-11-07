@@ -281,6 +281,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- ADR-056 GUI以完整参数预览覆盖SSH8/串口6单操作及Task连接/配置/重连范围，默认无动作/说明/同意、原编号/正文指纹及Scope严格核对，批准不执行。实际构建/真实故障/最终回归与未完成边界集中[P14](records/P14.md)，真实stdio桥及其余P14继续。
+
 - ADR-056服务阶段：GrantTask/GrantOperation回执按形式/任务/完整规范参数去重，真实SSH/串口请求独立重算后入Manager，原owner状态/取消及退休恢复保持。软件证据见[P14](records/P14.md)，完整参数GUI/原生和真实桥不从服务测试推导通过。
 
 - 授权形式按ADR-056：单次确认固定操作编号及完整规范参数，服务实际请求重新绑定，最终Permit/lease复核并沿原owner回执去重；限时任务固定任务ID/说明/scopes/到期。核心→服务/原生→GUI分层完成，覆盖已接Connect/写入/exec/控制/Disconnect/Reconnect/Forget，不以一次GUI按钮或仅一个动作代替完整形式，结果见P14。

@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14按[ADR-056](decisions/ADR-056.md)提供单次完整操作与限时任务的服务/桌面批准。单次固定原操作编号、协议包装规范参数指纹及最小scope，真正Agent请求必须由服务重算绑定；Task说明不扩大范围。GUI批准不执行动作，原编号查询不续期/重放；正文/同意不持久化且token不入WebView。SSH8/串口6完整预览与实际证据见[P14](records/P14.md)，仍不能把该批准当真实stdio桥或Codex已接入。
+
 P14时间窗按[ADR-055](decisions/ADR-055.md)新增OutputWindow Read与Context Info/Raw/Text/Screen。桥须使用窗口票据允许的新Context接口：先Info取当前原始exclusive source_cursor，再固定through_cursor分页；原始与文本游标均为源seq。窗口为Unix毫秒[from,until)，不与服务单调授权期限混用。时间窗票据不得用旧Read/ReadText/Screen绕过，范围屏幕为当前尺寸从空状态重建，不是完整实时屏幕；source_truncated/重置/源状态保持显式，固定水位completed不等源已结束。服务/GUI真实结果见[P14](records/P14.md)，P15真正stdio工具仍须独立交付。
 
 P14 ADR-054串口新增ForgetStart/ForgetStatus，完整ConnectionRef/request_id绑定真实认证owner，独立Forget/lease且实际worker join/无未结ticket后才移除记录。原有效ticket原编号在退休后只查，不续期；清理未完/容量失败无成功回执，可原编号重试，不取消活跃worker。旧无编号Forget仍Desktop专用，Removed不删日志/配置/用户文件。两协议GUI批准及安全原生token交真实stdio桥分步验证，服务IPC通过不代表桥已交付；准确结果见records/P14.md。

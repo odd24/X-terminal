@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14授权形式GUI按ADR-056新增严格GrantTask/GrantOperation白名单，Task说明/Single动作默认空、无同意；Single预览原编号/全部参数/固定配置与设备/代次编码，WebView独立核对规范指纹和scopes。配置确认前重读revision，串口库存只显式读取冻结，重读会换版本；批准不建连/发送/控制/关闭/移除或取lease。正文/同意不持久化，仍只service_id/request_id恢复，native剥离token。14单动作及两个新op真实故障与最终构建/原生证据见P14，不当stdio桥/COM或全局Mac+DPIIME验收。
+
 P14单次/限时任务服务按ADR-056使用GrantOperation完整严格请求和GrantTask任务信息，管理原编号恢复匹配Form/任务/参数且不续期；所有真正Single变更重算协议包装指纹并绑定局部Identity，原Manager负责原owner/精确代次去重。状态/本人任务读取取消不冒充新变更，退休/配置删除仍可用有效票据恢复原编号；Reconnect签发核对原Profile。服务IPC/内存worker不等GUI完整预览或真实stdio桥，普通服务恢复及最终证据见P14。
 
 P14单次/限时任务按ADR-056先建核心Form，Single固定request_id/规范参数摘要，原始认证身份无绑定证明不得admit；最终Permit按同grant/编号/scope/lease复核，分片/首poll沿原许可，去重仍由原owner/精确代次有界回执负责。TimedTask编号/说明不授权。服务必须重算真正请求，固定配置版本/完整参数预览、各动作IPC和GUI未验证前不得以核心通过宣称新形式可用或真实桥交付。

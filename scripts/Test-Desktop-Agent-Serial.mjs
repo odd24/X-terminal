@@ -1,6 +1,7 @@
 import { checkProfileConnect } from './lib/AgentProfileChecks.mjs';
 import { checkForgetApproval } from './lib/AgentForgetChecks.mjs';
 import { checkReadWindowApproval } from './lib/AgentContextChecks.mjs';
+import { checkGrantForms } from './lib/AgentFormChecks.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -77,6 +78,7 @@ try {
   assert.equal((await ui.invoke('serial_request', { request: { op: 'status', connection } })).connection.state, 'CONNECTED');
   assert.equal((await call({ op: 'lease', connection })).data, null, 'grant does not acquire a lease');
   const windowGrants = await checkReadWindowApproval(ui, connection, 'SERIAL');
+  const connectedForms = await checkGrantForms(ui, connection, profile, 'SERIAL');
   // Closing is a separate Desktop test operation. Its original receipt must settle
   // after actual worker join and remain recoverable after Forget; no Agent token enters JS.
   const id = randomUUID();
@@ -90,6 +92,7 @@ try {
   }
   assert.equal(ended.state, 'TRANSPORT_ENDED');
   const forgetGrants = await checkForgetApproval(ui, connection, 'SERIAL');
+  const endedForms = await checkGrantForms(ui, connection, profile, 'SERIAL', true);
   await ui.invoke('serial_request', { request: { op: 'forget', connection } });
   assert.deepEqual(await ui.invoke('serial_request', { request: { op: 'disconnect', connection, request_id: id } }), ended);
   await ui.fill('Agent签发编号', saved.request_id);
@@ -105,7 +108,7 @@ try {
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权面板"]')`), false);
   await ui.click('Agent 授权');
   await ui.waitFor(`!!document.querySelector('[aria-label="Agent签发编号"]')`);
-  assert.equal(await count(), before + 1 + forgetGrants + windowGrants);
+  assert.equal(await count(), before + 1 + forgetGrants + windowGrants + connectedForms + endedForms);
   assert.equal(await ui.evaluate(`!!(${button('确认批准Agent')})`), false);
   await ui.click('查询原Agent编号');
   await ui.waitFor(`document.querySelector('[aria-label="Agent授权详情"]')?.textContent.includes('有效范围 0')`);

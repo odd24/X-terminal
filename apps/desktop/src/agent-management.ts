@@ -4,7 +4,9 @@ export type Action = 'READ' | 'WRITE' | 'EXEC' | 'CONTROL' | 'CONNECT' | 'DISCON
 export type ReadWindow = { from_ms: number; until_ms: number };
 export type Scope = { target: { kind: 'connection'; connection: ConnectionRef } | { kind: 'output_window'; connection: ConnectionRef; window: ReadWindow } | { kind: 'profile'; profile_id: string } | { kind: 'profile_revision'; profile_id: string; revision: string }; action: Action };
 export type Summary = { request_id: string; ticket_id: string; expires_at_ms: number; state: 'ACTIVE' | 'EXPIRED' | 'REVOKED'; effective_scope_count: number };
-export type GrantView = { summary: Summary; approved_scopes: Scope[]; effective_scopes: Scope[] };
+export type TaskContext = { task_id: string; label: string };
+export type GrantForm = ({ kind: 'timed_task' } & TaskContext) | { kind: 'single_operation'; operation: { request_id: string; fingerprint: string } };
+export type GrantView = { summary: Summary; approved_scopes: Scope[]; effective_scopes: Scope[]; form?: GrantForm };
 export type Slot = { service_id: string; request_id: string };
 export type Lease = { lease_id: string; client_id: string; connection: ConnectionRef; expires_at_ms: number };
 export type AuditEvent = { seq: number; timestamp_ms: number; kind: string; client_id: string | null; scope: Scope | null; request_id: string | null; denial: string | null };
@@ -32,6 +34,19 @@ export function parseReadWindow(from: string, until: string): ReadWindow {
   return window;
 }
 const fail = () => new Error('授权管理响应不匹配；未接受范围或恢复批准。');
+export function checkedTask(task: TaskContext): TaskContext {
+  if (!exact(task, ['task_id', 'label']) || !uuid(task.task_id) || typeof task.label !== 'string' || !task.label.length || task.label.trim() !== task.label || new TextEncoder().encode(task.label).length > 256 || /[\p{Cc}]/u.test(task.label)) throw new Error('请填写1–256 UTF-8字节的任务说明，不含首尾空白或控制字符。');
+  return Object.freeze({ task_id: task.task_id, label: task.label });
+}
+export const sameTask = (a?: TaskContext, b?: TaskContext) => a?.task_id === b?.task_id && a?.label === b?.label;
+export function grantRequest(request_id: string, proposal: { scopes: Scope[]; lifetime_ms: number; task?: TaskContext }) {
+  return proposal.task ? { op: 'grant_task', request_id, scopes: proposal.scopes, lifetime_ms: proposal.lifetime_ms, ...proposal.task } : { op: 'grant', request_id, scopes: proposal.scopes, lifetime_ms: proposal.lifetime_ms };
+}
+export function checkedTaskReply(view: GrantView, task?: TaskContext, approved?: Scope[]): GrantView {
+  if (task ? view.form?.kind !== 'timed_task' || !sameTask(view.form, task) : view.form !== undefined) throw fail();
+  if (approved && (approved.length !== view.approved_scopes.length || view.approved_scopes.some(scope => !approved.some(original => scopeKey(scope) === scopeKey(original))))) throw fail();
+  return view;
+}
 function checkedScope(v: unknown): Scope {
   if (!exact(v, ['target', 'action']) || !actions.includes(v.action as Action) || !object(v.target)) throw fail();
   if (v.target.kind === 'output_window') {
@@ -54,12 +69,22 @@ function data(value: unknown, type: string): unknown {
 }
 export function checkedGrant(value: unknown, request_id: string): GrantView {
   const view = data(value, 'grant');
-  if (!exact(view, ['summary', 'approved_scopes', 'effective_scopes'])) throw fail();
+  if (!object(view) || !exact(view, ['summary', 'approved_scopes', 'effective_scopes', ...('form' in view ? ['form'] : [])])) throw fail();
   const summary = checkedSummary(view.summary);
   if (summary.request_id !== request_id || !Array.isArray(view.approved_scopes) || !view.approved_scopes.length || view.approved_scopes.length > 64 || !Array.isArray(view.effective_scopes) || view.effective_scopes.length !== summary.effective_scope_count) throw fail();
   const approved = view.approved_scopes.map(checkedScope), effective = view.effective_scopes.map(checkedScope);
   const keys = new Set(approved.map(scopeKey));
   if (keys.size !== approved.length || new Set(effective.map(scopeKey)).size !== effective.length || effective.some(s => !keys.has(scopeKey(s)))) throw fail();
+  if ('form' in view) {
+    const form = view.form;
+    if (!object(form)) throw fail();
+    if (form.kind === 'timed_task') {
+      if (!exact(form, ['kind', 'task_id', 'label'])) throw fail();
+      checkedTask({ task_id: form.task_id as string, label: form.label as string });
+    } else if (form.kind === 'single_operation') {
+      if (!exact(form, ['kind', 'operation']) || !exact(form.operation, ['request_id', 'fingerprint']) || !uuid(form.operation.request_id) || typeof form.operation.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(form.operation.fingerprint) || approved.length > 2 || approved.some(s => !['WRITE', 'EXEC', 'CONTROL', 'CONNECT', 'DISCONNECT', 'RECONNECT', 'FORGET'].includes(s.action) || s.target.kind === 'profile' || s.target.kind === 'output_window') || (approved.length === 1 && approved[0].action === 'RECONNECT') || (approved.length === 2 && (approved.filter(s => s.action === 'RECONNECT').length !== 1 || approved.filter(s => s.action === 'CONNECT').length !== 1))) throw fail();
+    } else throw fail();
+  }
   return view as GrantView;
 }
 export function checkedList(value: unknown): Summary[] {
@@ -99,22 +124,22 @@ export function supportedActions(target: Connection): Action[] {
   if (target.protocol === 'FIXTURE') return ['READ'];
   return [];
 }
-export type Proposal = { service_id: string; connection: ConnectionRef; protocol: string; state: string; scopes: Scope[]; lifetime_ms: number };
+export type Proposal = { service_id: string; connection: ConnectionRef; protocol: string; state: string; scopes: Scope[]; lifetime_ms: number; task?: TaskContext };
 export class GrantApproval {
   private current?: Proposal;
   invalidate() { this.current = undefined; }
-  prepare(service_id: string, target: Connection, selected: Action[], seconds: number, window?: ReadWindow): Proposal {
+  prepare(service_id: string, target: Connection, selected: Action[], seconds: number, window?: ReadWindow, task?: TaskContext): Proposal {
     this.invalidate();
     if (!uuid(service_id) || !connection({ connection_id: target.connection_id, generation: target.generation }) || !selected.length || new Set(selected).size !== selected.length || selected.some(a => !supportedActions(target).includes(a)) || !integer(seconds, 1) || seconds > 1800) throw new Error('请选择状态匹配的精确目标、独立能力及1–1800秒期限。');
     if (window && (!validWindow(window) || !selected.includes('READ'))) throw new Error('时间窗仅适用于独立Read范围。');
     const ref = Object.freeze({ connection_id: target.connection_id, generation: target.generation });
     const scopes: Scope[] = selected.map(action => Object.freeze({ target: window && action === 'READ' ? Object.freeze({ kind: 'output_window' as const, connection: ref, window: Object.freeze({ ...window }) }) : Object.freeze({ kind: 'connection' as const, connection: ref }), action }));
     Object.freeze(scopes);
-    this.current = Object.freeze({ service_id, connection: ref, protocol: target.protocol, state: target.state, scopes, lifetime_ms: seconds * 1000 });
+    this.current = Object.freeze({ service_id, connection: ref, protocol: target.protocol, state: target.state, scopes, lifetime_ms: seconds * 1000, ...(task ? { task: checkedTask(task) } : {}) });
     return this.current;
   }
-  consume(service_id: string, target: Connection | undefined, proposal: Proposal): Proposal {
-    const valid = this.current === proposal && service_id === proposal.service_id && !!target && sameConnection(target, proposal.connection) && target.protocol === proposal.protocol && target.state === proposal.state && proposal.scopes.every(scope => supportedActions(target).includes(scope.action));
+  consume(service_id: string, target: Connection | undefined, proposal: Proposal, task?: TaskContext): Proposal {
+    const valid = this.current === proposal && sameTask(task, proposal.task) && service_id === proposal.service_id && !!target && sameConnection(target, proposal.connection) && target.protocol === proposal.protocol && target.state === proposal.state && proposal.scopes.every(scope => supportedActions(target).includes(scope.action));
     this.invalidate();
     if (!valid) throw new Error('预览已失效；未签发授权，请重新核对。');
     return proposal;
