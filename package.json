@@ -33,6 +33,8 @@
     "test:desktop:config": "node scripts/Test-Desktop-Config.mjs",
     "test:mcp": "node scripts/Test-Mcp.mjs",
     "test:codex-mcp": "node scripts/Test-Codex-Mcp.mjs",
+    "test:desktop:codex": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-Codex.mjs",
+    "preview:local": "node scripts/Prepare-Local-Preview.mjs",
     "desktop": "cargo build -p session-service -p mcp-bridge --locked && npm run tauri --workspace apps/desktop -- dev",
     "desktop:build": "cargo build -p session-service -p mcp-bridge --locked && npm run tauri --workspace apps/desktop -- build --debug --no-bundle",
     "test:desktop:mcp": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-Mcp.mjs && node scripts/Test-Desktop-Mcp.mjs --serial",

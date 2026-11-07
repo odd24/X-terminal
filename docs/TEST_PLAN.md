@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P16初版新增显式`test:desktop:codex`：需既有实际desktop:build/安装Codex，编译回环SSH夹具，在中文临时根运行隔离app-server的实际MCP客户端（无模型turn），核对原连接/精确一次字节/回执/读取/桌面回显/Agent派发及EOF。它不加入常规20入口，不替代模型批准流程；实际exec模型取lease被approval never拒绝/wire0，保留失败、不得降低工具真实属性或绕过。`preview:local`只核对复制品普通启动、拒绝fixture、同目录MCP/关闭和SHA256，不当安装/干净系统或全v1通过；结果见[P16](records/P16.md)。
+
 P15初版按ADR-059验证封闭协议/回复剥离、OS实际peer映像/身份字段拒绝及真实stdio GUI→Agent服务→同一SSH/内存串口：初始化/工具schema、未配对/越权/lease/去重/默认与保护读取/接管/撤销/原编号及实际服务丢失UNKNOWN_DELIVERY/EOF清理。专项test:desktop:mcp前置实际desktop:build，纳入完整第20入口；串口finally普通服务须成功。实际结果/首次失败见P15；不因初版新增路径重跑无变化全套，不将stdio软件通过当实际Codex或设备通过。
 
 P14软件收尾证据已完成：原验收对照、RPC/Policy直接持久/已知故障安全、原生精确整数只读投影、同最终产物19入口分段覆盖见[P14](records/P14.md)。首完整回归剪贴板空值和新增测试交回未核对编号的失败原样保留，未将补验拼称完整命令单轮PASS；后续不无故重复。真实stdio/同连接闭环属P15/P16，实机和全局矩阵仍未验。

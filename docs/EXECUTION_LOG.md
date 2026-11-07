@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-08 按CR-005交付本机开发预览：真实Codex app-server显式客户端经stdio在原SSH会话发送一次/查询原回执/读取回显及Agent审计PASS，三个相邻二进制复制品普通启动/关闭已核对。实际模型已配对/识别同会话，但写lease被Codex自身approval never拒绝且wire0，模型写入未通过，不以直调替代；完整P16/G2和其他全v1缺口仍后续。具体失败/证据及本机说明见[P16](records/P16.md)、[预览说明](LOCAL_PREVIEW.md)。Step-ID: P16。
+
 2026-11-07 P15初版9工具最小桥完成：原生独立Agent代理、默认无同意固定进程/原授权GUI、真实stdio共享SSH/内存串口与权限/去重/保护/服务丢失验证通过；默认读取截止范围缺陷及修正/三轮必要构建准确见[P15](records/P15.md)。完整P15其他工具留后续，本版直接P16；不冒称实际Codex或实机已通过。Step-ID: P15。
 
 2026-11-07 P14软件工作包DONE：全RPC/Policy直接持久审计、故障安全与必要只读历史收尾，原验收逐项核对；同一最终Desktop19入口实际分段覆盖/首次失败与补验、普通恢复及资源指纹见[P14](records/P14.md)，不冒称完整命令单轮PASS。按CR-005下一P15/P16最小安全共享闭环，不扩大精修。Step-ID: P14。
@@ -195,7 +197,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | 初版9工具真实stdio桥已完成/验证；完整v1工具后续，本版P16前置已满足 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |
-| P16 | Codex 真机闭环 | TODO | 待创建 | — |
+| P16 | 初版客户端直调共享闭环/本机预览已交付；模型写入需正常交互批准，完整验收后续 | IN_PROGRESS | [P16](records/P16.md) | Step-ID: P16 |
 | P17 | 标签组与工作区 | TODO | 待创建 | — |
 | P18 | 同步输入 | TODO | 待创建 | — |
 | P19 | 快速命令/完整撰写窗格 | TODO | 待创建 | — |
@@ -212,7 +214,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 |---|---|---|
 | G0 | TODO | P01/P02/P06 已验证；P03–P05 完整验收未齐。[CR-001](changes/CR-001.md) 允许独立软件开发先行，不代表本门通过 |
 | G1 | TODO | 尚未基础应用 |
-| G2 | TODO | 尚未真实 Codex 接入 |
+| G2 | TODO | 真实Codex客户端直调已验/模型识别同会话；模型写入被approval never拒绝，桌面/完整矩阵未齐，不当G2通过 |
 | G3 | TODO | 尚未效率工具 |
 | G4 | TODO | 尚未发布验收 |
 
