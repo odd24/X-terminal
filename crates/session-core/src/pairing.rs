@@ -34,9 +34,17 @@ impl SecretToken {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Identity {
     ticket_id: Uuid,
+    operation: Option<std::sync::Arc<crate::authorization::OperationProof>>,
+}
+impl std::fmt::Debug for Identity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Identity")
+            .field("ticket_id", &self.ticket_id)
+            .finish()
+    }
 }
 impl Identity {
     pub fn ticket_id(&self) -> Uuid {
@@ -66,6 +74,7 @@ impl Pairing {
         let ticket = Ticket {
             identity: Identity {
                 ticket_id: Uuid::new_v4(),
+                operation: None,
             },
             authority: Authority::Desktop,
             expires_at_ms: u64::MAX,
@@ -201,6 +210,7 @@ impl Pairing {
         let token = SecretToken::generate();
         let identity = Identity {
             ticket_id: Uuid::new_v4(),
+            operation: None,
         };
         self.tickets.insert(
             token.digest(),
@@ -225,6 +235,22 @@ impl Pairing {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<(Identity, SecretToken, u64), ErrorCode> {
+        self.issue_agent_form(
+            desktop,
+            scopes,
+            crate::authorization::Form::Scoped,
+            lifetime_ms,
+            now,
+        )
+    }
+    pub fn issue_agent_form(
+        &mut self,
+        desktop: &Identity,
+        scopes: Vec<Scope>,
+        form: crate::authorization::Form,
+        lifetime_ms: u64,
+        now: u64,
+    ) -> Result<(Identity, SecretToken, u64), ErrorCode> {
         self.require_desktop(desktop, now)?;
         self.tickets.retain(|_, ticket| ticket.expires_at_ms > now);
         if self.tickets.len() >= MAX_TICKETS {
@@ -232,10 +258,11 @@ impl Pairing {
         }
         let identity = Identity {
             ticket_id: Uuid::new_v4(),
+            operation: None,
         };
         let expires = self
             .policy
-            .grant(identity.ticket_id, scopes, lifetime_ms, now)
+            .grant_form(identity.ticket_id, scopes, form, lifetime_ms, now)
             .map_err(policy_error)?;
         let token = SecretToken::generate();
         self.tickets.insert(
@@ -247,6 +274,36 @@ impl Pairing {
             },
         );
         Ok((identity, token, expires))
+    }
+    /// Service-only binding: compute this key from the ACTUAL strict request,
+    /// never from a client-reported hash. The authenticated wire identity is unbound.
+    pub fn bind_operation(
+        &self,
+        identity: &Identity,
+        operation: crate::authorization::OperationKey,
+        now: u64,
+    ) -> Result<Identity, ErrorCode> {
+        self.require_agent(identity, now)?;
+        if operation.request_id.is_nil() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let mut bound = identity.clone();
+        bound.operation = self
+            .policy
+            .bind_operation(identity.ticket_id, operation, now)
+            .map_err(policy_error)?
+            .map(std::sync::Arc::new);
+        Ok(bound)
+    }
+    pub fn authorization_form(
+        &self,
+        identity: &Identity,
+        now: u64,
+    ) -> Result<crate::authorization::Form, ErrorCode> {
+        self.require_agent(identity, now)?;
+        self.policy
+            .form(identity.ticket_id, now)
+            .map_err(policy_error)
     }
     fn require_agent(&self, identity: &Identity, now: u64) -> Result<(), ErrorCode> {
         if self.is_agent(identity, now)? {
@@ -303,7 +360,14 @@ impl Pairing {
             | Target::OutputWindow { .. } => None,
         };
         self.policy
-            .admit(identity.ticket_id, scope, lease, request_id, now)
+            .admit_bound(
+                identity.ticket_id,
+                scope,
+                lease,
+                request_id,
+                identity.operation.as_deref().copied(),
+                now,
+            )
             .map_err(policy_error)
     }
     /// Must share the service lock with the final scheduler decision, after all waits.

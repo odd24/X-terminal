@@ -1,5 +1,6 @@
 //! Service-owned Agent policy. Callers supply an authenticated ticket identity, never a role.
 //! Admission and dispatch must execute under the same policy lock as takeover/revocation.
+use crate::authorization::{Form, OperationKey, OperationProof};
 use crate::session::ConnectionRef;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -97,6 +98,7 @@ pub enum Denial {
 
 struct Grant {
     grant_id: Uuid,
+    form: Form,
     scopes: HashSet<Scope>,
     expires_at_ms: u64,
 }
@@ -112,6 +114,7 @@ pub struct Lease {
 /// Opaque in-process queue capability; cannot be reconstructed from a wire request.
 #[derive(Clone, Copy)]
 pub struct Permit {
+    single_bound: bool,
     grant_id: Uuid,
     request_id: Uuid,
     client_id: Uuid,
@@ -221,10 +224,21 @@ impl Policy {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<u64, Denial> {
+        self.grant_form(client, scopes, Form::Scoped, lifetime_ms, now)
+    }
+    pub fn grant_form(
+        &mut self,
+        client: Uuid,
+        scopes: Vec<Scope>,
+        form: Form,
+        lifetime_ms: u64,
+        now: u64,
+    ) -> Result<u64, Denial> {
         let expires = now
             .checked_add(lifetime_ms)
             .ok_or(Denial::InvalidArgument)?;
         if client.is_nil()
+            || !form.valid_for(&scopes)
             || scopes.is_empty()
             || scopes.len() > MAX_SCOPES
             || lifetime_ms == 0
@@ -246,6 +260,7 @@ impl Policy {
             client,
             Grant {
                 grant_id: Uuid::new_v4(),
+                form,
                 scopes: scopes.into_iter().collect(),
                 expires_at_ms: expires,
             },
@@ -262,6 +277,37 @@ impl Policy {
             Ok(())
         } else {
             Err(Denial::PermissionDenied)
+        }
+    }
+    pub fn form(&self, client: Uuid, now: u64) -> Result<Form, Denial> {
+        self.grants
+            .get(&client)
+            .filter(|g| g.expires_at_ms > now)
+            .map(|g| g.form.clone())
+            .ok_or(Denial::PermissionDenied)
+    }
+    pub(crate) fn bind_operation(
+        &self,
+        client: Uuid,
+        operation: OperationKey,
+        now: u64,
+    ) -> Result<Option<OperationProof>, Denial> {
+        let grant = self
+            .grants
+            .get(&client)
+            .filter(|g| g.expires_at_ms > now)
+            .ok_or(Denial::PermissionDenied)?;
+        if let Form::SingleOperation { operation: fixed } = grant.form {
+            if operation != fixed {
+                return Err(Denial::PermissionDenied);
+            }
+            Ok(Some(OperationProof {
+                client_id: client,
+                grant_id: grant.grant_id,
+                operation,
+            }))
+        } else {
+            Ok(None)
         }
     }
     pub fn authorize(&self, client: Uuid, scope: Scope, now: u64) -> Result<(), Denial> {
@@ -404,7 +450,29 @@ impl Policy {
         request: Uuid,
         now: u64,
     ) -> Result<Permit, Denial> {
+        self.admit_bound(client, scope, lease_id, request, None, now)
+    }
+    pub(crate) fn admit_bound(
+        &mut self,
+        client: Uuid,
+        scope: Scope,
+        lease_id: Option<Uuid>,
+        request: Uuid,
+        operation: Option<OperationProof>,
+        now: u64,
+    ) -> Result<Permit, Denial> {
         let permit = Permit {
+            single_bound: self.grants.get(&client).is_some_and(|grant| {
+                matches!(grant.form, Form::SingleOperation { .. })
+                    && crate::authorization::matches(
+                        &grant.form,
+                        operation,
+                        client,
+                        grant.grant_id,
+                        request,
+                    )
+                    .is_ok()
+            }),
             grant_id: self.grants.get(&client).map_or(Uuid::nil(), |g| g.grant_id),
             request_id: request,
             client_id: client,
@@ -428,6 +496,15 @@ impl Policy {
     }
     fn check(&self, permit: &Permit, now: u64) -> Result<(), Denial> {
         self.allowed(permit.client_id, permit.scope, now)?;
+        let grant = self
+            .grants
+            .get(&permit.client_id)
+            .ok_or(Denial::PermissionDenied)?;
+        if let Form::SingleOperation { operation } = grant.form
+            && (!permit.single_bound || permit.request_id != operation.request_id)
+        {
+            return Err(Denial::PermissionDenied);
+        }
         if !self
             .grants
             .get(&permit.client_id)
