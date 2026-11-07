@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Connection, ConnectionRef } from './ssh-api';
 import { Field, Panel } from './ui';
-import { GrantApproval, actionName, checkedAudit, checkedGrant, checkedLease, checkedList, restoreSlot, scopeText, slotKey, supportedActions, uuid, type Action, type AuditPage, type GrantView, type Lease, type Proposal, type Slot, type Summary } from './agent-management';
+import { GrantApproval, actionName, checkedAudit, checkedGrant, checkedLease, checkedList, parseReadWindow, restoreSlot, scopeText, slotKey, supportedActions, uuid, type Action, type AuditPage, type GrantView, type Lease, type Proposal, type Slot, type Summary } from './agent-management';
 import { requestId } from './request-id';
 import { ProfileGrantPanel } from './profile-grant-panel';
 import { readConfiguration } from './config-api';
@@ -16,6 +16,8 @@ export function AgentPanel({ serviceId, target, profileId, close }: { serviceId:
   const [mode, setMode] = useState('connection');
   const [selected, setSelected] = useState<Action[]>([]);
   const [seconds, setSeconds] = useState(300);
+  const [readMode, setReadMode] = useState('full');
+  const [readFrom, setReadFrom] = useState(''), [readUntil, setReadUntil] = useState('');
   const [proposal, setProposal] = useState<Proposal>();
   const [consent, setConsent] = useState(false);
   const [slot, setSlot] = useState<Slot | undefined>(readSlot);
@@ -29,7 +31,7 @@ export function AgentPanel({ serviceId, target, profileId, close }: { serviceId:
   const [message, setMessage] = useState('选择能力并预览后明确批准。关闭/重载不恢复同意；本入口不发送终端输入。');
   const targetKey = target ? `${target.connection_id}:${target.generation}:${target.protocol}:${target.state}` : '';
   useEffect(() => { alive.current = true; return () => { alive.current = false; approval.current.invalidate(); }; }, []);
-  useEffect(() => { approval.current.invalidate(); setMode('connection'); setProposal(undefined); setConsent(false); setSelected([]); setConfirmation(undefined); setLease(undefined); }, [serviceId, targetKey]);
+  useEffect(() => { approval.current.invalidate(); setMode('connection'); setProposal(undefined); setConsent(false); setSelected([]); setReadMode('full'); setReadFrom(''); setReadUntil(''); setConfirmation(undefined); setLease(undefined); }, [serviceId, targetKey]);
   const invalidate = () => { approval.current.invalidate(); setProposal(undefined); setConsent(false); };
   const remember = (id: string) => {
     const saved = { service_id: serviceId, request_id: id };
@@ -74,10 +76,18 @@ export function AgentPanel({ serviceId, target, profileId, close }: { serviceId:
       <small aria-label="Agent批准目标">{target ? `${target.protocol} · ${targetText(target)}` : '尚无活动连接'}</small>
       <p>默认未选择能力。配置建连请切换授权目标类型；广播尚未开放；协议控制仅为SSH尺寸或串口控制线；合成会话只提供测试读取。</p>
       {available.map(action => <label className="check" key={action}><input type="checkbox" aria-label={`授权${actionName[action]}`} checked={selected.includes(action)} onChange={event => { invalidate(); setSelected(previous => event.target.checked ? [...previous, action] : previous.filter(item => item !== action)); }} />{actionName[action]}</label>)}
+      {selected.includes('READ') && <>
+        <Field label="读取上下文范围"><select aria-label="Agent读取范围" value={readMode} onChange={event => { invalidate(); setReadMode(event.target.value); }}><option value="full">完整当前缓冲区及授权期间后续输出</option><option value="window">指定北京时间窗</option></select></Field>
+        {readMode === 'window' && <>
+          <Field label="开始时间（北京时间 UTC+08，包含）"><input type="datetime-local" step="0.001" aria-label="Agent读取开始时间" value={readFrom} onChange={event => { invalidate(); setReadFrom(event.target.value); }} /></Field>
+          <Field label="结束时间（北京时间 UTC+08，不包含）"><input type="datetime-local" step="0.001" aria-label="Agent读取结束时间" value={readUntil} onChange={event => { invalidate(); setReadUntil(event.target.value); }} /></Field>
+          <p aria-label="Agent时间窗说明">仅允许读取所选时间内仍保留的输出；文本与屏幕从所选内容重建。较早输出已被覆盖时会提示缺口。范围屏幕使用当前尺寸，可能缺少前文状态，不是完整实时终端；首尾内容不完整时可能显示替换字符。这不表示输出已脱敏。</p>
+        </>}
+      </>}
       {selected.includes('DISCONNECT') && <p aria-label="Agent断开范围说明">断开仅限以上连接代次，取消该连接的排队输入与任务，并撤下此代次自动化范围和租约。请求关闭不等于本地传输已回收，实际回收须查询原请求编号；不能撤回已发送字节或远端已执行动作。批准授权本身不会断开连接，也不授予读取、写入、控制或重连能力。</p>}
       {selected.includes('FORGET') && <p aria-label="Agent移除范围说明">仅批准移除以上已结束代次的会话记录，还需Agent独立租约及服务确认本地传输已回收；清理未完会拒绝，不取消活跃传输。批准本身不会移除，不删除日志、配置或用户文件，也不授予断开、重连、读取或写入能力。</p>}
       <Field label="授权期限（秒，1–1800）"><input type="number" min={1} max={1800} aria-label="Agent授权秒数" value={seconds} onChange={event => { invalidate(); setSeconds(Number(event.target.value)); }} /></Field>
-      <button disabled={!target || !selected.length} onClick={() => { try { if (!target) return; setProposal(approval.current.prepare(serviceId, target, selected, seconds)); setConsent(false); setMessage('请核对固定目标、能力和期限；尚未签发。'); } catch (error) { invalidate(); setMessage(String(error)); } }}>预览Agent授权</button>
+      <button disabled={!target || !selected.length} onClick={() => { try { if (!target) return; setProposal(approval.current.prepare(serviceId, target, selected, seconds, selected.includes('READ') && readMode === 'window' ? parseReadWindow(readFrom, readUntil) : undefined)); setConsent(false); setMessage('请核对固定目标、能力和期限；尚未签发。'); } catch (error) { invalidate(); setMessage(String(error)); } }}>预览Agent授权</button>
     </fieldset>}
     {unresolved && <p>保留编号的签发结果尚未核对；请先查询原编号，当前禁止再次签发。</p>}
     {mode === 'connection' && proposal && <fieldset disabled={busy}><legend>核对本次授权</legend>

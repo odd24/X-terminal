@@ -1,11 +1,45 @@
 import { ProfileGrantApproval } from '../apps/desktop/src/profile-grant.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GrantApproval, checkedGrant, checkedList, checkedLease, checkedAudit, restoreSlot, supportedActions } from '../apps/desktop/src/agent-management.ts';
+import { GrantApproval, checkedGrant, checkedList, checkedLease, checkedAudit, restoreSlot, supportedActions, scopeText, parseReadWindow } from '../apps/desktop/src/agent-management.ts';
 const id='11111111-1111-4111-8111-111111111111', request='22222222-2222-7222-8222-222222222222', ticket='33333333-3333-4333-8333-333333333333';
 const connection={connection_id:id,generation:1}, target={...connection,protocol:'SSH2',state:'CONNECTED'};
 const scope=action=>({target:{kind:'connection',connection:{...connection}},action});
 const view=()=>({type:'grant',data:{summary:{request_id:request,ticket_id:ticket,expires_at_ms:300000,state:'ACTIVE',effective_scope_count:1},approved_scopes:[scope('READ'),scope('WRITE')],effective_scopes:[scope('READ')]}});
+
+test('time-window metadata is strict, preserves exact approved limits and names the reconstructed view',()=>{
+  const windowScope={target:{kind:'output_window',connection,window:{from_ms:1000,until_ms:2000}},action:'READ'};
+  const value=view();value.data.approved_scopes=[windowScope];value.data.effective_scopes=[structuredClone(windowScope)];
+  assert.equal(checkedGrant(value,request).effective_scopes[0].target.window.until_ms,2000);
+  assert.match(scopeText(windowScope),/北京时间.*时间窗重建/);
+  for(const edit of [v=>v.data.effective_scopes[0].target.window.until_ms++,v=>v.data.approved_scopes[0].action='WRITE',v=>v.data.approved_scopes[0].target.window.until_ms=1000,v=>v.data.approved_scopes[0].target.window.from_ms=-1,v=>v.data.approved_scopes[0].target.window.until_ms=Number.MAX_SAFE_INTEGER,v=>v.data.approved_scopes[0].target.window.extra=true]) {
+    const v=structuredClone(value);edit(v);assert.throws(()=>checkedGrant(v,request));
+  }
+});
+
+test('time-window consent freezes explicit Beijing times without granting full Read or changing write scope',()=>{
+  const window=parseReadWindow('2026-11-07T00:00:00.123','2026-11-07T00:01:00.456');
+  assert.equal(window.from_ms,Date.parse('2026-11-06T16:00:00.123Z'));
+  const approval=new GrantApproval();
+  const p=approval.prepare(ticket,target,['READ','WRITE'],30,window);
+  window.until_ms++;
+  assert.equal(p.scopes[0].target.kind,'output_window');
+  assert.equal(p.scopes[0].target.window.until_ms,Date.parse('2026-11-06T16:01:00.456Z'));
+  assert.deepEqual(p.scopes[1],scope('WRITE'));
+  assert.throws(()=>p.scopes[0].target.window.from_ms++);
+  assert.equal(approval.consume(ticket,target,p),p);
+  assert.throws(()=>approval.consume(ticket,target,p));
+  assert.throws(()=>approval.prepare(ticket,target,['WRITE'],30,window));
+  for(const protocol of ['SSH2','SERIAL']) {
+    const ended={...target,protocol,state:'DISCONNECTED'};
+    const q=approval.prepare(ticket,ended,['READ'],30,window);
+    assert.equal(q.scopes[0].target.kind,'output_window');
+    assert.equal(approval.consume(ticket,ended,q),q);
+    const pending=approval.prepare(ticket,ended,['READ'],30,window);
+    assert.throws(()=>approval.consume(ticket,{...ended,state:'FAILED'},pending));
+  }
+  for(const [from,until] of [['',''],['2026-02-30T00:00','2026-03-03T00:00'],['2026-11-07T00:00','2026-11-07T00:00'],['2026-11-07T00:01','2026-11-07T00:00'],['2026-11-07T24:00','2026-11-08T01:00'],['2026-11-07T00:00Z','2026-11-07T00:01']]) assert.throws(()=>parseReadWindow(from,until));
+});
 
 test('reconnect receipts remain readable without exposing an incomplete combined approval UI',()=>{
   const v=view();v.data.approved_scopes=[scope('RECONNECT')];v.data.effective_scopes=[scope('RECONNECT')];
@@ -19,7 +53,7 @@ test('forget approval is confined to ended SSH2 and SERIAL generations and consu
   assert.equal(checkedGrant(v,request).effective_scopes[0].action,'FORGET');
   for(const protocol of ['SSH2','SERIAL']) for(const state of ['DISCONNECTED','FAILED']) {
     const current={...target,protocol,state}; const approval=new GrantApproval();
-    assert.deepEqual(supportedActions(current),['FORGET']);
+    assert.deepEqual(supportedActions(current),['READ','FORGET']);
     const p=approval.prepare(ticket,current,['FORGET'],30);
     assert.deepEqual(p.scopes,[scope('FORGET')]);
     assert.equal(approval.consume(ticket,current,p),p);

@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14时间窗GUI按ADR-055复用共享Panel/Field/tokens，Read默认无勾选、窗口时间默认空，显式北京时间UTC+08半开毫秒范围/重建语义；预览绑定服务/协议/完整代次/当时状态，编辑/切换/关闭/重载不恢复同意或时间，只保留签发编号。已结束SSH2/SERIAL的Read/Forget分别批准。两协议原生/最终文案后构建与专项及普通服务恢复见P14，非真实stdio桥/COM或Mac全局DPIIME验收。
+
 P14时间窗按ADR-055以独立OutputWindow Read和Context Info/Raw/Text/Screen接入，旧完整读取不接受窗口票据；请求窗口须单项包含，固定原始exclusive through_cursor分页，文本游标也用源seq。先过滤原始事件再从空解码/屏幕状态重建，覆盖/上下文断开显式；范围屏幕非完整实时终端，snapshot完成不等源结束。窗口不授lease/变更，接管保留Read、退休撤下精确代次；GUI/真实桥按实际记录独立验证，不将时间过滤当脱敏。
 
 P14 Forget GUI仅已结束SSH2/SERIAL代次开放独立FORGET，默认无勾选/同意，固定完整代次/期限且批准不执行移除/不取lease。共享Panel/Field/tokens，取消/切换/预览重载/单次及真实fetch丢应答只查/迟到关闭覆盖第19两协议；最终固定源码完整19入口与两次串口普通服务恢复见P14。Removed不删日志/配置/用户文件，实际token交stdio桥/COM及全局DPIIME仍独立验收。

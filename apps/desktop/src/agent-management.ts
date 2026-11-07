@@ -1,7 +1,8 @@
 import type { Connection, ConnectionRef } from './ssh-api';
 
 export type Action = 'READ' | 'WRITE' | 'EXEC' | 'CONTROL' | 'CONNECT' | 'DISCONNECT' | 'RECONNECT' | 'FORGET' | 'BROADCAST';
-export type Scope = { target: { kind: 'connection'; connection: ConnectionRef } | { kind: 'profile'; profile_id: string } | { kind: 'profile_revision'; profile_id: string; revision: string }; action: Action };
+export type ReadWindow = { from_ms: number; until_ms: number };
+export type Scope = { target: { kind: 'connection'; connection: ConnectionRef } | { kind: 'output_window'; connection: ConnectionRef; window: ReadWindow } | { kind: 'profile'; profile_id: string } | { kind: 'profile_revision'; profile_id: string; revision: string }; action: Action };
 export type Summary = { request_id: string; ticket_id: string; expires_at_ms: number; state: 'ACTIVE' | 'EXPIRED' | 'REVOKED'; effective_scope_count: number };
 export type GrantView = { summary: Summary; approved_scopes: Scope[]; effective_scopes: Scope[] };
 export type Slot = { service_id: string; request_id: string };
@@ -16,17 +17,33 @@ const integer = (v: unknown, min = 0): v is number => Number.isSafeInteger(v) &&
 export const sameConnection = (a: ConnectionRef, b: ConnectionRef) => a.connection_id === b.connection_id && a.generation === b.generation;
 const connection = (v: unknown): v is ConnectionRef => exact(v, ['connection_id', 'generation']) && uuid(v.connection_id) && integer(v.generation, 1);
 const actions: Action[] = ['READ', 'WRITE', 'EXEC', 'CONTROL', 'CONNECT', 'DISCONNECT', 'RECONNECT', 'FORGET', 'BROADCAST'];
+const validWindow = (v: unknown): v is ReadWindow => exact(v, ['from_ms', 'until_ms']) && integer(v.from_ms) && integer(v.until_ms, 1) && v.until_ms <= 253402300799999 && v.from_ms < v.until_ms;
+export function parseReadWindow(from: string, until: string): ReadWindow {
+  const parse = (input: string) => {
+    const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(input);
+    if (!match) return NaN;
+    const normalized = `${match[1]}:${match[2] ?? '00'}.${(match[3] ?? '').padEnd(3, '0')}`;
+    const ms = Date.parse(`${normalized}+08:00`);
+    if (!Number.isFinite(ms) || new Date(ms + 8 * 3600000).toISOString().slice(0, 23) !== normalized) return NaN;
+    return ms;
+  };
+  const window = { from_ms: parse(from), until_ms: parse(until) };
+  if (!validWindow(window)) throw new Error('请填写有效北京时间（UTC+08）起止时间，结束必须晚于开始；不自动补范围。');
+  return window;
+}
 const fail = () => new Error('授权管理响应不匹配；未接受范围或恢复批准。');
 function checkedScope(v: unknown): Scope {
   if (!exact(v, ['target', 'action']) || !actions.includes(v.action as Action) || !object(v.target)) throw fail();
-  if (v.target.kind === 'connection') {
+  if (v.target.kind === 'output_window') {
+    if (!exact(v.target, ['kind', 'connection', 'window']) || !connection(v.target.connection) || !validWindow(v.target.window) || v.action !== 'READ') throw fail();
+  } else if (v.target.kind === 'connection') {
     if (!exact(v.target, ['kind', 'connection']) || !connection(v.target.connection) || v.action === 'CONNECT') throw fail();
   } else if (v.target.kind === 'profile_revision') {
     if (!exact(v.target, ['kind', 'profile_id', 'revision']) || !uuid(v.target.profile_id) || !uuid(v.target.revision) || v.action !== 'CONNECT') throw fail();
   } else if (v.target.kind !== 'profile' || !exact(v.target, ['kind', 'profile_id']) || !uuid(v.target.profile_id) || v.action !== 'CONNECT') throw fail();
   return v as Scope;
 }
-const scopeKey = (s: Scope) => s.target.kind !== 'connection' ? `p:${s.target.profile_id}:${s.target.kind === 'profile_revision' ? s.target.revision : 'id'}:${s.action}` : `c:${s.target.connection.connection_id}:${s.target.connection.generation}:${s.action}`;
+const scopeKey = (s: Scope) => s.target.kind === 'profile' || s.target.kind === 'profile_revision' ? `p:${s.target.profile_id}:${s.target.kind === 'profile_revision' ? s.target.revision : 'id'}:${s.action}` : `c:${s.target.connection.connection_id}:${s.target.connection.generation}:${s.action}:${s.target.kind === 'output_window' ? `${s.target.window.from_ms}:${s.target.window.until_ms}` : 'full'}`;
 function checkedSummary(v: unknown): Summary {
   if (!exact(v, ['request_id', 'ticket_id', 'expires_at_ms', 'state', 'effective_scope_count']) || !uuid(v.request_id) || !uuid(v.ticket_id) || !integer(v.expires_at_ms, 1) || !['ACTIVE', 'EXPIRED', 'REVOKED'].includes(v.state as string) || !integer(v.effective_scope_count) || v.effective_scope_count > 64 || (v.state !== 'ACTIVE' && v.effective_scope_count !== 0)) throw fail();
   return v as Summary;
@@ -75,32 +92,40 @@ export function restoreSlot(raw: string | null): Slot | undefined {
   try { const v: unknown = JSON.parse(raw); if (exact(v, ['service_id', 'request_id']) && uuid(v.service_id) && uuid(v.request_id)) return v as Slot; } catch { /* untrusted storage */ }
 }
 export function supportedActions(target: Connection): Action[] {
-  if (['DISCONNECTED', 'FAILED'].includes(target.state) && ['SSH2', 'SERIAL'].includes(target.protocol)) return ['FORGET'];
+  if (['DISCONNECTED', 'FAILED'].includes(target.state) && ['SSH2', 'SERIAL'].includes(target.protocol)) return ['READ', 'FORGET'];
   if (target.state !== 'CONNECTED') return [];
   if (target.protocol === 'SSH2') return ['READ', 'WRITE', 'EXEC', 'CONTROL', 'DISCONNECT'];
   if (target.protocol === 'SERIAL') return ['READ', 'WRITE', 'CONTROL', 'DISCONNECT'];
   if (target.protocol === 'FIXTURE') return ['READ'];
   return [];
 }
-export type Proposal = { service_id: string; connection: ConnectionRef; protocol: string; scopes: Scope[]; lifetime_ms: number };
+export type Proposal = { service_id: string; connection: ConnectionRef; protocol: string; state: string; scopes: Scope[]; lifetime_ms: number };
 export class GrantApproval {
   private current?: Proposal;
   invalidate() { this.current = undefined; }
-  prepare(service_id: string, target: Connection, selected: Action[], seconds: number): Proposal {
+  prepare(service_id: string, target: Connection, selected: Action[], seconds: number, window?: ReadWindow): Proposal {
     this.invalidate();
     if (!uuid(service_id) || !connection({ connection_id: target.connection_id, generation: target.generation }) || !selected.length || new Set(selected).size !== selected.length || selected.some(a => !supportedActions(target).includes(a)) || !integer(seconds, 1) || seconds > 1800) throw new Error('请选择状态匹配的精确目标、独立能力及1–1800秒期限。');
+    if (window && (!validWindow(window) || !selected.includes('READ'))) throw new Error('时间窗仅适用于独立Read范围。');
     const ref = Object.freeze({ connection_id: target.connection_id, generation: target.generation });
-    const scopes = selected.map(action => Object.freeze({ target: Object.freeze({ kind: 'connection' as const, connection: ref }), action }));
+    const scopes: Scope[] = selected.map(action => Object.freeze({ target: window && action === 'READ' ? Object.freeze({ kind: 'output_window' as const, connection: ref, window: Object.freeze({ ...window }) }) : Object.freeze({ kind: 'connection' as const, connection: ref }), action }));
     Object.freeze(scopes);
-    this.current = Object.freeze({ service_id, connection: ref, protocol: target.protocol, scopes, lifetime_ms: seconds * 1000 });
+    this.current = Object.freeze({ service_id, connection: ref, protocol: target.protocol, state: target.state, scopes, lifetime_ms: seconds * 1000 });
     return this.current;
   }
   consume(service_id: string, target: Connection | undefined, proposal: Proposal): Proposal {
-    const valid = this.current === proposal && service_id === proposal.service_id && !!target && sameConnection(target, proposal.connection) && target.protocol === proposal.protocol && proposal.scopes.every(scope => supportedActions(target).includes(scope.action));
+    const valid = this.current === proposal && service_id === proposal.service_id && !!target && sameConnection(target, proposal.connection) && target.protocol === proposal.protocol && target.state === proposal.state && proposal.scopes.every(scope => supportedActions(target).includes(scope.action));
     this.invalidate();
     if (!valid) throw new Error('预览已失效；未签发授权，请重新核对。');
     return proposal;
   }
 }
 export const actionName: Record<Action, string> = { READ: '读取终端', WRITE: '写入终端', EXEC: '独立 exec', CONTROL: '协议控制（SSH尺寸/串口控制线）', CONNECT: '建立配置连接', DISCONNECT: '断开连接', RECONNECT: '重连旧SSH代次（另需配置建连批准）', FORGET: '移除已回收连接记录', BROADCAST: '广播' };
-export function scopeText(scope: Scope): string { return `${actionName[scope.action]} · ${scope.target.kind !== 'connection' ? `配置 ${scope.target.profile_id} / ${scope.target.kind === 'profile_revision' ? `配置版本 ${scope.target.revision}` : '仅ID范围（不固定配置）'}` : `${scope.target.connection.connection_id} / 代次 ${scope.target.connection.generation}`}`; }
+export function scopeText(scope: Scope): string {
+  const target = scope.target;
+  if (target.kind === 'profile' || target.kind === 'profile_revision') return `${actionName[scope.action]} · 配置 ${target.profile_id} / ${target.kind === 'profile_revision' ? `配置版本 ${target.revision}` : '仅ID范围（不固定配置）'}`;
+  const fixed = `${actionName[scope.action]} · ${target.connection.connection_id} / 代次 ${target.connection.generation}`;
+  if (target.kind === 'connection') return `${fixed}${scope.action === 'READ' ? ' · 当前有界保留输出与授权期间后续输出（完整Read）' : ''}`;
+  const date = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3, hourCycle: 'h23' });
+  return `${fixed} · 北京时间 [${date.format(target.window.from_ms)}, ${date.format(target.window.until_ms)}) · 时间窗重建（不含窗外正文）`;
+}

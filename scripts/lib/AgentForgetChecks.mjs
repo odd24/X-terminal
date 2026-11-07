@@ -39,7 +39,8 @@ export async function checkForgetApproval(ui, connection, protocol) {
   };
   await open();
   const before = await count();
-  assert.equal(await ui.evaluate(`document.querySelectorAll('[aria-label="Agent授权面板"] input[type="checkbox"]').length`), 1);
+  assert.equal(await ui.evaluate(`document.querySelectorAll('[aria-label="Agent授权面板"] input[type="checkbox"]').length`), 2);
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="授权读取终端"]').checked`), false, 'Forget never implicitly includes Read');
   await toggle(label);
   assert.match(await ui.evaluate(`document.querySelector('[aria-label="Agent移除范围说明"]').textContent`), /不删除日志、配置或用户文件/);
   await preview(); await ui.click('取消Agent批准'); assert.equal(await count(), before);

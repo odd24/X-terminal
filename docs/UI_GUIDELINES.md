@@ -1,5 +1,7 @@
 # 界面与交互规范
 
+P14读取时间窗复用AgentPanel/Field/tokens：Read默认未勾选，明确区分完整当前缓冲区/后续输出与指定北京时间窗；时间默认空，标签写UTC+08及包含/不包含边界，预览固定毫秒范围并说明范围重建/缺口而非完整实时屏幕。编辑/切换/状态变化清除同意，重载不恢复时间；已结束SSH2/SERIAL可独立选Read/Forget，互不推导。现有Windows日期输入采用共享控件样式，平台语义保留；全局Mac方向/T22/T23仍须独立实际验收。准确证据见P14。
+
 P14 Forget批准复用当前AgentPanel/Field/fieldset/tokens，仅已结束SSH2/SERIAL代次提供独立移除能力，默认未勾选/不同意。预览固定完整代次/期限，明确批准不移除、不删日志/配置/用户文件，实际动作仍需独立lease和传输回收证明；清理未完拒绝且无成功回执，可原编号重试。切换/关闭/重载不恢复同意，原签发编号只查，真实IPC丢应答和迟到仍保持该边界。无独立色板/字体，默认合成截图不替代全局T22/T23或真实stdio桥。
 
 P14 SSH Reconnect批准复用共享Agent授权/Profile表单与tokens，只为已断开的原SSH2代次开放；预览须同时展示精确旧ConnectionRef及Reconnect、原Profile固定revision及Connect、非秘密配置摘要和期限。默认不同意，模式/代次变化立即销毁旧预览；批准只签发双范围授权，不触发重连。继续使用共享Field/fieldset/状态文字，不新增单页字体或色板；合成SSH WebView验证见P14，真实stdio桥、Forget和全局T22/T23矩阵仍独立验收。

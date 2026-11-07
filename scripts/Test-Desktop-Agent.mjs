@@ -1,5 +1,6 @@
 import { checkProfileConnect } from './lib/AgentProfileChecks.mjs';
 import { checkForgetApproval } from './lib/AgentForgetChecks.mjs';
+import { checkReadWindowApproval } from './lib/AgentContextChecks.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -216,6 +217,7 @@ try {
   await ui.click('关闭外观');
   await ui.evaluate(`document.querySelector('.auxiliary-panels').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-light-synthetic.png');
+  await checkReadWindowApproval(ui, sshRef, 'SSH2');
   await ui.invoke('ssh_request', { request: { op: 'close', connection: sshRef } });
   assert.equal((await ui.invoke('service_list')).find(c => c.connection_id === sshId).state, 'DISCONNECTED');
   await ui.waitFor(`!!(${button('Agent 授权')})`);
