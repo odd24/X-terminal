@@ -40,6 +40,7 @@ fn capabilities_are_independent_and_exact_generation_scoped() {
         Action::Exec,
         Action::Control,
         Action::Disconnect,
+        Action::Reconnect,
         Action::Broadcast,
     ] {
         assert_eq!(
@@ -278,6 +279,7 @@ fn all_mutating_connection_actions_require_the_exact_lease() {
         Action::Exec,
         Action::Control,
         Action::Disconnect,
+        Action::Reconnect,
         Action::Broadcast,
     ];
     p.grant(a, actions.iter().map(|a| scope(c, *a)).collect(), 1000, 0)

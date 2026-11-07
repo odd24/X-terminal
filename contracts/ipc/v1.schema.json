@@ -38,6 +38,7 @@
           "CONNECT",
           "CONTROL",
           "DISCONNECT",
+          "RECONNECT",
           "BROADCAST"
         ],
         "type": "string"
@@ -2990,6 +2991,7 @@
           "CONNECT",
           "CONTROL",
           "DISCONNECT",
+          "RECONNECT",
           "BROADCAST"
         ],
         "type": "string"

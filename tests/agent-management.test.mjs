@@ -7,6 +7,13 @@ const connection={connection_id:id,generation:1}, target={...connection,protocol
 const scope=action=>({target:{kind:'connection',connection:{...connection}},action});
 const view=()=>({type:'grant',data:{summary:{request_id:request,ticket_id:ticket,expires_at_ms:300000,state:'ACTIVE',effective_scope_count:1},approved_scopes:[scope('READ'),scope('WRITE')],effective_scopes:[scope('READ')]}});
 
+test('reconnect receipts remain readable without exposing an incomplete combined approval UI',()=>{
+  const v=view();v.data.approved_scopes=[scope('RECONNECT')];v.data.effective_scopes=[scope('RECONNECT')];
+  assert.equal(checkedGrant(v,request).effective_scopes[0].action,'RECONNECT');
+  assert.equal(supportedActions(target).includes('RECONNECT'),false);
+  assert.equal(supportedActions({...target,state:'DISCONNECTED'}).includes('RECONNECT'),false);
+});
+
 test('approval freezes independent scopes and exact service/connection generation, consumes once and invalidates',()=>{
   const approval=new GrantApproval(); const actions=['READ','WRITE']; const current={...target};
   const first=approval.prepare(ticket,current,actions,30); actions.push('EXEC');current.generation=2;

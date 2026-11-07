@@ -3,6 +3,8 @@ mod disconnect;
 mod exec;
 mod history;
 mod reconnect;
+#[cfg(test)]
+mod reconnect_tests;
 mod start;
 use crate::{
     config::{Access, Internal, Value},
@@ -126,6 +128,15 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::Reconnect {
+                connection,
+                request_id,
+                cols,
+                rows,
+            } => {
+                self.reconnect_as(Some(identity), connection, request_id, cols, rows)
+                    .await
+            }
             ssh::Request::Disconnect {
                 connection,
                 request_id,
@@ -271,7 +282,10 @@ impl Manager {
                 request_id,
                 cols,
                 rows,
-            } => self.reconnect(connection, request_id, cols, rows).await,
+            } => {
+                self.reconnect_as(None, connection, request_id, cols, rows)
+                    .await
+            }
             ssh::Request::Exec {
                 connection,
                 request_id,
@@ -835,9 +849,6 @@ impl Actor {
             }),
             Auth::KeyboardInteractive => Ok(Authentication::KeyboardInteractive),
         }
-    }
-    async fn run(&self, profile: Profile, cols: u32, rows: u32) -> Result<(), Failure> {
-        self.run_as(profile, cols, rows, None, None).await
     }
     async fn run_as(
         &self,

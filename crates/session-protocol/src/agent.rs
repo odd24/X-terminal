@@ -118,6 +118,41 @@ pub enum Reply {
 mod tests {
     use super::*;
     #[test]
+    fn reconnect_is_an_independent_connection_action_never_a_profile_action() {
+        let c = session_core::session::ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        for (target, valid) in [
+            (Target::Connection { connection: c }, true),
+            (
+                Target::Profile {
+                    profile_id: Uuid::new_v4(),
+                },
+                false,
+            ),
+            (
+                Target::ProfileRevision {
+                    profile_id: Uuid::new_v4(),
+                    revision: Uuid::new_v4(),
+                },
+                false,
+            ),
+        ] {
+            let request = Request::Grant {
+                request_id: Uuid::new_v4(),
+                scopes: vec![Scope {
+                    target,
+                    action: Action::Reconnect,
+                }],
+                lifetime_ms: 1000,
+            };
+            assert_eq!(request.validate(), valid);
+            let value = serde_json::to_value(&request).unwrap();
+            assert!(serde_json::from_value::<Request>(value).is_ok());
+        }
+    }
+    #[test]
     fn profile_revision_requires_explicit_non_nil_version_and_connect_only() {
         let profile_id = Uuid::new_v4();
         let revision = Uuid::new_v4();

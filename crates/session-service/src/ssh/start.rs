@@ -1,6 +1,9 @@
 use super::*;
 impl Manager {
-    fn start_owner(store: &Store, identity: Option<&Identity>) -> Result<Option<Uuid>, ErrorCode> {
+    pub(super) fn start_owner(
+        store: &Store,
+        identity: Option<&Identity>,
+    ) -> Result<Option<Uuid>, ErrorCode> {
         let Some(identity) = identity else {
             return Ok(None);
         };

@@ -3,6 +3,8 @@ use session_core::access::{Action, AuditKind, Scope, Target};
 use session_protocol::agent::{Reply as AR, Request as A};
 #[path = "agent_disconnect.rs"]
 mod disconnect_cases;
+#[path = "agent_reconnect.rs"]
+mod reconnect_agent_cases;
 #[cfg(feature = "serial-ui-fixture")]
 #[path = "agent_serial.rs"]
 mod serial_dispatch_cases;

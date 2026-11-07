@@ -163,6 +163,7 @@ impl Runtime {
                 || !matches!(
                     request,
                     ssh::Request::Start { .. }
+                        | ssh::Request::Reconnect { .. }
                         | ssh::Request::Disconnect { .. }
                         | ssh::Request::DisconnectStatus { .. }
                         | ssh::Request::Resize { .. }

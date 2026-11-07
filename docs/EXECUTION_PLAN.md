@@ -277,6 +277,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- 重连增量：ADR-053以旧代次独立Reconnect/lease加固定配置Connect接入SSH，原owner/原编号优先只查，gate/配置/清理等待后及新传输首次poll复核；准确结果见P14。Forget/GUI/真实桥与整个方案继续。
+
 - Profile GUI增量：共享授权面板独立批准已保存SSH2/SERIAL固定revision配置，明确串口初始线、批准前重读、变更后重新预览与原编号恢复；准确验证见P14，不由GUI推导真实stdio桥。
 
 

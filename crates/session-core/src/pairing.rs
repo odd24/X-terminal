@@ -330,6 +330,7 @@ impl Pairing {
             Action::Exec,
             Action::Control,
             Action::Disconnect,
+            Action::Reconnect,
             Action::Broadcast,
         ]
         .into_iter()
@@ -487,6 +488,59 @@ mod tests {
         );
         assert!(p.lease(&desktop, connection, 3).unwrap().is_none());
         assert!(p.revoke(&desktop, desktop.ticket_id(), 3).is_err());
+    }
+    #[test]
+    fn reconnect_scope_can_acquire_its_own_old_generation_lease_only() {
+        let bootstrap = SecretToken::generate();
+        let mut pairing = Pairing::new(&bootstrap);
+        let desktop = pairing.authenticate(&bootstrap, 0).unwrap();
+        let old = ConnectionRef {
+            connection_id: ConnectionId(Uuid::new_v4()),
+            generation: 7,
+        };
+        let (agent, _, _) = pairing
+            .issue_agent(
+                &desktop,
+                vec![Scope {
+                    target: Target::Connection { connection: old },
+                    action: Action::Reconnect,
+                }],
+                10_000,
+                0,
+            )
+            .unwrap();
+
+        assert_eq!(pairing.can_acquire(&agent, old, 1), Ok(()));
+        let lease = pairing.acquire_lease(&agent, old, 1000, 1).unwrap();
+        assert_eq!(lease.connection, old);
+        assert!(
+            pairing
+                .lease(
+                    &agent,
+                    ConnectionRef {
+                        generation: 8,
+                        ..old
+                    },
+                    2
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            pairing.can_read(&agent, old, 2),
+            Err(ErrorCode::PermissionDenied)
+        );
+        assert_eq!(
+            pairing.check_action(
+                &agent,
+                Scope {
+                    target: Target::Connection { connection: old },
+                    action: Action::Write,
+                },
+                2,
+            ),
+            Err(ErrorCode::PermissionDenied)
+        );
     }
     #[test]
     fn agent_expiry_and_retired_generation_are_not_renewed_by_active_connections() {

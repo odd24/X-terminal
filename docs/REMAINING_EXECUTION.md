@@ -1,5 +1,7 @@
 # 完整方案剩余要求与准入盘点
 
+2026-11-07 ADR-053 SSH Reconnect服务子步已完成软件验证：217相关Rust/真实Windows IPC、三包严格clippy/fmt、协议schema和52前端/lint通过，gate/配置/清理等待竞态覆盖见P14。Agent Forget、重连GUI组合批准、读取时间范围/单次任务授权/脱敏/完整拒绝与持久审计、真实stdio桥/P16及全部P17–P25继续，完整R01–R16/P01–P25目标不变。
+
 2026-11-07 Profile/revision Connect服务及GUI两成果已形成：首208三包/最终26协议/5feature IPC与静态、第二51前端/实际构建及00:03:08–00:09:38完整19入口实际PASS，普通服务两次恢复/资源0。失败/自建残留审批拒绝/最终指纹见P14，不关闭父P14或阶段门。下一独立SSH Reconnect/Forget及读取时间范围/授权形式/脱敏/完整审计、真实stdio桥/P16与全部P17–P25持续，R01–R16/P01–P25不缩减。
 
 
