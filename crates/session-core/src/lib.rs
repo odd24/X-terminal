@@ -9,6 +9,7 @@ pub mod forget;
 pub mod input;
 pub mod pairing;
 pub mod presentation;
+pub mod redaction;
 pub mod screen;
 pub mod serial_input;
 pub mod session;

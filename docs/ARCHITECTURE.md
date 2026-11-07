@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14输出脱敏按[ADR-057](decisions/ADR-057.md)采用服务授权完整连续段先投影后分页；规则冻结原票据、值仅内存且不向Agent给规则摘要，原输出/日志分离。当前仅有界字段/字面引擎，控制序列保守整段隐藏；不是同列宽屏幕渲染器，服务全入口/软换行/本人exec防绕过与GUI仍须实际接入，准确边界见[P14](records/P14.md)。
+
 ADR-056 GUI只把已消费的一次完整参数预览交给新增严格原生GrantTask/GrantOperation白名单；配置动作确认前重读同revision，串口库存只显式读取并冻结（重枚举会换版本），实际Start仍复核原库存。WebView独立规范指纹与服务回执参数/scope匹配、进程内临时正文、仅原service_id/request_id恢复；token投影持续剥离。14单动作和Task范围按实际原生证据分层，GUI批准不执行，不等于P15真实桥已交付，见[P14](records/P14.md)。
 
 P14单次确认/限时任务按[ADR-056](decisions/ADR-056.md)接固定操作request_id+规范参数指纹与任务ID/说明/scopes/到期，原始认证身份不能自行生成Single派发许可；服务必须重算实际请求并附进程内证明，最终Permit复核同grant/编号/scope/lease，沿已有回执阻止重复执行。核心与服务/GUI/真实桥证据分开，当前准确边界见[P14](records/P14.md)。
