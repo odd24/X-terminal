@@ -1,6 +1,7 @@
 //! Shared session domain. Transport access belongs to the future service layer.
 
 pub mod access;
+pub mod audit_journal;
 pub mod authorization;
 pub mod capture;
 pub mod context;

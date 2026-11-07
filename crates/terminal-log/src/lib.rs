@@ -1,6 +1,8 @@
 //! Opt-in bounded journals. Callers must authorize and route an exact generation.
 mod archive;
 #[cfg(windows)]
+pub mod audit;
+#[cfg(windows)]
 mod cleanup;
 mod directory;
 mod export;
