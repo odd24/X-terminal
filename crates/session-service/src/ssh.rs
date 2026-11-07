@@ -62,6 +62,20 @@ struct Entry {
     task: Option<JoinHandle<()>>,
     transport: Option<std::sync::Weak<Ssh2Session>>,
 }
+impl Manager {
+    /// Issuance-only lookup; operation retries never depend on this live entry.
+    pub(crate) fn grant_profile(&self, connection: ConnectionRef) -> Result<Uuid, ErrorCode> {
+        let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let entry = inner
+            .entries
+            .get(&connection.connection_id)
+            .ok_or(ErrorCode::NotFound)?;
+        if entry.reference != connection {
+            return Err(ErrorCode::StaleGeneration);
+        }
+        Ok(entry.profile_id)
+    }
+}
 enum Input {
     Exec(exec::Queued),
     Write(session_protocol::SensitiveBytes),

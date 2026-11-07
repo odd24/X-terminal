@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14单次/限时任务服务按ADR-056使用GrantOperation完整严格请求和GrantTask任务信息，管理原编号恢复匹配Form/任务/参数且不续期；所有真正Single变更重算协议包装指纹并绑定局部Identity，原Manager负责原owner/精确代次去重。状态/本人任务读取取消不冒充新变更，退休/配置删除仍可用有效票据恢复原编号；Reconnect签发核对原Profile。服务IPC/内存worker不等GUI完整预览或真实stdio桥，普通服务恢复及最终证据见P14。
+
 P14单次/限时任务按ADR-056先建核心Form，Single固定request_id/规范参数摘要，原始认证身份无绑定证明不得admit；最终Permit按同grant/编号/scope/lease复核，分片/首poll沿原许可，去重仍由原owner/精确代次有界回执负责。TimedTask编号/说明不授权。服务必须重算真正请求，固定配置版本/完整参数预览、各动作IPC和GUI未验证前不得以核心通过宣称新形式可用或真实桥交付。
 
 P14时间窗GUI按ADR-055复用共享Panel/Field/tokens，Read默认无勾选、窗口时间默认空，显式北京时间UTC+08半开毫秒范围/重建语义；预览绑定服务/协议/完整代次/当时状态，编辑/切换/关闭/重载不恢复同意或时间，只保留签发编号。已结束SSH2/SERIAL的Read/Forget分别批准。两协议原生/最终文案后构建与专项及普通服务恢复见P14，非真实stdio桥/COM或Mac全局DPIIME验收。

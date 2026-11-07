@@ -58,19 +58,21 @@ impl Runtime {
         if !request.validate() {
             return Err(ErrorCode::InvalidArgument);
         }
-        if let agent::Request::Grant {
-            request_id,
-            scopes,
-            lifetime_ms,
-        } = &request
-        {
+        if let Some(spec) = request.grant_spec()? {
+            let agent::GrantSpec {
+                request_id,
+                scopes,
+                lifetime_ms,
+                form,
+            } = spec;
             {
                 let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-                if let Some(result) = store.pairing.grant_replay(
+                if let Some(result) = store.pairing.grant_replay_form(
                     identity,
-                    *request_id,
+                    request_id,
                     scopes,
-                    *lifetime_ms,
+                    &form,
+                    lifetime_ms,
                     self.now(),
                 )? {
                     return Ok(Reply::Agent(Self::grant_reply(result)));
@@ -98,23 +100,66 @@ impl Runtime {
                     // configuration request waited, including before a deletion.
                     {
                         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-                        if let Some(result) = store.pairing.grant_replay(
+                        if let Some(result) = store.pairing.grant_replay_form(
                             identity,
-                            *request_id,
+                            request_id,
                             scopes,
-                            *lifetime_ms,
+                            &form,
+                            lifetime_ms,
                             self.now(),
                         )? {
                             return Ok(Reply::Agent(Self::grant_reply(result)));
                         }
                     }
-                    lookup.map_err(|e| {
+                    let profile = lookup.map_err(|e| {
                         if matches!(e, config::ConfigError::NotFound) {
                             ErrorCode::NotFound
                         } else {
                             ErrorCode::InvalidState
                         }
                     })?;
+                    if let agent::Request::GrantOperation { operation, .. } = &request {
+                        let descriptor =
+                            operation.descriptor().ok_or(ErrorCode::InvalidArgument)?;
+                        let protocol = match profile {
+                            crate::config::Value::Profile(profile) => match profile.settings {
+                                config_store::Settings::Ssh2 { .. } => Protocol::Ssh2,
+                                config_store::Settings::Serial { .. } => Protocol::Serial,
+                                _ => return Err(ErrorCode::Unsupported),
+                            },
+                            _ => return Err(ErrorCode::InvalidState),
+                        };
+                        if protocol != descriptor.protocol {
+                            return Err(ErrorCode::InvalidArgument);
+                        }
+                    }
+                }
+            }
+            if let agent::Request::GrantOperation { operation, .. } = &request {
+                let descriptor = operation.descriptor().ok_or(ErrorCode::InvalidArgument)?;
+                if descriptor.action == session_core::access::Action::Reconnect {
+                    let validation = self.ssh.grant_profile(descriptor.connection.ok_or(ErrorCode::InvalidArgument)?)
+                        .and_then(|profile_id| {
+                            scopes.iter().any(|scope| matches!(scope.target,
+                                session_core::access::Target::ProfileRevision { profile_id: id, .. } if id == profile_id))
+                                .then_some(()).ok_or(ErrorCode::InvalidArgument)
+                        });
+                    if let Err(error) = validation {
+                        // An identical concurrent issuer may already have finished
+                        // before the live entry retired. Restore that receipt first.
+                        let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                        if let Some(result) = store.pairing.grant_replay_form(
+                            identity,
+                            request_id,
+                            scopes,
+                            &form,
+                            lifetime_ms,
+                            self.now(),
+                        )? {
+                            return Ok(Reply::Agent(Self::grant_reply(result)));
+                        }
+                        return Err(error);
+                    }
                 }
             }
         }
@@ -146,8 +191,9 @@ impl Runtime {
         identity: &Identity,
         request: serial::Request,
     ) -> Result<Reply, ErrorCode> {
+        let identity = self.operation_identity(identity, || operation::serial_key(&request))?;
         self.serial
-            .handle_authenticated(identity, request)
+            .handle_authenticated(&identity, request)
             .await
             .map(Reply::Serial)
     }
@@ -181,10 +227,31 @@ impl Runtime {
                 store.pairing.require_desktop(identity, self.now())?;
             }
         }
+        let identity = self.operation_identity(identity, || operation::ssh_key(&request))?;
         self.ssh
-            .handle_authenticated(identity, request)
+            .handle_authenticated(&identity, request)
             .await
             .map(Reply::Ssh)
+    }
+    fn operation_identity(
+        &self,
+        identity: &Identity,
+        key: impl FnOnce() -> Result<Option<session_core::authorization::OperationKey>, ErrorCode>,
+    ) -> Result<Identity, ErrorCode> {
+        let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let now = self.now();
+        store.pairing.require_active(identity, now)?;
+        if store.pairing.is_agent(identity, now)?
+            && matches!(
+                store.pairing.authorization_form(identity, now)?,
+                session_core::authorization::Form::SingleOperation { .. }
+            )
+            && let Some(key) = key()?
+        {
+            return store.pairing.bind_operation(identity, key, now);
+        }
+        // Original-owner status/read/cancel queries do not initiate another operation.
+        Ok(identity.clone())
     }
     async fn handle_config(
         &self,
@@ -213,30 +280,42 @@ impl Runtime {
             Request::Agent { request } => {
                 use agent::{Reply as R, Request as A};
                 let reply = match request {
-                    A::Grant {
-                        request_id,
-                        scopes,
-                        lifetime_ms,
-                    } => {
+                    request
+                    @ (A::Grant { .. } | A::GrantTask { .. } | A::GrantOperation { .. }) => {
+                        let agent::GrantSpec {
+                            request_id,
+                            scopes,
+                            lifetime_ms,
+                            form,
+                        } = request.grant_spec()?.ok_or(ErrorCode::InvalidArgument)?;
                         store.pairing.require_desktop(identity, now)?;
-                        if let Some(result) = store.pairing.grant_replay(
+                        if let Some(result) = store.pairing.grant_replay_form(
                             identity,
                             request_id,
-                            &scopes,
+                            scopes,
+                            &form,
                             lifetime_ms,
                             now,
                         )? {
                             return Ok(Reply::Agent(Self::grant_reply(result)));
                         }
-                        for scope in &scopes {
+                        for scope in scopes {
                             if let Some(connection) = scope.target.connection() {
-                                store.sessions.info(connection)?;
+                                let info = store.sessions.info(connection)?;
+                                if let A::GrantOperation { operation, .. } = &request
+                                    && operation
+                                        .descriptor()
+                                        .is_none_or(|d| d.protocol != info.protocol)
+                                {
+                                    return Err(ErrorCode::InvalidArgument);
+                                }
                             }
                         }
-                        Self::grant_reply(store.pairing.issue_managed_agent(
+                        Self::grant_reply(store.pairing.issue_managed_agent_form(
                             identity,
                             request_id,
-                            scopes,
+                            scopes.to_vec(),
+                            form,
                             lifetime_ms,
                             now,
                         )?)

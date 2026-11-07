@@ -3,6 +3,7 @@ use crate::Sensitive;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use session_core::{access::*, session::ConnectionRef};
+use session_core::{authorization::Form, session::ErrorCode};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -12,6 +13,19 @@ pub enum Request {
         request_id: Uuid,
         scopes: Vec<Scope>,
         lifetime_ms: u64,
+    },
+    GrantTask {
+        request_id: Uuid,
+        scopes: Vec<Scope>,
+        lifetime_ms: u64,
+        task_id: Uuid,
+        label: String,
+    },
+    GrantOperation {
+        request_id: Uuid,
+        scopes: Vec<Scope>,
+        lifetime_ms: u64,
+        operation: Box<crate::operation::Operation>,
     },
     GrantStatus {
         request_id: Uuid,
@@ -39,15 +53,89 @@ pub enum Request {
         limit: usize,
     },
 }
+pub struct GrantSpec<'a> {
+    pub request_id: Uuid,
+    pub scopes: &'a [Scope],
+    pub lifetime_ms: u64,
+    pub form: Form,
+}
 impl Request {
+    pub fn grant_spec(&self) -> Result<Option<GrantSpec<'_>>, ErrorCode> {
+        let (request_id, scopes, lifetime_ms, form) = match self {
+            Self::Grant {
+                request_id,
+                scopes,
+                lifetime_ms,
+            } => (request_id, scopes, lifetime_ms, Form::Scoped),
+            Self::GrantTask {
+                request_id,
+                scopes,
+                lifetime_ms,
+                task_id,
+                label,
+            } => (
+                request_id,
+                scopes,
+                lifetime_ms,
+                Form::TimedTask {
+                    task_id: *task_id,
+                    label: label.clone(),
+                },
+            ),
+            Self::GrantOperation {
+                request_id,
+                scopes,
+                lifetime_ms,
+                operation,
+            } => {
+                if !operation
+                    .descriptor()
+                    .is_some_and(|d| d.matches_scopes(scopes))
+                {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                (
+                    request_id,
+                    scopes,
+                    lifetime_ms,
+                    Form::SingleOperation {
+                        operation: operation.key()?,
+                    },
+                )
+            }
+            _ => return Ok(None),
+        };
+        if !form.valid_for(scopes) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        Ok(Some(GrantSpec {
+            request_id: *request_id,
+            scopes,
+            lifetime_ms: *lifetime_ms,
+            form,
+        }))
+    }
     pub fn validate(&self) -> bool {
         match self {
             Self::Grant {
                 request_id,
                 scopes,
                 lifetime_ms,
+            }
+            | Self::GrantTask {
+                request_id,
+                scopes,
+                lifetime_ms,
+                ..
+            }
+            | Self::GrantOperation {
+                request_id,
+                scopes,
+                lifetime_ms,
+                ..
             } => {
                 !request_id.is_nil()
+                    && self.grant_spec().is_ok()
                     && !scopes.is_empty()
                     && scopes.len() <= MAX_SCOPES
                     && (1..=MAX_GRANT_MS).contains(lifetime_ms)
@@ -122,6 +210,86 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn task_and_single_grants_require_explicit_valid_metadata_and_minimum_scopes() {
+        let c = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let scope = Scope {
+            target: Target::Connection { connection: c },
+            action: Action::Write,
+        };
+        for label in ["", " leading", "trailing ", "line\nfeed", &"中".repeat(86)] {
+            assert!(
+                !Request::GrantTask {
+                    request_id: Uuid::new_v4(),
+                    scopes: vec![scope],
+                    lifetime_ms: 100,
+                    task_id: Uuid::new_v4(),
+                    label: label.into()
+                }
+                .validate()
+            );
+        }
+        assert!(
+            !Request::GrantTask {
+                request_id: Uuid::new_v4(),
+                scopes: vec![scope],
+                lifetime_ms: 100,
+                task_id: Uuid::nil(),
+                label: "任务".into()
+            }
+            .validate()
+        );
+        let operation = || {
+            Box::new(crate::operation::Operation::Ssh2(
+                crate::ssh::Request::WriteText {
+                    connection: c,
+                    request_id: Uuid::new_v4(),
+                    text: Sensitive::new("合成正文".into()),
+                },
+            ))
+        };
+        let valid = Request::GrantOperation {
+            request_id: Uuid::new_v4(),
+            scopes: vec![scope],
+            lifetime_ms: 100,
+            operation: operation(),
+        };
+        assert!(valid.validate());
+        assert!(!format!("{valid:?}").contains("合成正文"));
+        for scopes in [
+            vec![],
+            vec![Scope {
+                action: Action::Read,
+                ..scope
+            }],
+            vec![
+                scope,
+                Scope {
+                    action: Action::Read,
+                    ..scope
+                },
+            ],
+        ] {
+            assert!(
+                !Request::GrantOperation {
+                    request_id: Uuid::new_v4(),
+                    scopes,
+                    lifetime_ms: 100,
+                    operation: operation()
+                }
+                .validate()
+            );
+        }
+        for value in [
+            serde_json::json!({"op":"grant_operation", "request_id":Uuid::new_v4(), "scopes":[scope], "lifetime_ms":100, "fingerprint":"0".repeat(64)}),
+            serde_json::json!({"op":"grant_task", "request_id":Uuid::new_v4(), "scopes":[scope], "lifetime_ms":100, "task_id":Uuid::new_v4(), "label":"任务", "role":"desktop"}),
+        ] {
+            assert!(serde_json::from_value::<Request>(value).is_err());
+        }
+    }
     #[test]
     fn output_window_grants_are_strictly_read_only_and_bind_valid_time_and_generation() {
         let c = ConnectionRef {
@@ -303,6 +471,7 @@ mod tests {
                 },
                 approved_scopes: vec![s],
                 effective_scopes: vec![s],
+                form: None,
             },
             token: Some(Sensitive::new("synthetic-secret".into())),
         };
@@ -355,6 +524,7 @@ mod tests {
                 summary,
                 approved_scopes: vec![scope; MAX_SCOPES],
                 effective_scopes: vec![scope; MAX_SCOPES],
+                form: None,
             },
             token: Some(Sensitive::new("a".repeat(64))),
         };

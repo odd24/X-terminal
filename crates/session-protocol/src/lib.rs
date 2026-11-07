@@ -2,6 +2,7 @@
 pub mod agent;
 pub mod config;
 pub mod logging;
+pub mod operation;
 pub mod serial;
 pub mod ssh;
 use schemars::JsonSchema;

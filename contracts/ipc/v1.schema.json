@@ -744,6 +744,44 @@
         ],
         "type": "string"
       },
+      "Operation": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "protocol": {
+                "const": "SSH2",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/$defs/Request3"
+              }
+            },
+            "required": [
+              "protocol",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "protocol": {
+                "const": "SERIAL",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/$defs/Request4"
+              }
+            },
+            "required": [
+              "protocol",
+              "request"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Pace": {
         "additionalProperties": false,
         "properties": {
@@ -828,7 +866,7 @@
                 "type": "string"
               },
               "request": {
-                "$ref": "#/$defs/Request3"
+                "$ref": "#/$defs/Request5"
               }
             },
             "required": [
@@ -862,7 +900,7 @@
                 "type": "string"
               },
               "request": {
-                "$ref": "#/$defs/Request5"
+                "$ref": "#/$defs/Request3"
               }
             },
             "required": [
@@ -1200,6 +1238,81 @@
           {
             "additionalProperties": false,
             "properties": {
+              "label": {
+                "type": "string"
+              },
+              "lifetime_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "grant_task",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "scopes": {
+                "items": {
+                  "$ref": "#/$defs/Scope"
+                },
+                "type": "array"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "request_id",
+              "scopes",
+              "lifetime_ms",
+              "task_id",
+              "label"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "lifetime_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "grant_operation",
+                "type": "string"
+              },
+              "operation": {
+                "$ref": "#/$defs/Operation"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "scopes": {
+                "items": {
+                  "$ref": "#/$defs/Scope"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "op",
+              "request_id",
+              "scopes",
+              "lifetime_ms",
+              "operation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "op": {
                 "const": "grant_status",
                 "type": "string"
@@ -1353,6 +1466,838 @@
         ]
       },
       "Request3": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "forget_start",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "forget_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "disconnect",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "disconnect_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cols": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "reconnect",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "rows": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "cols",
+              "rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "$ref": "#/$defs/Sensitive"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "max_output_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "exec",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "timeout_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "command",
+              "timeout_ms",
+              "max_output_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "exec_status",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "task_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "exec_read",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "task_id",
+              "cursor",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "exec_cancel",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "task_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "write_text",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "text": {
+                "$ref": "#/$defs/Sensitive"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "bytes": {
+                "$ref": "#/$defs/SensitiveBytes"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "write",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cols": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "resize",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "rows": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "cols",
+              "rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "input_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cols": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "start",
+                "type": "string"
+              },
+              "profile_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "rows": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "profile_id",
+              "request_id",
+              "cols",
+              "rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "approve": {
+                "type": "boolean"
+              },
+              "challenge_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "answer_host",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "challenge_id",
+              "approve"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "challenge_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "authenticate",
+                "type": "string"
+              },
+              "password": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Sensitive"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "use_saved": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "challenge_id",
+              "use_saved"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "answers": {
+                "items": {
+                  "$ref": "#/$defs/Sensitive"
+                },
+                "type": "array"
+              },
+              "challenge_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "answer_interactive",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "challenge_id",
+              "answers"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "close",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "forget",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Request4": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "forget_start",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "forget_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "content": {
+                "$ref": "#/$defs/Sensitive"
+              },
+              "ending": {
+                "$ref": "#/$defs/Ending"
+              },
+              "format": {
+                "$ref": "#/$defs/Format"
+              },
+              "op": {
+                "const": "send",
+                "type": "string"
+              },
+              "pace": {
+                "$ref": "#/$defs/Pace"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "content",
+              "format",
+              "ending",
+              "pace"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "inventory",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "device_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "start",
+                "type": "string"
+              },
+              "profile_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "profile_id",
+              "request_id",
+              "revision",
+              "device_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "bytes": {
+                "$ref": "#/$defs/SensitiveBytes"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "write",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "asserted": {
+                "type": "boolean"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "line": {
+                "$ref": "#/$defs/Line"
+              },
+              "op": {
+                "const": "control",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id",
+              "line",
+              "asserted"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "input_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "close",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "disconnect",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "disconnect_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "forget",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Request5": {
         "oneOf": [
           {
             "additionalProperties": false,
@@ -1989,838 +2934,6 @@
               "connection",
               "log_id",
               "read_id"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "Request4": {
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "forget_start",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "forget_status",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "content": {
-                "$ref": "#/$defs/Sensitive"
-              },
-              "ending": {
-                "$ref": "#/$defs/Ending"
-              },
-              "format": {
-                "$ref": "#/$defs/Format"
-              },
-              "op": {
-                "const": "send",
-                "type": "string"
-              },
-              "pace": {
-                "$ref": "#/$defs/Pace"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id",
-              "content",
-              "format",
-              "ending",
-              "pace"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "op": {
-                "const": "inventory",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "device_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "op": {
-                "const": "start",
-                "type": "string"
-              },
-              "profile_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "revision": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "profile_id",
-              "request_id",
-              "revision",
-              "device_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "status",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "bytes": {
-                "$ref": "#/$defs/SensitiveBytes"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "write",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id",
-              "bytes"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "asserted": {
-                "type": "boolean"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "line": {
-                "$ref": "#/$defs/Line"
-              },
-              "op": {
-                "const": "control",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id",
-              "line",
-              "asserted"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "input_status",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "close",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "disconnect",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "disconnect_status",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "forget",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "Request5": {
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "forget_start",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "forget_status",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "disconnect",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "disconnect_status",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "cols": {
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "reconnect",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "rows": {
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id",
-              "cols",
-              "rows"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "command": {
-                "$ref": "#/$defs/Sensitive"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "max_output_bytes": {
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "op": {
-                "const": "exec",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "timeout_ms": {
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id",
-              "command",
-              "timeout_ms",
-              "max_output_bytes"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "exec_status",
-                "type": "string"
-              },
-              "task_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "task_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "cursor": {
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "max_bytes": {
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "op": {
-                "const": "exec_read",
-                "type": "string"
-              },
-              "task_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "task_id",
-              "cursor",
-              "max_bytes"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "exec_cancel",
-                "type": "string"
-              },
-              "task_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "task_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "write_text",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "text": {
-                "$ref": "#/$defs/Sensitive"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id",
-              "text"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "bytes": {
-                "$ref": "#/$defs/SensitiveBytes"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "write",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id",
-              "bytes"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "cols": {
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "resize",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "rows": {
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id",
-              "cols",
-              "rows"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "input_status",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "request_id"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "cols": {
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "op": {
-                "const": "start",
-                "type": "string"
-              },
-              "profile_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "request_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "rows": {
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "op",
-              "profile_id",
-              "request_id",
-              "cols",
-              "rows"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "status",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "approve": {
-                "type": "boolean"
-              },
-              "challenge_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "answer_host",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "challenge_id",
-              "approve"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "challenge_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "authenticate",
-                "type": "string"
-              },
-              "password": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/Sensitive"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "use_saved": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "challenge_id",
-              "use_saved"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "answers": {
-                "items": {
-                  "$ref": "#/$defs/Sensitive"
-                },
-                "type": "array"
-              },
-              "challenge_id": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "answer_interactive",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection",
-              "challenge_id",
-              "answers"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "close",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "connection": {
-                "$ref": "#/$defs/ConnectionRef"
-              },
-              "op": {
-                "const": "forget",
-                "type": "string"
-              }
-            },
-            "required": [
-              "op",
-              "connection"
             ],
             "type": "object"
           }
@@ -4426,6 +4539,62 @@
         ],
         "type": "object"
       },
+      "Form": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "scoped",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "single_operation",
+                "type": "string"
+              },
+              "operation": {
+                "$ref": "#/$defs/OperationKey"
+              }
+            },
+            "required": [
+              "kind",
+              "operation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "timed_task",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "task_id",
+              "label"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "HistoryEntry": {
         "additionalProperties": false,
         "properties": {
@@ -4844,6 +5013,26 @@
           "TIME_WINDOW_REPLAY"
         ],
         "type": "string"
+      },
+      "OperationFingerprint": {
+        "type": "string"
+      },
+      "OperationKey": {
+        "additionalProperties": false,
+        "properties": {
+          "fingerprint": {
+            "$ref": "#/$defs/OperationFingerprint"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "fingerprint"
+        ],
+        "type": "object"
       },
       "OutputEvent": {
         "additionalProperties": false,
@@ -7421,6 +7610,16 @@
               "$ref": "#/$defs/Scope"
             },
             "type": "array"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Form"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "summary": {
             "$ref": "#/$defs/Summary"

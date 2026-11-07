@@ -145,6 +145,7 @@ mod tests {
             },
             approved_scopes: vec![scope],
             effective_scopes: vec![],
+            form: None,
         };
         let before = serde_json::to_value(&view).unwrap();
         let reply = Reply::from(agent::Reply::Grant {

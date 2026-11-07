@@ -1,5 +1,6 @@
 //! Bounded Desktop grant receipts. Tokens remain memory-only and are never listed.
 use super::*;
+use crate::authorization::Form;
 use crate::input::{RequestWindow, ordered_timestamp};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,8 @@ pub struct View {
     pub summary: Summary,
     pub approved_scopes: Vec<Scope>,
     pub effective_scopes: Vec<Scope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<Box<Form>>,
 }
 pub struct ResultView {
     pub view: View,
@@ -36,6 +39,7 @@ struct Record {
     owner: Uuid,
     ticket_id: Uuid,
     scopes: Vec<Scope>,
+    form: Form,
     lifetime_ms: u64,
     expires: u64,
     token: Option<SecretToken>,
@@ -100,6 +104,7 @@ impl Pairing {
                 },
                 approved_scopes: record.scopes.clone(),
                 effective_scopes,
+                form: (record.form != Form::Scoped).then(|| Box::new(record.form.clone())),
             },
             token: if state == State::Active {
                 record
@@ -122,13 +127,25 @@ impl Pairing {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<Option<ResultView>, ErrorCode> {
+        self.grant_replay_form(desktop, id, scopes, &Form::Scoped, lifetime_ms, now)
+    }
+    pub fn grant_replay_form(
+        &mut self,
+        desktop: &Identity,
+        id: Uuid,
+        scopes: &[Scope],
+        form: &Form,
+        lifetime_ms: u64,
+        now: u64,
+    ) -> Result<Option<ResultView>, ErrorCode> {
         self.require_desktop(desktop, now)?;
         self.prune_grant_tokens(now);
         if let Some(record) = self.grants.records.get(&id) {
             if record.owner != desktop.ticket_id {
                 return Err(ErrorCode::PermissionDenied);
             }
-            if record.lifetime_ms != lifetime_ms
+            if record.form != *form
+                || record.lifetime_ms != lifetime_ms
                 || record.scopes.iter().collect::<HashSet<_>>()
                     != scopes.iter().collect::<HashSet<_>>()
             {
@@ -147,10 +164,23 @@ impl Pairing {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<ResultView, ErrorCode> {
+        self.issue_managed_agent_form(desktop, id, scopes, Form::Scoped, lifetime_ms, now)
+    }
+    pub fn issue_managed_agent_form(
+        &mut self,
+        desktop: &Identity,
+        id: Uuid,
+        scopes: Vec<Scope>,
+        form: Form,
+        lifetime_ms: u64,
+        now: u64,
+    ) -> Result<ResultView, ErrorCode> {
         if id.is_nil() {
             return Err(ErrorCode::InvalidArgument);
         }
-        if let Some(result) = self.grant_replay(desktop, id, &scopes, lifetime_ms, now)? {
+        if let Some(result) =
+            self.grant_replay_form(desktop, id, &scopes, &form, lifetime_ms, now)?
+        {
             return Ok(result);
         }
         if self.grants.records.len() == MAX_GRANT_RECEIPTS {
@@ -167,13 +197,14 @@ impl Pairing {
             self.grants.window.check(id)?;
         }
         let (identity, token, expires) =
-            self.issue_agent(desktop, scopes.clone(), lifetime_ms, now)?;
+            self.issue_agent_form(desktop, scopes.clone(), form.clone(), lifetime_ms, now)?;
         self.grants.records.insert(
             id,
             Record {
                 owner: desktop.ticket_id,
                 ticket_id: identity.ticket_id,
                 scopes,
+                form,
                 lifetime_ms,
                 expires,
                 token: Some(token),
@@ -262,6 +293,92 @@ mod tests {
     }
     fn ordered(stamp: u64) -> Uuid {
         Uuid::from_u128(((stamp as u128) << 80) | 0x7000_8000_0000_0000_0001)
+    }
+    #[test]
+    fn forms_are_immutable_receipt_identity_and_recovery_never_renews_or_retains_payload() {
+        use crate::authorization::{OperationFingerprint, OperationKey};
+        let (mut p, desktop, scope) = setup();
+        let id = Uuid::new_v4();
+        let operation = OperationKey {
+            request_id: Uuid::new_v4(),
+            fingerprint: OperationFingerprint::of_canonical(b"synthetic-body"),
+        };
+        let form = Form::SingleOperation { operation };
+        let first = p
+            .issue_managed_agent_form(&desktop, id, vec![scope], form.clone(), 100, 0)
+            .unwrap();
+        let token = first.token.unwrap();
+        let replay = p
+            .grant_replay_form(&desktop, id, &[scope], &form, 100, 50)
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay.token.unwrap().expose(), token.expose());
+        assert_eq!(replay.view.summary.expires_at_ms, 100);
+        assert_eq!(replay.view.form.as_deref(), Some(&form));
+        let changed = Form::SingleOperation {
+            operation: OperationKey {
+                fingerprint: OperationFingerprint::of_canonical(b"changed"),
+                ..operation
+            },
+        };
+        let task_id = Uuid::new_v4();
+        let task = Form::TimedTask {
+            task_id,
+            label: "诊断任务".into(),
+        };
+        for other in [Form::Scoped, task.clone(), changed] {
+            assert!(matches!(
+                p.grant_replay_form(&desktop, id, &[scope], &other, 100, 50),
+                Err(ErrorCode::InvalidArgument)
+            ));
+        }
+        let task_request = Uuid::new_v4();
+        let task_result = p
+            .issue_managed_agent_form(&desktop, task_request, vec![scope], task.clone(), 100, 0)
+            .unwrap();
+        for other in [
+            Form::TimedTask {
+                task_id: Uuid::new_v4(),
+                label: "诊断任务".into(),
+            },
+            Form::TimedTask {
+                task_id,
+                label: "另一任务".into(),
+            },
+        ] {
+            assert!(matches!(
+                p.grant_replay_form(&desktop, task_request, &[scope], &other, 100, 50),
+                Err(ErrorCode::InvalidArgument)
+            ));
+        }
+        p.revoke(&desktop, task_result.view.summary.ticket_id, 50)
+            .unwrap();
+        let revoked = p
+            .grant_replay_form(&desktop, task_request, &[scope], &task, 100, 60)
+            .unwrap()
+            .unwrap();
+        assert_eq!(revoked.view.summary.state, State::Revoked);
+        assert!(revoked.token.is_none());
+        assert_eq!(revoked.view.form.as_deref(), Some(&task));
+        let expired = p
+            .grant_replay_form(&desktop, id, &[scope], &form, 100, 100)
+            .unwrap()
+            .unwrap();
+        assert_eq!(expired.view.summary.state, State::Expired);
+        assert!(expired.token.is_none());
+        let wire = serde_json::to_string(&expired.view).unwrap();
+        assert!(!wire.contains("synthetic-body"));
+        assert!(!wire.contains(token.expose()));
+        let scoped = p
+            .issue_managed_agent(&desktop, Uuid::new_v4(), vec![scope], 100, 100)
+            .unwrap();
+        assert!(scoped.view.form.is_none());
+        assert!(
+            serde_json::to_value(scoped.view)
+                .unwrap()
+                .get("form")
+                .is_none()
+        );
     }
     #[test]
     fn receipt_retries_do_not_extend_authority_and_management_never_revives_revoked_grants() {

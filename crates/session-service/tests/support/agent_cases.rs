@@ -7,6 +7,8 @@ mod context_cases;
 mod disconnect_cases;
 #[path = "agent_forget.rs"]
 mod forget_agent_cases;
+#[path = "agent_forms.rs"]
+mod forms_cases;
 #[path = "agent_reconnect.rs"]
 mod reconnect_agent_cases;
 #[cfg(feature = "serial-ui-fixture")]
