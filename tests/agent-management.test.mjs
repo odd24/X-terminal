@@ -3,10 +3,52 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GrantApproval, checkedGrant, checkedTask, checkedTaskReply, grantRequest, checkedList, checkedLease, checkedAudit, restoreSlot, supportedActions, scopeText, parseReadWindow } from '../apps/desktop/src/agent-management.ts';
 import { OperationApproval, emptyDraft, singleActions, hexBytes, operationFingerprint, checkedOperationReply } from '../apps/desktop/src/operation-grant.ts';
+import { ruleDisplay } from '../apps/desktop/src/output-protection.ts';
 const id='11111111-1111-4111-8111-111111111111', request='22222222-2222-7222-8222-222222222222', ticket='33333333-3333-4333-8333-333333333333';
 const connection={connection_id:id,generation:1}, target={...connection,protocol:'SSH2',state:'CONNECTED'};
 const scope=action=>({target:{kind:'connection',connection:{...connection}},action});
 const view=()=>({type:'grant',data:{summary:{request_id:request,ticket_id:ticket,expires_at_ms:300000,state:'ACTIVE',effective_scope_count:1},approved_scopes:[scope('READ'),scope('WRITE')],effective_scopes:[scope('READ')]}});
+
+test('protected consent freezes exact values and task/window forms while receipts expose metadata only',()=>{
+  assert.equal(ruleDisplay('prefix\u202esecret\n<tag>'), '"prefix\\u202esecret\\n<tag>"');
+  for (const code of [0x061c,0x200e,0x200f,0x202a,0x202b,0x202c,0x202d,0x202e,0x2066,0x2067,0x2068,0x2069]) assert.equal(ruleDisplay(`a${String.fromCodePoint(code)}b`), `"a\\u${code.toString(16).padStart(4,'0')}b"`);
+  const policy={sensitive_fields:true,literals:['  合成🔑\r\n值  ','<script>data</script>']}, a=new GrantApproval();
+  const task={task_id:request,label:'有限观察'}, window={from_ms:10,until_ms:20};
+  const p=a.prepare(ticket,target,['READ','WRITE'],30,window,task,policy);
+  policy.literals[0]='changed';
+  assert.equal(p.redaction.literals[0],'  合成🔑\r\n值  ');
+  assert.throws(()=>p.redaction.literals.push('no'));
+  assert.throws(()=>a.consume(ticket,target,p,task,policy));
+  const q=a.prepare(ticket,target,['READ'],30,window,task,p.redaction);
+  assert.equal(a.consume(ticket,target,q,task,p.redaction),q);
+  const requestBody=grantRequest(request,q);
+  assert.equal(requestBody.op,'grant_protected');assert.equal(requestBody.form.kind,'timed_task');
+  assert.deepEqual(requestBody.scopes[0].target.window,window);
+  assert.deepEqual(requestBody.redaction,p.redaction);
+  const v=view();v.data.form={kind:'timed_task',...task};v.data.protection={policy_id:ticket,sensitive_fields:true,literal_count:2};
+  assert.equal(checkedTaskReply(checkedGrant(v,request),task,undefined,p.redaction).protection.policy_id,ticket);
+  assert.throws(()=>checkedTaskReply(checkedGrant(v,request),task));
+  for(const extra of ['literals','signature','salt','token']){ const invalid=structuredClone(v);invalid.data.protection[extra]='synthetic-private';assert.throws(()=>checkedGrant(invalid,request)); }
+  for(const info of [null,{policy_id:ticket,sensitive_fields:false,literal_count:0},{policy_id:ticket,sensitive_fields:true,literal_count:33},{policy_id:'bad',sensitive_fields:true,literal_count:2}]){ const invalid=structuredClone(v);invalid.data.protection=info;assert.throws(()=>checkedGrant(invalid,request)); }
+  assert.throws(()=>a.prepare(ticket,target,['WRITE'],30,undefined,undefined,p.redaction));
+  for(const literals of [[],[''],['duplicate','duplicate'],['中'.repeat(86)],Array.from({length:33},(_,i)=>`${i}`),['\ud800']]) assert.throws(()=>a.prepare(ticket,target,['READ'],30,undefined,undefined,{sensitive_fields:false,literals}));
+  const stateOnly=a.prepare(ticket,target,['READ'],30,undefined,undefined,{sensitive_fields:true,literals:[]});
+  assert.deepEqual(grantRequest(request,stateOnly).form,{kind:'scoped'});
+  assert.equal(JSON.stringify(restoreSlot(JSON.stringify({service_id:ticket,request_id:request,redaction:p.redaction}))),undefined);
+});
+
+test('protected single exec binds rules independently from its complete operation hash without granting Read',async()=>{
+  const policy={sensitive_fields:false,literals:['合成敏感值']}, a=new OperationApproval();
+  const draft={...emptyDraft(),action:'exec',text:'synthetic-only'};
+  const p=a.prepare(baseContext,draft,30,request,policy);
+  assert.deepEqual(p.scopes,[scope('EXEC')]);
+  assert.throws(()=>a.consume(baseContext,draft,p,{...policy,literals:['changed']}));
+  const q=a.prepare(baseContext,draft,30,request,policy),fingerprint=await operationFingerprint(q.operation);
+  const receipt={...view().data,approved_scopes:q.scopes,effective_scopes:q.scopes,form:{kind:'single_operation',operation:{request_id:request,fingerprint}},protection:{policy_id:ticket,sensitive_fields:false,literal_count:1}};
+  assert.equal(checkedOperationReply(checkedGrant({type:'grant',data:receipt},request),q,fingerprint).protection.literal_count,1);
+  assert.throws(()=>checkedOperationReply({...receipt,protection:undefined},q,fingerprint));
+  assert.throws(()=>a.prepare(baseContext,{...draft,action:'write_text'},30,request,policy));
+});
 
 test('task consent binds immutable description and UUID across connection and profile forms',()=>{
   const task={task_id:request,label:'有限诊断'}, approval=new GrantApproval();

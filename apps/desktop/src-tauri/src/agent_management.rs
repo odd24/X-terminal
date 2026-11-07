@@ -11,6 +11,13 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    GrantProtected {
+        request_id: Uuid,
+        scopes: Vec<Scope>,
+        lifetime_ms: u64,
+        form: agent::ProtectedForm,
+        redaction: agent::Redaction,
+    },
     Grant {
         request_id: Uuid,
         scopes: Vec<Scope>,
@@ -51,6 +58,19 @@ pub enum Request {
 impl Request {
     pub fn into_protocol(self) -> Result<agent::Request, String> {
         let request = match self {
+            Self::GrantProtected {
+                request_id,
+                scopes,
+                lifetime_ms,
+                form,
+                redaction,
+            } => agent::Request::GrantProtected {
+                request_id,
+                scopes,
+                lifetime_ms,
+                form,
+                redaction,
+            },
             Self::Grant {
                 request_id,
                 scopes,
@@ -276,5 +296,65 @@ mod tests {
         assert!(!serialized.contains("token"));
         assert!(!serialized.contains("synthetic-bearer-secret"));
         assert!(!format!("{reply:?}").contains("synthetic-bearer-secret"));
+    }
+    #[test]
+    fn protected_signing_accepts_only_fixed_rules_and_projects_no_rule_values_or_bearer() {
+        let connection = serde_json::json!({"connection_id":Uuid::new_v4(),"generation":1});
+        let value = serde_json::json!({"op":"grant_protected","request_id":Uuid::new_v4(),"scopes":[{"target":{"kind":"connection","connection":connection},"action":"READ"}],"lifetime_ms":1000,"form":{"kind":"scoped"},"redaction":{"sensitive_fields":true,"literals":["synthetic-rule-private"]}});
+        let request: Request = serde_json::from_value(value.clone()).unwrap();
+        assert!(!format!("{request:?}").contains("synthetic-rule-private"));
+        assert!(request.into_protocol().is_ok());
+        for extra in ["token", "policy_id", "owner"] {
+            let mut invalid = value.clone();
+            invalid["redaction"][extra] = "synthetic-forbidden".into();
+            assert!(serde_json::from_value::<Request>(invalid).is_err());
+        }
+        let mut invalid = value.clone();
+        invalid["redaction"]["literals"] = serde_json::json!(["x".repeat(257)]);
+        assert!(
+            serde_json::from_value::<Request>(invalid)
+                .unwrap()
+                .into_protocol()
+                .is_err()
+        );
+        let mut invalid = value;
+        invalid["form"]["auto_execute"] = true.into();
+        assert!(serde_json::from_value::<Request>(invalid).is_err());
+        let protected = session_core::pairing::protection::Info {
+            policy_id: Uuid::new_v4(),
+            sensitive_fields: true,
+            literal_count: 1,
+        };
+        let receipt = View {
+            summary: Summary {
+                request_id: Uuid::new_v4(),
+                ticket_id: Uuid::new_v4(),
+                expires_at_ms: 1000,
+                state: State::Active,
+                effective_scope_count: 0,
+            },
+            approved_scopes: vec![],
+            effective_scopes: vec![],
+            form: None,
+            protection: Some(protected),
+        };
+        let projected = Reply::from(agent::Reply::Grant {
+            receipt,
+            token: Some(session_protocol::Sensitive::new(
+                "synthetic-bearer-private".into(),
+            )),
+        });
+        let wire = serde_json::to_string(&projected).unwrap();
+        assert!(wire.contains(&protected.policy_id.to_string()));
+        for forbidden in [
+            "synthetic-bearer-private",
+            "synthetic-rule-private",
+            "literals",
+            "salt",
+            "signature",
+            "token",
+        ] {
+            assert!(!wire.contains(forbidden));
+        }
     }
 }

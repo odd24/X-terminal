@@ -6,10 +6,13 @@ import { Field } from './ui';
 import { requestId } from './request-id';
 import { OperationApproval, emptyDraft, singleActions, singleName, type Draft, type OperationContext, type OperationProposal, type SingleAction } from './operation-grant';
 import { profileDescription } from './profile-grant';
+import type { Redaction } from './output-protection';
+import { OutputProtectionEditor, OutputProtectionPreview } from './output-protection-editor';
 
 export function OperationGrantPanel({ serviceId, target, profileId, encoding, disabled, submit }: { serviceId: string; target?: Connection; profileId?: string; encoding?: string; disabled: boolean; submit(proposal: OperationProposal, current: () => boolean): Promise<void> }) {
   const approval = useRef(new OperationApproval()), alive = useRef(true), epoch = useRef(0), loading = useRef(false), submitting = useRef(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft), [seconds, setSeconds] = useState(300);
+  const [redaction, setRedaction] = useState<Redaction>();
   const [profiles, setProfiles] = useState<Profile[]>([]), [revision, setRevision] = useState<string>(), [selected, setSelected] = useState('');
   const [inventory, setInventory] = useState<Inventory>(), [deviceId, setDeviceId] = useState('');
   const [proposal, setProposal] = useState<OperationProposal>(), [consent, setConsent] = useState(false), [busy, setBusy] = useState(false);
@@ -25,7 +28,7 @@ export function OperationGrantPanel({ serviceId, target, profileId, encoding, di
   return <fieldset disabled={disabled || busy} aria-label="Agent单次操作面板"><legend>批准一次完整操作</legend>
     <p role="status" aria-label="Agent单次状态">{message}</p>
     <p>批准不执行、不取租约。实际Agent须提交同一操作编号和全部参数；不能更换正文、目标、控制线或尺寸。读取另行批准，认证/主机信任仍由Desktop处理。</p>
-    <Field label="单次动作"><select aria-label="Agent单次动作" value={draft.action} onChange={event => { invalidate(); setDraft({ ...emptyDraft(), action: event.target.value as SingleAction }); setSelected(''); setProfiles([]); setRevision(undefined); setInventory(undefined); setDeviceId(''); }}><option value="">选择一个动作</option>{singleActions(target).map(action => <option key={action} value={action}>{singleName[action]}</option>)}</select></Field>
+    <Field label="单次动作"><select aria-label="Agent单次动作" value={draft.action} onChange={event => { invalidate(); setRedaction(undefined); setDraft({ ...emptyDraft(), action: event.target.value as SingleAction }); setSelected(''); setProfiles([]); setRevision(undefined); setInventory(undefined); setDeviceId(''); }}><option value="">选择一个动作</option>{singleActions(target).map(action => <option key={action} value={action}>{singleName[action]}</option>)}</select></Field>
     {draft.action && draft.action !== 'start' && <small aria-label="Agent单次目标">{target?.protocol} · {target?.connection_id} / 代次 {target?.generation} · {target?.state}</small>}
     {profileAction && <>
       <button onClick={() => {
@@ -62,6 +65,7 @@ export function OperationGrantPanel({ serviceId, target, profileId, encoding, di
       <p>这是独立exec通道，不是交互终端输入。结果/取消沿本人任务查询，输出上限及超时固定。</p>
       <Field label="exec超时（毫秒）"><input aria-label="Agent单次exec超时" type="number" min={1} max={86400000} value={draft.timeout_ms} onChange={event => edit('timeout_ms', Number(event.target.value))} /></Field>
       <Field label="exec输出上限（字节）"><input aria-label="Agent单次exec上限" type="number" min={1} max={1048576} value={draft.max_output_bytes} onChange={event => edit('max_output_bytes', Number(event.target.value))} /></Field>
+      <OutputProtectionEditor value={redaction} change={value => { invalidate(); setRedaction(value); }} />
     </>}
     {draft.action === 'send' && <>
       <Field label="串口发送格式"><select aria-label="Agent单次发送格式" value={draft.format} onChange={event => edit('format', event.target.value as Draft['format'])}><option value="text">文本（连接编码）</option><option value="hex">HEX字节</option></select></Field>
@@ -77,14 +81,15 @@ export function OperationGrantPanel({ serviceId, target, profileId, encoding, di
     {draft.action === 'disconnect' && <p>只请求关闭以上代次；Requested不等于本地回收，须查询原编号的TransportEnded。不能撤回已执行动作。</p>}
     {draft.action === 'forget_start' && <p>只有本地传输实际回收后才可移除会话记录；清理未完无成功回执，可原编号重试。不删日志、配置或用户文件。</p>}
     <Field label="单次授权期限（秒，1–1800）"><input aria-label="Agent单次秒数" type="number" min={1} max={1800} value={seconds} onChange={event => { invalidate(); setSeconds(Number(event.target.value)); }} /></Field>
-    <button disabled={!draft.action} onClick={() => { try { invalidate(); setProposal(approval.current.prepare(context, draft, seconds, requestId())); setMessage('请核对以下全部参数及期限；尚未签发或执行。'); } catch (error) { setMessage(String(error)); } }}>预览Agent单次操作</button>
+    <button disabled={!draft.action} onClick={() => { try { invalidate(); setProposal(approval.current.prepare(context, draft, seconds, requestId(), redaction)); setMessage('请核对以下全部参数及期限；尚未签发或执行。'); } catch (error) { setMessage(String(error)); } }}>预览Agent单次操作</button>
     {proposal && <fieldset><legend>核对完整单次操作</legend>
       <div className="data-location" aria-label="Agent单次预览">{proposal.description.map(([label, value]) => <div key={label}><strong>{label}：</strong>{label.startsWith('完整') ? <pre>{value}</pre> : <p>{value}</p>}</div>)}<p>授权期限 {proposal.lifetime_ms / 1000} 秒 · 不含终端读取权限 · 批准不执行操作</p></div>
+      {proposal.operation.request.op === 'exec' && <OutputProtectionPreview value={proposal.redaction} />}
       <label className="check"><input aria-label="同意Agent单次操作" type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} />我批准以上原编号、全部参数和期限的一次操作</label>
       <div className="config-actions"><button autoFocus onClick={() => { invalidate(); setMessage('已取消单次预览；未签发。'); }}>取消Agent单次批准</button><button disabled={!consent} onClick={() => {
         if (submitting.current) return;
         submitting.current = true;
-        try { const fixed = approval.current.consume(context, draft, proposal); invalidate(); const attempt = epoch.current; void submit(fixed, () => alive.current && attempt === epoch.current).finally(() => { submitting.current = false; }); }
+        try { const fixed = approval.current.consume(context, draft, proposal, redaction); invalidate(); const attempt = epoch.current; void submit(fixed, () => alive.current && attempt === epoch.current).finally(() => { submitting.current = false; }); }
         catch (error) { submitting.current = false; invalidate(); setMessage(String(error)); }
       }}>确认批准Agent单次</button></div>
     </fieldset>}

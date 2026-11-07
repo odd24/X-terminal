@@ -2,13 +2,14 @@ import type { Connection, ConnectionRef } from './ssh-api';
 import type { Profile } from './config-api';
 import { profileDescription } from './profile-grant.ts';
 import { uuid, type GrantView, type Scope, type Action } from './agent-management.ts';
+import { checkedRedaction, checkedProtectionReply, sameRedaction, type Redaction } from './output-protection.ts';
 
 export type SingleAction = 'start' | 'reconnect' | 'write' | 'write_text' | 'send' | 'exec' | 'resize' | 'control' | 'disconnect' | 'forget_start';
 export type Draft = { action: '' | SingleAction; text: string; hex: string; cols: number; rows: number; timeout_ms: number; max_output_bytes: number; format: 'text' | 'hex'; ending: 'none' | 'cr' | 'lf' | 'cr_lf'; chunk_bytes: number; interval_ms: number; line: 'DTR' | 'RTS' | 'BREAK'; asserted: boolean };
 export const emptyDraft = (): Draft => ({ action: '', text: '', hex: '', cols: 80, rows: 24, timeout_ms: 30000, max_output_bytes: 65536, format: 'text', ending: 'none', chunk_bytes: 1024, interval_ms: 0, line: 'DTR', asserted: false });
 export type Operation = { protocol: 'SSH2' | 'SERIAL'; request: { op: SingleAction; request_id: string } & Record<string, unknown> };
 export type OperationContext = { service_id: string; target?: Connection; original_profile_id?: string; encoding?: string; profile?: Profile; revision?: string; device?: { revision: string; device_id: string; port: string } };
-export type OperationProposal = { context_key: string; draft_key: string; operation: Operation; scopes: Scope[]; lifetime_ms: number; description: [string, string][]; profile_id?: string; revision?: string };
+export type OperationProposal = { context_key: string; draft_key: string; operation: Operation; scopes: Scope[]; lifetime_ms: number; description: [string, string][]; profile_id?: string; revision?: string; redaction?: Redaction };
 export const singleName: Record<SingleAction, string> = { start: '按固定配置建连', reconnect: '重连旧SSH代次', write: '发送原始HEX字节', write_text: 'SSH文本输入', send: '串口文本或HEX发送', exec: '独立SSH exec', resize: '调整SSH尺寸', control: '串口控制线', disconnect: '断开固定代次', forget_start: '移除已回收记录' };
 export function singleActions(target?: Connection): SingleAction[] {
   const result: SingleAction[] = ['start'];
@@ -38,10 +39,11 @@ function freeze<T>(v: T): T {
 export class OperationApproval {
   private current?: OperationProposal;
   invalidate() { this.current = undefined; }
-  prepare(c: OperationContext, draft: Draft, seconds: number, request_id: string): OperationProposal {
+  prepare(c: OperationContext, draft: Draft, seconds: number, request_id: string, redaction?: Redaction): OperationProposal {
     this.invalidate();
     if (!uuid(c.service_id) || !uuid(request_id) || !number(seconds, 1, 1800) || !draft.action || !singleActions(c.target).includes(draft.action)) throw new Error('请选择当前状态支持的单次动作及1–1800秒期限。');
     const action = draft.action;
+    if (redaction && action !== 'exec') throw new Error('单次输出保护只适用于独立exec，不隐含Read。');
     let protocol: 'SSH2' | 'SERIAL';
     let connection: ConnectionRef | undefined;
     if (action === 'start') {
@@ -103,13 +105,13 @@ export class OperationApproval {
       request = { op: action, connection, request_id, line: draft.line, asserted: draft.asserted };
       description.push(['控制线', draft.line], ['电平', draft.asserted ? '开启' : '关闭']);
     } else request = { op: action, connection, request_id };
-    const proposal: OperationProposal = { context_key: contextKey(c, action), draft_key: JSON.stringify(draft), operation: { protocol, request }, scopes, lifetime_ms: seconds * 1000, description, ...(['start', 'reconnect'].includes(action) ? { profile_id: c.profile!.id, revision: c.revision } : {}) };
+    const proposal: OperationProposal = { context_key: contextKey(c, action), draft_key: JSON.stringify(draft), operation: { protocol, request }, scopes, lifetime_ms: seconds * 1000, description, ...(['start', 'reconnect'].includes(action) ? { profile_id: c.profile!.id, revision: c.revision } : {}), ...(redaction ? { redaction: checkedRedaction(redaction) } : {}) };
     if (utf8(JSON.stringify(proposal.operation)) > 500000) throw new Error('规范操作数据过大，请缩小本次正文。');
     this.current = freeze(proposal);
     return proposal;
   }
-  consume(c: OperationContext, draft: Draft, proposal: OperationProposal): OperationProposal {
-    const valid = this.current === proposal && proposal.context_key === contextKey(c, draft.action) && proposal.draft_key === JSON.stringify(draft);
+  consume(c: OperationContext, draft: Draft, proposal: OperationProposal, redaction?: Redaction): OperationProposal {
+    const valid = this.current === proposal && sameRedaction(proposal.redaction, redaction) && proposal.context_key === contextKey(c, draft.action) && proposal.draft_key === JSON.stringify(draft);
     this.invalidate();
     if (!valid) throw new Error('操作、配置、设备或连接预览已失效，请重新核对。');
     return proposal;
@@ -123,5 +125,5 @@ export async function operationFingerprint(operation: Operation): Promise<string
 export function checkedOperationReply(view: GrantView, proposal: OperationProposal, fingerprint: string): GrantView {
   const key = (scope: Scope) => JSON.stringify(scope);
   if (view.form?.kind !== 'single_operation' || view.form.operation.request_id !== proposal.operation.request.request_id || view.form.operation.fingerprint !== fingerprint || view.approved_scopes.length !== proposal.scopes.length || view.approved_scopes.some(scope => !proposal.scopes.some(original => key(scope) === key(original)))) throw new Error('单次授权回执与已批准参数不一致；请只查询原签发编号。');
-  return view;
+  return checkedProtectionReply(view, proposal.redaction);
 }

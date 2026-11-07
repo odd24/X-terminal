@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14保护批准GUI复用共享OutputProtectionEditor/Preview，Read/Task与单次Exec显式启用（默认未启用，启用后字段默认开/无精确规则）；完整有序规则/模式冻结、控制及bidi转义预览，编辑/切换/关闭/重载撤同意。原生严格GrantProtected仍剥离token，回执只策略ID/模式/数量，规则不持久化/不恢复；真实fetch故障/两协议GUI见P14，签发不执行或交真实桥。默认截图不代表全局UI矩阵。
+
 P14保护输出按ADR-057冻结票据策略，GrantProtected仅不透明ID/模式/数量回执、私有带盐等值校验，规则不入日志/审计/WebView回执。受保护票据旧Read/ReadText/Screen/Context/ExecRead统一拒绝；ProtectedContext和本人ExecReadProtected先完整授权段/独立流保护再源游标分页，远端exit_signal的Start重试/Status/Cancel也同策略。屏幕命中整行、控制或未知字段前文整屏隐藏，保持原始缓冲/日志；不把保守隐藏当同宽逐字DLP，GUI保护批准/真实桥独立交付。
 
 P14脱敏按ADR-057先建有界字段/精确文本引擎，规则Zeroizing且不输出值/摘要，整授权连续段先处理再分页，截断与活跃尾部保守保护，gap/时间排除/exec双流分段；不透明控制整段隐藏。字节保持不等同列宽屏幕，后续须同票据策略/原回执匹配与Raw/Text/Screen/Context/ExecRead全入口防绕过，不能回退原文；核心测试不当服务/GUI或真实桥已保护。

@@ -2,6 +2,7 @@ import { checkProfileConnect } from './lib/AgentProfileChecks.mjs';
 import { checkForgetApproval } from './lib/AgentForgetChecks.mjs';
 import { checkReadWindowApproval } from './lib/AgentContextChecks.mjs';
 import { checkGrantForms } from './lib/AgentFormChecks.mjs';
+import { checkOutputProtection } from './lib/AgentProtectionChecks.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -220,6 +221,7 @@ try {
   await ui.screenshot('desktop-agent-management-light-synthetic.png');
   await checkReadWindowApproval(ui, sshRef, 'SSH2');
   await checkGrantForms(ui, sshRef, profile, 'SSH2');
+  await checkOutputProtection(ui, sshRef, 'SSH2');
   await ui.invoke('ssh_request', { request: { op: 'close', connection: sshRef } });
   assert.equal((await ui.invoke('service_list')).find(c => c.connection_id === sshId).state, 'DISCONNECTED');
   await ui.waitFor(`!!(${button('Agent 授权')})`);
@@ -247,6 +249,7 @@ try {
   assert.equal((await ui.invoke('service_list')).find(c => c.connection_id === sshId).state, 'DISCONNECTED', 'grant approval never reconnects');
   await checkForgetApproval(ui, sshRef, 'SSH2');
   await checkGrantForms(ui, sshRef, profile, 'SSH2', true);
+  await checkOutputProtection(ui, sshRef, 'SSH2', true);
   console.log('PASS Agent GUI: fixed SSH generation/independent READ+WRITE+SSH CONTROL+DISCONNECT, approval does not close, no default consent, cancel/switch/one-shot approval, takeover removes Disconnect, original revoke/lost grant recovery, ID-only reload, late-close and bounded audit gap');
   await checkProfileConnect(ui, profile);
   await ui.close(); ui = await launchDesktop(directory, { fixture: true });

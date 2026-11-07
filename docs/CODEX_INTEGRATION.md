@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14按[ADR-057](decisions/ADR-057.md)提供固定票据输出保护及完整规则GUI批准。受保护票据必须用ProtectedContext Info/Text/Screen（可带原OutputWindow）与本人ExecReadProtected；先Info取through_cursor再固定源seq分页，不能调用旧Read/ReadText/Screen/Context/ExecRead，Raw明确拒绝，不回退原文。策略由服务原票据提供，Agent不能传规则/ID覆盖，仍核对Read或本人exec；报告分别说明原源缺口/结束、边界保护、控制重写及隐藏屏幕行。远端exit_signal也受原策略，原始缓冲/日志不改。签发/查询只公开随机策略ID/模式/数量，规则、盐、相等摘要和token不进入WebView回执。GUI批准不执行/取lease或交付token，P15真实桥须明确识别保护元数据并使用对应入口；准确软件证据见[P14](records/P14.md)。
+
 P14按[ADR-056](decisions/ADR-056.md)提供单次完整操作与限时任务的服务/桌面批准。单次固定原操作编号、协议包装规范参数指纹及最小scope，真正Agent请求必须由服务重算绑定；Task说明不扩大范围。GUI批准不执行动作，原编号查询不续期/重放；正文/同意不持久化且token不入WebView。SSH8/串口6完整预览与实际证据见[P14](records/P14.md)，仍不能把该批准当真实stdio桥或Codex已接入。
 
 P14时间窗按[ADR-055](decisions/ADR-055.md)新增OutputWindow Read与Context Info/Raw/Text/Screen。桥须使用窗口票据允许的新Context接口：先Info取当前原始exclusive source_cursor，再固定through_cursor分页；原始与文本游标均为源seq。窗口为Unix毫秒[from,until)，不与服务单调授权期限混用。时间窗票据不得用旧Read/ReadText/Screen绕过，范围屏幕为当前尺寸从空状态重建，不是完整实时屏幕；source_truncated/重置/源状态保持显式，固定水位completed不等源已结束。服务/GUI真实结果见[P14](records/P14.md)，P15真正stdio工具仍须独立交付。
