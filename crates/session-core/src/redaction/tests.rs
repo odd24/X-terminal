@@ -266,3 +266,54 @@ fn cut_sensitive_field_state_cannot_release_orphan_multiline_quotes_or_pem_tails
         );
     }
 }
+#[test]
+fn pem_end_must_be_an_entire_line_not_an_inline_or_suffixed_substring() {
+    let policy = Policy::new(vec![], true).unwrap();
+    for fake in [
+        "AAAA-----END PRIVATE KEY-----",
+        "-----END PRIVATE KEY-----extra",
+        " -----END PRIVATE KEY-----",
+        "-----END PRIVATE KEY----- trailing",
+        "-----END RSA PRIVATE KEY-----",
+    ] {
+        let text = format!(
+            "-----BEGIN PRIVATE KEY-----\nbody\n{fake}\nSENSITIVE-TAIL\n-----END PRIVATE KEY-----\npublic=ok"
+        );
+        let baseline = output(&policy, &[&text], Boundaries::default());
+        assert_eq!(baseline.field_matches, 1);
+        assert!(
+            !baseline.fragments.concat().contains("SENSITIVE-TAIL"),
+            "{fake}"
+        );
+        assert!(baseline.fragments.concat().ends_with("\npublic=ok"));
+        for at in 0..=text.len() {
+            let split = output(&policy, &[&text[..at], &text[at..]], Boundaries::default());
+            assert_eq!(split.fragments.concat(), baseline.fragments.concat());
+        }
+    }
+}
+#[test]
+fn pem_accepts_exact_end_lines_with_crlf_or_eof_and_keeps_unclosed_suffixes_hidden() {
+    let policy = Policy::new(vec![], true).unwrap();
+    for text in [
+        "-----BEGIN PRIVATE KEY-----\r\nsecret\r\n-----END PRIVATE KEY-----\r\npublic=ok",
+        "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
+        "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----extra\nSENSITIVE-TAIL",
+    ] {
+        let p = output(&policy, &[text], Boundaries::default());
+        assert_eq!(p.field_matches, 1);
+        assert!(!p.opaque_controls);
+        assert!(!p.fragments.concat().contains("secret"));
+        assert!(!p.fragments.concat().contains("SENSITIVE-TAIL"));
+        if text.ends_with("public=ok") {
+            assert!(p.fragments.concat().ends_with("public=ok"));
+        } else {
+            assert!(
+                p.fragments
+                    .concat()
+                    .bytes()
+                    .all(|b| matches!(b, b'*' | b'\n'))
+            );
+        }
+    }
+}

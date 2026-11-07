@@ -242,17 +242,22 @@ fn fields(bytes: &[u8], mark: &mut impl FnMut(usize, usize)) -> usize {
                     .strip_suffix(b"\r")
                     .unwrap_or(&bytes[index..end]);
                 let terminator = [b"-----END ".as_slice(), &header[11..]].concat();
-                let until = bytes[end..]
-                    .windows(terminator.len())
-                    .position(|s| s == terminator)
-                    .map(|n| {
-                        let close = end + n;
-                        bytes[close..]
-                            .iter()
-                            .position(|b| *b == b'\n')
-                            .map_or(bytes.len(), |m| close + m)
-                    })
-                    .unwrap_or(bytes.len());
+                let mut until = bytes.len();
+                let mut line_start = end;
+                for line in bytes[end..].split_inclusive(|b| *b == b'\n') {
+                    let content = if let Some(without_lf) = line.strip_suffix(b"\n") {
+                        without_lf.strip_suffix(b"\r").unwrap_or(without_lf)
+                    } else {
+                        line
+                    };
+                    // An inline/suffixed marker cannot end the recognized block.
+                    // Each line is visited once, including a possible EOF line.
+                    if content == terminator {
+                        until = line_start + line.len();
+                        break;
+                    }
+                    line_start += line.len();
+                }
                 mark(index, until);
                 count += 1;
                 index = until;
