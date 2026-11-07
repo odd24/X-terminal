@@ -191,6 +191,7 @@ mod tests {
                 approved_scopes: vec![],
                 effective_scopes: vec![],
                 form: Some(Box::new(form.clone())),
+                protection: None,
             };
             let reply = Reply::from(agent::Reply::Grant {
                 receipt: view,
@@ -260,6 +261,7 @@ mod tests {
             approved_scopes: vec![scope],
             effective_scopes: vec![],
             form: None,
+            protection: None,
         };
         let before = serde_json::to_value(&view).unwrap();
         let reply = Reply::from(agent::Reply::Grant {

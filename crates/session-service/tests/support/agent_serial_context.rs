@@ -101,3 +101,94 @@ async fn agent_serial_context_reads_the_shared_worker_echo_only_in_approved_wind
     );
     service.stop(&mut desktop).await;
 }
+
+#[tokio::test]
+async fn agent_serial_protected_output_reads_actual_worker_and_preserves_desktop_bytes() {
+    use session_core::protected_context::{Reply as P, View as PV};
+    use session_protocol::agent::{ProtectedForm, Redaction};
+    let temp = ConfigTemp::new();
+    let mut service = temp.start().await;
+    let mut desktop = service.connect().await;
+    let c = connected(&mut desktop).await;
+    let expected = b"public synthetic-secret\r\nvisible\r\nlast-padding-row\r\n";
+    call(&mut desktop, write(c, Uuid::new_v4(), expected)).await;
+    timeout(Duration::from_secs(3), async {
+        while bytes(&mut desktop, c).await != expected {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let Reply::Agent(AR::Grant {
+        receipt,
+        token: Some(token),
+    }) = ok(desktop
+        .request(agent(A::GrantProtected {
+            request_id: Uuid::new_v4(),
+            scopes: vec![scope(c, Action::Read)],
+            lifetime_ms: 30000,
+            form: ProtectedForm::Scoped {},
+            redaction: Redaction {
+                sensitive_fields: false,
+                literals: vec![Sensitive::new("synthetic-secret".into())],
+            },
+        }))
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    let (mut reader, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    let Reply::ProtectedContext(P::Info { context }) = ok(reader
+        .request(Request::ProtectedContext {
+            connection: c,
+            window: None,
+            view: PV::Info {},
+        })
+        .await
+        .unwrap())
+    else {
+        panic!()
+    };
+    for view in [
+        PV::Text {
+            through_cursor: context.through_cursor,
+            cursor: 1,
+            max_bytes: 16384,
+        },
+        PV::Screen {
+            through_cursor: context.through_cursor,
+        },
+    ] {
+        let reply = ok(reader
+            .request(Request::ProtectedContext {
+                connection: c,
+                window: None,
+                view,
+            })
+            .await
+            .unwrap());
+        let wire = serde_json::to_string(&reply).unwrap();
+        assert!(!wire.contains("synthetic-secret"));
+        assert!(!wire.contains("synthetic-"));
+        assert!(!wire.contains("secret"));
+        assert!(wire.contains(&receipt.protection.unwrap().policy_id.to_string()));
+    }
+    assert_eq!(
+        error(
+            reader
+                .request(Request::Read {
+                    connection: c,
+                    cursor: 1,
+                    max_bytes: 65536
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(bytes(&mut desktop, c).await, expected);
+    service.stop(&mut desktop).await;
+}

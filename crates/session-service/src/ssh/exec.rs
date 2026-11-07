@@ -44,6 +44,24 @@ fn task_owner(identity: Option<&Identity>, store: &Store) -> Result<Option<Uuid>
         None => Ok(None),
     }
 }
+fn status_reply(
+    identity: Option<&Identity>,
+    store: &Store,
+    status: &TaskStatus,
+) -> Result<ssh::Reply, ErrorCode> {
+    let mut status = status.clone();
+    if let Some(identity) = identity
+        && let Some(policy) = store.pairing.output_protection(identity, store.now())?
+        && let Some(summary) = status.summary.as_mut()
+        && let Some(signal) = summary.exit_signal.as_mut()
+    {
+        let projected = policy
+            .rules
+            .project(&[signal], session_core::redaction::Boundaries::default())?;
+        *signal = projected.fragments.into_iter().next().unwrap();
+    }
+    Ok(ssh::Reply::Exec(status))
+}
 impl Manager {
     pub(super) fn start_exec(
         &self,
@@ -88,7 +106,7 @@ impl Manager {
             }
             store.sessions.info(connection)?;
             return if *old == fingerprint {
-                Ok(ssh::Reply::Exec(entry.exec.items[id].status.clone()))
+                status_reply(identity, &store, &entry.exec.items[id].status)
             } else {
                 Err(ErrorCode::InvalidArgument)
             };
@@ -131,7 +149,7 @@ impl Manager {
                 return Err(ErrorCode::PermissionDenied);
             }
             return if *old == fingerprint {
-                Ok(ssh::Reply::Exec(entry.exec.items[id].status.clone()))
+                status_reply(identity, &store, &entry.exec.items[id].status)
             } else {
                 Err(ErrorCode::InvalidArgument)
             };
@@ -247,7 +265,7 @@ impl Manager {
                 },
             }),
         });
-        Ok(ssh::Reply::Exec(status))
+        status_reply(identity, &store, &status)
     }
     pub(super) fn exec_status(
         &self,
@@ -287,7 +305,7 @@ impl Manager {
                 task.status.phase = TaskPhase::Cancelling;
             }
         }
-        Ok(ssh::Reply::Exec(task.status.clone()))
+        status_reply(identity, &store, &task.status)
     }
     pub(super) fn exec_read(
         &self,
@@ -309,6 +327,11 @@ impl Manager {
         let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         let owner = task_owner(identity, &store)?;
+        if let Some(identity) = identity {
+            store
+                .pairing
+                .require_unfiltered_output(identity, store.now())?;
+        }
         store.sessions.info(connection)?;
         let entry = inner
             .entries
@@ -329,6 +352,48 @@ impl Manager {
                 max_bytes,
                 task.status.phase == TaskPhase::Finished,
             )?,
+        })
+    }
+    pub(super) fn exec_read_protected(
+        &self,
+        identity: &Identity,
+        connection: ConnectionRef,
+        id: Uuid,
+        view: session_core::protected_task::View,
+    ) -> Result<ssh::Reply, ErrorCode> {
+        let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let owner = task_owner(Some(identity), &store)?;
+        let policy = store
+            .pairing
+            .output_protection(identity, store.now())?
+            .ok_or(ErrorCode::PermissionDenied)?;
+        store.sessions.info(connection)?;
+        let entry = inner
+            .entries
+            .get(&connection.connection_id)
+            .ok_or(ErrorCode::NotFound)?;
+        if !entry.exec.items.contains_key(&id) {
+            entry.exec.window.check(id)?;
+        }
+        let task = entry.exec.items.get(&id).ok_or(ErrorCode::NotFound)?;
+        if task.owner != owner {
+            return Err(ErrorCode::PermissionDenied);
+        }
+        let encoding = match task.status.encoding {
+            config_store::Encoding::Utf8 => "utf-8",
+            config_store::Encoding::Gbk => "gbk",
+            config_store::Encoding::Gb18030 => "gb18030",
+        };
+        Ok(ssh::Reply::ExecProtectedOutput {
+            connection,
+            task_id: id,
+            output: Box::new(task.output.protected_read(
+                task.status.phase == TaskPhase::Finished,
+                encoding,
+                view,
+                &policy,
+            )?),
         })
     }
 }

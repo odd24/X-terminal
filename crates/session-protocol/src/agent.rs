@@ -9,6 +9,13 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    GrantProtected {
+        request_id: Uuid,
+        scopes: Vec<Scope>,
+        lifetime_ms: u64,
+        form: ProtectedForm,
+        redaction: Redaction,
+    },
     Grant {
         request_id: Uuid,
         scopes: Vec<Scope>,
@@ -58,15 +65,147 @@ pub struct GrantSpec<'a> {
     pub scopes: &'a [Scope],
     pub lifetime_ms: u64,
     pub form: Form,
+    pub redaction: Option<&'a Redaction>,
+}
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProtectedForm {
+    Scoped {},
+    TimedTask {
+        task_id: Uuid,
+        label: String,
+    },
+    SingleOperation {
+        operation: Box<crate::operation::Operation>,
+    },
+}
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Redaction {
+    pub sensitive_fields: bool,
+    pub literals: Vec<Sensitive>,
+}
+impl Redaction {
+    pub fn valid(&self) -> bool {
+        (self.sensitive_fields || !self.literals.is_empty())
+            && self.literals.len() <= session_core::redaction::MAX_LITERALS
+            && self.literals.iter().all(|v| {
+                !v.expose().is_empty()
+                    && v.expose().len() <= session_core::redaction::MAX_LITERAL_BYTES
+            })
+            && self.literals.iter().enumerate().all(|(i, v)| {
+                !self.literals[..i]
+                    .iter()
+                    .any(|old| old.expose() == v.expose())
+            })
+    }
+}
+
+#[cfg(test)]
+mod protected_contract_tests {
+    use super::*;
+    #[test]
+    fn protected_grants_reject_empty_duplicate_oversized_or_unknown_rules_without_debug_leakage() {
+        let c = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let base = serde_json::json!({"op":"grant_protected", "request_id":Uuid::new_v4(), "scopes":[{"target":{"kind":"connection","connection":c},"action":"READ"}], "lifetime_ms":1000, "form":{"kind":"scoped"}, "redaction":{"sensitive_fields":false,"literals":["synthetic-secret"]}});
+        // Construct typed baseline, so wire enum spelling remains driven by serde.
+        let typed = Request::GrantProtected {
+            request_id: Uuid::new_v4(),
+            scopes: vec![Scope {
+                target: Target::Connection { connection: c },
+                action: Action::Read,
+            }],
+            lifetime_ms: 1000,
+            form: ProtectedForm::Scoped {},
+            redaction: Redaction {
+                sensitive_fields: false,
+                literals: vec![Sensitive::new("synthetic-secret".into())],
+            },
+        };
+        assert!(typed.validate());
+        assert!(!format!("{typed:?}").contains("synthetic-secret"));
+        let mut wire = serde_json::to_value(&typed).unwrap();
+        assert_eq!(wire["op"], base["op"]);
+        for literals in [
+            serde_json::json!([]),
+            serde_json::json!([""]),
+            serde_json::json!(["duplicate", "duplicate"]),
+            serde_json::json!(["x".repeat(257)]),
+            serde_json::json!((0..33).map(|i| i.to_string()).collect::<Vec<_>>()),
+        ] {
+            wire["redaction"]["literals"] = literals;
+            assert!(
+                !serde_json::from_value::<Request>(wire.clone())
+                    .unwrap()
+                    .validate()
+            );
+        }
+        let mut wire = serde_json::to_value(&typed).unwrap();
+        wire["redaction"]["policy_id"] = serde_json::json!(Uuid::new_v4());
+        assert!(serde_json::from_value::<Request>(wire).is_err());
+        let mut wire = serde_json::to_value(&typed).unwrap();
+        wire["form"]["auto_execute"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<Request>(wire).is_err());
+        let Request::GrantProtected {
+            mut scopes,
+            redaction,
+            ..
+        } = typed
+        else {
+            panic!()
+        };
+        scopes[0].action = Action::Write;
+        assert!(
+            !Request::GrantProtected {
+                request_id: Uuid::new_v4(),
+                scopes,
+                lifetime_ms: 1000,
+                form: ProtectedForm::Scoped {},
+                redaction
+            }
+            .validate()
+        );
+    }
+}
+impl GrantSpec<'_> {
+    pub fn definition(self) -> Result<session_core::pairing::protection::Definition, ErrorCode> {
+        Ok(session_core::pairing::protection::Definition {
+            scopes: self.scopes.to_vec(),
+            form: self.form,
+            redaction: self
+                .redaction
+                .map(|r| {
+                    session_core::redaction::Policy::new(
+                        r.literals.iter().map(|v| v.expose().to_owned()).collect(),
+                        r.sensitive_fields,
+                    )
+                    .map(std::sync::Arc::new)
+                })
+                .transpose()?,
+        })
+    }
 }
 impl Request {
+    pub fn operation(&self) -> Option<&crate::operation::Operation> {
+        match self {
+            Self::GrantOperation { operation, .. }
+            | Self::GrantProtected {
+                form: ProtectedForm::SingleOperation { operation },
+                ..
+            } => Some(operation),
+            _ => None,
+        }
+    }
     pub fn grant_spec(&self) -> Result<Option<GrantSpec<'_>>, ErrorCode> {
-        let (request_id, scopes, lifetime_ms, form) = match self {
+        let (request_id, scopes, lifetime_ms, form, redaction) = match self {
             Self::Grant {
                 request_id,
                 scopes,
                 lifetime_ms,
-            } => (request_id, scopes, lifetime_ms, Form::Scoped),
+            } => (request_id, scopes, lifetime_ms, Form::Scoped, None),
             Self::GrantTask {
                 request_id,
                 scopes,
@@ -81,6 +220,7 @@ impl Request {
                     task_id: *task_id,
                     label: label.clone(),
                 },
+                None,
             ),
             Self::GrantOperation {
                 request_id,
@@ -101,7 +241,42 @@ impl Request {
                     Form::SingleOperation {
                         operation: operation.key()?,
                     },
+                    None,
                 )
+            }
+            Self::GrantProtected {
+                request_id,
+                scopes,
+                lifetime_ms,
+                form,
+                redaction,
+            } => {
+                if !redaction.valid()
+                    || !scopes
+                        .iter()
+                        .any(|s| matches!(s.action, Action::Read | Action::Exec))
+                {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                let form = match form {
+                    ProtectedForm::Scoped {} => Form::Scoped,
+                    ProtectedForm::TimedTask { task_id, label } => Form::TimedTask {
+                        task_id: *task_id,
+                        label: label.clone(),
+                    },
+                    ProtectedForm::SingleOperation { operation } => {
+                        if !operation
+                            .descriptor()
+                            .is_some_and(|d| d.matches_scopes(scopes))
+                        {
+                            return Err(ErrorCode::InvalidArgument);
+                        }
+                        Form::SingleOperation {
+                            operation: operation.key()?,
+                        }
+                    }
+                };
+                (request_id, scopes, lifetime_ms, form, Some(redaction))
             }
             _ => return Ok(None),
         };
@@ -113,6 +288,7 @@ impl Request {
             scopes,
             lifetime_ms: *lifetime_ms,
             form,
+            redaction,
         }))
     }
     pub fn validate(&self) -> bool {
@@ -129,6 +305,12 @@ impl Request {
                 ..
             }
             | Self::GrantOperation {
+                request_id,
+                scopes,
+                lifetime_ms,
+                ..
+            }
+            | Self::GrantProtected {
                 request_id,
                 scopes,
                 lifetime_ms,
@@ -472,6 +654,7 @@ mod tests {
                 approved_scopes: vec![s],
                 effective_scopes: vec![s],
                 form: None,
+                protection: None,
             },
             token: Some(Sensitive::new("synthetic-secret".into())),
         };
@@ -525,6 +708,7 @@ mod tests {
                 approved_scopes: vec![scope; MAX_SCOPES],
                 effective_scopes: vec![scope; MAX_SCOPES],
                 form: None,
+                protection: None,
             },
             token: Some(Sensitive::new("a".repeat(64))),
         };

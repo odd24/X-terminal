@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14保护输出按ADR-057冻结票据策略，GrantProtected仅不透明ID/模式/数量回执、私有带盐等值校验，规则不入日志/审计/WebView回执。受保护票据旧Read/ReadText/Screen/Context/ExecRead统一拒绝；ProtectedContext和本人ExecReadProtected先完整授权段/独立流保护再源游标分页，远端exit_signal的Start重试/Status/Cancel也同策略。屏幕命中整行、控制或未知字段前文整屏隐藏，保持原始缓冲/日志；不把保守隐藏当同宽逐字DLP，GUI保护批准/真实桥独立交付。
+
 P14脱敏按ADR-057先建有界字段/精确文本引擎，规则Zeroizing且不输出值/摘要，整授权连续段先处理再分页，截断与活跃尾部保守保护，gap/时间排除/exec双流分段；不透明控制整段隐藏。字节保持不等同列宽屏幕，后续须同票据策略/原回执匹配与Raw/Text/Screen/Context/ExecRead全入口防绕过，不能回退原文；核心测试不当服务/GUI或真实桥已保护。
 
 P14授权形式GUI按ADR-056新增严格GrantTask/GrantOperation白名单，Task说明/Single动作默认空、无同意；Single预览原编号/全部参数/固定配置与设备/代次编码，WebView独立核对规范指纹和scopes。配置确认前重读revision，串口库存只显式读取冻结，重读会换版本；批准不建连/发送/控制/关闭/移除或取lease。正文/同意不持久化，仍只service_id/request_id恢复，native剥离token。14单动作及两个新op真实故障与最终构建/原生证据见P14，不当stdio桥/COM或全局Mac+DPIIME验收。

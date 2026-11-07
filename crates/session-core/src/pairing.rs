@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 pub mod grants;
+pub mod protection;
 
 const MAX_TICKETS: usize = 128;
 const MAX_READ_LIFETIME_MS: u64 = 30 * 60 * 1000;
@@ -61,6 +62,7 @@ struct Ticket {
     identity: Identity,
     authority: Authority,
     expires_at_ms: u64,
+    protection: Option<std::sync::Arc<protection::ProtectedPolicy>>,
 }
 pub struct Pairing {
     tickets: HashMap<[u8; 32], Ticket>,
@@ -78,6 +80,7 @@ impl Pairing {
             },
             authority: Authority::Desktop,
             expires_at_ms: u64::MAX,
+            protection: None,
         };
         Self {
             tickets: HashMap::from([(bootstrap.digest(), ticket)]),
@@ -218,6 +221,7 @@ impl Pairing {
                 identity: identity.clone(),
                 authority: Authority::Observer(scopes),
                 expires_at_ms,
+                protection: None,
             },
         );
         Ok((identity, token))
@@ -251,29 +255,16 @@ impl Pairing {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<(Identity, SecretToken, u64), ErrorCode> {
-        self.require_desktop(desktop, now)?;
-        self.tickets.retain(|_, ticket| ticket.expires_at_ms > now);
-        if self.tickets.len() >= MAX_TICKETS {
-            return Err(ErrorCode::CapacityExceeded);
-        }
-        let identity = Identity {
-            ticket_id: Uuid::new_v4(),
-            operation: None,
-        };
-        let expires = self
-            .policy
-            .grant_form(identity.ticket_id, scopes, form, lifetime_ms, now)
-            .map_err(policy_error)?;
-        let token = SecretToken::generate();
-        self.tickets.insert(
-            token.digest(),
-            Ticket {
-                identity: identity.clone(),
-                authority: Authority::Agent,
-                expires_at_ms: expires,
+        self.issue_agent_definition(
+            desktop,
+            protection::Definition {
+                scopes,
+                form,
+                redaction: None,
             },
-        );
-        Ok((identity, token, expires))
+            lifetime_ms,
+            now,
+        )
     }
     /// Service-only binding: compute this key from the ACTUAL strict request,
     /// never from a client-reported hash. The authenticated wire identity is unbound.

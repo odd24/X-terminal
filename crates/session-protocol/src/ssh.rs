@@ -8,6 +8,11 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    ExecReadProtected {
+        connection: ConnectionRef,
+        task_id: Uuid,
+        view: session_core::protected_task::View,
+    },
     ForgetStart {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -106,6 +111,11 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         match self {
+            Self::ExecReadProtected {
+                connection,
+                task_id,
+                view,
+            } => valid(*connection) && !task_id.is_nil() && view.valid(),
             Self::Reconnect {
                 connection,
                 request_id,
@@ -319,6 +329,11 @@ pub struct Status {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    ExecProtectedOutput {
+        connection: ConnectionRef,
+        task_id: Uuid,
+        output: Box<session_core::protected_task::Reply>,
+    },
     Forget(session_core::forget::Receipt),
     Disconnect(session_core::disconnect::Receipt),
     Exec(TaskStatus),

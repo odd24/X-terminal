@@ -138,6 +138,11 @@ pub enum Request {
     },
     Ping {},
     List {},
+    ProtectedContext {
+        connection: ConnectionRef,
+        window: Option<session_core::context::TimeWindow>,
+        view: session_core::protected_context::View,
+    },
     Context {
         connection: ConnectionRef,
         window: session_core::context::TimeWindow,
@@ -182,6 +187,19 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
+            Self::ProtectedContext {
+                connection,
+                window,
+                view,
+            } => {
+                if connection.connection_id.0.is_nil()
+                    || connection.generation == 0
+                    || window.is_some_and(|w| !w.valid())
+                    || !view.valid()
+                {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+            }
             Self::Context {
                 connection,
                 window,
@@ -288,6 +306,7 @@ pub enum Reply {
     Connection(ConnectionInfo),
     Output(OutputPage),
     Context(session_core::context::Reply),
+    ProtectedContext(session_core::protected_context::Reply),
     Text(session_core::presentation::TextPage),
     Screen(session_core::presentation::ScreenSnapshot),
     ReadTicket {

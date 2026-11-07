@@ -59,19 +59,16 @@ impl Runtime {
             return Err(ErrorCode::InvalidArgument);
         }
         if let Some(spec) = request.grant_spec()? {
-            let agent::GrantSpec {
-                request_id,
-                scopes,
-                lifetime_ms,
-                form,
-            } = spec;
+            let request_id = spec.request_id;
+            let lifetime_ms = spec.lifetime_ms;
+            let definition = spec.definition()?;
+            let scopes = &definition.scopes;
             {
                 let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-                if let Some(result) = store.pairing.grant_replay_form(
+                if let Some(result) = store.pairing.grant_replay_definition(
                     identity,
                     request_id,
-                    scopes,
-                    &form,
+                    &definition,
                     lifetime_ms,
                     self.now(),
                 )? {
@@ -100,11 +97,10 @@ impl Runtime {
                     // configuration request waited, including before a deletion.
                     {
                         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-                        if let Some(result) = store.pairing.grant_replay_form(
+                        if let Some(result) = store.pairing.grant_replay_definition(
                             identity,
                             request_id,
-                            scopes,
-                            &form,
+                            &definition,
                             lifetime_ms,
                             self.now(),
                         )? {
@@ -118,7 +114,7 @@ impl Runtime {
                             ErrorCode::InvalidState
                         }
                     })?;
-                    if let agent::Request::GrantOperation { operation, .. } = &request {
+                    if let Some(operation) = request.operation() {
                         let descriptor =
                             operation.descriptor().ok_or(ErrorCode::InvalidArgument)?;
                         let protocol = match profile {
@@ -135,7 +131,7 @@ impl Runtime {
                     }
                 }
             }
-            if let agent::Request::GrantOperation { operation, .. } = &request {
+            if let Some(operation) = request.operation() {
                 let descriptor = operation.descriptor().ok_or(ErrorCode::InvalidArgument)?;
                 if descriptor.action == session_core::access::Action::Reconnect {
                     let validation = self.ssh.grant_profile(descriptor.connection.ok_or(ErrorCode::InvalidArgument)?)
@@ -148,11 +144,10 @@ impl Runtime {
                         // An identical concurrent issuer may already have finished
                         // before the live entry retired. Restore that receipt first.
                         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-                        if let Some(result) = store.pairing.grant_replay_form(
+                        if let Some(result) = store.pairing.grant_replay_definition(
                             identity,
                             request_id,
-                            scopes,
-                            &form,
+                            &definition,
                             lifetime_ms,
                             self.now(),
                         )? {
@@ -222,6 +217,7 @@ impl Runtime {
                         | ssh::Request::ExecStatus { .. }
                         | ssh::Request::ExecCancel { .. }
                         | ssh::Request::ExecRead { .. }
+                        | ssh::Request::ExecReadProtected { .. }
                 )
             {
                 store.pairing.require_desktop(identity, self.now())?;
@@ -280,20 +276,20 @@ impl Runtime {
             Request::Agent { request } => {
                 use agent::{Reply as R, Request as A};
                 let reply = match request {
-                    request
-                    @ (A::Grant { .. } | A::GrantTask { .. } | A::GrantOperation { .. }) => {
-                        let agent::GrantSpec {
-                            request_id,
-                            scopes,
-                            lifetime_ms,
-                            form,
-                        } = request.grant_spec()?.ok_or(ErrorCode::InvalidArgument)?;
+                    request @ (A::Grant { .. }
+                    | A::GrantTask { .. }
+                    | A::GrantOperation { .. }
+                    | A::GrantProtected { .. }) => {
+                        let spec = request.grant_spec()?.ok_or(ErrorCode::InvalidArgument)?;
+                        let request_id = spec.request_id;
+                        let lifetime_ms = spec.lifetime_ms;
+                        let definition = spec.definition()?;
+                        let scopes = &definition.scopes;
                         store.pairing.require_desktop(identity, now)?;
-                        if let Some(result) = store.pairing.grant_replay_form(
+                        if let Some(result) = store.pairing.grant_replay_definition(
                             identity,
                             request_id,
-                            scopes,
-                            &form,
+                            &definition,
                             lifetime_ms,
                             now,
                         )? {
@@ -302,7 +298,7 @@ impl Runtime {
                         for scope in scopes {
                             if let Some(connection) = scope.target.connection() {
                                 let info = store.sessions.info(connection)?;
-                                if let A::GrantOperation { operation, .. } = &request
+                                if let Some(operation) = request.operation()
                                     && operation
                                         .descriptor()
                                         .is_none_or(|d| d.protocol != info.protocol)
@@ -311,11 +307,10 @@ impl Runtime {
                                 }
                             }
                         }
-                        Self::grant_reply(store.pairing.issue_managed_agent_form(
+                        Self::grant_reply(store.pairing.issue_managed_agent_definition(
                             identity,
                             request_id,
-                            scopes.to_vec(),
-                            form,
+                            definition,
                             lifetime_ms,
                             now,
                         )?)
@@ -388,6 +383,7 @@ impl Runtime {
                 window,
                 view,
             } => {
+                store.pairing.require_unfiltered_output(identity, now)?;
                 store
                     .pairing
                     .can_read_context(identity, connection, window, now)?;
@@ -400,6 +396,7 @@ impl Runtime {
                 cursor,
                 max_bytes,
             } => {
+                store.pairing.require_unfiltered_output(identity, now)?;
                 store.pairing.can_read(identity, connection, now)?;
                 Ok(Reply::Output(
                     store.sessions.read(connection, cursor, max_bytes)?,
@@ -410,14 +407,37 @@ impl Runtime {
                 cursor,
                 max_bytes,
             } => {
+                store.pairing.require_unfiltered_output(identity, now)?;
                 store.pairing.can_read(identity, connection, now)?;
                 Ok(Reply::Text(
                     store.sessions.read_text(connection, cursor, max_bytes)?,
                 ))
             }
             Request::Screen { connection } => {
+                store.pairing.require_unfiltered_output(identity, now)?;
                 store.pairing.can_read(identity, connection, now)?;
                 Ok(Reply::Screen(store.sessions.screen(connection)?))
+            }
+            Request::ProtectedContext {
+                connection,
+                window,
+                view,
+            } => {
+                match window {
+                    Some(window) => store
+                        .pairing
+                        .can_read_context(identity, connection, window, now)?,
+                    None => store.pairing.can_read(identity, connection, now)?,
+                }
+                let policy = store
+                    .pairing
+                    .output_protection(identity, now)?
+                    .ok_or(ErrorCode::PermissionDenied)?;
+                Ok(Reply::ProtectedContext(
+                    store
+                        .sessions
+                        .protected_context(connection, window, view, &policy)?,
+                ))
             }
             request => {
                 store.pairing.require_desktop(identity, now)?;

@@ -8,7 +8,7 @@ fn request(connection: ConnectionRef, window: TimeWindow, view: View) -> Request
         view,
     }
 }
-async fn source(desktop: &mut Client) -> (ConnectionRef, TimeWindow, u64) {
+pub(super) async fn source(desktop: &mut Client) -> (ConnectionRef, TimeWindow, u64) {
     let c = reference(ok(desktop
         .request(Request::CreateFixture {})
         .await

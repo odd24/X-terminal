@@ -34,6 +34,15 @@ impl Default for Buffer {
     }
 }
 impl Buffer {
+    pub fn protected_read(
+        &self,
+        completed: bool,
+        encoding: &str,
+        view: crate::protected_task::View,
+        policy: &crate::pairing::protection::ProtectedPolicy,
+    ) -> Result<crate::protected_task::Reply, ErrorCode> {
+        crate::protected_task::read(&self.events, self.next, completed, encoding, view, policy)
+    }
     pub fn append(&mut self, stderr: bool, bytes: &[u8]) {
         for chunk in bytes.chunks(4096) {
             while self.bytes + chunk.len() > 65536 || self.events.len() >= 128 {

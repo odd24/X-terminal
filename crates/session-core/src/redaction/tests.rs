@@ -317,3 +317,22 @@ fn pem_accepts_exact_end_lines_with_crlf_or_eof_and_keeps_unclosed_suffixes_hidd
         }
     }
 }
+#[test]
+fn screen_rows_handle_soft_wrap_padding_and_control_rewrite_conservatively() {
+    let p = Policy::new(vec!["synthetic-secret".into()], false).unwrap();
+    let result = p.project_screen("prefix padding that is public\nsynthetic-\nsecret\npublic content long enough to survive the suffix guard\nlast padding line for suffix\n", false).unwrap();
+    assert!(!result.contents.contains("synthetic"));
+    assert!(!result.contents.contains("secret"));
+    assert!(result.contents.contains("public content"));
+    assert_eq!(result.contents.matches('\n').count(), 5);
+    let p = Policy::new(vec!["中文秘密".into()], false).unwrap();
+    let result = p
+        .project_screen("first public line\n中 文\n秘 密\nlast public line\n", false)
+        .unwrap();
+    assert!(!result.contents.contains('中'));
+    assert!(!result.contents.contains('秘'));
+    assert!(result.rows_hidden >= 2);
+    let result = p.project_screen("public\nprivate\n", true).unwrap();
+    assert_eq!(result.contents, "\n\n");
+    assert!(result.withheld);
+}

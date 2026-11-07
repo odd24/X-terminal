@@ -1,4 +1,5 @@
 //! Bounded Desktop grant receipts. Tokens remain memory-only and are never listed.
+use super::protection::Definition;
 use super::*;
 use crate::authorization::Form;
 use crate::input::{RequestWindow, ordered_timestamp};
@@ -30,6 +31,8 @@ pub struct View {
     pub effective_scopes: Vec<Scope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub form: Option<Box<Form>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<protection::Info>,
 }
 pub struct ResultView {
     pub view: View,
@@ -40,6 +43,7 @@ struct Record {
     ticket_id: Uuid,
     scopes: Vec<Scope>,
     form: Form,
+    protection: Option<protection::Receipt>,
     lifetime_ms: u64,
     expires: u64,
     token: Option<SecretToken>,
@@ -75,6 +79,7 @@ impl Pairing {
         }
     }
     fn prune_grant_tokens(&mut self, now: u64) {
+        self.tickets.retain(|_, ticket| ticket.expires_at_ms > now);
         let dead: Vec<_> = self
             .grants
             .records
@@ -105,6 +110,7 @@ impl Pairing {
                 approved_scopes: record.scopes.clone(),
                 effective_scopes,
                 form: (record.form != Form::Scoped).then(|| Box::new(record.form.clone())),
+                protection: record.protection.as_ref().map(|p| p.info),
             },
             token: if state == State::Active {
                 record
@@ -138,16 +144,42 @@ impl Pairing {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<Option<ResultView>, ErrorCode> {
+        self.grant_replay_definition(
+            desktop,
+            id,
+            &Definition {
+                scopes: scopes.to_vec(),
+                form: form.clone(),
+                redaction: None,
+            },
+            lifetime_ms,
+            now,
+        )
+    }
+    pub fn grant_replay_definition(
+        &mut self,
+        desktop: &Identity,
+        id: Uuid,
+        definition: &Definition,
+        lifetime_ms: u64,
+        now: u64,
+    ) -> Result<Option<ResultView>, ErrorCode> {
         self.require_desktop(desktop, now)?;
         self.prune_grant_tokens(now);
         if let Some(record) = self.grants.records.get(&id) {
             if record.owner != desktop.ticket_id {
                 return Err(ErrorCode::PermissionDenied);
             }
-            if record.form != *form
+            let protection_matches = match (&record.protection, &definition.redaction) {
+                (None, None) => true,
+                (Some(receipt), Some(rules)) => receipt.matches(rules),
+                _ => false,
+            };
+            if !protection_matches
+                || record.form != definition.form
                 || record.lifetime_ms != lifetime_ms
                 || record.scopes.iter().collect::<HashSet<_>>()
-                    != scopes.iter().collect::<HashSet<_>>()
+                    != definition.scopes.iter().collect::<HashSet<_>>()
             {
                 return Err(ErrorCode::InvalidArgument);
             }
@@ -175,11 +207,31 @@ impl Pairing {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<ResultView, ErrorCode> {
+        self.issue_managed_agent_definition(
+            desktop,
+            id,
+            Definition {
+                scopes,
+                form,
+                redaction: None,
+            },
+            lifetime_ms,
+            now,
+        )
+    }
+    pub fn issue_managed_agent_definition(
+        &mut self,
+        desktop: &Identity,
+        id: Uuid,
+        definition: Definition,
+        lifetime_ms: u64,
+        now: u64,
+    ) -> Result<ResultView, ErrorCode> {
         if id.is_nil() {
             return Err(ErrorCode::InvalidArgument);
         }
         if let Some(result) =
-            self.grant_replay_form(desktop, id, &scopes, &form, lifetime_ms, now)?
+            self.grant_replay_definition(desktop, id, &definition, lifetime_ms, now)?
         {
             return Ok(result);
         }
@@ -197,14 +249,19 @@ impl Pairing {
             self.grants.window.check(id)?;
         }
         let (identity, token, expires) =
-            self.issue_agent_form(desktop, scopes.clone(), form.clone(), lifetime_ms, now)?;
+            self.issue_agent_definition(desktop, definition.clone(), lifetime_ms, now)?;
+        let protection = self
+            .output_protection(&identity, now)?
+            .as_deref()
+            .map(protection::Receipt::new);
         self.grants.records.insert(
             id,
             Record {
                 owner: desktop.ticket_id,
                 ticket_id: identity.ticket_id,
-                scopes,
-                form,
+                scopes: definition.scopes,
+                form: definition.form,
+                protection,
                 lifetime_ms,
                 expires,
                 token: Some(token),
@@ -505,6 +562,14 @@ mod tests {
                 .token
                 .is_none()
         );
-        assert_eq!(p.tickets.len(), 2);
+        assert_eq!(
+            p.tickets.len(),
+            1,
+            "expired ticket and private rules are pruned"
+        );
+        assert_eq!(
+            p.tickets.values().next().unwrap().identity.ticket_id(),
+            desktop.ticket_id()
+        );
     }
 }

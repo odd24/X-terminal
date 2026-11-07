@@ -217,6 +217,11 @@ impl Manager {
                 connection,
                 task_id,
             } => self.exec_status_as(Some(identity), connection, task_id, true),
+            ssh::Request::ExecReadProtected {
+                connection,
+                task_id,
+                view,
+            } => self.exec_read_protected(identity, connection, task_id, view),
             ssh::Request::ExecRead {
                 connection,
                 task_id,
@@ -351,6 +356,7 @@ impl Manager {
                 cursor,
                 max_bytes,
             } => self.exec_read(connection, task_id, cursor, max_bytes),
+            ssh::Request::ExecReadProtected { .. } => Err(ErrorCode::PermissionDenied),
             ssh::Request::WriteText {
                 connection,
                 request_id,

@@ -9,6 +9,8 @@ pub mod forget;
 pub mod input;
 pub mod pairing;
 pub mod presentation;
+pub mod protected_context;
+pub mod protected_task;
 pub mod redaction;
 pub mod screen;
 pub mod serial_input;

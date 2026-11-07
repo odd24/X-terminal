@@ -269,6 +269,15 @@ impl server::Handler for Server {
             b"signal" => {
                 session.exit_signal_request(channel, russh::Sig::TERM, false, "", "")?;
             }
+            b"protected-signal" => {
+                session.exit_signal_request(
+                    channel,
+                    russh::Sig::Custom("synthetic-secret".into()),
+                    false,
+                    "",
+                    "",
+                )?;
+            }
             b"no-status" => {}
             b"fail" => {
                 session.extended_data(channel, 1, b"failure".to_vec())?;

@@ -224,6 +224,30 @@ pub struct Sessions {
     connections: HashMap<ConnectionId, Connection>,
 }
 impl Sessions {
+    pub fn protected_context(
+        &self,
+        reference: ConnectionRef,
+        window: Option<crate::context::TimeWindow>,
+        view: crate::protected_context::View,
+        policy: &crate::pairing::protection::ProtectedPolicy,
+    ) -> Result<crate::protected_context::Reply, ErrorCode> {
+        let connection = self.get(reference)?;
+        let (encoding, rows, cols) = connection.presentation.format();
+        crate::protected_context::read(
+            reference,
+            window,
+            view,
+            crate::context::Source {
+                events: &connection.output.events,
+                next_cursor: connection.output.next_seq,
+                encoding,
+                rows,
+                cols,
+                completed: matches!(connection.info.state, State::Disconnected | State::Failed),
+            },
+            policy,
+        )
+    }
     pub fn context(
         &self,
         reference: ConnectionRef,

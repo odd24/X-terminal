@@ -1,6 +1,7 @@
 //! Bounded projection engine. Callers must supply the whole authorized segment
-//! before paging, and split at actual gaps/streams. No service endpoint is wired here.
+//! before paging, and split at actual gaps/streams.
 use crate::session::ErrorCode;
+use sha2::{Digest, Sha256};
 use std::{fmt, ops::Range};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -44,7 +45,113 @@ pub struct Projection {
     pub boundary_guard: bool,
     pub opaque_controls: bool,
 }
+pub struct ScreenProjection {
+    pub contents: String,
+    pub rows_hidden: usize,
+    pub withheld: bool,
+}
 impl Policy {
+    /// Entire affected rows are blanked: unhidden cells keep their original
+    /// widths, and physical row separators never move. No byte-count glyph mask.
+    pub fn project_screen(
+        &self,
+        contents: &str,
+        force_withhold: bool,
+    ) -> Result<ScreenProjection, ErrorCode> {
+        let lines: Vec<_> = contents.split('\n').collect();
+        if contents.len() > 65536 || lines.len() > 200 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let mut hidden = vec![force_withhold; lines.len()];
+        let mut byte_rows = Vec::with_capacity(contents.len());
+        let mut normalized = Zeroizing::new(String::new());
+        let mut normalized_rows = Vec::new();
+        let mut row = 0;
+        for c in contents.chars() {
+            byte_rows.extend(std::iter::repeat_n(row, c.len_utf8()));
+            if !c.is_whitespace() {
+                normalized.push(c);
+                normalized_rows.extend(std::iter::repeat_n(row, c.len_utf8()));
+            }
+            if c == '\n' {
+                row += 1;
+            }
+        }
+        let boundaries = Boundaries {
+            prefix_cut: !self.sensitive_fields,
+            suffix_cut: true,
+        };
+        let original = self.project(&[contents], boundaries)?;
+        for range in original.masked_ranges {
+            for index in range {
+                hidden[byte_rows[index]] = true;
+            }
+        }
+        if original.opaque_controls {
+            hidden.fill(true);
+        }
+        // Removing whitespace is intentionally conservative. It catches soft-wrap
+        // breaks and wide-glyph padding without guessing a logical cell layout.
+        let mut rules: Vec<Zeroizing<String>> = Vec::new();
+        for literal in &self.literals {
+            let value = Zeroizing::new(
+                literal
+                    .value
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect::<String>(),
+            );
+            if !value.is_empty() && !rules.iter().any(|old| **old == *value) {
+                rules.push(value);
+            }
+        }
+        if !rules.is_empty() || self.sensitive_fields {
+            let policy = Self::new(
+                rules.iter_mut().map(|s| std::mem::take(&mut **s)).collect(),
+                self.sensitive_fields,
+            )?;
+            let projected = policy.project(
+                &[&normalized],
+                Boundaries {
+                    prefix_cut: !self.sensitive_fields,
+                    suffix_cut: true,
+                },
+            )?;
+            for range in projected.masked_ranges {
+                for index in range {
+                    hidden[normalized_rows[index]] = true;
+                }
+            }
+        }
+        let rows_hidden = hidden.iter().filter(|v| **v).count();
+        let contents = lines
+            .iter()
+            .enumerate()
+            .map(|(i, line)| if hidden[i] { "" } else { *line })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(ScreenProjection {
+            contents,
+            rows_hidden,
+            withheld: force_withhold || rows_hidden == hidden.len(),
+        })
+    }
+    pub(crate) fn summary(&self) -> (bool, usize) {
+        (self.sensitive_fields, self.literals.len())
+    }
+    /// Private, per-receipt salted equality proof. Never expose this digest or salt.
+    pub(crate) fn receipt_signature(&self, salt: &[u8; 32]) -> [u8; 32] {
+        let mut digest = Sha256::new();
+        digest.update(b"terminal-output-policy/v1\0");
+        digest.update(salt);
+        digest.update([u8::from(self.sensitive_fields)]);
+        digest.update((self.literals.len() as u64).to_le_bytes());
+        for literal in &self.literals {
+            digest.update((literal.value.len() as u64).to_le_bytes());
+            digest.update(literal.value.as_bytes());
+        }
+        digest.finalize().into()
+    }
     pub fn new(mut literals: Vec<String>, sensitive_fields: bool) -> Result<Self, ErrorCode> {
         let invalid = literals.len() > MAX_LITERALS
             || (!sensitive_fields && literals.is_empty())

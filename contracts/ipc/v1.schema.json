@@ -839,6 +839,81 @@
         ],
         "type": "object"
       },
+      "ProtectedForm": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "scoped",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "timed_task",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "task_id",
+              "label"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "single_operation",
+                "type": "string"
+              },
+              "operation": {
+                "$ref": "#/$defs/Operation"
+              }
+            },
+            "required": [
+              "kind",
+              "operation"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Redaction": {
+        "additionalProperties": false,
+        "properties": {
+          "literals": {
+            "items": {
+              "$ref": "#/$defs/Sensitive"
+            },
+            "type": "array"
+          },
+          "sensitive_fields": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sensitive_fields",
+          "literals"
+        ],
+        "type": "object"
+      },
       "Request": {
         "oneOf": [
           {
@@ -959,11 +1034,42 @@
                 "$ref": "#/$defs/ConnectionRef"
               },
               "op": {
+                "const": "protected_context",
+                "type": "string"
+              },
+              "view": {
+                "$ref": "#/$defs/View2"
+              },
+              "window": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TimeWindow"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "view"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
                 "const": "context",
                 "type": "string"
               },
               "view": {
-                "$ref": "#/$defs/View"
+                "$ref": "#/$defs/View3"
               },
               "window": {
                 "$ref": "#/$defs/TimeWindow"
@@ -1204,6 +1310,45 @@
       },
       "Request2": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "form": {
+                "$ref": "#/$defs/ProtectedForm"
+              },
+              "lifetime_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "grant_protected",
+                "type": "string"
+              },
+              "redaction": {
+                "$ref": "#/$defs/Redaction"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "scopes": {
+                "items": {
+                  "$ref": "#/$defs/Scope"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "op",
+              "request_id",
+              "scopes",
+              "lifetime_ms",
+              "form",
+              "redaction"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -1467,6 +1612,32 @@
       },
       "Request3": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "exec_read_protected",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "view": {
+                "$ref": "#/$defs/View"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "task_id",
+              "view"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -3254,6 +3425,121 @@
                 "type": "integer"
               },
               "kind": {
+                "const": "text",
+                "type": "string"
+              },
+              "max_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "through_cursor",
+              "cursor",
+              "max_bytes"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "View2": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "info",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "text",
+                "type": "string"
+              },
+              "max_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "through_cursor",
+              "cursor",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "screen",
+                "type": "string"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "through_cursor"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "View3": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "info",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
                 "const": "raw",
                 "type": "string"
               },
@@ -4732,6 +5018,29 @@
       "Info": {
         "additionalProperties": false,
         "properties": {
+          "literal_count": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sensitive_fields": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "policy_id",
+          "sensitive_fields",
+          "literal_count"
+        ],
+        "type": "object"
+      },
+      "Info2": {
+        "additionalProperties": false,
+        "properties": {
           "accepted_raw_bytes": {
             "format": "uint64",
             "minimum": 0,
@@ -4945,6 +5254,46 @@
       "Metadata": {
         "additionalProperties": false,
         "properties": {
+          "encoding": {
+            "type": "string"
+          },
+          "protection": {
+            "$ref": "#/$defs/Info"
+          },
+          "report": {
+            "$ref": "#/$defs/Report"
+          },
+          "source_available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_completed": {
+            "type": "boolean"
+          },
+          "source_truncated": {
+            "type": "boolean"
+          },
+          "through_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "through_cursor",
+          "source_available_from",
+          "source_truncated",
+          "source_completed",
+          "encoding",
+          "protection",
+          "report"
+        ],
+        "type": "object"
+      },
+      "Metadata2": {
+        "additionalProperties": false,
+        "properties": {
           "cols": {
             "format": "uint16",
             "maximum": 65535,
@@ -5005,6 +5354,80 @@
           "encoding",
           "rows",
           "cols"
+        ],
+        "type": "object"
+      },
+      "Metadata3": {
+        "additionalProperties": false,
+        "properties": {
+          "cols": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "context_resets": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "protection": {
+            "$ref": "#/$defs/Info"
+          },
+          "report": {
+            "$ref": "#/$defs/Report"
+          },
+          "rows": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_completed": {
+            "type": "boolean"
+          },
+          "source_truncated": {
+            "type": "boolean"
+          },
+          "through_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TimeWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "connection",
+          "through_cursor",
+          "source_available_from",
+          "source_truncated",
+          "source_completed",
+          "context_resets",
+          "encoding",
+          "rows",
+          "cols",
+          "protection",
+          "report"
         ],
         "type": "object"
       },
@@ -5597,10 +6020,27 @@
             "additionalProperties": false,
             "properties": {
               "data": {
-                "$ref": "#/$defs/Reply6"
+                "$ref": "#/$defs/Reply7"
               },
               "type": {
                 "const": "context",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/Reply8"
+              },
+              "type": {
+                "const": "protected_context",
                 "type": "string"
               }
             },
@@ -6208,7 +6648,7 @@
             "properties": {
               "logs": {
                 "items": {
-                  "$ref": "#/$defs/Info"
+                  "$ref": "#/$defs/Info2"
                 },
                 "type": "array"
               },
@@ -6718,6 +7158,32 @@
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
+              "output": {
+                "$ref": "#/$defs/Reply6"
+              },
+              "result": {
+                "const": "exec_protected_output",
+                "type": "string"
+              },
+              "task_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "connection",
+              "task_id",
+              "output"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
               "request_id": {
                 "format": "uuid",
                 "type": "string"
@@ -6987,6 +7453,61 @@
               "context": {
                 "$ref": "#/$defs/Metadata"
               },
+              "events": {
+                "items": {
+                  "$ref": "#/$defs/TextEvent2"
+                },
+                "type": "array"
+              },
+              "next_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "result": {
+                "const": "text",
+                "type": "string"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "result",
+              "context",
+              "events",
+              "next_cursor",
+              "truncated"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Reply7": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata2"
+              },
+              "result": {
+                "const": "info",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "context"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata2"
+              },
               "page": {
                 "$ref": "#/$defs/OutputPage"
               },
@@ -7006,7 +7527,7 @@
             "additionalProperties": false,
             "properties": {
               "context": {
-                "$ref": "#/$defs/Metadata"
+                "$ref": "#/$defs/Metadata2"
               },
               "page": {
                 "$ref": "#/$defs/TextPage"
@@ -7027,7 +7548,7 @@
             "additionalProperties": false,
             "properties": {
               "context": {
-                "$ref": "#/$defs/Metadata"
+                "$ref": "#/$defs/Metadata2"
               },
               "result": {
                 "const": "screen",
@@ -7045,6 +7566,95 @@
             "type": "object"
           }
         ]
+      },
+      "Reply8": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata3"
+              },
+              "result": {
+                "const": "info",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "context"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata3"
+              },
+              "page": {
+                "$ref": "#/$defs/TextPage"
+              },
+              "result": {
+                "const": "text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "context",
+              "page"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata3"
+              },
+              "result": {
+                "const": "screen",
+                "type": "string"
+              },
+              "screen": {
+                "$ref": "#/$defs/ScreenSnapshot"
+              }
+            },
+            "required": [
+              "result",
+              "context",
+              "screen"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Report": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary_guard": {
+            "type": "boolean"
+          },
+          "opaque_controls": {
+            "type": "boolean"
+          },
+          "screen_rows_hidden": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "screen_withheld": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "boundary_guard",
+          "opaque_controls",
+          "screen_withheld",
+          "screen_rows_hidden"
+        ],
+        "type": "object"
       },
       "Scope": {
         "additionalProperties": false,
@@ -7516,6 +8126,32 @@
         ],
         "type": "object"
       },
+      "TextEvent2": {
+        "additionalProperties": false,
+        "properties": {
+          "decode_error": {
+            "type": "boolean"
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stderr": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "stderr",
+          "text",
+          "decode_error"
+        ],
+        "type": "object"
+      },
       "TextPage": {
         "additionalProperties": false,
         "properties": {
@@ -7615,6 +8251,16 @@
             "anyOf": [
               {
                 "$ref": "#/$defs/Form"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protection": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Info"
               },
               {
                 "type": "null"
