@@ -14,10 +14,22 @@ test('reconnect receipts remain readable without exposing an incomplete combined
   assert.equal(supportedActions({...target,state:'DISCONNECTED'}).includes('RECONNECT'),false);
 });
 
-test('forget scope metadata is readable while approval remains unavailable until its GUI is implemented',()=>{
+test('forget approval is confined to ended SSH2 and SERIAL generations and consumes once',()=>{
   const v=view();v.data.approved_scopes=[scope('FORGET')];v.data.effective_scopes=[scope('FORGET')];
   assert.equal(checkedGrant(v,request).effective_scopes[0].action,'FORGET');
-  for(const protocol of ['SSH2','SERIAL']) assert.equal(supportedActions({...target,protocol,state:'DISCONNECTED'}).includes('FORGET'),false);
+  for(const protocol of ['SSH2','SERIAL']) for(const state of ['DISCONNECTED','FAILED']) {
+    const current={...target,protocol,state}; const approval=new GrantApproval();
+    assert.deepEqual(supportedActions(current),['FORGET']);
+    const p=approval.prepare(ticket,current,['FORGET'],30);
+    assert.deepEqual(p.scopes,[scope('FORGET')]);
+    assert.equal(approval.consume(ticket,current,p),p);
+    assert.throws(()=>approval.consume(ticket,current,p));
+    for(const changed of [{...current,generation:2},{...current,state:'CONNECTED'},{...current,connection_id:request}]) {
+      const q=approval.prepare(ticket,current,['FORGET'],1);assert.throws(()=>approval.consume(ticket,changed,q));
+    }
+    assert.throws(()=>approval.prepare(ticket,current,['FORGET','DISCONNECT'],1));
+  }
+  for(const current of [target,{...target,state:'CLOSING'},{...target,protocol:'SSH1',state:'FAILED'},{...target,protocol:'FIXTURE',state:'DISCONNECTED'}]) assert.throws(()=>new GrantApproval().prepare(ticket,current,['FORGET'],1));
 });
 
 test('approval freezes independent scopes and exact service/connection generation, consumes once and invalidates',()=>{

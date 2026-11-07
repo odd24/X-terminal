@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-07 Forget完整软件能力包通过：串口独立服务393e18a及两协议固定代次GUI批准，最终构建/首轮完整19入口PASS/普通服务恢复；测量、失败与限制见[P14](records/P14.md)。完整P14与R01–R16/P01–P25继续。Step-ID: P14。
+
+2026-11-07 串口Forget服务已提交393e18a；Forget完整能力包继续SSH/SERIAL固定代次GUI批准，当前验证/构建与最终回归终态见[P14](records/P14.md)。Step-ID: P14。
+
 2026-11-07 D05执行优化已采纳：完整能力规划、分层验证与证据去重，取消每两个提交强制交接，保留唯一写入者与必要核验；范围/验收不变，详见[D05](records/D05.md)和[变更管理](CHANGE_CONTROL.md)。Step-ID: D05。
 
 2026-11-07 后继A从9c23aca完成只读核验并获前任明确唯一写入权，按ADR-054推进串口Agent Forget独立范围/lease/原owner回执及实际worker join/无未结ticket证明；准确验证终态见P14，不预填完成。两协议GUI/真实桥及完整R01–R16/P01–P25持续。Step-ID: P14。

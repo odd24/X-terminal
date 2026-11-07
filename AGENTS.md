@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14 Forget GUI仅已结束SSH2/SERIAL代次开放独立FORGET，默认无勾选/同意，固定完整代次/期限且批准不执行移除/不取lease。共享Panel/Field/tokens，取消/切换/预览重载/单次及真实fetch丢应答只查/迟到关闭覆盖第19两协议；最终固定源码完整19入口与两次串口普通服务恢复见P14。Removed不删日志/配置/用户文件，实际token交stdio桥/COM及全局DPIIME仍独立验收。
+
 2026-11-07用户授权执行优化生效，覆盖旧流程：完整能力统一规划协议/服务/GUI/测试，独立产物仍分别提交；仅完整工作包结束且确需续聊或上下文已难可靠维护时交接，不再每两个提交强制换聊天，自动压缩可原聊天继续。唯一写入者及必要交接核验保持。按影响分层验证，最终固定源码完整回归已覆盖的专项不重复跑，无新变化/失败/风险不重跑全套；产品变化仍先实际desktop:build，串口finally普通服务须实际恢复。详细证据集中步骤记录，台账仅状态/结论/链接，CHANGELOG面向用户。GUI不稳定先诊断定位再专项修复，不放宽断言或掩盖重试。从Forget起连续三个能力包记录实现/构建测试/排障/文档交接时间及回归次数/失败原因，估计须标注，不虚构基线或提速比例。完整R01–R16/P01–P25、依赖、安全边界、SSH1及实机验收不缩减，不新增并行Agent。现行细则见docs/CHANGE_CONTROL.md、组织证据见docs/records/D05.md。
 
 P14串口Forget按ADR-054独立Forget/lease及ForgetStart/ForgetStatus原owner完成回执，同锁核对实际worker join且无未结ticket后才移除；join回报丢失/容量失败拒绝且无成功回执，可原编号重试，不取消活跃worker。旧无编号Forget仍Desktop专用；Removed不删日志/配置/用户文件，退休后原有效ticket原编号只查。内存feature IPC不当COM，实际desktop:build及串口finally普通服务恢复仍须验证，GUI/真实桥独立交付。

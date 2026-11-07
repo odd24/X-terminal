@@ -75,6 +75,7 @@ export function restoreSlot(raw: string | null): Slot | undefined {
   try { const v: unknown = JSON.parse(raw); if (exact(v, ['service_id', 'request_id']) && uuid(v.service_id) && uuid(v.request_id)) return v as Slot; } catch { /* untrusted storage */ }
 }
 export function supportedActions(target: Connection): Action[] {
+  if (['DISCONNECTED', 'FAILED'].includes(target.state) && ['SSH2', 'SERIAL'].includes(target.protocol)) return ['FORGET'];
   if (target.state !== 'CONNECTED') return [];
   if (target.protocol === 'SSH2') return ['READ', 'WRITE', 'EXEC', 'CONTROL', 'DISCONNECT'];
   if (target.protocol === 'SERIAL') return ['READ', 'WRITE', 'CONTROL', 'DISCONNECT'];
@@ -87,7 +88,7 @@ export class GrantApproval {
   invalidate() { this.current = undefined; }
   prepare(service_id: string, target: Connection, selected: Action[], seconds: number): Proposal {
     this.invalidate();
-    if (!uuid(service_id) || !connection({ connection_id: target.connection_id, generation: target.generation }) || !selected.length || new Set(selected).size !== selected.length || selected.some(a => !supportedActions(target).includes(a)) || !integer(seconds, 1) || seconds > 1800) throw new Error('请选择已连接的精确目标、独立能力及1–1800秒期限。');
+    if (!uuid(service_id) || !connection({ connection_id: target.connection_id, generation: target.generation }) || !selected.length || new Set(selected).size !== selected.length || selected.some(a => !supportedActions(target).includes(a)) || !integer(seconds, 1) || seconds > 1800) throw new Error('请选择状态匹配的精确目标、独立能力及1–1800秒期限。');
     const ref = Object.freeze({ connection_id: target.connection_id, generation: target.generation });
     const scopes = selected.map(action => Object.freeze({ target: Object.freeze({ kind: 'connection' as const, connection: ref }), action }));
     Object.freeze(scopes);
@@ -95,7 +96,7 @@ export class GrantApproval {
     return this.current;
   }
   consume(service_id: string, target: Connection | undefined, proposal: Proposal): Proposal {
-    const valid = this.current === proposal && service_id === proposal.service_id && !!target && sameConnection(target, proposal.connection) && target.protocol === proposal.protocol && target.state === 'CONNECTED';
+    const valid = this.current === proposal && service_id === proposal.service_id && !!target && sameConnection(target, proposal.connection) && target.protocol === proposal.protocol && proposal.scopes.every(scope => supportedActions(target).includes(scope.action));
     this.invalidate();
     if (!valid) throw new Error('预览已失效；未签发授权，请重新核对。');
     return proposal;

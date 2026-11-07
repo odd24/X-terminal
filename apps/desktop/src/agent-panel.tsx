@@ -75,6 +75,7 @@ export function AgentPanel({ serviceId, target, profileId, close }: { serviceId:
       <p>默认未选择能力。配置建连请切换授权目标类型；广播尚未开放；协议控制仅为SSH尺寸或串口控制线；合成会话只提供测试读取。</p>
       {available.map(action => <label className="check" key={action}><input type="checkbox" aria-label={`授权${actionName[action]}`} checked={selected.includes(action)} onChange={event => { invalidate(); setSelected(previous => event.target.checked ? [...previous, action] : previous.filter(item => item !== action)); }} />{actionName[action]}</label>)}
       {selected.includes('DISCONNECT') && <p aria-label="Agent断开范围说明">断开仅限以上连接代次，取消该连接的排队输入与任务，并撤下此代次自动化范围和租约。请求关闭不等于本地传输已回收，实际回收须查询原请求编号；不能撤回已发送字节或远端已执行动作。批准授权本身不会断开连接，也不授予读取、写入、控制或重连能力。</p>}
+      {selected.includes('FORGET') && <p aria-label="Agent移除范围说明">仅批准移除以上已结束代次的会话记录，还需Agent独立租约及服务确认本地传输已回收；清理未完会拒绝，不取消活跃传输。批准本身不会移除，不删除日志、配置或用户文件，也不授予断开、重连、读取或写入能力。</p>}
       <Field label="授权期限（秒，1–1800）"><input type="number" min={1} max={1800} aria-label="Agent授权秒数" value={seconds} onChange={event => { invalidate(); setSeconds(Number(event.target.value)); }} /></Field>
       <button disabled={!target || !selected.length} onClick={() => { try { if (!target) return; setProposal(approval.current.prepare(serviceId, target, selected, seconds)); setConsent(false); setMessage('请核对固定目标、能力和期限；尚未签发。'); } catch (error) { invalidate(); setMessage(String(error)); } }}>预览Agent授权</button>
     </fieldset>}
@@ -83,6 +84,7 @@ export function AgentPanel({ serviceId, target, profileId, close }: { serviceId:
       <small aria-label="Agent授权预览">{proposal.protocol} · {targetText(proposal.connection)} · {proposal.lifetime_ms / 1000} 秒</small>
       <ul>{proposal.scopes.map(scope => <li key={scope.action}>{scopeText(scope)}</li>)}</ul>
       {proposal.scopes.some(scope => scope.action === 'DISCONNECT') && <p>断开权限仅适用于此固定代次，需独立租约；原编号用于恢复关闭回执，Requested表示请求关闭，TransportEnded表示本地传输回收，不代表远端动作已撤销。</p>}
+      {proposal.scopes.some(scope => scope.action === 'FORGET') && <p>移除权限仅适用于此固定代次，需独立租约及实际本地回收证明；Removed只表示会话记录已移除，不删除日志、配置或用户文件。清理未完无成功回执，可原编号重试；批准本身不执行移除。</p>}
       <label className="check"><input aria-label="同意本次Agent范围" type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} />我批准以上固定代次、独立能力与期限</label>
       <div className="config-actions"><button autoFocus onClick={() => { invalidate(); setMessage('已取消预览；未签发。'); }}>取消Agent批准</button><button disabled={!consent} onClick={() => {
         if (flight.current) return;

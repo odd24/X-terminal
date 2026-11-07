@@ -1,5 +1,7 @@
 # 界面与交互规范
 
+P14 Forget批准复用当前AgentPanel/Field/fieldset/tokens，仅已结束SSH2/SERIAL代次提供独立移除能力，默认未勾选/不同意。预览固定完整代次/期限，明确批准不移除、不删日志/配置/用户文件，实际动作仍需独立lease和传输回收证明；清理未完拒绝且无成功回执，可原编号重试。切换/关闭/重载不恢复同意，原签发编号只查，真实IPC丢应答和迟到仍保持该边界。无独立色板/字体，默认合成截图不替代全局T22/T23或真实stdio桥。
+
 P14 SSH Reconnect批准复用共享Agent授权/Profile表单与tokens，只为已断开的原SSH2代次开放；预览须同时展示精确旧ConnectionRef及Reconnect、原Profile固定revision及Connect、非秘密配置摘要和期限。默认不同意，模式/代次变化立即销毁旧预览；批准只签发双范围授权，不触发重连。继续使用共享Field/fieldset/状态文字，不新增单页字体或色板；合成SSH WebView验证见P14，真实stdio桥、Forget和全局T22/T23矩阵仍独立验收。
 
 P14 Profile Connect复用AgentPanel/Field/fieldset/tokens，当前连接能力与已保存配置建连分开，默认不选目标/不同意。预览完整Profile/revision及非秘密参数、串口初始DTR/RTS、期限和Connect边界；取消优先焦点，变更需重读重新预览，不把旧同意自动用于新配置。原编号管理复用无token投影，实际两协议GUI见P14，不替代全局DPIIME或真实stdio桥。
