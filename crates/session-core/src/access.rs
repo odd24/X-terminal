@@ -29,9 +29,30 @@ pub enum Action {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Target {
-    Connection { connection: ConnectionRef },
-    Profile { profile_id: Uuid },
-    ProfileRevision { profile_id: Uuid, revision: Uuid },
+    Connection {
+        connection: ConnectionRef,
+    },
+    OutputWindow {
+        connection: ConnectionRef,
+        window: crate::context::TimeWindow,
+    },
+    Profile {
+        profile_id: Uuid,
+    },
+    ProfileRevision {
+        profile_id: Uuid,
+        revision: Uuid,
+    },
+}
+impl Target {
+    pub fn connection(self) -> Option<ConnectionRef> {
+        match self {
+            Self::Connection { connection } | Self::OutputWindow { connection, .. } => {
+                Some(connection)
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -43,6 +64,12 @@ pub struct Scope {
 impl Scope {
     fn valid(self) -> bool {
         match self.target {
+            Target::OutputWindow { connection, window } => {
+                !connection.connection_id.0.is_nil()
+                    && connection.generation > 0
+                    && self.action == Action::Read
+                    && window.valid()
+            }
             Target::Profile { profile_id } => {
                 !profile_id.is_nil() && self.action == Action::Connect
             }
@@ -355,7 +382,7 @@ impl Policy {
         for grant in self.grants.values_mut() {
             grant
                 .scopes
-                .retain(|s| s.target != Target::Connection { connection });
+                .retain(|s| s.target.connection() != Some(connection));
         }
         self.record(
             now,

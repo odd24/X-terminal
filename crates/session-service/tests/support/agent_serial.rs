@@ -1,5 +1,7 @@
 //! Real Windows IPC with the opt-in OS-thread memory port, never native COM.
 use super::*;
+#[path = "agent_serial_context.rs"]
+mod context_cases;
 #[path = "agent_serial_disconnect.rs"]
 mod disconnect_cases;
 #[path = "agent_serial_forget.rs"]

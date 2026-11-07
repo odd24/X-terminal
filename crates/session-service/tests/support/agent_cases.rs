@@ -1,6 +1,8 @@
 use super::*;
 use session_core::access::{Action, AuditKind, Scope, Target};
 use session_protocol::agent::{Reply as AR, Request as A};
+#[path = "agent_context.rs"]
+mod context_cases;
 #[path = "agent_disconnect.rs"]
 mod disconnect_cases;
 #[path = "agent_forget.rs"]

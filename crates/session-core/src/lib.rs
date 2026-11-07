@@ -2,6 +2,7 @@
 
 pub mod access;
 pub mod capture;
+pub mod context;
 pub mod disconnect;
 pub mod forget;
 pub mod input;

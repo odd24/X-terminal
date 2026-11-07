@@ -132,6 +132,47 @@ impl Pairing {
             _ => Err(ErrorCode::PermissionDenied),
         }
     }
+    /// Metadata discovery only; never use this in place of body authorization.
+    pub fn can_observe(
+        &self,
+        identity: &Identity,
+        reference: ConnectionRef,
+        now: u64,
+    ) -> Result<(), ErrorCode> {
+        if self.can_read(identity, reference, now).is_ok() {
+            return Ok(());
+        }
+        if self.is_agent(identity, now)?
+            && self
+                .policy
+                .effective_scopes(identity.ticket_id, now)
+                .iter()
+                .any(|scope| {
+                    scope.action == Action::Read && scope.target.connection() == Some(reference)
+                })
+        {
+            Ok(())
+        } else {
+            Err(ErrorCode::PermissionDenied)
+        }
+    }
+    pub fn can_read_context(
+        &self,
+        identity: &Identity,
+        reference: ConnectionRef,
+        window: crate::context::TimeWindow,
+        now: u64,
+    ) -> Result<(), ErrorCode> {
+        if !window.valid() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if self.can_read(identity, reference, now).is_ok() {
+            return Ok(());
+        }
+        if self.is_agent(identity, now)? && self.policy.effective_scopes(identity.ticket_id, now).iter().any(|scope| {
+            matches!(scope.target, Target::OutputWindow { connection, window: approved } if connection == reference && approved.contains(window)) && scope.action == Action::Read
+        }) { Ok(()) } else { Err(ErrorCode::PermissionDenied) }
+    }
     pub fn issue_read(
         &mut self,
         desktop: &Identity,
@@ -257,7 +298,9 @@ impl Pairing {
                 .policy
                 .lease(connection, now)
                 .map(|lease| lease.lease_id),
-            Target::Profile { .. } | Target::ProfileRevision { .. } => None,
+            Target::Profile { .. }
+            | Target::ProfileRevision { .. }
+            | Target::OutputWindow { .. } => None,
         };
         self.policy
             .admit(identity.ticket_id, scope, lease, request_id, now)

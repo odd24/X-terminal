@@ -229,9 +229,7 @@ impl Runtime {
                             return Ok(Reply::Agent(Self::grant_reply(result)));
                         }
                         for scope in &scopes {
-                            if let session_core::access::Target::Connection { connection } =
-                                scope.target
-                            {
+                            if let Some(connection) = scope.target.connection() {
                                 store.sessions.info(connection)?;
                             }
                         }
@@ -301,11 +299,23 @@ impl Runtime {
                     .filter(|info| {
                         store
                             .pairing
-                            .can_read(identity, info.reference(), now)
+                            .can_observe(identity, info.reference(), now)
                             .is_ok()
                     })
                     .collect(),
             )),
+            Request::Context {
+                connection,
+                window,
+                view,
+            } => {
+                store
+                    .pairing
+                    .can_read_context(identity, connection, window, now)?;
+                Ok(Reply::Context(
+                    store.sessions.context(connection, window, view)?,
+                ))
+            }
             Request::Read {
                 connection,
                 cursor,

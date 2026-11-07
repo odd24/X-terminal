@@ -137,6 +137,11 @@ pub enum Request {
     },
     Ping {},
     List {},
+    Context {
+        connection: ConnectionRef,
+        window: session_core::context::TimeWindow,
+        view: session_core::context::View,
+    },
     Read {
         connection: ConnectionRef,
         cursor: u64,
@@ -176,6 +181,19 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
+            Self::Context {
+                connection,
+                window,
+                view,
+            } => {
+                if connection.connection_id.0.is_nil()
+                    || connection.generation == 0
+                    || !window.valid()
+                    || !view.valid()
+                {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+            }
             Self::Agent { request } if !request.validate() => {
                 return Err(ErrorCode::InvalidArgument);
             }
@@ -268,6 +286,7 @@ pub enum Reply {
     Sessions(Vec<ConnectionInfo>),
     Connection(ConnectionInfo),
     Output(OutputPage),
+    Context(session_core::context::Reply),
     Text(session_core::presentation::TextPage),
     Screen(session_core::presentation::ScreenSnapshot),
     ReadTicket {
@@ -329,6 +348,52 @@ pub async fn write_frame<W: AsyncWrite + Unpin, T: Serialize>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn context_requires_exact_window_watermark_bounds_and_rejects_caller_decoding_or_owner() {
+        use super::*;
+        let c = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(uuid::Uuid::new_v4()),
+            generation: 1,
+        };
+        for view in [
+            serde_json::json!({"kind":"info"}),
+            serde_json::json!({"kind":"raw","through_cursor":4,"cursor":1,"max_bytes":4096}),
+            serde_json::json!({"kind":"text","through_cursor":4,"cursor":1,"max_bytes":16384}),
+            serde_json::json!({"kind":"screen","through_cursor":4}),
+        ] {
+            let value = serde_json::json!({"op":"context","connection":c,"window":{"from_ms":10,"until_ms":20},"view":view});
+            assert!(
+                serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+                    .is_ok()
+            );
+            for field in ["encoding", "owner", "token"] {
+                let mut altered = value.clone();
+                altered[field] = "untrusted".into();
+                assert!(serde_json::from_value::<Request>(altered).is_err());
+            }
+            let mut bad = value;
+            bad["window"]["until_ms"] = 10.into();
+            assert!(
+                serde_json::from_value::<Request>(bad)
+                    .unwrap()
+                    .validate()
+                    .is_err()
+            );
+        }
+        for view in [
+            serde_json::json!({"kind":"screen"}),
+            serde_json::json!({"kind":"screen","through_cursor":0}),
+            serde_json::json!({"kind":"text","through_cursor":1,"cursor":2,"max_bytes":16384}),
+        ] {
+            let value = serde_json::json!({"op":"context","connection":c,"window":{"from_ms":10,"until_ms":20},"view":view});
+            assert!(match serde_json::from_value::<Request>(value) {
+                Err(_) => true,
+                Ok(r) => r.validate().is_err(),
+            });
+        }
+    }
     use super::*;
     #[tokio::test]
     async fn derived_requests_are_strict_bounded_and_worst_text_frame_fits() {

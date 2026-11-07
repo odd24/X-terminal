@@ -52,6 +52,11 @@ impl Request {
                     && scopes.len() <= MAX_SCOPES
                     && (1..=MAX_GRANT_MS).contains(lifetime_ms)
                     && scopes.iter().all(|s| match s.target {
+                        Target::OutputWindow { connection, window } => {
+                            valid_connection(connection)
+                                && window.valid()
+                                && s.action == Action::Read
+                        }
                         Target::Connection { connection } => {
                             valid_connection(connection) && s.action != Action::Connect
                         }
@@ -117,6 +122,51 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn output_window_grants_are_strictly_read_only_and_bind_valid_time_and_generation() {
+        let c = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let scope = Scope {
+            target: Target::OutputWindow {
+                connection: c,
+                window: session_core::context::TimeWindow {
+                    from_ms: 10,
+                    until_ms: 20,
+                },
+            },
+            action: Action::Read,
+        };
+        for action in [
+            Action::Read,
+            Action::Write,
+            Action::Connect,
+            Action::Disconnect,
+            Action::Forget,
+        ] {
+            let request = Request::Grant {
+                request_id: Uuid::new_v4(),
+                scopes: vec![Scope { action, ..scope }],
+                lifetime_ms: 100,
+            };
+            assert_eq!(request.validate(), action == Action::Read);
+        }
+        let mut value = serde_json::to_value(Request::Grant {
+            request_id: Uuid::new_v4(),
+            scopes: vec![scope],
+            lifetime_ms: 100,
+        })
+        .unwrap();
+        value["scopes"][0]["target"]["window"]["until_ms"] = 10.into();
+        assert!(
+            !serde_json::from_value::<Request>(value.clone())
+                .unwrap()
+                .validate()
+        );
+        value["scopes"][0]["target"]["window"]["future"] = true.into();
+        assert!(serde_json::from_value::<Request>(value).is_err());
+    }
     #[test]
     fn reconnect_is_an_independent_connection_action_never_a_profile_action() {
         let c = session_core::session::ConnectionRef {

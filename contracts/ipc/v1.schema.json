@@ -920,6 +920,31 @@
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
+              "op": {
+                "const": "context",
+                "type": "string"
+              },
+              "view": {
+                "$ref": "#/$defs/View"
+              },
+              "window": {
+                "$ref": "#/$defs/TimeWindow"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "window",
+              "view"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
               "cursor": {
                 "format": "uint64",
                 "minimum": 0,
@@ -2986,6 +3011,27 @@
           {
             "additionalProperties": false,
             "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "kind": {
+                "const": "output_window",
+                "type": "string"
+              },
+              "window": {
+                "$ref": "#/$defs/TimeWindow"
+              }
+            },
+            "required": [
+              "kind",
+              "connection",
+              "window"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "kind": {
                 "const": "profile",
                 "type": "string"
@@ -3049,6 +3095,125 @@
           "system"
         ],
         "type": "string"
+      },
+      "TimeWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "from_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "until_ms": {
+            "description": "Exclusive Unix millisecond bound; separate from monotonic grant expiry.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_ms",
+          "until_ms"
+        ],
+        "type": "object"
+      },
+      "View": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "info",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "raw",
+                "type": "string"
+              },
+              "max_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "through_cursor",
+              "cursor",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "text",
+                "type": "string"
+              },
+              "max_bytes": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "through_cursor",
+              "cursor",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "screen",
+                "type": "string"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "through_cursor"
+            ],
+            "type": "object"
+          }
+        ]
       }
     },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4608,6 +4773,78 @@
         ],
         "type": "object"
       },
+      "Metadata": {
+        "additionalProperties": false,
+        "properties": {
+          "cols": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "context_resets": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/$defs/Mode"
+          },
+          "rows": {
+            "description": "Current dimensions, not historical resize replay or the full live screen.",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source_completed": {
+            "type": "boolean"
+          },
+          "source_truncated": {
+            "description": "Conservative: earlier source has been evicted, even if its timestamps are unknown.",
+            "type": "boolean"
+          },
+          "through_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "window": {
+            "$ref": "#/$defs/TimeWindow"
+          }
+        },
+        "required": [
+          "connection",
+          "mode",
+          "window",
+          "through_cursor",
+          "source_available_from",
+          "source_truncated",
+          "source_completed",
+          "context_resets",
+          "encoding",
+          "rows",
+          "cols"
+        ],
+        "type": "object"
+      },
+      "Mode": {
+        "enum": [
+          "TIME_WINDOW_REPLAY"
+        ],
+        "type": "string"
+      },
       "OutputEvent": {
         "additionalProperties": false,
         "properties": {
@@ -5158,6 +5395,23 @@
               },
               "type": {
                 "const": "output",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/Reply6"
+              },
+              "type": {
+                "const": "context",
                 "type": "string"
               }
             },
@@ -6519,6 +6773,90 @@
           }
         ]
       },
+      "Reply6": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata"
+              },
+              "result": {
+                "const": "info",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "context"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata"
+              },
+              "page": {
+                "$ref": "#/$defs/OutputPage"
+              },
+              "result": {
+                "const": "raw",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "context",
+              "page"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata"
+              },
+              "page": {
+                "$ref": "#/$defs/TextPage"
+              },
+              "result": {
+                "const": "text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "context",
+              "page"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/Metadata"
+              },
+              "result": {
+                "const": "screen",
+                "type": "string"
+              },
+              "screen": {
+                "$ref": "#/$defs/ScreenSnapshot"
+              }
+            },
+            "required": [
+              "result",
+              "context",
+              "screen"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Scope": {
         "additionalProperties": false,
         "properties": {
@@ -6859,6 +7197,27 @@
           {
             "additionalProperties": false,
             "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "kind": {
+                "const": "output_window",
+                "type": "string"
+              },
+              "window": {
+                "$ref": "#/$defs/TimeWindow"
+              }
+            },
+            "required": [
+              "kind",
+              "connection",
+              "window"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "kind": {
                 "const": "profile",
                 "type": "string"
@@ -7026,6 +7385,27 @@
           "system"
         ],
         "type": "string"
+      },
+      "TimeWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "from_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "until_ms": {
+            "description": "Exclusive Unix millisecond bound; separate from monotonic grant expiry.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_ms",
+          "until_ms"
+        ],
+        "type": "object"
       },
       "View": {
         "additionalProperties": false,

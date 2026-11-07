@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+P14时间窗按[ADR-055](decisions/ADR-055.md)新增OutputWindow Read与Context Info/Raw/Text/Screen。桥须使用窗口票据允许的新Context接口：先Info取当前原始exclusive source_cursor，再固定through_cursor分页；原始与文本游标均为源seq。窗口为Unix毫秒[from,until)，不与服务单调授权期限混用。时间窗票据不得用旧Read/ReadText/Screen绕过，范围屏幕为当前尺寸从空状态重建，不是完整实时屏幕；source_truncated/重置/源状态保持显式，固定水位completed不等源已结束。服务/GUI真实结果见[P14](records/P14.md)，P15真正stdio工具仍须独立交付。
+
 P14 ADR-054串口新增ForgetStart/ForgetStatus，完整ConnectionRef/request_id绑定真实认证owner，独立Forget/lease且实际worker join/无未结ticket后才移除记录。原有效ticket原编号在退休后只查，不续期；清理未完/容量失败无成功回执，可原编号重试，不取消活跃worker。旧无编号Forget仍Desktop专用，Removed不删日志/配置/用户文件。两协议GUI批准及安全原生token交真实stdio桥分步验证，服务IPC通过不代表桥已交付；准确结果见records/P14.md。
 
 P14 Agent授权GUI现支持SSH Reconnect双范围：只为已断开SSH2原代次列出匹配Profile，预览同时绑定旧ConnectionRef/Reconnect与固定Profile/revision Connect，默认无勾选、一次性批准且批准前重读版本；批准本身不执行重连。认证/主机信任仍由Desktop处理，合成SSH结果见[P14](records/P14.md)，Forget与真实stdio桥继续独立交付。

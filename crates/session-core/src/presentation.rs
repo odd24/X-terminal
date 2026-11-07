@@ -80,6 +80,9 @@ pub(crate) struct Presentation {
 }
 
 impl Presentation {
+    pub(crate) fn format(&self) -> (&str, u16, u16) {
+        (&self.encoding, self.rows, self.cols)
+    }
     pub(crate) fn new(encoding: &str, rows: u16, cols: u16) -> Result<Self, ErrorCode> {
         Ok(Self {
             encoding: encoding.into(),

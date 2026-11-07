@@ -224,6 +224,28 @@ pub struct Sessions {
     connections: HashMap<ConnectionId, Connection>,
 }
 impl Sessions {
+    pub fn context(
+        &self,
+        reference: ConnectionRef,
+        window: crate::context::TimeWindow,
+        view: crate::context::View,
+    ) -> Result<crate::context::Reply, ErrorCode> {
+        let connection = self.get(reference)?;
+        let (encoding, rows, cols) = connection.presentation.format();
+        crate::context::read(
+            reference,
+            window,
+            view,
+            crate::context::Source {
+                events: &connection.output.events,
+                next_cursor: connection.output.next_seq,
+                encoding,
+                rows,
+                cols,
+                completed: matches!(connection.info.state, State::Disconnected | State::Failed),
+            },
+        )
+    }
     pub fn create(&mut self, protocol: Protocol) -> Result<ConnectionInfo, ErrorCode> {
         if self.connections.len() >= MAX_CONNECTIONS {
             return Err(ErrorCode::CapacityExceeded);
