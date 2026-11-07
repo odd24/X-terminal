@@ -164,6 +164,8 @@ impl Runtime {
                     request,
                     ssh::Request::Start { .. }
                         | ssh::Request::Reconnect { .. }
+                        | ssh::Request::ForgetStart { .. }
+                        | ssh::Request::ForgetStatus { .. }
                         | ssh::Request::Disconnect { .. }
                         | ssh::Request::DisconnectStatus { .. }
                         | ssh::Request::Resize { .. }

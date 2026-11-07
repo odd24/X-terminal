@@ -1,6 +1,6 @@
 import type { Connection, ConnectionRef } from './ssh-api';
 
-export type Action = 'READ' | 'WRITE' | 'EXEC' | 'CONTROL' | 'CONNECT' | 'DISCONNECT' | 'RECONNECT' | 'BROADCAST';
+export type Action = 'READ' | 'WRITE' | 'EXEC' | 'CONTROL' | 'CONNECT' | 'DISCONNECT' | 'RECONNECT' | 'FORGET' | 'BROADCAST';
 export type Scope = { target: { kind: 'connection'; connection: ConnectionRef } | { kind: 'profile'; profile_id: string } | { kind: 'profile_revision'; profile_id: string; revision: string }; action: Action };
 export type Summary = { request_id: string; ticket_id: string; expires_at_ms: number; state: 'ACTIVE' | 'EXPIRED' | 'REVOKED'; effective_scope_count: number };
 export type GrantView = { summary: Summary; approved_scopes: Scope[]; effective_scopes: Scope[] };
@@ -15,7 +15,7 @@ export const uuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9
 const integer = (v: unknown, min = 0): v is number => Number.isSafeInteger(v) && (v as number) >= min;
 export const sameConnection = (a: ConnectionRef, b: ConnectionRef) => a.connection_id === b.connection_id && a.generation === b.generation;
 const connection = (v: unknown): v is ConnectionRef => exact(v, ['connection_id', 'generation']) && uuid(v.connection_id) && integer(v.generation, 1);
-const actions: Action[] = ['READ', 'WRITE', 'EXEC', 'CONTROL', 'CONNECT', 'DISCONNECT', 'RECONNECT', 'BROADCAST'];
+const actions: Action[] = ['READ', 'WRITE', 'EXEC', 'CONTROL', 'CONNECT', 'DISCONNECT', 'RECONNECT', 'FORGET', 'BROADCAST'];
 const fail = () => new Error('授权管理响应不匹配；未接受范围或恢复批准。');
 function checkedScope(v: unknown): Scope {
   if (!exact(v, ['target', 'action']) || !actions.includes(v.action as Action) || !object(v.target)) throw fail();
@@ -101,5 +101,5 @@ export class GrantApproval {
     return proposal;
   }
 }
-export const actionName: Record<Action, string> = { READ: '读取终端', WRITE: '写入终端', EXEC: '独立 exec', CONTROL: '协议控制（SSH尺寸/串口控制线）', CONNECT: '建立配置连接', DISCONNECT: '断开连接', RECONNECT: '重连旧SSH代次（另需配置建连批准）', BROADCAST: '广播' };
+export const actionName: Record<Action, string> = { READ: '读取终端', WRITE: '写入终端', EXEC: '独立 exec', CONTROL: '协议控制（SSH尺寸/串口控制线）', CONNECT: '建立配置连接', DISCONNECT: '断开连接', RECONNECT: '重连旧SSH代次（另需配置建连批准）', FORGET: '移除已回收连接记录', BROADCAST: '广播' };
 export function scopeText(scope: Scope): string { return `${actionName[scope.action]} · ${scope.target.kind !== 'connection' ? `配置 ${scope.target.profile_id} / ${scope.target.kind === 'profile_revision' ? `配置版本 ${scope.target.revision}` : '仅ID范围（不固定配置）'}` : `${scope.target.connection.connection_id} / 代次 ${scope.target.connection.generation}`}`; }

@@ -331,6 +331,7 @@ impl Pairing {
             Action::Control,
             Action::Disconnect,
             Action::Reconnect,
+            Action::Forget,
             Action::Broadcast,
         ]
         .into_iter()

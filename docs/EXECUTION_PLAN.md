@@ -277,7 +277,7 @@
 
 ### P14 Agent 授权与输入调度
 
-- Forget增量：ADR-054采用独立精确代次Forget/lease与原owner完成回执，仅实际传输回收后移除；失败/容量不移除，核心先行，服务与GUI结果见P14。旧无编号Forget保持Desktop专用。
+- Forget增量：ADR-054采用独立精确代次Forget/lease与原owner完成回执，SSH服务在gate后重验同许可，仅实际传输回收后移除；失败/容量不移除，核心/服务验证见P14。旧无编号Forget保持Desktop专用，串口/GUI/真实桥独立继续。
 
 - 重连增量：ADR-053以旧代次独立Reconnect/lease加固定配置Connect接入SSH，原owner/原编号优先只查，gate/配置/清理等待后及新传输首次poll复核；共享授权GUI现支持双范围同意且不自动重连，合成SSH专项结果见P14。Forget/真实桥与整个方案继续。
 

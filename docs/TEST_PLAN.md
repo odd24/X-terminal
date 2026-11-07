@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P14 SSH Forget服务新增确定性gate等待撤权/接管/lease释放重取/到期/取消future、Actor未结束不取消且原编号可重试、容量不移除；真实Windows IPC覆盖独立FORGET/lease、活跃连接拒绝、不读实际Pipe应答后原owner编号查询、跨来源/代次/未知编号、退休后重复及新连接保持、无隐式读写关闭重连、撤销/过期拒绝。严格协议拒绝自填owner/无编号/零代次；前端只识别元数据，不推导批准GUI。准确结果见P14，串口/真正stdio桥另验。
+
 P14 ADR-054 Forget核心验证重复不执行删除闭包、owner/完整代次绑定、失败无回执且不推进水位、1024 opaque容量不删除、UUIDv7成功才退休及整毫秒拒绝。服务另验独立Forget/lease、Actor/共享传输或worker实际join、gate等待撤权、真实IPC丢应答原编号查询、跨来源及撤销/到期拒绝；核心不代表服务/GUI/真实桥通过。结果见P14。
 
 P14 SSH Reconnect GUI扩展test:desktop:agent合成SSH真实WebView：只为已断开原SSH2目标展示匹配Profile，预览同时冻结旧代次Reconnect与固定revision Connect，默认无同意，批准前复读版本，取消/单次消费并断言签发不自动重连；前端拒绝已连接/非SSH2/profile不匹配。GUI批准不代表真实stdio桥/Forget，详细证据见P14。

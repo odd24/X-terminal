@@ -22,6 +22,7 @@ pub enum Action {
     Control,
     Disconnect,
     Reconnect,
+    Forget,
     Broadcast,
 }
 

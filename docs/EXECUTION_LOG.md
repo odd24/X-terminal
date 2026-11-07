@@ -1,5 +1,9 @@
 # 执行台账
 
+2026-11-07 SSH Forget子步完成软件证据：ADR-054独立Forget/lease、原owner完成回执、gate后重验及实际Actor/传输释放；最终229相关Rust/83真实Windows IPC、54前端/lint/严格clippy/fmt、实际desktop:build和16:14:48–16:22:49完整19入口PASS。两次串口普通服务实际恢复/资源0，首轮测试错误/队列竞态修正与最终指纹见P14。第一成果f217e3c，串口Forget/GUI/真实桥及完整R01–R16/P01–P25继续。Step-ID: P14。
+
+2026-11-07 Forget核心已提交f217e3c，现接SSH ForgetStart/ForgetStatus、独立范围/lease、gate后同许可及真实Actor/传输结束检查，原owner完成回执先查。前端仅识别元数据、不开放GUI批准；最终真实测试与原生终态见P14，串口/真实桥及完整R01–R16/P01–P25继续。Step-ID: P14。
+
 2026-11-07 后继A从6b94320只读核验并获前任明确放行；按ADR-054先实现Forget独立完成账本及5项实质核心测试，实际验证见P14。服务/GUI/真实桥及整个R01–R16/P01–P25继续，模型不当完整交付。Step-ID: P14。
 
 2026-11-07 P14 SSH Reconnect GUI组合批准子步完成：共享面板同一固定预览绑定旧代次Reconnect及原Profile/revision Connect，批准前重读且不自动重连；53前端测试/lint、实际desktop:build与test:desktop:agent（含SSH组合及串口回归）通过。首次测试驱动checkbox未落选失败后改用真实WebView click并增加状态诊断；串口finally普通服务构建成功，相关进程0。GUI仅合成SSH，不等于Forget或真实stdio桥；完整P14与R01–R16/P01–P25继续，详情见P14。Step-ID: P14。

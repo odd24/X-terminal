@@ -14,6 +14,12 @@ test('reconnect receipts remain readable without exposing an incomplete combined
   assert.equal(supportedActions({...target,state:'DISCONNECTED'}).includes('RECONNECT'),false);
 });
 
+test('forget scope metadata is readable while approval remains unavailable until its GUI is implemented',()=>{
+  const v=view();v.data.approved_scopes=[scope('FORGET')];v.data.effective_scopes=[scope('FORGET')];
+  assert.equal(checkedGrant(v,request).effective_scopes[0].action,'FORGET');
+  for(const protocol of ['SSH2','SERIAL']) assert.equal(supportedActions({...target,protocol,state:'DISCONNECTED'}).includes('FORGET'),false);
+});
+
 test('approval freezes independent scopes and exact service/connection generation, consumes once and invalidates',()=>{
   const approval=new GrantApproval(); const actions=['READ','WRITE']; const current={...target};
   const first=approval.prepare(ticket,current,actions,30); actions.push('EXEC');current.generation=2;

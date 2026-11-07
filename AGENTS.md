@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+P14 SSH Forget按ADR-054独立Forget/lease与ForgetStart/ForgetStatus原owner完成回执，旧无编号Forget仍Desktop专用。gate等待后重验同许可，仅Actor实际结束且共享传输引用释放才移除；清理未完InvalidState且无成功回执，可原编号重试，不取消活跃传输。Removed不删除日志/配置/用户文件，退休后原有效ticket原编号只查；串口/GUI/真实stdio桥独立交付。
+
 P14 SSH Reconnect按ADR-053独立旧代次Reconnect/lease与固定Profile/revision Connect双许可，gate/配置/清理await后重验，原owner原编号优先只查；推进generation退役旧范围，新Actor首poll仍核对独立Connect，不继承旧lease/读写/认证。共享Agent授权GUI以单次预览批准旧SSH代次+原配置revision双范围，批准本身不重连；test:desktop:agent合成SSH覆盖，真实stdio桥/Forget继续独立交付。
 
 P14配置建连GUI按ADR-052独立选择已保存SSH2/SERIAL的profile_revision Connect，默认无目标/无同意、固定配置参数/期限，批准前重读同revision且不建连；串口初始DTR/RTS明确。第19两协议专项覆盖编辑/删除/重载/真实fetch丢应答/关闭迟到，只Agent中文前缀根且串口finally实际恢复普通服务；真实stdio桥仍独立交付。

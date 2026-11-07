@@ -8,6 +8,14 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    ForgetStart {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
+    ForgetStatus {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Disconnect {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -174,7 +182,15 @@ impl Request {
                     && (2..=500).contains(cols)
                     && (1..=200).contains(rows)
             }
-            Self::Disconnect {
+            Self::ForgetStart {
+                connection,
+                request_id,
+            }
+            | Self::ForgetStatus {
+                connection,
+                request_id,
+            }
+            | Self::Disconnect {
                 connection,
                 request_id,
             }
@@ -303,6 +319,7 @@ pub struct Status {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    Forget(session_core::forget::Receipt),
     Disconnect(session_core::disconnect::Receipt),
     Exec(TaskStatus),
     ExecOutput {
@@ -364,6 +381,35 @@ pub struct TaskStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn numbered_forget_rejects_missing_ids_stale_targets_and_caller_owner() {
+        for op in ["forget_start", "forget_status"] {
+            let mut value = serde_json::json!({ "op": op, "connection": { "connection_id": Uuid::new_v4(), "generation": 1 }, "request_id": Uuid::new_v4() });
+            assert!(
+                serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            value["owner"] = serde_json::json!(Uuid::new_v4());
+            assert!(serde_json::from_value::<Request>(value.clone()).is_err());
+            value.as_object_mut().unwrap().remove("owner");
+            value["connection"]["generation"] = serde_json::json!(0);
+            assert!(
+                !serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            value["connection"]["generation"] = serde_json::json!(1);
+            value["request_id"] = serde_json::json!(Uuid::nil());
+            assert!(
+                !serde_json::from_value::<Request>(value.clone())
+                    .unwrap()
+                    .validate()
+            );
+            value.as_object_mut().unwrap().remove("request_id");
+            assert!(serde_json::from_value::<Request>(value).is_err());
+        }
+    }
     #[test]
     fn numbered_disconnect_requires_exact_target_and_rejects_caller_authority() {
         let connection = ConnectionRef {

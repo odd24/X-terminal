@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+P14 Forget按[ADR-054](decisions/ADR-054.md)采用独立精确代次Forget/lease及真实owner完成回执；SSH新编号入口等待原生命周期gate后重验同许可，仅Actor已结束/共享传输释放时移除，不从Disconnected推导回收、不取消活跃传输。Removed不删除配置或日志，退休后原编号只查且ticket仍须有效；串口/GUI/真实桥分别交付，实际证据见P14。
+
 P14 SSH Reconnect按[ADR-053](decisions/ADR-053.md)使用旧代次独立Reconnect/lease及固定Profile/revision Connect双许可；原owner/原编号先查有界回执，gate/配置/清理await后重验，旧代次退休与新Actor Connect首poll分开。新代次不继承任何旧连接范围/租约；共享Agent GUI现以单次明确批准冻结两范围且不自动重连，Forget和真实stdio桥仍继续，准确实测见P14。
 
 P14按[ADR-052](decisions/ADR-052.md)新增精确Profile/revision Connect范围，配置线程核对全局revision后返回本次不可变配置快照，原Start回执保持只查；旧ID目标保留不同语义。实际派发仍重验同许可，不授新连接范围、lease/库存/认证批准。GUI与真实stdio交付结果见P14，完整方案继续。

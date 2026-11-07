@@ -1,6 +1,49 @@
 use super::*;
 use crate::session::ConnectionId;
 
+#[test]
+fn forget_is_independent_and_loses_its_original_permit_on_lease_replacement() {
+    let mut p = Policy::default();
+    let client = Uuid::new_v4();
+    let c = connection();
+    let forget = scope(c, Action::Forget);
+    p.grant(client, vec![forget], 1000, 0).unwrap();
+    for action in [
+        Action::Read,
+        Action::Write,
+        Action::Disconnect,
+        Action::Reconnect,
+    ] {
+        assert_eq!(
+            p.authorize(client, scope(c, action), 1),
+            Err(Denial::PermissionDenied)
+        );
+    }
+    assert!(p.admit(client, forget, None, Uuid::new_v4(), 1).is_err());
+    let lease = p.acquire(client, c, 500, 1).unwrap();
+    let permit = p
+        .admit(client, forget, Some(lease.lease_id), Uuid::new_v4(), 2)
+        .unwrap();
+    p.dispatch(&permit, 3).unwrap();
+    p.release(client, c, lease.lease_id, 4).unwrap();
+    p.acquire(client, c, 500, 5).unwrap();
+    assert!(p.dispatch(&permit, 6).is_err());
+    assert!(
+        p.authorize(
+            client,
+            scope(
+                ConnectionRef {
+                    generation: c.generation + 1,
+                    ..c
+                },
+                Action::Forget
+            ),
+            6
+        )
+        .is_err()
+    );
+}
+
 fn connection() -> ConnectionRef {
     ConnectionRef {
         connection_id: ConnectionId(Uuid::new_v4()),
@@ -41,6 +84,7 @@ fn capabilities_are_independent_and_exact_generation_scoped() {
         Action::Control,
         Action::Disconnect,
         Action::Reconnect,
+        Action::Forget,
         Action::Broadcast,
     ] {
         assert_eq!(

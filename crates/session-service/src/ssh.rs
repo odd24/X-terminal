@@ -1,6 +1,7 @@
 //! Service-owned SSH2 actors. Public control messages never carry private key bytes.
 mod disconnect;
 mod exec;
+mod forget;
 mod history;
 mod reconnect;
 #[cfg(test)]
@@ -101,6 +102,7 @@ enum Answer {
 }
 #[derive(Default)]
 struct Inner {
+    forgets: session_core::forget::Receipts,
     disconnects: session_core::disconnect::Receipts,
     entries: HashMap<ConnectionId, Entry>,
     requests: HashMap<Uuid, (Start, ConnectionInfo)>,
@@ -128,6 +130,20 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::ForgetStart {
+                connection,
+                request_id,
+            } => {
+                self.forget_as(Some(identity), connection, request_id, false)
+                    .await
+            }
+            ssh::Request::ForgetStatus {
+                connection,
+                request_id,
+            } => {
+                self.forget_as(Some(identity), connection, request_id, true)
+                    .await
+            }
             ssh::Request::Reconnect {
                 connection,
                 request_id,
@@ -268,6 +284,14 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::ForgetStart {
+                connection,
+                request_id,
+            } => self.forget_as(None, connection, request_id, false).await,
+            ssh::Request::ForgetStatus {
+                connection,
+                request_id,
+            } => self.forget_as(None, connection, request_id, true).await,
             ssh::Request::Disconnect {
                 connection,
                 request_id,

@@ -1,5 +1,7 @@
 # Session IPC v1
 
+P14 SSH新增`forget_start`/`forget_status`，必填精确`connection`/`request_id`，返回`result=forget`及`state=REMOVED`的独立完成回执。新Agent请求须独立FORGET范围/lease，实际Actor/共享传输已回收才移除会话记录；清理未完返回InvalidState且不记录成功，原编号可显式重试。原owner有效ticket在移除/退休后只查完成回执，未知Agent查询拒绝、撤销/到期拒绝；不删除日志/Profile/用户文件，不扩权或自动重连。旧`forget`仍Desktop专用，串口新入口/GUI批准与真正stdio桥独立推进，见[ADR-054](../../docs/decisions/ADR-054.md)与[P14](../../docs/records/P14.md)。
+
 P14后续授权管理见[ADR-046](../../docs/decisions/ADR-046.md)：Grant严格必填request_id，返回grant(receipt,token?)；新增grant_status/grant_list/grant_revoke均Desktop专用。最多128回执/UUIDv7退休、opaque保留，重复Start只读恢复原期限/当前有效范围；list仅摘要无token/范围，单项仅ACTIVE可恢复token，撤销/过期无token。原ticket_id Revoke同步擦除管理token。新服务重启清空回执/授权，旧严格客户端须同构建更新，不声称兼容省略字段。此前SSH输入/exec和串口Write/Send/Control已接真实认证派发，准确开放范围见P14/ADR-045，旧阶段描述不当当前状态。
 
 2026-11-06 P14新增agent管理/所有权命令族，见[ADR-044](../../docs/decisions/ADR-044.md)/[P14](../../docs/records/P14.md)。Desktop签发独立范围及期限，真实Agent身份可读取明确read范围；授权/租约/撤销/接管/审计按服务端身份校验。旧SSH/串口控制、配置/日志/认证仍Desktop专用，FIFO与worker派发许可尚须接入，不能把完整scope或lease回执当Agent写工具已开放。以下早期阶段描述保留历史，实际新契约以生产schema/当前步骤记录为准。

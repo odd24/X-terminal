@@ -39,6 +39,7 @@
           "CONTROL",
           "DISCONNECT",
           "RECONNECT",
+          "FORGET",
           "BROADCAST"
         ],
         "type": "string"
@@ -2238,6 +2239,50 @@
                 "$ref": "#/$defs/ConnectionRef"
               },
               "op": {
+                "const": "forget_start",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "forget_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
                 "const": "disconnect",
                 "type": "string"
               },
@@ -2992,6 +3037,7 @@
           "CONTROL",
           "DISCONNECT",
           "RECONNECT",
+          "FORGET",
           "BROADCAST"
         ],
         "type": "string"
@@ -6164,6 +6210,32 @@
                 "type": "string"
               },
               "result": {
+                "const": "forget",
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/$defs/State4"
+              }
+            },
+            "required": [
+              "result",
+              "request_id",
+              "connection",
+              "state"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
                 "const": "disconnect",
                 "type": "string"
               },
@@ -6651,6 +6723,15 @@
           "FAILED"
         ],
         "type": "string"
+      },
+      "State4": {
+        "oneOf": [
+          {
+            "const": "REMOVED",
+            "description": "The service removed the exact generation after proving local transport cleanup.\nLog files, saved profiles and user exports are not deleted by this operation.",
+            "type": "string"
+          }
+        ]
       },
       "Summary": {
         "additionalProperties": false,

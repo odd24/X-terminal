@@ -1000,6 +1000,23 @@ async fn blocked_configuration_has_a_bounded_queue_and_does_not_block_session_pi
         ),
         "bounded actor must reject overload while DB is busy"
     );
+    // Keep SQLite locked until all three overflow slots have actually been
+    // observed. Releasing after the first response lets late Pipe tasks enter
+    // an already-draining queue and makes the original >=3 assertion race.
+    for _ in 0..2 {
+        let response = timeout(Duration::from_secs(1), tasks.join_next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            response,
+            Response::Error {
+                code: ErrorCode::CapacityExceeded,
+                ..
+            }
+        ));
+    }
     assert!(matches!(
         timeout(Duration::from_secs(1), desktop.request(Request::Ping {}))
             .await
@@ -1012,7 +1029,7 @@ async fn blocked_configuration_has_a_bounded_queue_and_does_not_block_session_pi
     ));
     blocker.execute_batch("ROLLBACK").unwrap();
     drop(blocker);
-    let mut rejected = 1;
+    let mut rejected = 3;
     let mut accepted = 0;
     while let Some(response) = tasks.join_next().await {
         match response.unwrap() {

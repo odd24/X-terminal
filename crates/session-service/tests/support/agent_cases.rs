@@ -3,6 +3,8 @@ use session_core::access::{Action, AuditKind, Scope, Target};
 use session_protocol::agent::{Reply as AR, Request as A};
 #[path = "agent_disconnect.rs"]
 mod disconnect_cases;
+#[path = "agent_forget.rs"]
+mod forget_agent_cases;
 #[path = "agent_reconnect.rs"]
 mod reconnect_agent_cases;
 #[cfg(feature = "serial-ui-fixture")]
@@ -524,6 +526,14 @@ async fn agent_ssh_write_uses_shared_connection_and_authentic_receipt_owner() {
         },
     ] {
         for request in [
+            ssh::Request::ForgetStart {
+                connection: target,
+                request_id: Uuid::new_v4(),
+            },
+            ssh::Request::ForgetStatus {
+                connection: target,
+                request_id: Uuid::new_v4(),
+            },
             ssh::Request::Resize {
                 connection: target,
                 request_id: Uuid::new_v4(),
