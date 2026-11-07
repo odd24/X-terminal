@@ -12,6 +12,7 @@ pub mod presentation;
 pub mod protected_context;
 pub mod protected_task;
 pub mod redaction;
+pub mod rpc_audit;
 pub mod screen;
 pub mod serial_input;
 pub mod session;

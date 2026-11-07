@@ -281,6 +281,8 @@
 
 ### P14 Agent 授权与输入调度
 
+- 完整拒绝/持久审计按ADR-058采用独立元数据请求尝试流，不记录Request/Reply正文、不混原Policy512环。核心固定Origin/Descriptor及接收/认证/返回/写帧/取消语义，服务穷尽分类/实际IPC→独立有界持久层及同步/失败/恢复→GUI；实际边界见[P14](records/P14.md)，纯模型不当生产已审计。
+
 - 输出脱敏按ADR-057分核心→固定票据服务→GUI验证；新ProtectedContext/本人ExecReadProtected先整段投影后分页，受保护票据旧raw/text/screen/context/exec入口拒绝，远端信号回执同策略。GUI固定完整字段/精确规则、无默认保护/同意、只原编号元数据恢复，实际IPC/两协议原生分层终态见[P14](records/P14.md)；完整审计/P15继续。
 
 - ADR-056 GUI以完整参数预览覆盖SSH8/串口6单操作及Task连接/配置/重连范围，默认无动作/说明/同意、原编号/正文指纹及Scope严格核对，批准不执行。实际构建/真实故障/最终回归与未完成边界集中[P14](records/P14.md)，真实stdio桥及其余P14继续。
