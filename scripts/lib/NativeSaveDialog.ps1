@@ -42,6 +42,16 @@ function Find-FileNameEditor($picker) {
     }
     return $null
 }
+function Find-PickerButton($picker) {
+    $buttons=$picker.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Button))
+    foreach($candidate in $buttons) {
+        $pickerButtonMatches=if($Action -eq 'select') { $candidate.Current.Name -eq '选择保存位置' } else { $candidate.Current.Name -match '^(取消|Cancel)' }
+        $invokePattern=$null
+        if($pickerButtonMatches -and $candidate.Current.IsEnabled -and $candidate.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern,[ref]$invokePattern)) { return $candidate }
+    }
+    return $null
+}
+$edit=$null;$button=$null;$controlWaits=0
 for($attempt=0;$attempt -lt 100;$attempt++) {
     $candidates=[Collections.Generic.List[IntPtr]]::new()
     $callback=[NativeSaveTestWindow+Callback]{ param($window,$unused)
@@ -55,24 +65,25 @@ for($attempt=0;$attempt -lt 100;$attempt++) {
     }
     [void][NativeSaveTestWindow]::EnumWindows($callback,[IntPtr]::Zero)
     if($candidates.Count) { $handle=$candidates[0];[void][NativeSaveTestWindow]::ShowWindow($handle,9);$dialog=[Windows.Automation.AutomationElement]::FromHandle($handle) }
-    if($dialog -and $Action -eq 'select') {
-        $edit=Find-FileNameEditor $dialog
-        # The top-level window can precede its controls. Use the same bounded
-        # discovery loop for readiness; never select a different process/window.
-        if(!$edit) { $dialog=$null }
+    if($dialog) {
+        $edit=if($Action -eq 'select') { Find-FileNameEditor $dialog } else { $null }
+        $button=Find-PickerButton $dialog
+        # A titled window/editor can precede the requested button. Cancellation
+        # needs the same readiness check; do not act on another process or label.
+        if(!$button -or ($Action -eq 'select' -and !$edit)) {
+            $controlWaits++
+            if($controlWaits -eq 1) { Write-Output "WAIT native picker controls action=$Action editor=$([bool]$edit) button=$([bool]$button)" }
+            $dialog=$null
+        }
     }
     if($dialog) { break }; Start-Sleep -Milliseconds 100
 }
-if(!$dialog) { throw 'The native save picker was not found in the test process.' }
+if(!$dialog) { throw "The native save picker controls were not ready in the test process: action=$Action attempts=$attempt controlWaits=$controlWaits" }
+Write-Output "READY native picker action=$Action attempts=$attempt controlWaits=$controlWaits"
 if($Action -eq 'select') {
     if(!$edit) { throw 'Native file-name editor 1001 not found.' }
     $pattern=$edit.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
     $pattern.SetValue($resolved)
-    $buttons=$dialog.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Button))
-    $button=$null;foreach($candidate in $buttons) { if($candidate.Current.Name -eq '选择保存位置') { $button=$candidate;break } }
-} else {
-    $buttons=$dialog.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Button))
-    $button=$null;foreach($candidate in $buttons) { if($candidate.Current.Name -match '^(取消|Cancel)') { $button=$candidate;break } }
 }
 if(!$button) { throw 'Native picker button was not found.' }
 $button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
