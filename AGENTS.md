@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+2026-11-07初版优先级以[CR-005](docs/changes/CR-005.md)为准：尽快交付可用初版，P14在途必要收尾后优先P15/P16最小安全共享会话闭环与基本交付检查；一般完善转迭代，不再把全部R01–R16/P01–P25作为本版结束门槛，未完需求保留且不得冒称完整v1通过。只有实际越权/秘密泄露/用户数据损坏/基本路径不可用才阻塞；必要安全不削减，按影响最小必要验证，无变更/失败/实质风险不重跑旧套，不追加精修或常规审批。
+
 P14保护批准GUI复用共享OutputProtectionEditor/Preview，Read/Task与单次Exec显式启用（默认未启用，启用后字段默认开/无精确规则）；完整有序规则/模式冻结、控制及bidi转义预览，编辑/切换/关闭/重载撤同意。原生严格GrantProtected仍剥离token，回执只策略ID/模式/数量，规则不持久化/不恢复；真实fetch故障/两协议GUI见P14，签发不执行或交真实桥。默认截图不代表全局UI矩阵。
 
 P14保护输出按ADR-057冻结票据策略，GrantProtected仅不透明ID/模式/数量回执、私有带盐等值校验，规则不入日志/审计/WebView回执。受保护票据旧Read/ReadText/Screen/Context/ExecRead统一拒绝；ProtectedContext和本人ExecReadProtected先完整授权段/独立流保护再源游标分页，远端exit_signal的Start重试/Status/Cancel也同策略。屏幕命中整行、控制或未知字段前文整屏隐藏，保持原始缓冲/日志；不把保守隐藏当同宽逐字DLP，GUI保护批准/真实桥独立交付。

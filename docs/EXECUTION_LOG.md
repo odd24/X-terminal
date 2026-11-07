@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-07 D06按用户最新两条指令归档[CR-005](changes/CR-005.md)：尽快可用初版，P14在途收口→P15/P16最小安全共享闭环→基本交付；一般完善留后续。完整需求保留，不作全v1完成结论；文档落盘/检查见[D06](records/D06.md)。Step-ID: D06。
+
 2026-11-07 ADR-058独立Windows有界JSONL审计writer完成库层：队列/同步水位分开、有限轮转/坏尾保留、真实OS失败与目录安全。95项/严格检查及未接生产服务的准确边界见[P14](records/P14.md)；继续双源服务接入/必要历史GUI及P14原验收收尾。
 
 2026-11-07 ADR-058接全typed RPC及Hello/帧/接入容量/handler/真实写帧/取消的独立元数据流，Desktop只读固定水位接口明示内存；实际302项/串口/原生分层与失败见[P14](records/P14.md)。持久层/完整历史GUI和P15真实桥继续。Step-ID: P14。
@@ -160,6 +162,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | D04.2 | Apple Mac 全局 UI/视效/布局方向 CR-004 归档 | DONE | [D04.2](records/D04.2.md) | Step-ID: D04.2 |
 | D05 | 多会话隔离开发与串行集成方案归档（未启动） | DONE | [D05](records/D05.md) | Step-ID: D05 |
 | D05.1 | 完整可复制启动与自动接续指令归档（未启动） | DONE | [D05.1](records/D05.1.md) | Step-ID: D05.1 |
+| D06 | 可用初版优先与后续迭代 CR-005 归档 | DONE | [D06](records/D06.md) | Step-ID: D06 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
