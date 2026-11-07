@@ -1,5 +1,7 @@
 #![cfg(windows)]
 mod archives;
+#[cfg(windows)]
+mod audit_journal;
 pub mod client;
 mod config;
 mod logging;

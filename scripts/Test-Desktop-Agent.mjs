@@ -3,6 +3,7 @@ import { checkForgetApproval } from './lib/AgentForgetChecks.mjs';
 import { checkReadWindowApproval } from './lib/AgentContextChecks.mjs';
 import { checkGrantForms } from './lib/AgentFormChecks.mjs';
 import { checkOutputProtection } from './lib/AgentProtectionChecks.mjs';
+import { checkAuditHistory } from './lib/AgentAuditChecks.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -250,6 +251,7 @@ try {
   await checkForgetApproval(ui, sshRef, 'SSH2');
   await checkGrantForms(ui, sshRef, profile, 'SSH2', true);
   await checkOutputProtection(ui, sshRef, 'SSH2', true);
+  await checkAuditHistory(ui, sshRef);
   console.log('PASS Agent GUI: fixed SSH generation/independent READ+WRITE+SSH CONTROL+DISCONNECT, approval does not close, no default consent, cancel/switch/one-shot approval, takeover removes Disconnect, original revoke/lost grant recovery, ID-only reload, late-close and bounded audit gap');
   await checkProfileConnect(ui, profile);
   await ui.close(); ui = await launchDesktop(directory, { fixture: true });

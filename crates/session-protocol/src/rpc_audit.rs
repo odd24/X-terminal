@@ -9,6 +9,12 @@ use session_core::{
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum View {
     Info {},
+    JournalInfo {},
+    JournalPage {
+        cursor: u64,
+        through_cursor: u64,
+        limit: usize,
+    },
     Page {
         cursor: u64,
         through_cursor: u64,
@@ -18,7 +24,12 @@ pub enum View {
 impl View {
     pub fn valid(self) -> bool {
         match self {
-            Self::Info {} => true,
+            Self::Info {} | Self::JournalInfo {} => true,
+            Self::JournalPage {
+                cursor,
+                through_cursor,
+                limit,
+            } => cursor <= through_cursor && (1..=128).contains(&limit),
             Self::Page {
                 cursor,
                 through_cursor,
@@ -30,6 +41,15 @@ impl View {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    JournalInfo {
+        service_id: Uuid,
+        status: session_core::audit_journal::Status,
+    },
+    JournalPage {
+        service_id: Uuid,
+        status: session_core::audit_journal::Status,
+        page: session_core::audit_journal::Page,
+    },
     Info {
         service_id: Uuid,
         through_cursor: u64,

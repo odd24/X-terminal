@@ -2,6 +2,66 @@ use super::*;
 use crate::session::ConnectionId;
 
 #[test]
+fn journal_failure_blocks_new_grants_and_final_dispatch_but_keeps_release_takeover_and_queries() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    struct Sink {
+        healthy: AtomicBool,
+        accept: AtomicBool,
+    }
+    impl AuditSink for Sink {
+        fn healthy(&self) -> bool {
+            self.healthy.load(Ordering::SeqCst)
+        }
+        fn record(&self, _: AuditEvent) -> bool {
+            self.accept.load(Ordering::SeqCst)
+        }
+    }
+    let sink = Arc::new(Sink {
+        healthy: AtomicBool::new(true),
+        accept: AtomicBool::new(true),
+    });
+    let mut p = Policy::default();
+    p.set_audit_sink(sink.clone());
+    let client = Uuid::new_v4();
+    let c = connection();
+    let s = scope(c, Action::Write);
+    p.grant(client, vec![s], 1000, 0).unwrap();
+    let lease = p.acquire(client, c, 500, 1).unwrap();
+    let permit = p
+        .admit(client, s, Some(lease.lease_id), Uuid::new_v4(), 2)
+        .unwrap();
+    // Real final recording rejection occurs after admission, with prior health OK.
+    sink.accept.store(false, Ordering::SeqCst);
+    assert_eq!(p.dispatch(&permit, 3), Err(Denial::CapacityExceeded));
+    assert_eq!(
+        p.audit(0, 128).unwrap().events.last().unwrap().kind,
+        AuditKind::Denied
+    );
+    let other = Uuid::new_v4();
+    assert_eq!(
+        p.grant(other, vec![s], 1000, 3),
+        Err(Denial::CapacityExceeded)
+    );
+    assert!(p.effective_scopes(other, 3).is_empty());
+    sink.healthy.store(false, Ordering::SeqCst);
+    assert_eq!(p.authorize(client, s, 3), Err(Denial::CapacityExceeded));
+    assert!(
+        p.admit(client, s, Some(lease.lease_id), Uuid::new_v4(), 3)
+            .is_err()
+    );
+    assert_eq!(p.lease(c, 3), Some(lease));
+    p.release(client, c, lease.lease_id, 3).unwrap();
+    p.takeover(c, 4);
+    p.revoke(client, 4);
+    assert!(p.lease(c, 4).is_none());
+    assert!(p.effective_scopes(client, 4).is_empty());
+    assert!(!p.audit(0, 128).unwrap().events.is_empty());
+}
+
+#[test]
 fn forget_is_independent_and_loses_its_original_permit_on_lease_replacement() {
     let mut p = Policy::default();
     let client = Uuid::new_v4();

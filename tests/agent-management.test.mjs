@@ -4,6 +4,19 @@ import assert from 'node:assert/strict';
 import { GrantApproval, checkedGrant, checkedTask, checkedTaskReply, grantRequest, checkedList, checkedLease, checkedAudit, restoreSlot, supportedActions, scopeText, parseReadWindow } from '../apps/desktop/src/agent-management.ts';
 import { OperationApproval, emptyDraft, singleActions, hexBytes, operationFingerprint, checkedOperationReply } from '../apps/desktop/src/operation-grant.ts';
 import { ruleDisplay } from '../apps/desktop/src/output-protection.ts';
+import { checkedHistory } from '../apps/desktop/src/audit-history.ts';
+
+test('persistent audit validates exact decimal cursors and never parses row metadata into authority', () => {
+  const service='11111111-1111-4111-8111-111111111111', max='18446744073709551615';
+  const status={state:'HEALTHY',accepted_through:max,synced_through:max,rejected_records:'0',incomplete_segments:'0',available_from:'0',retained_records:'1'};
+  const info={type:'info',service_id:service,status};assert.equal(checkedHistory(info,service),info);
+  const metadata='{"generation":18446744073709551615,"display":"<img onerror=bad>"}';
+  const page={type:'page',service_id:service,status,records:[{seq:max,service_id:service,category:'RPC',summary:'SSH2 / READ / ReturnedError',metadata}],next_cursor:max,through_cursor:max,available_from:'0',gap:true};
+  assert.equal(checkedHistory(page,service,'0',max).records[0].metadata,metadata);
+  for (const change of [{next_cursor:'01'},{next_cursor:18446744073709551615},{through_cursor:'1'},{token:'forbidden'},{service_id:'other'}]) assert.throws(()=>checkedHistory({...page,...change},service,'0',max));
+  assert.throws(()=>checkedHistory({...info,status:{...status,synced_through:'18446744073709551616'}},service));
+  assert.throws(()=>checkedHistory({...page,records:[page.records[0],page.records[0]]},service,'0',max));
+});
 const id='11111111-1111-4111-8111-111111111111', request='22222222-2222-7222-8222-222222222222', ticket='33333333-3333-4333-8333-333333333333';
 const connection={connection_id:id,generation:1}, target={...connection,protocol:'SSH2',state:'CONNECTED'};
 const scope=action=>({target:{kind:'connection',connection:{...connection}},action});

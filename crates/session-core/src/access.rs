@@ -166,14 +166,30 @@ pub struct AuditPage {
     pub gap: bool,
 }
 
+/// Direct, nonblocking metadata sink. It must never perform I/O or call Policy.
+pub trait AuditSink: Send + Sync {
+    fn record(&self, event: AuditEvent) -> bool;
+    fn healthy(&self) -> bool;
+}
 #[derive(Default)]
 pub struct Policy {
     grants: HashMap<Uuid, Grant>,
     leases: HashMap<ConnectionRef, Lease>,
     audit: VecDeque<AuditEvent>,
     next_seq: u64,
+    sink: Option<std::sync::Arc<dyn AuditSink>>,
 }
 impl Policy {
+    pub fn set_audit_sink(&mut self, sink: std::sync::Arc<dyn AuditSink>) {
+        self.sink = Some(sink);
+    }
+    fn recording(&self) -> Result<(), Denial> {
+        if self.sink.as_ref().is_none_or(|s| s.healthy()) {
+            Ok(())
+        } else {
+            Err(Denial::CapacityExceeded)
+        }
+    }
     /// Management metadata only; never an authorization shortcut.
     pub fn effective_scopes(&self, client: Uuid, now: u64) -> Vec<Scope> {
         self.grants
@@ -190,7 +206,7 @@ impl Policy {
         scope: Option<Scope>,
         request: Option<Uuid>,
         denial: Option<Denial>,
-    ) {
+    ) -> bool {
         // Sequence overflow is unreachable within a service lifetime; never wrap a cursor.
         self.next_seq = self
             .next_seq
@@ -199,7 +215,7 @@ impl Policy {
         if self.audit.len() == MAX_AUDIT {
             self.audit.pop_front();
         }
-        self.audit.push_back(AuditEvent {
+        let mut event = AuditEvent {
             seq: self.next_seq,
             timestamp_ms: now,
             kind,
@@ -207,7 +223,22 @@ impl Policy {
             scope,
             request_id: request,
             denial,
-        });
+        };
+        let recorded = self.sink.as_ref().is_none_or(|s| s.record(event.clone()));
+        if !recorded
+            && matches!(
+                kind,
+                AuditKind::Granted
+                    | AuditKind::LeaseAcquired
+                    | AuditKind::Admitted
+                    | AuditKind::Dispatched
+            )
+        {
+            event.kind = AuditKind::Denied;
+            event.denial = Some(Denial::CapacityExceeded);
+        }
+        self.audit.push_back(event);
+        recorded
     }
     fn prune(&mut self, now: u64) {
         self.grants.retain(|_, grant| grant.expires_at_ms > now);
@@ -234,6 +265,7 @@ impl Policy {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<u64, Denial> {
+        self.recording()?;
         let expires = now
             .checked_add(lifetime_ms)
             .ok_or(Denial::InvalidArgument)?;
@@ -265,7 +297,10 @@ impl Policy {
                 expires_at_ms: expires,
             },
         );
-        self.record(now, AuditKind::Granted, Some(client), None, None, None);
+        if !self.record(now, AuditKind::Granted, Some(client), None, None, None) {
+            self.grants.remove(&client);
+            return Err(Denial::CapacityExceeded);
+        }
         Ok(expires)
     }
     fn allowed(&self, client: Uuid, scope: Scope, now: u64) -> Result<(), Denial> {
@@ -311,6 +346,7 @@ impl Policy {
         }
     }
     pub fn authorize(&self, client: Uuid, scope: Scope, now: u64) -> Result<(), Denial> {
+        self.recording()?;
         self.allowed(client, scope, now)
     }
     pub fn revoke(&mut self, client: Uuid, now: u64) {
@@ -325,6 +361,7 @@ impl Policy {
         lifetime_ms: u64,
         now: u64,
     ) -> Result<Lease, Denial> {
+        self.recording()?;
         self.prune(now);
         let grant = self.grants.get(&client).ok_or(Denial::PermissionDenied)?;
         if !grant.scopes.iter().any(|s| {
@@ -352,7 +389,7 @@ impl Policy {
             expires_at_ms: expires,
         };
         self.leases.insert(connection, lease);
-        self.record(
+        let recorded = self.record(
             now,
             AuditKind::LeaseAcquired,
             Some(client),
@@ -363,6 +400,10 @@ impl Policy {
             None,
             None,
         );
+        if !recorded {
+            self.leases.remove(&connection);
+            return Err(Denial::CapacityExceeded);
+        }
         Ok(lease)
     }
     pub fn lease(&self, connection: ConnectionRef, now: u64) -> Option<Lease> {
@@ -480,7 +521,7 @@ impl Policy {
             lease_id,
         };
         let result = self.check(&permit, now);
-        self.record(
+        let recorded = self.record(
             now,
             if result.is_ok() {
                 AuditKind::Admitted
@@ -492,9 +533,13 @@ impl Policy {
             Some(request),
             result.err(),
         );
+        if !recorded {
+            return Err(Denial::CapacityExceeded);
+        }
         result.map(|()| permit)
     }
     fn check(&self, permit: &Permit, now: u64) -> Result<(), Denial> {
+        self.recording()?;
         self.allowed(permit.client_id, permit.scope, now)?;
         let grant = self
             .grants
@@ -526,7 +571,7 @@ impl Policy {
     /// Validate immediately before transport dispatch; permission at enqueue is insufficient.
     pub fn dispatch(&mut self, permit: &Permit, now: u64) -> Result<(), Denial> {
         let result = self.check(permit, now);
-        self.record(
+        let recorded = self.record(
             now,
             if result.is_ok() {
                 AuditKind::Dispatched
@@ -538,6 +583,9 @@ impl Policy {
             Some(permit.request_id),
             result.err(),
         );
+        if !recorded {
+            return Err(Denial::CapacityExceeded);
+        }
         result
     }
     pub fn dispatch_for(&mut self, client: Uuid, permit: &Permit, now: u64) -> Result<(), Denial> {

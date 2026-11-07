@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-07 P14软件工作包DONE：全RPC/Policy直接持久审计、故障安全与必要只读历史收尾，原验收逐项核对；同一最终Desktop19入口实际分段覆盖/首次失败与补验、普通恢复及资源指纹见[P14](records/P14.md)，不冒称完整命令单轮PASS。按CR-005下一P15/P16最小安全共享闭环，不扩大精修。Step-ID: P14。
+
 2026-11-07 D06按用户最新两条指令归档[CR-005](changes/CR-005.md)：尽快可用初版，P14在途收口→P15/P16最小安全共享闭环→基本交付；一般完善留后续。完整需求保留，不作全v1完成结论；文档落盘/检查见[D06](records/D06.md)。Step-ID: D06。
 
 2026-11-07 ADR-058独立Windows有界JSONL审计writer完成库层：队列/同步水位分开、有限轮转/坏尾保留、真实OS失败与目录安全。95项/严格检查及未接生产服务的准确边界见[P14](records/P14.md)；继续双源服务接入/必要历史GUI及P14原验收收尾。
@@ -189,7 +191,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
-| P14 | Agent 授权与调度（派发/管理/连接能力GUI及建连/断开服务已有；Profile批准/上下文范围/真实桥/完整审计继续） | IN_PROGRESS | [P14](records/P14.md) | Step-ID: P14 |
+| P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | MCP 工具实现 | TODO | 待创建 | — |
 | P16 | Codex 真机闭环 | TODO | 待创建 | — |
 | P17 | 标签组与工作区 | TODO | 待创建 | — |

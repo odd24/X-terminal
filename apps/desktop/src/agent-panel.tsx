@@ -10,6 +10,7 @@ import { OperationGrantPanel } from './operation-grant-panel';
 import { checkedOperationReply, operationFingerprint } from './operation-grant';
 import type { Redaction } from './output-protection';
 import { OutputProtectionEditor, OutputProtectionPreview } from './output-protection-editor';
+import { AuditHistoryPanel } from './audit-history-panel';
 
 const call = (request: Record<string, unknown>) => invoke<unknown>('agent_management_request', { request });
 const readSlot = () => { try { return restoreSlot(sessionStorage.getItem(slotKey)); } catch { return undefined; } };
@@ -174,7 +175,8 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
           }
         });
       }}>确认Agent变更</button></fieldset>}
-    <details><summary>本服务审计与上下文范围</summary><p>最多512条元数据环，单页最多128；只显示本页，不拼成无限历史。服务相对时间不是北京时间日期。缺口表示更早条目已覆盖，尚无完整持久审计交付。</p>
+    <AuditHistoryPanel serviceId={serviceId} />
+    <details><summary>本服务审计与上下文范围</summary><p>最多512条策略元数据环，单页最多128；只显示本页，不拼成无限历史。服务相对时间不是北京时间日期。缺口表示更早条目已覆盖，跨服务历史请使用上方持久审计入口。</p>
       <div className="config-actions"><button disabled={busy} onClick={() => void run(async () => { const result = checkedAudit(await call({ op: 'audit', cursor: 0, limit: 128 }), 0); if (alive.current) { setAudit(result); setMessage('已读取首个保留审计页；未读取终端正文。'); } })}>读取保留审计</button><button disabled={busy || !audit} onClick={() => { if (!audit) return; const cursor = audit.next_cursor; void run(async () => { const result = checkedAudit(await call({ op: 'audit', cursor, limit: 128 }), cursor); if (alive.current) { setAudit(result); setMessage('已读取下一审计页；之前页未在窗口无限累积。'); } }); }}>下一页审计</button></div>
       {audit && <div aria-label="Agent审计页"><p>可用起点 {audit.available_from} · 下一游标 {audit.next_cursor} · {audit.gap ? '审计缺口：较早条目已覆盖' : '本页无覆盖缺口'}</p><ul>{audit.events.map(event => <li key={event.seq}>#{event.seq} · 服务相对 {event.timestamp_ms}ms · {event.kind} · 客户端 {event.client_id ?? '—'} · 请求 {event.request_id ?? '—'} · {event.scope ? scopeText(event.scope) : '无连接范围'} · {event.denial ?? '—'}</li>)}</ul></div>}
     </details>

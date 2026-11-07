@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent_management;
+mod audit_history;
 mod export_save;
 mod service;
 mod terminal_clipboard;
@@ -153,6 +154,27 @@ async fn agent_management_request(
         _ => {
             *channel = None;
             Err("AGENT_CHANNEL_UNAVAILABLE".into())
+        }
+    }
+}
+
+#[tauri::command]
+async fn audit_history_request(
+    state: State<'_, Desktop>,
+    request: audit_history::Request,
+) -> Result<audit_history::Reply, String> {
+    let view = request.into_protocol()?;
+    let mut channel = state.1.lock().await;
+    let client = channel.as_mut().ok_or("AUDIT_CHANNEL_UNAVAILABLE")?;
+    match client.request(Request::RpcAudit { view }).await {
+        Ok(session_protocol::Response::Ok {
+            reply: Reply::RpcAudit(reply),
+            ..
+        }) => audit_history::Reply::project(reply),
+        Ok(session_protocol::Response::Error { code, .. }) => Err(code.to_string()),
+        _ => {
+            *channel = None;
+            Err("AUDIT_CHANNEL_UNAVAILABLE".into())
         }
     }
 }
@@ -401,6 +423,7 @@ fn main() {
             config_request,
             logging_request,
             agent_management_request,
+            audit_history_request,
             export_save_request,
             config_directory
         ])

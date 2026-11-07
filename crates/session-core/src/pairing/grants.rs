@@ -330,6 +330,89 @@ impl Pairing {
 mod tests {
     use super::*;
     use crate::session::ConnectionId;
+    #[test]
+    fn failed_journal_keeps_original_grant_lookup_replay_and_revocation_without_renewal() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        struct Sink(AtomicBool);
+        impl access::AuditSink for Sink {
+            fn record(&self, _: access::AuditEvent) -> bool {
+                self.0.load(Ordering::SeqCst)
+            }
+            fn healthy(&self) -> bool {
+                self.0.load(Ordering::SeqCst)
+            }
+        }
+        let (mut p, desktop, scope) = setup();
+        let sink = Arc::new(Sink(AtomicBool::new(true)));
+        p.set_audit_sink(sink.clone());
+        let id = Uuid::new_v4();
+        let first = p
+            .issue_managed_agent(&desktop, id, vec![scope], 100, 0)
+            .unwrap();
+        let original = first.view.summary;
+        let connection = scope.target.connection().unwrap();
+        let full = Scope {
+            target: Target::Connection { connection },
+            action: Action::Read,
+        };
+        let window = crate::context::TimeWindow {
+            from_ms: 1,
+            until_ms: 10,
+        };
+        let bounded = Scope {
+            target: Target::OutputWindow { connection, window },
+            action: Action::Read,
+        };
+        let (reader, _, _) = p.issue_agent(&desktop, vec![full], 100, 0).unwrap();
+        let (bounded_reader, _, _) = p.issue_agent(&desktop, vec![bounded], 100, 0).unwrap();
+        assert_eq!(
+            p.can_read_context(&bounded_reader, connection, window, 1),
+            Ok(())
+        );
+        sink.0.store(false, Ordering::SeqCst);
+        assert_eq!(
+            p.can_read(&reader, connection, 20),
+            Err(ErrorCode::CapacityExceeded)
+        );
+        assert_eq!(
+            p.can_read_context(&reader, connection, window, 20),
+            Err(ErrorCode::CapacityExceeded)
+        );
+        assert_eq!(
+            p.can_read_context(&bounded_reader, connection, window, 20),
+            Err(ErrorCode::CapacityExceeded)
+        );
+        assert_eq!(
+            p.can_observe(&bounded_reader, connection, 20),
+            Ok(()),
+            "own metadata discovery remains a safe query"
+        );
+        let replay = p
+            .issue_managed_agent(&desktop, id, vec![scope], 100, 20)
+            .unwrap();
+        assert_eq!(replay.view.summary.ticket_id, original.ticket_id);
+        assert_eq!(replay.view.summary.expires_at_ms, original.expires_at_ms);
+        assert_eq!(
+            p.grant_status(&desktop, id, 20)
+                .unwrap()
+                .view
+                .summary
+                .ticket_id,
+            original.ticket_id
+        );
+        assert!(
+            p.issue_managed_agent(&desktop, Uuid::new_v4(), vec![scope], 100, 20)
+                .is_err()
+        );
+        p.revoke(&desktop, original.ticket_id, 20).unwrap();
+        assert_eq!(
+            p.grant_status(&desktop, id, 20).unwrap().view.summary.state,
+            State::Revoked
+        );
+    }
     fn setup() -> (Pairing, Identity, Scope) {
         let bootstrap = SecretToken::generate();
         let p = Pairing::new(&bootstrap);

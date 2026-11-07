@@ -39,6 +39,7 @@ impl Store {
     }
 }
 struct Runtime {
+    audit_journal: crate::audit_journal::Journal,
     request_audit: crate::request_audit::Audit,
     logging: crate::logging::Manager,
     config: crate::config::ConfigWorker,
@@ -276,7 +277,13 @@ impl Runtime {
         match request {
             Request::RpcAudit { view } => {
                 store.pairing.require_desktop(identity, now)?;
-                self.request_audit.query(view).map(Reply::RpcAudit)
+                match view {
+                    rpc_audit::View::JournalInfo {} | rpc_audit::View::JournalPage { .. } => {
+                        self.audit_journal.query(view)
+                    }
+                    _ => self.request_audit.query(view),
+                }
+                .map(Reply::RpcAudit)
             }
             Request::Agent { request } => {
                 use agent::{Reply as R, Request as A};
@@ -685,11 +692,21 @@ pub async fn serve_with_config(
     // No endpoint gap: create the next listener before handing this connection off.
     let mut listener = security.create(&name, true)?;
     let (shutdown, mut stopping) = watch::channel(false);
+    let configured = directory.is_some();
     let config = crate::config::ConfigWorker::start(directory)?;
     let started = Instant::now();
+    let service_id = Uuid::new_v4();
+    let audit_journal =
+        crate::audit_journal::Journal::start(config.access(), configured, service_id).await;
+    let mut pairing = Pairing::new(&bootstrap);
+    // Explicit no-directory test fixtures retain their ephemeral policy tests.
+    // An ordinary service without durable storage cannot issue Agent permits.
+    if configured || !fixture {
+        pairing.set_audit_sink(audit_journal.policy_sink());
+    }
     let store = Arc::new(Mutex::new(Store {
         sessions: Sessions::default(),
-        pairing: Pairing::new(&bootstrap),
+        pairing,
         started,
     }));
     let ssh = crate::ssh::Manager::new(store.clone(), config.access());
@@ -697,9 +714,10 @@ pub async fn serve_with_config(
     let logging = crate::logging::Manager::new(store.clone(), config.access())?;
     #[cfg(feature = "serial-ui-fixture")]
     let serial = if fixture { serial.ui_fixture() } else { serial };
-    let service_id = Uuid::new_v4();
     let runtime = Arc::new(Runtime {
-        request_audit: crate::request_audit::Audit::new(service_id, started),
+        request_audit: crate::request_audit::Audit::new(service_id, started)
+            .with_sink(audit_journal.sink()),
+        audit_journal,
         logging,
         config,
         ssh,
@@ -752,8 +770,11 @@ pub async fn serve_with_config(
     runtime.ssh.close().await;
     let serial_result = runtime.serial.close().await;
     let logging_result = runtime.logging.close().await;
-    runtime.config.close().await?;
+    let audit_result = runtime.audit_journal.close().await;
+    let config_result = runtime.config.close().await;
     serial_result?;
     logging_result?;
+    audit_result?;
+    config_result?;
     Ok(())
 }

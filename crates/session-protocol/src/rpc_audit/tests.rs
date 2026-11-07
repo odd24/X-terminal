@@ -223,4 +223,63 @@ fn read_contract_is_strict_bounded_and_maximal_metadata_page_fits_a_real_frame()
         }),
     };
     assert!(serde_json::to_vec(&reply).unwrap().len() < crate::MAX_FRAME / 2);
+    let page = ring.page(0, ring.through_cursor(), 128).unwrap();
+    let journal = session_core::audit_journal::Page {
+        records: page
+            .events
+            .into_iter()
+            .map(|event| session_core::audit_journal::Record {
+                seq: event.seq,
+                service_id: id,
+                payload: session_core::audit_journal::Payload::Rpc(event),
+            })
+            .collect(),
+        next_cursor: page.next_cursor,
+        through_cursor: page.through_cursor,
+        available_from: page.available_from,
+        gap: page.gap,
+    };
+    let status = session_core::audit_journal::Status {
+        state: session_core::audit_journal::State::Healthy,
+        accepted_through: u64::MAX,
+        synced_through: u64::MAX,
+        rejected_records: u64::MAX,
+        incomplete_segments: u32::MAX,
+        available_from: u64::MAX,
+        retained_records: 8192,
+    };
+    let reply = crate::Response::Ok {
+        id: u32::MAX,
+        reply: crate::Reply::RpcAudit(Reply::JournalPage {
+            service_id: id,
+            status,
+            page: journal,
+        }),
+    };
+    assert!(serde_json::to_vec(&reply).unwrap().len() < crate::MAX_FRAME / 2);
+    for view in [
+        View::JournalPage {
+            cursor: 2,
+            through_cursor: 1,
+            limit: 1,
+        },
+        View::JournalPage {
+            cursor: 0,
+            through_cursor: 1,
+            limit: 0,
+        },
+        View::JournalPage {
+            cursor: 0,
+            through_cursor: 1,
+            limit: 129,
+        },
+    ] {
+        assert!(!view.valid());
+    }
+    assert!(
+        serde_json::from_value::<View>(
+            serde_json::json!({"kind":"journal_info","token":"forbidden"})
+        )
+        .is_err()
+    );
 }

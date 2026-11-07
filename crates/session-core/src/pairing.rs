@@ -71,6 +71,9 @@ pub struct Pairing {
 }
 
 impl Pairing {
+    pub fn set_audit_sink(&mut self, sink: std::sync::Arc<dyn access::AuditSink>) {
+        self.policy.set_audit_sink(sink);
+    }
     /// Bootstrap arrives over the parent process's anonymous pipe, not argv/env.
     pub fn new(bootstrap: &SecretToken) -> Self {
         let ticket = Ticket {
@@ -178,8 +181,12 @@ impl Pairing {
         if !window.valid() {
             return Err(ErrorCode::InvalidArgument);
         }
-        if self.can_read(identity, reference, now).is_ok() {
-            return Ok(());
+        match self.can_read(identity, reference, now) {
+            Ok(()) => return Ok(()),
+            Err(ErrorCode::PermissionDenied) => (),
+            // A failed recorder is not a missing full-Read scope. Never allow
+            // the window fallback to bypass that independent health boundary.
+            Err(error) => return Err(error),
         }
         if self.is_agent(identity, now)? && self.policy.effective_scopes(identity.ticket_id, now).iter().any(|scope| {
             matches!(scope.target, Target::OutputWindow { connection, window: approved } if connection == reference && approved.contains(window)) && scope.action == Action::Read

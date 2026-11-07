@@ -3436,6 +3436,50 @@
           {
             "additionalProperties": false,
             "properties": {
+              "kind": {
+                "const": "journal_info",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "journal_page",
+                "type": "string"
+              },
+              "limit": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "cursor",
+              "through_cursor",
+              "limit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "cursor": {
                 "format": "uint64",
                 "minimum": 0,
@@ -4604,7 +4648,7 @@
             "$ref": "#/$defs/Protocol"
           },
           "state": {
-            "$ref": "#/$defs/State4"
+            "$ref": "#/$defs/State5"
           }
         },
         "required": [
@@ -5780,6 +5824,43 @@
         "additionalProperties": false,
         "properties": {
           "available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/$defs/Record"
+            },
+            "type": "array"
+          },
+          "through_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "records",
+          "next_cursor",
+          "through_cursor",
+          "available_from",
+          "gap"
+        ],
+        "type": "object"
+      },
+      "Page2": {
+        "additionalProperties": false,
+        "properties": {
+          "available_from": {
             "description": "Exclusive cursor before the first retained event.",
             "format": "uint64",
             "minimum": 0,
@@ -5815,7 +5896,7 @@
         ],
         "type": "object"
       },
-      "Page2": {
+      "Page3": {
         "additionalProperties": false,
         "properties": {
           "available_from": {
@@ -5857,6 +5938,44 @@
           "even"
         ],
         "type": "string"
+      },
+      "Payload": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "event": {
+                "$ref": "#/$defs/Event"
+              },
+              "kind": {
+                "const": "rpc",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "event"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "event": {
+                "$ref": "#/$defs/AuditEvent"
+              },
+              "kind": {
+                "const": "policy",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "event"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "Phase": {
         "oneOf": [
@@ -6066,6 +6185,29 @@
           "FIXTURE"
         ],
         "type": "string"
+      },
+      "Record": {
+        "additionalProperties": false,
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/Payload"
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "service_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "service_id",
+          "payload"
+        ],
+        "type": "object"
       },
       "RecoveryEntry": {
         "additionalProperties": false,
@@ -6576,6 +6718,54 @@
           {
             "additionalProperties": false,
             "properties": {
+              "result": {
+                "const": "journal_info",
+                "type": "string"
+              },
+              "service_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/$defs/Status"
+              }
+            },
+            "required": [
+              "result",
+              "service_id",
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "$ref": "#/$defs/Page"
+              },
+              "result": {
+                "const": "journal_page",
+                "type": "string"
+              },
+              "service_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/$defs/Status"
+              }
+            },
+            "required": [
+              "result",
+              "service_id",
+              "status",
+              "page"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "active_attempts": {
                 "format": "uint",
                 "minimum": 0,
@@ -6617,7 +6807,7 @@
             "additionalProperties": false,
             "properties": {
               "page": {
-                "$ref": "#/$defs/Page"
+                "$ref": "#/$defs/Page2"
               },
               "persistent": {
                 "type": "boolean"
@@ -7443,7 +7633,7 @@
                 "type": "string"
               },
               "state": {
-                "$ref": "#/$defs/State2"
+                "$ref": "#/$defs/State3"
               }
             },
             "required": [
@@ -7469,7 +7659,7 @@
                 "type": "string"
               },
               "state": {
-                "$ref": "#/$defs/State3"
+                "$ref": "#/$defs/State4"
               }
             },
             "required": [
@@ -7704,7 +7894,7 @@
                 "type": "string"
               },
               "state": {
-                "$ref": "#/$defs/State2"
+                "$ref": "#/$defs/State3"
               }
             },
             "required": [
@@ -7730,7 +7920,7 @@
                 "type": "string"
               },
               "state": {
-                "$ref": "#/$defs/State3"
+                "$ref": "#/$defs/State4"
               }
             },
             "required": [
@@ -7788,7 +7978,7 @@
                 "$ref": "#/$defs/ConnectionRef"
               },
               "output": {
-                "$ref": "#/$defs/Page2"
+                "$ref": "#/$defs/Page3"
               },
               "result": {
                 "const": "exec_output",
@@ -8455,13 +8645,23 @@
       },
       "State": {
         "enum": [
+          "DISABLED",
+          "HEALTHY",
+          "QUEUE_FULL",
+          "STORAGE_FAILURE",
+          "CLOSED"
+        ],
+        "type": "string"
+      },
+      "State2": {
+        "enum": [
           "ACTIVE",
           "EXPIRED",
           "REVOKED"
         ],
         "type": "string"
       },
-      "State2": {
+      "State3": {
         "oneOf": [
           {
             "const": "REMOVED",
@@ -8470,7 +8670,7 @@
           }
         ]
       },
-      "State3": {
+      "State4": {
         "oneOf": [
           {
             "const": "REQUESTED",
@@ -8484,7 +8684,7 @@
           }
         ]
       },
-      "State4": {
+      "State5": {
         "enum": [
           "DISCONNECTED",
           "CONNECTING",
@@ -8494,6 +8694,57 @@
           "FAILED"
         ],
         "type": "string"
+      },
+      "Status": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_through": {
+            "description": "Last queue acceptance, NOT a durability acknowledgement.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "available_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "incomplete_segments": {
+            "description": "Historical malformed/incomplete segment tails; their valid prefixes survive.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rejected_records": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retained_records": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/$defs/State"
+          },
+          "synced_through": {
+            "description": "Only advances after the writer's sync_all succeeds.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "accepted_through",
+          "synced_through",
+          "rejected_records",
+          "incomplete_segments",
+          "available_from",
+          "retained_records"
+        ],
+        "type": "object"
       },
       "Summary": {
         "additionalProperties": false,
@@ -8513,7 +8764,7 @@
             "type": "string"
           },
           "state": {
-            "$ref": "#/$defs/State"
+            "$ref": "#/$defs/State2"
           },
           "ticket_id": {
             "format": "uuid",

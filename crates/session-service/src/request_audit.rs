@@ -19,6 +19,7 @@ pub(crate) struct Audit {
     failures: Arc<AtomicU64>,
     started: Instant,
     service_id: Uuid,
+    sink: Option<terminal_log::audit::Sink>,
 }
 impl Audit {
     pub(crate) fn new(service_id: Uuid, started: Instant) -> Self {
@@ -27,7 +28,12 @@ impl Audit {
             failures: Arc::new(AtomicU64::new(0)),
             started,
             service_id,
+            sink: None,
         }
+    }
+    pub(crate) fn with_sink(mut self, sink: Option<terminal_log::audit::Sink>) -> Self {
+        self.sink = sink;
+        self
     }
     fn time(&self) -> Time {
         Time {
@@ -39,7 +45,10 @@ impl Audit {
             elapsed_ms: self.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
         }
     }
-    fn edit<T>(&self, f: impl FnOnce(&mut Ring) -> Result<T, ErrorCode>) -> Result<T, ErrorCode> {
+    fn edit(
+        &self,
+        f: impl FnOnce(&mut Ring) -> Result<Event, ErrorCode>,
+    ) -> Result<Event, ErrorCode> {
         let result = self
             .ring
             .lock()
@@ -51,6 +60,11 @@ impl Audit {
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
                     Some(v.saturating_add(1))
                 });
+        }
+        if let (Ok(event), Some(sink)) = (&result, &self.sink) {
+            // Queue failure is visible in journal health and fails new policy
+            // permits; it must not prevent safe original-ID receipt recovery.
+            let _ = sink.submit(session_core::audit_journal::Payload::Rpc(*event));
         }
         result
     }
@@ -126,6 +140,7 @@ impl Audit {
                 record_failures: failures,
                 persistent: false,
             }),
+            _ => Err(ErrorCode::InvalidArgument),
         }
     }
 }
