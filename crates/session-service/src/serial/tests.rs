@@ -1,6 +1,8 @@
 use super::*;
 #[path = "tests_disconnect.rs"]
 mod disconnect_tests;
+#[path = "tests_forget.rs"]
+mod forget_tests;
 use session_protocol::{
     SensitiveBytes,
     config::{ConfigRequest, CredentialEdit},

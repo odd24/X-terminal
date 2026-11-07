@@ -2,6 +2,8 @@
 use super::*;
 #[path = "agent_serial_disconnect.rs"]
 mod disconnect_cases;
+#[path = "agent_serial_forget.rs"]
+mod forget_cases;
 use session_protocol::serial::{self as s, InputState, Reply as SR, Request as S};
 
 async fn call(client: &mut Client, request: S) -> SR {

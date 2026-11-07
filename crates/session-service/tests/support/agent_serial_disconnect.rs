@@ -1,7 +1,7 @@
 use super::*;
 use session_core::disconnect::{Receipt, State as D};
 
-async fn disconnect(
+pub(super) async fn disconnect(
     client: &mut Client,
     connection: ConnectionRef,
     id: Uuid,
@@ -23,7 +23,7 @@ async fn disconnect(
     };
     receipt
 }
-async fn ended(client: &mut Client, connection: ConnectionRef, id: Uuid) -> Receipt {
+pub(super) async fn ended(client: &mut Client, connection: ConnectionRef, id: Uuid) -> Receipt {
     timeout(Duration::from_secs(5), async {
         loop {
             let receipt = disconnect(client, connection, id, true).await;

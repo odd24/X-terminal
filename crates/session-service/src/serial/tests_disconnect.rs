@@ -184,6 +184,25 @@ async fn serial_disconnect_lost_join_report_does_not_prove_transport_cleanup() {
     };
     let failed = status(&manager, connection, State::Failed).await;
     assert!(failed.cleanup_pending);
+    let forget_id = Uuid::new_v4();
+    assert!(matches!(
+        manager
+            .handle(Request::ForgetStart {
+                connection,
+                request_id: forget_id
+            })
+            .await,
+        Err(ErrorCode::InvalidState)
+    ));
+    assert!(matches!(
+        manager
+            .handle(Request::ForgetStatus {
+                connection,
+                request_id: forget_id
+            })
+            .await,
+        Err(ErrorCode::NotFound)
+    ));
     assert_eq!(
         disconnect(&manager, connection, id, true).await.state,
         D::Requested
@@ -210,6 +229,15 @@ async fn serial_disconnect_lost_join_report_does_not_prove_transport_cleanup() {
         disconnect(&manager, connection, id, true).await.state,
         D::TransportEnded
     );
+    assert!(matches!(
+        manager
+            .handle(Request::ForgetStart {
+                connection,
+                request_id: forget_id
+            })
+            .await,
+        Ok(Reply::Forget(_))
+    ));
     manager.close().await.unwrap();
     config.close().await.unwrap();
 }

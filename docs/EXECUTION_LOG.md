@@ -2,6 +2,8 @@
 
 2026-11-07 D05执行优化已采纳：完整能力规划、分层验证与证据去重，取消每两个提交强制交接，保留唯一写入者与必要核验；范围/验收不变，详见[D05](records/D05.md)和[变更管理](CHANGE_CONTROL.md)。Step-ID: D05。
 
+2026-11-07 后继A从9c23aca完成只读核验并获前任明确唯一写入权，按ADR-054推进串口Agent Forget独立范围/lease/原owner回执及实际worker join/无未结ticket证明；准确验证终态见P14，不预填完成。两协议GUI/真实桥及完整R01–R16/P01–P25持续。Step-ID: P14。
+
 2026-11-07 SSH Forget子步完成软件证据：ADR-054独立Forget/lease、原owner完成回执、gate后重验及实际Actor/传输释放；最终229相关Rust/83真实Windows IPC、54前端/lint/严格clippy/fmt、实际desktop:build和16:14:48–16:22:49完整19入口PASS。两次串口普通服务实际恢复/资源0，首轮测试错误/队列竞态修正与最终指纹见P14。第一成果f217e3c，串口Forget/GUI/真实桥及完整R01–R16/P01–P25继续。Step-ID: P14。
 
 2026-11-07 Forget核心已提交f217e3c，现接SSH ForgetStart/ForgetStatus、独立范围/lease、gate后同许可及真实Actor/传输结束检查，原owner完成回执先查。前端仅识别元数据、不开放GUI批准；最终真实测试与原生终态见P14，串口/真实桥及完整R01–R16/P01–P25继续。Step-ID: P14。

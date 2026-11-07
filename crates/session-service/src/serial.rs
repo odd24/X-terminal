@@ -26,6 +26,7 @@ mod disconnect;
 mod entry;
 #[cfg(feature = "serial-ui-fixture")]
 mod fixture;
+mod forget;
 mod start;
 #[cfg(test)]
 mod tests;
@@ -84,6 +85,7 @@ struct Entry {
 }
 #[derive(Default)]
 struct Inner {
+    forgets: session_core::forget::Receipts,
     disconnects: session_core::disconnect::Receipts,
     revision: Uuid,
     devices: HashMap<Uuid, Device>,
@@ -139,6 +141,8 @@ impl Manager {
                 || !matches!(
                     request,
                     Request::Start { .. }
+                        | Request::ForgetStart { .. }
+                        | Request::ForgetStatus { .. }
                         | Request::Write { .. }
                         | Request::Send { .. }
                         | Request::Control { .. }
@@ -166,6 +170,14 @@ impl Manager {
         }
         self.tick();
         match request {
+            Request::ForgetStart {
+                connection,
+                request_id,
+            } => self.forget_as(identity, connection, request_id, false),
+            Request::ForgetStatus {
+                connection,
+                request_id,
+            } => self.forget_as(identity, connection, request_id, true),
             Request::Disconnect {
                 connection,
                 request_id,

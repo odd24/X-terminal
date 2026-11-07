@@ -9,6 +9,14 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    ForgetStart {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
+    ForgetStatus {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Send {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -95,7 +103,15 @@ impl Request {
                     && !bytes.expose().is_empty()
                     && bytes.expose().len() <= 65536
             }
-            Self::Control {
+            Self::ForgetStart {
+                connection,
+                request_id,
+            }
+            | Self::ForgetStatus {
+                connection,
+                request_id,
+            }
+            | Self::Control {
                 connection,
                 request_id,
                 ..
@@ -178,6 +194,7 @@ pub struct Status {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    Forget(session_core::forget::Receipt),
     Disconnect(session_core::disconnect::Receipt),
     Inventory {
         revision: Uuid,
@@ -202,7 +219,12 @@ mod tests {
             connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
             generation: 1,
         };
-        for op in ["disconnect", "disconnect_status"] {
+        for op in [
+            "disconnect",
+            "disconnect_status",
+            "forget_start",
+            "forget_status",
+        ] {
             let mut value = serde_json::json!({"op": op, "connection": connection, "request_id": Uuid::new_v4()});
             assert!(
                 serde_json::from_value::<Request>(value.clone())
