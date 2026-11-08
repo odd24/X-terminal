@@ -111,6 +111,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 .tab-tools { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin-bottom: var(--space-2); }
 [role="tablist"] { display: flex; flex: 1; overflow-x: auto; min-width: 0; gap: var(--space-1); }
 .connection-tab { display: flex; flex-shrink: 0; }
+.tab-group-marker { display: flex; align-items: center; flex-shrink: 0; padding-inline: var(--space-2); border-inline-start: var(--border-width) solid var(--border); color: var(--text-muted); font-size: var(--text-sm); }
 .connection-tab [role="tab"] { max-width: var(--tab-max-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .connection-tab small { display: block; color: var(--text-muted); font-size: var(--text-xs); }
 .connection-tab [aria-selected="true"] { border-color: var(--accent); background: var(--control-hover); }

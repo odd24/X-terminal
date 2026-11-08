@@ -21,6 +21,9 @@ import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { QuickConnect, type SavedConnectIntent } from './quick-connect';
 import { SessionTabClosures } from './session-tab-closures';
+import { TabGroups } from './tab-groups';
+import { TabGroupsPanel } from './tab-groups-panel';
+import { SessionTabs } from './session-tabs';
 import { Dialog } from './ui';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
@@ -53,6 +56,8 @@ function App() {
   const [requestedProfile, setRequestedProfile] = useState<Profile>();
   const [tabOrder, setTabOrder] = useState<string[]>([]);
   const tabClosures=useRef(new SessionTabClosures());
+  const tabGroups=useRef(new TabGroups());
+  const [groupEpoch,setGroupEpoch]=useState(0),[groupsOpen,setGroupsOpen]=useState(false);
   const [,setTabEpoch]=useState(0);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const catalog = useRef(new ConnectionCatalog());
@@ -147,6 +152,7 @@ function App() {
     const ids = new Set(retained.map(item => item.connection_id));
     setTabOrder(previous => previous.filter(id => ids.has(id)));
     tabClosures.current.retain(owner,retained);
+    tabGroups.current.retain(owner,retained);setGroupEpoch(value=>value+1);
     setCatalogEpoch(value => value + 1);
     let disposed = false, timer = 0;
     async function readDetails() {
@@ -179,7 +185,7 @@ function App() {
     reveal(); const observer = new ResizeObserver(reveal);
     if (tabList.current) observer.observe(tabList.current);
     return () => observer.disconnect();
-  }, [selected, tabOrder]);
+  }, [selected, tabOrder, groupEpoch]);
 
   useEffect(() => {
     const unlisten = getCurrentWindow().onCloseRequested(event => {
@@ -496,10 +502,10 @@ function App() {
     } catch { setInputFailure('服务端屏幕读取失败；未重试。'); }
   }
 
-  const tabs = [...connections.filter(item => !tabClosures.current.isHidden(item))].sort((a, b) => {
+  const tabs = tabGroups.current.order([...connections.filter(item => !tabClosures.current.isHidden(item))].sort((a, b) => {
     const rank = (id: string) => tabOrder.includes(id) ? tabOrder.indexOf(id) : tabOrder.length + connections.findIndex(item => item.connection_id === id);
     return rank(a.connection_id) - rank(b.connection_id);
-  });
+  }));
   const active = connections.find(item => item.connection_id === selected);
   const activeDetails = active && catalog.current.get(active);
   const activeLog = active && loggingSummary?.connection.connection_id === active.connection_id && loggingSummary.connection.generation === active.generation ? loggingSummary.text : active ? '正在查询本次日志状态' : '尚无活动连接';
@@ -567,6 +573,7 @@ function App() {
       <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
       <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
       <button onClick={() => setAppearanceOpen(open => !open)}>外观</button>
+      <button onClick={()=>setGroupsOpen(true)}>标签分组</button>
       <button onClick={() => setSerialOpen(open=>!open)}>串口高级工具</button>
       <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
@@ -577,12 +584,7 @@ function App() {
     <div className={`desktop-body${sidebarOpen ? '' : ' sidebar-hidden'}`}>
     <aside className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent} revision={treeRevision} loaded={setProfiles} connect={profile => void connectProfile(profile)} configure={() => setConfigurationOpen(true)} /><label>导航宽度<input aria-label="导航宽度" type="range" min="210" max="360" value={navigationWidth} onChange={event => setNavigationWidth(Number(event.target.value))} /></label></aside>
     <section className="terminal-workspace" aria-label="终端工作区">
-    <div className="tab-tools"><div role="tablist" aria-label="连接标签" ref={tabList}>{tabs.map(connection => <div className="connection-tab" key={connection.connection_id}><button role="tab" data-connection-id={connection.connection_id} tabIndex={selected === connection.connection_id ? 0 : -1} onKeyDown={event => {
-      const index = tabs.findIndex(item => item.connection_id === connection.connection_id);
-      const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
-      if (next < 0) return; event.preventDefault(); selectConnection(tabs[next].connection_id);
-      tabList.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
-    }} aria-selected={selected === connection.connection_id} title={`${tabName(connection)} · ${connection.protocol} · ${connection.state} · ${connection.connection_id} / ${connection.generation}`} onClick={() => selectConnection(connection.connection_id)}>{tabName(connection)}{connection.protocol !== 'SSH2' && <small>{connection.state} · 代次 {connection.generation}</small>}</button><button aria-label={`关闭标签 ${connection.connection_id}`} disabled={tabClosures.current.pending(connection)} onClick={() => void closeTab({...connection})}>×</button></div>)}</div><button disabled={!selected || tabs[0]?.connection_id === selected} onClick={() => moveTab(-1)}>标签左移</button><button disabled={!selected || tabs.at(-1)?.connection_id === selected} onClick={() => moveTab(1)}>标签右移</button></div>
+    <SessionTabs tabs={tabs} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)} owner={service?.service_id??''} selected={selected} list={tabList} name={tabName} select={selectConnection} close={target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} move={moveTab} assign={(target,group)=>{try{tabGroups.current.assign(service?.service_id??'',target,group);setGroupEpoch(value=>value+1);}catch(error){setTabMessage(error instanceof Error?error.message:'标签移动未完成。');}}}/>
     {!tabs.length && !quickOpen && <section className="terminal-empty"><h2>连接服务器，开始工作</h2><p>填写服务器地址和登录信息，即可进入终端。</p><button onClick={() => setQuickOpen(true)}>新建SSH连接</button><p>通信记录可从顶部“终端日志”开始。</p></section>}
     <div className="terminal" ref={host} aria-label="服务终端" />
     {active?.protocol==='SERIAL'&&<SerialPanel summaryOnly connection={active} select={selectConnection} tools={()=>setSerialToolsOpen(true)}/>}
@@ -595,6 +597,7 @@ function App() {
     <aside className="auxiliary-panels" aria-label="辅助工具">
     {quickOpen && <Dialog label="连接服务器" close={closeQuick}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={() => {focusAfterConnect.current=true;closeQuick();}} close={closeQuick} /></Dialog>}
     {serialDialog&&<Dialog label="连接串口设备" close={()=>setSerialDialog(false)}><QuickSerial requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined} select={selectConnection} close={()=>setSerialDialog(false)} focus={()=>{focusAfterConnect.current=true;setSerialDialog(false);}} /></Dialog>}
+    {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
