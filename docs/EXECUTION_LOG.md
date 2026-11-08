@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-08 D08固定用户初版三项主要需求：[CR-007](changes/CR-007.md)保留原话，SSH服务器工作、串口/UART通信/抓信息（含Android UART log）、两者基本日志；日志纳入S1/S2各自完成条件，普通界面简洁清晰，高级功能后续。需求与主方案/测试/AGENTS已同步，仅文档归档，下一实现仍P12.1，未宣称新功能通过。见[D08](records/D08.md)。Step-ID: D08。
+
 2026-11-08 D07按用户最新反馈重新规划[CR-006](changes/CR-006.md)：唯一主方案[EXECUTION_PLAN](EXECUTION_PLAN.md#现行路线cr-006)，先P12.1简洁SSH2直接登录/基本使用，达标后P10.1串口，再逐阶段复用/补齐最终R01–R16。本项仅方案文档，新SSH流程/串口均TODO，不把旧初版/已有技术测试当新体验通过；验证与归档见[D07](records/D07.md)。Step-ID: D07。
 
 2026-11-08 按CR-005交付本机开发预览：真实Codex app-server显式客户端经stdio在原SSH会话发送一次/查询原回执/读取回显及Agent审计PASS，三个相邻二进制复制品普通启动/关闭已核对。实际模型已配对/识别同会话，但写lease被Codex自身approval never拒绝且wire0，模型写入未通过，不以直调替代；完整P16/G2和其他全v1缺口仍后续。具体失败/证据及本机说明见[P16](records/P16.md)、[预览说明](LOCAL_PREVIEW.md)。Step-ID: P16。
@@ -172,6 +174,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | D05.1 | 完整可复制启动与自动接续指令归档（未启动） | DONE | [D05.1](records/D05.1.md) | Step-ID: D05.1 |
 | D06 | 可用初版优先与后续迭代 CR-005 归档 | DONE | [D06](records/D06.md) | Step-ID: D06 |
 | D07 | SSH优先与逐阶段执行方案 CR-006 重新规划 | DONE | [D07](records/D07.md) | Step-ID: D07 |
+| D08 | SSH/UART/基本日志三项主要需求 CR-007 归档 | DONE | [D08](records/D08.md) | Step-ID: D08 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
