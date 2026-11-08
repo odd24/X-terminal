@@ -225,3 +225,6 @@ P19活动连接常用命令按ADR-066使用schema7受管理模板库；变量值
 
 
 P18显式文本批次按ADR-067独立更多工具入口，默认无目标/正文/确认，2–8个精确SSH2/SERIAL代次按勾选顺序冻结，明确Desktop人工接管后沿原服务FIFO/独立编号；未知停未开始，只查原编号不重放，取消/关闭不撤回已派发。新增test:desktop:broadcast第30入口，前置实际desktop:build，只shared-terminal-broadcast-ui-中文-自建根/合成SSH/内存串口，finally实际恢复普通服务。schema7保持，不授Agent广播，不继承活动窗格/模板同意；连续键盘同步、完整R07/SSH1/实机仍开放。
+
+
+P19选区发送按ADR-068复用原ComposePanel与统一队列，冻结完整源/revision/精确代次/选区/末尾，范围及Unicode边界严格；无选区不发全文，改选区/正文/末尾/切目标撤同意。队列拒绝保留源，入队后仅移除确认选区、晚回调不覆盖新草稿，后续未知不回填/重放。新增test:desktop:compose-selection第31入口，前置实际desktop:build，仅shared-terminal-compose-selection-ui-中文-自建根/合成SSH/内存UART，finally实际恢复普通服务；全文/常用命令按影响复验，完整历史/节奏/R09/实机仍开放。
