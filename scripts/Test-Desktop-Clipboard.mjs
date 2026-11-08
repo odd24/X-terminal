@@ -37,5 +37,5 @@ try {
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="粘贴确认"]')`),false);await unchanged();
   console.log('PASS native WebView clipboard event routing: exact CR/LF, explicit bounded preview/one-shot confirmation, cancel, typed takeover, switch away/back, bracketed mode and mode-change refusal, reload drops proposal; synthetic service only');
 } finally {
-  await ui?.close();const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-clipboard-ui-中文-'));await rm(target,{recursive:true,force:true});
+  await ui?.close();const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-clipboard-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }
