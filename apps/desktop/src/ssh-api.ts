@@ -6,7 +6,7 @@ export type Challenge =
   | { kind: 'host_key'; id: string; review: { candidate: HostKeySummary; known: HostKeySummary[]; status: 'unknown' | 'known' | 'changed'; revision: string } }
   | { kind: 'credentials'; id: string; auth: Auth; stored_available: boolean }
   | { kind: 'interactive'; id: string; name: string; instructions: string; prompts: { text: string; echo: boolean }[] };
-export type SshStatus = { connection: Connection; profile_id: string; temporary_settings?: Settings | null; encoding: 'utf8' | 'gbk' | 'gb18030'; challenge: Challenge | null; failure: string | null; shell_exit_status: number | null; shell_exit_signal: string | null };
+export type SshStatus = { connection: Connection; profile_id: string; server_host: string; temporary_settings?: Settings | null; encoding: 'utf8' | 'gbk' | 'gb18030'; challenge: Challenge | null; failure: string | null; shell_exit_status: number | null; shell_exit_signal: string | null };
 export type Receipt = { request_id: string; state: 'PENDING' | 'DISPATCHING' | 'PIPELINE_QUEUED' | 'UNKNOWN' | 'CANCELLED_BEFORE_DISPATCH'; pipeline_bytes: number | null; failure: string | null };
 export type ExecSummary = { end: string; exit_status: number | null; exit_signal: string | null; request_accepted: boolean | null; output_truncated: boolean; stdout_bytes: number; stderr_bytes: number };
 export type TaskStatus = { task_id: string; connection: ConnectionRef; encoding: 'utf8' | 'gbk' | 'gb18030'; phase: 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'FINISHED'; summary: ExecSummary | null };

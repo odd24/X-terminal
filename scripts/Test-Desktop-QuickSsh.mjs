@@ -24,7 +24,9 @@ try {
   const native=async(action,target)=>new Promise((resolve,reject)=>{const child=spawn('pwsh',['-NoProfile','-File','scripts/lib/NativeSaveDialog.ps1','-TargetProcessId',String(ui.app.pid),'-Action',action,...(target?['-TargetPath',target]:[])],{windowsHide:true});let text='';child.stdout.on('data',d=>text+=d);child.stderr.on('data',d=>text+=d);child.on('error',reject);child.on('exit',code=>code===0?resolve(text):reject(new Error(text)));});
   const show=()=>ui.click('连接服务器');
   const fill=async(port=server.port)=>{await ui.fill('SSH服务器','127.0.0.1');await ui.fill('SSH用户名','synthetic');await ui.evaluate(`Array.from(document.querySelectorAll('summary')).find(s=>s.textContent==='高级连接设置').parentElement.open=true`);await ui.fill('SSH端口',port);};
-  const connected=()=>wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('已连接')`),'quick SSH connected');
+  const panelReady=()=>wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('已连接')`),'connected panel ready');
+  const connected=()=>wait(async()=>{const id=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);return (await ui.invoke('service_list')).some(c=>c.connection_id===id&&c.state==='CONNECTED')&&!(await ui.evaluate(`!!document.querySelector('dialog:modal')`));},'quick SSH connected and dialog closed');
+  const disconnect=async()=>{if(!(await ui.evaluate(`!!document.querySelector('[aria-label="SSH快速连接"]')`)))await show();await panelReady();await ui.click('断开连接');};
   const current=async()=>{const list=await ui.invoke('service_list');const selected=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);const c=list.find(c=>c.connection_id===selected);return {connection_id:c.connection_id,generation:c.generation};};
   assert.equal((await configuration()).profiles.length,0);
   assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='连接服务器').getBoundingClientRect().height>0`),true);
@@ -40,7 +42,7 @@ try {
   const first=await current();
   assert.equal((await configuration()).profiles.length,0,'temporary quick connection must not secretly persist a Profile');
   assert.equal((await ui.invoke('config_request',{request:{op:'credentials_page',revision:null,offset:0}})).entries.length,0);
-  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="SSH登录密码"]').value`),'');
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="SSH登录密码"]')?.value??''`),'');
   await wait(async()=>await ui.evaluate(`document.activeElement?.classList.contains('xterm-helper-textarea')`),'terminal receives focus');
   await ui.command('Input.insertText',{text:'S1中文'});await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});
   await wait(async()=>Buffer.from((await control({op:'metrics'})).received.flat()).toString().includes('S1中文\r'),'real terminal input reaches same actor');
@@ -77,27 +79,27 @@ try {
   const queriedFile=path.join(output,'应答丢失后只查.log');await native('select',queriedFile);const originalSave=JSON.parse(await ui.evaluate(`sessionStorage.getItem('terminal-text-log-save-v1')`));await ui.click('查询保存结果');await ui.waitFor(`document.querySelector('[aria-label="文本导出另存状态"]')?.textContent.includes('本次另存已完成')`);assert.deepEqual(await readFile(queriedFile),managed);assert.equal(JSON.parse(await ui.evaluate(`sessionStorage.getItem('terminal-text-log-save-v1')`)).save_id,originalSave.save_id);
   await ui.screenshot('P12.1-quick-ssh-logging.png');
   if(loggingOnly){await writeFile('artifacts/P12.1-simple-log-result.json',JSON.stringify({result:'PASS',oneClickSave:true,textBytes:managed.length,sha256:prepared.sha256,nativeFileExact:true,overwriteDefaultOff:true,cancelPreservesFile:true,backupExact:true,realFetchLostSaveReply:1,queryRetainsSaveId:true,internalIdsFolded:true},null,2)+'\n');console.log('PASS simple SSH log: one Save action to actual native picker, exact UTF8 file, explicit replacement/cancel/backup, real lost save reply original query, internal task IDs folded');break scenario;}
-  await ui.click('关闭日志面板');await show();await connected();await ui.click('断开连接');await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'disconnect');
+  await ui.click('关闭日志面板');await disconnect();await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'disconnect');
   await ui.click('重新连接');await ui.waitFor(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='提交本次登录信息')`);
   await ui.fill('SSH登录密码','wrong-synthetic-password');await ui.click('提交本次登录信息');await ui.waitFor(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.includes('未被服务器接受')`);
   await ui.fill('SSH登录密码',server.password);await ui.click('提交本次登录信息');await connected();
   const restarted=await current();assert.equal(restarted.connection_id,first.connection_id);assert.equal(restarted.generation,first.generation+1);
-  await ui.click('断开连接');await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'disconnected before key');
+  await disconnect();await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'disconnected before key');
   await ui.fill('SSH登录方式','public_key');await fill();await ui.fill('SSH密钥文件',server.key_path);await ui.fill('SSH密钥口令',server.password);
   const before=(await ui.invoke('service_list')).length;
   const lost=await ui.interceptIpc({command:'ssh_request',op:'quick_start',mode:'error'});await ui.click('连接');await ui.waitFor(`document.querySelector('[aria-label="SSH快速提示"]')?.textContent.includes('结果不明')`);assert.equal(await lost.count(),1);await lost.restore();
   await ui.click('查询本次连接');await ui.waitFor(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='提交本次登录信息')`);await ui.fill('SSH密钥口令',server.password);await ui.click('提交本次登录信息');await connected();
   assert.equal((await ui.invoke('service_list')).length,before+1,'lost reply query never creates a second connection');assert.equal((await configuration()).profiles.length,0);
   assert.equal((await ui.invoke('config_request',{request:{op:'credentials_page',revision:null,offset:0}})).entries.length,0,'temporary encrypted key is not saved to Vault');
-  await ui.click('断开连接');await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'key disconnected');
-  await ui.fill('SSH登录方式','password');await ui.fill('SSH登录密码',server.password);await ui.evaluate(`document.querySelector('[aria-label="保存SSH连接"]').click()`);
+  await disconnect();await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'key disconnected');
+  await fill();await ui.fill('SSH登录方式','password');await ui.fill('SSH登录密码',server.password);await ui.evaluate(`document.querySelector('[aria-label="保存SSH连接"]').click()`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="记住SSH凭据"]').checked`),false);await ui.click('连接');await connected();
   const profiles=(await configuration()).profiles;assert.equal(profiles.length,1);assert.equal(profiles[0].credential_ref,null);
-  await ui.click('断开连接');await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'saved disconnected');
+  await disconnect();await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'saved disconnected');
   await ui.click('收起连接窗口');await show();await ui.waitFor(`document.querySelector('[aria-label="快速连接已保存"]')?.options.length===2`);await ui.fill('快速连接已保存',profiles[0].id);await ui.fill('SSH登录密码',server.password);await ui.click('连接');await connected();
   await ui.screenshot('P12.1-quick-ssh-connected.png');
   // Own loopback stall: cancellation and timeout exercise real transport futures.
-  await ui.click('断开连接');await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'saved connection closed');
+  await disconnect();await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'saved connection closed');
   stall=createServer(socket=>{sockets.add(socket);socket.on('error',()=>{});socket.on('close',()=>sockets.delete(socket));});await new Promise(resolve=>stall.listen(0,'127.0.0.1',resolve));
   await ui.fill('快速连接已保存','');await fill(stall.address().port);await ui.click('连接');await wait(()=>sockets.size>0,'stall socket accepted');await ui.click('取消连接');
   await wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('连接已断开')`),'pending connection cancelled');
@@ -119,5 +121,5 @@ try {
 } finally {
   await ui?.close();fixture?.kill();if(fixture&&fixture.exitCode===null&&fixture.signalCode===null)await new Promise(resolve=>fixture.once('exit',resolve));
   for(const socket of sockets)socket.destroy();if(stall)await new Promise(resolve=>stall.close(resolve));
-  for(const [value,prefix] of [[directory,'shared-terminal-quick-ssh-ui-中文-'],[saveDirectory,'shared-terminal-save-ui-中文-']])if(value){const target=path.resolve(value);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(prefix));await rm(target,{recursive:true,force:true});}
+  for(const [value,prefix] of [[directory,'shared-terminal-quick-ssh-ui-中文-'],[saveDirectory,'shared-terminal-save-ui-中文-']])if(value){const target=path.resolve(value);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(prefix));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 }

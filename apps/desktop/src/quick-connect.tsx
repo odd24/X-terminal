@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Panel, Field } from './ui';
+import { Panel, Field, ErrorNotice } from './ui';
 import { config, readConfiguration, type Auth, type Profile, type Settings } from './config-api';
 import { ssh, SshRequestError, reference, type Connection, type ConnectionRef, type SshStatus } from './ssh-api';
 import { requestId } from './request-id';
@@ -8,19 +8,21 @@ type Attempt = { id: string; connection?: ConnectionRef; secret?: { password: st
 const ended = (state?: string) => state === 'FAILED' || state === 'DISCONNECTED';
 const states: Record<string,string> = { CONNECTING:'正在连接服务器…', AUTHENTICATING:'正在验证登录信息…', CONNECTED:'已连接，可以在终端工作', DISCONNECTED:'连接已断开', FAILED:'连接未成功', CLOSING:'正在断开…' };
 const failures: Record<string,string> = { TRANSPORT_TIMEOUT:'连接超时，请检查服务器地址、端口和网络。', TRANSPORT:'连接中断或服务器不可达，请检查网络和SSH服务。', HOST_KEY_REJECTED:'未信任此服务器，本次未继续登录。', HOST_KEY_CONFLICT:'主机指纹状态已变化，请重新核对。', APPROVAL_TIMEOUT:'确认已超时，请重新连接。', AUTHENTICATION_REJECTED:'用户名或密码/密钥未被服务器接受，请核对后重试。', CREDENTIAL_UNAVAILABLE:'无法读取密钥或凭据，请检查本地文件和口令。', CANCELLED:'本次连接已取消。', CONFIGURATION:'连接参数不可用，请检查配置。' };
+function safeError(error:unknown){return error instanceof SshRequestError?error.message:'无法完成操作，请核对连接信息、配置或本地密钥文件后重试。';}
 export function QuickConnect({ connection, select, size, focus, close }: { connection?: Connection; select(id:string):void; size():{cols:number;rows:number}; focus():void; close():void }) {
   const [host,setHost]=useState(''),[username,setUsername]=useState(''),[port,setPort]=useState(22);
   const [auth,setAuth]=useState<Auth>('password'),[encoding,setEncoding]=useState<'utf8'|'gbk'|'gb18030'>('utf8');
   const [password,setPassword]=useState(''),[key,setKey]=useState(''),[passphrase,setPassphrase]=useState('');
   const [save,setSave]=useState(false),[remember,setRemember]=useState(false),[saved,setSaved]=useState<Profile[]>([]),[savedId,setSavedId]=useState('');
   const [status,setStatus]=useState<SshStatus>(),[message,setMessage]=useState('填写服务器和登录信息即可连接。'),[busy,setBusy]=useState(false),[approved,setApproved]=useState(false),[answers,setAnswers]=useState<string[]>([]),[unknown,setUnknown]=useState(false);
-  const mounted=useRef(true), current=useRef(connection), attempt=useRef<Attempt | undefined>(undefined), inFlight=useRef(false), notified=useRef('');current.current=connection;
+  const [operationError,setOperationError]=useState('');
+  const mounted=useRef(true), current=useRef(connection), attempt=useRef<Attempt | undefined>(undefined), inFlight=useRef(false), notified=useRef(''), enterAfterAuth=useRef<ConnectionRef | undefined>(undefined);current.current=connection;
   const target=connection?.protocol==='SSH2'?connection:undefined;
   const clear=()=>{setPassword('');setPassphrase('');setAnswers([]);if(attempt.current)attempt.current.secret=undefined;};
   function active(){if(!status||status.connection.connection_id!==current.current?.connection_id||status.connection.generation!==current.current?.generation)throw new Error('连接已切换，请等待状态更新后再操作。');return {connection_id:status.connection.connection_id,generation:status.connection.generation};}
   useEffect(()=>{mounted.current=true;void readConfiguration().then(c=>{if(mounted.current)setSaved(c.profiles.filter(p=>p.settings.protocol==='ssh2'));}).catch(()=>{});return()=>{mounted.current=false;const a=attempt.current;if(a){a.cancelled=true;a.secret=undefined;const ready=a.connection?.connection_id===current.current?.connection_id&&a.connection?.generation===current.current?.generation&&current.current?.state==='CONNECTED';if(a.connection&&!ready&&notified.current!==`${a.connection.connection_id}:${a.connection.generation}`)void ssh({op:'close',connection:a.connection}).catch(()=>{});}};},[]);
   useEffect(()=>{
-    setStatus(undefined);setApproved(false);setAnswers([]);
+    setStatus(undefined);setApproved(false);setAnswers([]);setOperationError('');
     if(!target)return;
     const ref=reference(target);let disposed=false,timer=0;
     async function poll(){
@@ -28,19 +30,20 @@ export function QuickConnect({ connection, select, size, focus, close }: { conne
         const reply=await ssh({op:'status',connection:ref});if(disposed||reply.result!=='status'||current.current?.connection_id!==ref.connection_id||current.current.generation!==ref.generation)return;
         setStatus(reply);
         const a=attempt.current;
+        if(!a&&['CONNECTING','AUTHENTICATING'].includes(reply.connection.state))enterAfterAuth.current=ref;
         if(ended(reply.connection.state)){if(a?.connection?.connection_id===ref.connection_id)a.secret=undefined;}
-        if(reply.connection.state==='CONNECTED'&&notified.current!==`${ref.connection_id}:${ref.generation}`){notified.current=`${ref.connection_id}:${ref.generation}`;if(a)a.secret=undefined;setPassword('');setPassphrase('');setMessage('登录成功，直接在终端输入。');focus();}
+        if(reply.connection.state==='CONNECTED'&&notified.current!==`${ref.connection_id}:${ref.generation}`){notified.current=`${ref.connection_id}:${ref.generation}`;const owned=a?.connection?.connection_id===ref.connection_id&&a.connection.generation===ref.generation&&!a.cancelled;const entering=owned||!a&&enterAfterAuth.current?.connection_id===ref.connection_id&&enterAfterAuth.current.generation===ref.generation;if(entering){if(a)a.secret=undefined;setPassword('');setPassphrase('');setMessage('登录成功，直接在终端输入。');focus();}}
         if(reply.challenge?.kind==='credentials'&&a?.connection?.connection_id===ref.connection_id&&a.connection.generation===ref.generation&&a.secret&&!a.cancelled){
           const secret=a.secret;a.secret=undefined;
           await ssh(secret.saved?{op:'authenticate',connection:ref,challenge_id:reply.challenge.id,use_saved:true,password:null}:reply.challenge.auth==='public_key'?{op:'authenticate_key',connection:ref,challenge_id:reply.challenge.id,key_path:secret.key,passphrase:secret.passphrase||null}:{op:'authenticate',connection:ref,challenge_id:reply.challenge.id,use_saved:false,password:secret.password});
         }
-      }catch(error){if(!disposed)setMessage(String(error));}
+      }catch(error){if(!disposed&&current.current?.connection_id===ref.connection_id&&current.current.generation===ref.generation)setOperationError(safeError(error));}
       if(!disposed)timer=window.setTimeout(()=>void poll(),250);
     }
     void poll();return()=>{disposed=true;clearTimeout(timer);};
   },[target?.connection_id,target?.generation]);
   useEffect(()=>{setApproved(false);setAnswers([]);},[status?.challenge?.id]);
-  async function run(action:()=>Promise<void>){if(inFlight.current)return;inFlight.current=true;setBusy(true);try{await action();}catch(error){clear();if(mounted.current)setMessage(error instanceof Error?error.message:String(error));}finally{inFlight.current=false;if(mounted.current)setBusy(false);}}
+  async function run(action:()=>Promise<void>){if(inFlight.current)return;inFlight.current=true;setBusy(true);setOperationError('');try{await action();}catch(error){clear();if(mounted.current)setOperationError(safeError(error));}finally{inFlight.current=false;if(mounted.current)setBusy(false);}}
   async function accepted(reply:Awaited<ReturnType<typeof ssh>>, a:Attempt){
     if(reply.result!=='started')throw new Error('连接回复不匹配，请查询本次请求。');
     const ref=reference(reply.connection);a.connection=ref;
@@ -59,13 +62,15 @@ export function QuickConnect({ connection, select, size, focus, close }: { conne
       profileId=profile.id;
     }
     try {await accepted(await ssh(profileId?{op:'start',profile_id:profileId,request_id:a.id,...size()}:{op:'quick_start',settings,request_id:a.id,...size()}),a);}
-    catch(error){a.secret=undefined;if(mounted.current){const known=error instanceof SshRequestError&&["InvalidArgument","NotFound","PermissionDenied","Unsupported","CapacityExceeded"].includes(error.code);setUnknown(!known);setMessage(known?error.message:`连接结果不明。先查询本次请求，不会自动再连接。${String(error)}`);} }
+    catch(error){a.secret=undefined;if(mounted.current){const known=error instanceof SshRequestError&&["InvalidArgument","NotFound","PermissionDenied","Unsupported","CapacityExceeded"].includes(error.code);setUnknown(!known);const reason=known?error.message:'连接结果不明，请查询本次连接；没有自动重新连接。';setMessage(reason);setOperationError(reason);} }
   });}
   async function cancel(){const a=attempt.current;if(a){a.cancelled=true;a.secret=undefined;}clear();if(target&&!ended(target.state))await ssh({op:'close',connection:reference(target)});setMessage('已取消连接，已发生的服务器动作不会撤回。');}
   const challenge=status?.challenge;
   const blocked=busy||unknown||!!target&&!ended(target.state)&&target.state!=='CONNECTED';
   const label=(status as (SshStatus&{temporary_settings?:Settings|null})|undefined)?.temporary_settings??saved.find(p=>p.id===status?.profile_id)?.settings;
+  const failure=operationError||(challenge?.kind==='host_key'&&challenge.review.status==='changed'?'服务器指纹已变化。请通过可信渠道核对新指纹，未确认前不会继续连接。':status?.failure&&status.failure!=='CANCELLED'?failures[status.failure]??'SSH连接未成功，请核对服务器和登录信息后重试。':status?.connection.state==='FAILED'?'SSH连接未成功，请核对服务器地址、端口和登录信息后重试。':'');
   return <Panel title="连接服务器" label="SSH快速连接" close={()=>{clear();close();}} closeLabel="收起连接窗口">
+    {failure&&<ErrorNotice>{failure}</ErrorNotice>}
     <form onSubmit={event=>void connect(event)}>
       {saved.length>0&&<Field label="已保存的连接（可选）"><select aria-label="快速连接已保存" disabled={blocked} value={savedId} onChange={e=>{clear();setSavedId(e.target.value);const p=saved.find(p=>p.id===e.target.value);if(p?.settings.protocol==='ssh2'){setHost(p.settings.host);setPort(p.settings.port);setUsername(p.settings.username);setAuth(p.settings.auth);setEncoding(p.settings.encoding);}}}><option value="">直接填写新连接</option>{saved.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>}
       <Field label="服务器地址"><input aria-label="SSH服务器" required autoFocus disabled={blocked||!!savedId} value={host} onChange={e=>setHost(e.target.value)} placeholder="例如 192.168.1.10" maxLength={1024}/></Field>

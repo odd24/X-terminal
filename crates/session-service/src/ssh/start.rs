@@ -153,6 +153,10 @@ impl Manager {
         inner.entries.insert(
             connection.connection_id,
             Entry {
+                server_host: match &profile.settings {
+                    Settings::Ssh2 { host, .. } => host.clone(),
+                    _ => return Err(ErrorCode::Unsupported),
+                },
                 temporary,
                 reference: connection.reference(),
                 restart_gate: Arc::new(tokio::sync::Mutex::new(())),

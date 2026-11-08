@@ -33,6 +33,9 @@
   --terminal-height: 390px;
   --navigation-width: 260px;
   --auxiliary-width: 440px;
+  --dialog-width: 640px;
+  --dialog-wide-width: 960px;
+  --dialog-max-height: 88dvh;
   --terminal-min-height: 160px;
   --tab-max-width: 220px;
   --preview-height: 220px;

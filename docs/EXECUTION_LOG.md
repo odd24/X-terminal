@@ -1,6 +1,6 @@
 # 执行台账
 
-2026-11-08 P12.1简洁SSH2与基本文本日志已贯通：可见单表单/临时登录/可选保存、同流程身份认证/终端、错误及重连，实际构建后新SSH流程、旧SSH和一键日志系统保存专项PASS。服务基础2543aa7、界面4086877；复制品本机预览普通启动/退出PASS，目录/指纹/软件证据和排障详情见[P12.1](records/P12.1.md)，操作见[预览说明](LOCAL_PREVIEW.md)。状态保留IN_PROGRESS，仅用户授权服务器试用尚待验证；不将合成端点当真实服务器，不展开下一串口阶段。Step-ID: P12.1。
+2026-11-08 P12.1按用户实际SSH成功后的[CR-008](changes/CR-008.md)落实配置弹窗、地址标签及明显失败原因；最终构建/新弹窗完整专项（含生产超时）PASS，旧基本日志证据保留。用户已授权且执行者使用已有保护凭据正常真实登录一次，合成/真实范围分列。软件证据、排障和预览目录集中[P12.1](records/P12.1.md)，操作见[说明](LOCAL_PREVIEW.md)。状态IN_PROGRESS为新版使用反馈，不再以缺少服务器授权阻塞已授权登录；不展开S2。Step-ID: P12.1。
 
 2026-11-08 D08固定用户初版三项主要需求：[CR-007](changes/CR-007.md)保留原话，SSH服务器工作、串口/UART通信/抓信息（含Android UART log）、两者基本日志；日志纳入S1/S2各自完成条件，普通界面简洁清晰，高级功能后续。需求与主方案/测试/AGENTS已同步，仅文档归档，下一实现仍P12.1，未宣称新功能通过。见[D08](records/D08.md)。Step-ID: D08。
 
@@ -203,7 +203,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.6 | 终端查找与受控剪贴板 | DONE | [P11.6](records/P11.6.md) | Step-ID: P11.6 |
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
-| P12.1 | S1简洁SSH2/基本日志软件专项通过，待授权服务器试用 | IN_PROGRESS | [P12.1](records/P12.1.md) | Step-ID: P12.1 |
+| P12.1 | SSH已实际登录，弹窗/地址/错误软件专项通过，待新版反馈 | IN_PROGRESS | [P12.1](records/P12.1.md) | Step-ID: P12.1 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | 初版9工具真实stdio桥已完成/验证；完整v1工具后续，本版P16前置已满足 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |

@@ -162,6 +162,7 @@ mod tests {
         manager.inner.lock().unwrap().entries.insert(
             connection.connection_id,
             Entry {
+                server_host: "synthetic".into(),
                 temporary: None,
                 reference: connection,
                 restart_gate: Arc::new(tokio::sync::Mutex::new(())),

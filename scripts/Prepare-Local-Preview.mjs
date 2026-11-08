@@ -28,7 +28,7 @@ try{
   assert.equal(broker.peer,null);
   await ui.screenshot('P16-local-preview.png');
 }finally{
-  await ui?.close();if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-preview-ui-中文-'));await rm(target,{recursive:true,force:true});}
+  await ui?.close();if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-preview-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 }
 await writeFile(path.join(destination,'manifest.json'),JSON.stringify({format:1,kind:'local development preview; not an installer or external release',version:'0.1.0',packagedAt:new Date().toISOString(),packagedFromHead:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),files,smoke:'PASS: copied desktop/ordinary sibling service, no fixture capability, packaged MCP path, clean shutdown'},null,2)+'\n');
 await writeFile('artifacts/P16-local-preview.json',JSON.stringify({result:'PASS',directory:destination,files},null,2)+'\n');

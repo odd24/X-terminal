@@ -20,6 +20,7 @@ import { config, type DesktopPreferences, type Profile } from './config-api';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { QuickConnect } from './quick-connect';
+import { Dialog } from './ui';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { LoggingPanel, type LoggingSummary } from './logging-panel';
@@ -101,6 +102,7 @@ function App() {
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [sshOpen, setSshOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const focusAfterConnect = useRef(false);
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
   const [loggingOpen,setLoggingOpen] = useState(false);
@@ -446,6 +448,7 @@ function App() {
   }, [theme, terminalFont, preferences.terminal_palette]);
 
   useEffect(() => { if (runtime.current) { runtime.current.term.options.fontSize = fontSize; runtime.current.fit.fit(); } }, [fontSize]);
+  useEffect(()=>{if(!quickOpen&&focusAfterConnect.current){focusAfterConnect.current=false;runtime.current?.term.focus();}},[quickOpen]);
 
   async function createFixture() {
     setBusy(true);
@@ -501,7 +504,7 @@ function App() {
     const profile = details && profiles.find(item => item.id === details.profile_id && item.settings.protocol.toUpperCase() === connection.protocol);
     return details?.target_label ?? profile?.name;
   };
-  const tabName = (connection: Connection) => profileName(connection) ?? `${connection.protocol} · ${connection.connection_id.slice(0, 8)}`;
+  const tabName = (connection: Connection) => connection.protocol === 'SSH2' ? catalog.current.get(connection)?.host ?? '正在读取地址' : profileName(connection) ?? `${connection.protocol} · ${connection.connection_id.slice(0, 8)}`;
   const connectionLabel = (connection: Connection) => profileName(connection) ? `${profileName(connection)} · ${connection.protocol}` : tabName(connection);
   function moveTab(offset: number) {
     const ids = tabs.map(item => item.connection_id); const index = ids.indexOf(selected);
@@ -579,7 +582,7 @@ function App() {
       const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
       if (next < 0) return; event.preventDefault(); selectConnection(tabs[next].connection_id);
       tabList.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
-    }} aria-selected={selected === connection.connection_id} title={`${tabName(connection)} · ${connection.protocol} · ${connection.state} · ${connection.connection_id} / ${connection.generation}`} onClick={() => selectConnection(connection.connection_id)}>{tabName(connection)}<small>{connection.state} · 代次 {connection.generation}</small></button><button aria-label={`关闭标签 ${connection.connection_id}`} onClick={() => { setTabMessage(''); setClosing(connection); }}>×</button></div>)}</div><button disabled={!selected || tabs[0]?.connection_id === selected} onClick={() => moveTab(-1)}>标签左移</button><button disabled={!selected || tabs.at(-1)?.connection_id === selected} onClick={() => moveTab(1)}>标签右移</button></div>
+    }} aria-selected={selected === connection.connection_id} title={`${tabName(connection)} · ${connection.protocol} · ${connection.state} · ${connection.connection_id} / ${connection.generation}`} onClick={() => selectConnection(connection.connection_id)}>{tabName(connection)}{connection.protocol !== 'SSH2' && <small>{connection.state} · 代次 {connection.generation}</small>}</button><button aria-label={`关闭标签 ${connection.connection_id}`} onClick={() => { setTabMessage(''); setClosing(connection); }}>×</button></div>)}</div><button disabled={!selected || tabs[0]?.connection_id === selected} onClick={() => moveTab(-1)}>标签左移</button><button disabled={!selected || tabs.at(-1)?.connection_id === selected} onClick={() => moveTab(1)}>标签右移</button></div>
     {!tabs.length && !quickOpen && <section className="terminal-empty"><h2>连接服务器，开始工作</h2><p>填写服务器地址和登录信息，即可进入终端。</p><button onClick={() => setQuickOpen(true)}>新建SSH连接</button><p>通信记录可从顶部“终端日志”开始。</p></section>}
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || inputFailure || status}</div>
@@ -589,13 +592,13 @@ function App() {
     {tabMessage && <div role="status" aria-label="标签操作状态">{tabMessage}</div>}
     </section>
     <aside className="auxiliary-panels" aria-label="辅助工具">
-    {quickOpen && <QuickConnect connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={() => runtime.current?.term.focus()} close={() => setQuickOpen(false)} />}
+    {quickOpen && <Dialog label="连接服务器" close={()=>setQuickOpen(false)}><QuickConnect connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={() => {focusAfterConnect.current=true;setQuickOpen(false);}} close={() => setQuickOpen(false)} /></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {closing && <section className="config-panel" aria-label="关闭标签确认"><h2>关闭连接标签</h2><p>{tabName(closing)} · {closing.protocol} · {closing.connection_id} / 代次 {closing.generation}</p><p>关闭连接会停止未发送输入；已发送动作不会撤销。保留连接仅隐藏标签，输出仍由服务有界保留，之后可从完整列表重新打开。</p><button disabled={tabBusy} onClick={() => void confirmClose()}>关闭连接并隐藏标签</button><button disabled={tabBusy} onClick={() => { hideTab(closing); setClosing(undefined); }}>保留连接隐藏标签</button><button disabled={tabBusy} autoFocus onClick={() => setClosing(undefined)}>取消关闭标签</button></section>}
     {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
-    {appearanceOpen && <AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} />}
-    {configurationOpen && <ConfigPanel onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} />}
+    {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
+    {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
     {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
     <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />
     {serialOpen && <SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} />}

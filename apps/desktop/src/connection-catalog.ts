@@ -1,6 +1,6 @@
 export type CatalogConnection = { connection_id: string; generation: number; protocol: string };
 import type { Settings } from './config-api';
-export type ConnectionDetails = { profile_id: string; encoding: string; temporary_settings?: Settings | null; target_label?: string };
+export type ConnectionDetails = { profile_id: string; encoding: string; server_host?: string; temporary_settings?: Settings | null; target_label?: string; host?: string };
 
 // Display-only data is scoped to the authoritative service list, never to a
 // selected Profile. A late read cannot resurrect a forgotten/previous owner.
@@ -23,7 +23,7 @@ export class ConnectionCatalog {
     const current = this.retained.get(connection.connection_id);
     if (owner !== this.owner || !current || current.generation !== connection.generation || current.protocol !== connection.protocol) return false;
     const target = details.temporary_settings;
-    this.details.set(connection.connection_id, { profile_id: details.profile_id, encoding: details.encoding, ...(target?.protocol === 'ssh2' ? { target_label: `${target.username}@${target.host}:${target.port}` } : {}) });
+    this.details.set(connection.connection_id, { profile_id: details.profile_id, encoding: details.encoding, ...(target?.protocol === 'ssh2' ? { target_label: `${target.username}@${target.host}:${target.port}` } : {}), ...(details.server_host ? {host:details.server_host} : {}) });
     return true;
   }
   get(connection: CatalogConnection) {

@@ -398,6 +398,7 @@ pub enum Failure {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Status {
+    pub server_host: String,
     pub temporary_settings: Option<config_model::Settings>,
     pub connection: ConnectionInfo,
     pub profile_id: Uuid,

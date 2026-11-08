@@ -208,6 +208,10 @@ impl Manager {
         inner.entries.insert(
             connection.connection_id,
             Entry {
+                server_host: match &profile.settings {
+                    Settings::Ssh2 { host, .. } => host.clone(),
+                    _ => return Err(ErrorCode::Unsupported),
+                },
                 temporary,
                 reference,
                 restart_gate: gate.clone(),

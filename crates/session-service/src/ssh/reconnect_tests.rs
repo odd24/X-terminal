@@ -44,6 +44,7 @@ fn setup(config: Access, lifetime: u64) -> (Manager, ConnectionRef, Uuid, Identi
     manager.inner.lock().unwrap().entries.insert(
         c.connection_id,
         Entry {
+            server_host: "synthetic".into(),
             temporary: None,
             reference: c,
             restart_gate: Arc::new(tokio::sync::Mutex::new(())),

@@ -46,6 +46,7 @@ struct Start {
     rows: u32,
 }
 struct Entry {
+    server_host: String,
     temporary: Option<Profile>,
     reference: ConnectionRef,
     restart_gate: Arc<tokio::sync::Mutex<()>>,
@@ -508,6 +509,7 @@ impl Manager {
                     .get(&connection.connection_id)
                     .ok_or(ErrorCode::NotFound)?;
                 Ok(ssh::Reply::Status(Box::new(ssh::Status {
+                    server_host: entry.server_host.clone(),
                     temporary_settings: entry.temporary.as_ref().map(|p| p.settings.clone()),
                     connection: info,
                     profile_id: entry.profile_id,

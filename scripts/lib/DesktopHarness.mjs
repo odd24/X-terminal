@@ -12,8 +12,9 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
   const app = spawn(executable, ['--data-dir', directory, ...(fixture ? ['--test-fixture'] : [])], {
-    windowsHide: true, stdio: 'ignore', env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1` },
+    windowsHide: true, stdio: ['ignore','ignore','pipe'], env: { ...process.env, WEBVIEW2_USER_DATA_FOLDER: path.join(directory,'webview-ui'), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1` },
   });
+  let nativeErrors='';app.stderr.on('data',chunk=>{nativeErrors=(nativeErrors+chunk.toString()).slice(-8192);});
   let startupError; app.on('error', error => { startupError = error; });
   let socket; let pid;
   const stopped=()=>app.exitCode!==null || app.signalCode!==null;
@@ -26,7 +27,7 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
     let target;
     for (let attempt = 0; attempt < 100; attempt++) {
       if (startupError) throw startupError;
-      assert.equal(app.exitCode, null, 'desktop must stay alive');
+      assert.equal(app.exitCode, null, `desktop must stay alive: ${nativeErrors}`);
       try { target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(item => item.type === 'page'); if (target) break; } catch { /* starting */ }
       await delay(200);
     }

@@ -70,6 +70,12 @@ html, body, #root { height: 100%; overflow: hidden; }
 main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: var(--space-2); }
 .app-bar { display: flex; align-items: center; gap: var(--space-4); }
 .primary-action { border-color: var(--accent); color: var(--accent-text); }
+.app-dialog { box-sizing: border-box; width: min(var(--dialog-width), calc(100vw - var(--space-8))); max-width: none; max-height: var(--dialog-max-height); margin: auto; padding: 0; color: var(--text); background: var(--surface); border: var(--border-width) solid var(--border); border-radius: var(--radius-panel); }
+.app-dialog-wide { width: min(var(--dialog-wide-width), calc(100vw - var(--space-8))); }
+.app-dialog::backdrop { background: color-mix(in srgb, var(--page) 75%, transparent); }
+.app-dialog > .config-panel { margin: 0; border: 0; }
+.notice-error { margin-block: var(--space-4); padding: var(--space-4); color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border: var(--border-width) solid var(--danger); border-inline-start-width: var(--message-border); border-radius: var(--radius-control); }
+.notice-error p { margin-block: var(--space-2) 0; }
 .tools-menu-content { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); }
 .tools-menu[open] .tools-menu-content { position: fixed; z-index: 4; inset-inline: var(--space-3); margin-top: var(--space-2); background: var(--surface); border: var(--border-width) solid var(--border); border-radius: var(--radius-panel); }
 .app-bar span { color: var(--text-muted); font-size: var(--text-sm); }
