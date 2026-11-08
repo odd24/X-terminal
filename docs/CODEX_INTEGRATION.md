@@ -1,5 +1,7 @@
 # Codex 首版接入方案
 
+2026-11-08按[CR-006](changes/CR-006.md)及[现行路线](EXECUTION_PLAN.md#现行路线cr-006)，当前只做简洁SSH2登录，达标再做串口；Codex共享能力保留复用并移至S4按需收敛，不再作为当前主线或普通连接前置。下方已有证据/未验限制保留。
+
 2026-11-08实际安装版本`codex-cli 0.163.0-alpha.10.2`：官方app-server显式客户端通过9工具发现及原SSH连接的精确发送/原回执/读取，未用模型turn；实际exec模型已配对并识别同连接，但input_acquire被客户端“requires approval, but approval policy is never”拒绝且wire0。两类结果独立，不能说模型自主写入通过；模型发送需正常交互批准，不改真实工具属性或组织策略。可直接试用的本机说明见[LOCAL_PREVIEW](LOCAL_PREVIEW.md)，准确证据见[P16](records/P16.md)。本轮仅进程配置，不需要备份/合并或修改用户全局配置；下方旧全v1配置/工具方案保留规划，不能直接复制无endpoint的旧args。
 
 2026-11-07初版桥按[ADR-059](decisions/ADR-059.md)采用原生Agent代理：stdio不持有bearer，只经当前用户Pipe向原生转发9个基本工具，再由独立Agent身份进入原会话服务；没有另开SSH shell或借用Desktop权限。实际启动参数来自“MCP 初版连接”，仅本次endpoint/PID，用户核对实际桥进程与P14原授权后一次批准。受保护读取强制使用原策略；原编号与最后派发仍由服务验证。实际双协议stdio软件证据见[P15](records/P15.md)，工具契约为[initial-tools.json](../contracts/mcp/initial-tools.json)。下方完整v1拟定工具仍留后续，实际Codex测试属P16，不修改全局配置。

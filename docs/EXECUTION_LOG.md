@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-08 D07按用户最新反馈重新规划[CR-006](changes/CR-006.md)：唯一主方案[EXECUTION_PLAN](EXECUTION_PLAN.md#现行路线cr-006)，先P12.1简洁SSH2直接登录/基本使用，达标后P10.1串口，再逐阶段复用/补齐最终R01–R16。本项仅方案文档，新SSH流程/串口均TODO，不把旧初版/已有技术测试当新体验通过；验证与归档见[D07](records/D07.md)。Step-ID: D07。
+
 2026-11-08 按CR-005交付本机开发预览：真实Codex app-server显式客户端经stdio在原SSH会话发送一次/查询原回执/读取回显及Agent审计PASS，三个相邻二进制复制品普通启动/关闭已核对。实际模型已配对/识别同会话，但写lease被Codex自身approval never拒绝且wire0，模型写入未通过，不以直调替代；完整P16/G2和其他全v1缺口仍后续。具体失败/证据及本机说明见[P16](records/P16.md)、[预览说明](LOCAL_PREVIEW.md)。Step-ID: P16。
 
 2026-11-07 P15初版9工具最小桥完成：原生独立Agent代理、默认无同意固定进程/原授权GUI、真实stdio共享SSH/内存串口与权限/去重/保护/服务丢失验证通过；默认读取截止范围缺陷及修正/三轮必要构建准确见[P15](records/P15.md)。完整P15其他工具留后续，本版直接P16；不冒称实际Codex或实机已通过。Step-ID: P15。
@@ -169,6 +171,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | D05 | 多会话隔离开发与串行集成方案归档（未启动） | DONE | [D05](records/D05.md) | Step-ID: D05 |
 | D05.1 | 完整可复制启动与自动接续指令归档（未启动） | DONE | [D05.1](records/D05.1.md) | Step-ID: D05.1 |
 | D06 | 可用初版优先与后续迭代 CR-005 归档 | DONE | [D06](records/D06.md) | Step-ID: D06 |
+| D07 | SSH优先与逐阶段执行方案 CR-006 重新规划 | DONE | [D07](records/D07.md) | Step-ID: D07 |
 | P01 | 环境与仓库骨架 | DONE | [P01](records/P01.md) | Step-ID: P01 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
@@ -185,6 +188,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P08.3 | 配置服务/编辑器/主机密钥/备份恢复/凭据整理 | DONE | [P08.3](records/P08.3.md) | Step-ID: P08.3 |
 | P09 | SSH2 正式接入（服务/终端/任务 GUI、rekey、输入/任务/建连窗口及连接移除；实机/长稳待验） | IN_PROGRESS | [P09](records/P09.md) | Step-ID: P09 |
 | P10 | 串口正式接入（身份/I/O/服务/GUI/发送软件已验证；接收解码见P11.1，日志/实机继续） | IN_PROGRESS | [P10](records/P10.md) | Step-ID: P10 |
+| P10.1 | S2简洁串口连接/基本收发，等待S1阶段门 | TODO | 待实施时创建 | — |
 | P11 | 编码/日志/终端行为 | IN_PROGRESS | [P11](records/P11.md) | Step-ID: P11.1 / Step-ID: P11.2 |
 | P11.1 | 桌面增量接收解码 | DONE | [P11.1](records/P11.1.md) | Step-ID: P11.1 |
 | P11.2 | 服务派生文本与屏幕 | DONE | [P11.2](records/P11.2.md) | Step-ID: P11.2 |
@@ -194,6 +198,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.6 | 终端查找与受控剪贴板 | DONE | [P11.6](records/P11.6.md) | Step-ID: P11.6 |
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
+| P12.1 | S1简洁SSH2直接登录与基本使用，当前下一实现 | TODO | 待实施时创建 | — |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | 初版9工具真实stdio桥已完成/验证；完整v1工具后续，本版P16前置已满足 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |
