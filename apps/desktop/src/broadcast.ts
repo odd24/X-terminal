@@ -1,5 +1,9 @@
 /** One explicit text batch; transport input queues and deduplication remain service-owned. */
 export type BroadcastTarget={connection_id:string;generation:number;protocol:string;label:string;encoding:string};
+export type BroadcastSeed={owner:string;text:string;ending:string;origin:string};
+export function initialBroadcastDraft(owner:string,seed?:BroadcastSeed){
+ const blank={text:'',ending:'none',origin:''};if(!owner||seed?.owner!==owner)return blank;try{broadcastPayload(seed.text,seed.ending);if(!seed.origin||seed.origin.length>64||/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\uD800-\uDFFF]/u.test(seed.origin))return blank;return {text:seed.text,ending:seed.ending,origin:seed.origin};}catch{return blank;}
+}
 export type BroadcastPlan={owner:string;targets:BroadcastTarget[];payload:string};
 export type BroadcastResult={target:BroadcastTarget;request_id:string;state:'WAITING'|'DISPATCHING'|'ACCEPTED'|'REJECTED'|'UNKNOWN'|'SKIPPED';message:string;bytes:number|null};
 export type BroadcastReceipt=Pick<BroadcastResult,'state'|'message'|'bytes'>;

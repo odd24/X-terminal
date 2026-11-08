@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P19新增`test:desktop:command-targets`（完整链第32入口，前置实际desktop:build、入口编译gui_ssh_fixture），仅shared-terminal-command-targets-ui-中文-自建根/合成SSH/内存UART，finally实际普通服务恢复。验证真零会话可填变量和准备、模板revision变化拒绝/重读、seed只带文本/末尾/来源、当前标签及上次目标同意不继承、原多目标独立空范围/预览/确认与两个精确字节/独立编号、未选目标保持、变量缺失拒绝、关闭/普通重开/重载不复活及SQLite无变量/目标。模型补owner白名单/预算边界，实际结果见[P19](records/P19.md)。完整R08/R09/历史节奏及实机仍开放。
+
 P19新增`test:desktop:compose-selection`（完整链第31入口，前置实际desktop:build、入口编译gui_ssh_fixture），仅shared-terminal-compose-selection-ui-中文-自建根/合成SSH/内存UART，finally实际恢复普通服务。验证原正文选区的字面Unicode/CRLF/CR、预览取消不发/源保留、原队列一次确认/双击单次、只移除入队片段/未选草稿保留、改选区与切目标撤同意、真实write_text丢应答命中1次后不回填/重放、重载清空。模型补范围/代理对/预算/源revision和晚finish不覆盖，实际结果见[P19](records/P19.md)；历史/节奏/选定连接和完整R09/实机仍开放。
 
 P18新增`test:desktop:broadcast`（完整链第30入口，前置实际desktop:build、入口编译gui_ssh_fixture），只用shared-terminal-broadcast-ui-中文-自建根/合成SSH/内存串口，finally实际恢复普通服务。覆盖默认无目标/正文/确认、固定混合目标与独立编号、精确字面Unicode/CRLF、预览不发/活动标签不扩大、READ+WRITE+CONTROL票据只有显式发送后被原Desktop接管撤下写控制、取消仅停未开始、真实fetch丢应答命中1次/原编号仅查询不恢复余项、目标结束不改发、GBK明确拒绝与UTF8接受的部分结果、关闭和reload不恢复正文/同意/重放。模型另验await预检中取消和服务变化。实际结果见[P18](records/P18.md)；连续键盘同步/完整R07/SSH1/实机/全局矩阵仍开放。

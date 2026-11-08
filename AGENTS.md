@@ -228,3 +228,6 @@ P18显式文本批次按ADR-067独立更多工具入口，默认无目标/正文
 
 
 P19选区发送按ADR-068复用原ComposePanel与统一队列，冻结完整源/revision/精确代次/选区/末尾，范围及Unicode边界严格；无选区不发全文，改选区/正文/末尾/切目标撤同意。队列拒绝保留源，入队后仅移除确认选区、晚回调不覆盖新草稿，后续未知不回填/重放。新增test:desktop:compose-selection第31入口，前置实际desktop:build，仅shared-terminal-compose-selection-ui-中文-自建根/合成SSH/内存UART，finally实际恢复普通服务；全文/常用命令按影响复验，完整历史/节奏/R09/实机仍开放。
+
+
+P19常用命令选定连接按ADR-069只准备owner/text/ending/origin到原多目标窗口，64KiB共同预算/同源revision和服务复核；不带目标/代次/同意，不动单目标草稿。接收方owner白名单、默认无目标/独立原预览确认，关闭清seed、普通重开和reload不复活。新增test:desktop:command-targets第32入口，前置实际desktop:build，仅shared-terminal-command-targets-ui-中文-自建根/合成SSH/内存UART，finally实际普通恢复。无schema/权限变化，完整历史/节奏/实机等仍开放，不扩连续键盘或触发器。

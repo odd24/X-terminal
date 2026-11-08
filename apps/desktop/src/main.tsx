@@ -14,7 +14,7 @@ import { AgentPanel } from './agent-panel';
 import { ComposePanel } from './compose-panel';
 import {QuickCommandsPanel} from './quick-commands-panel';
 import {BroadcastPanel} from './broadcast-panel';
-import {BroadcastRun} from './broadcast';
+import {BroadcastRun,type BroadcastSeed} from './broadcast';
 import {broadcastTargetReady,sendBroadcastTarget,queryBroadcastTarget} from './broadcast-api';
 import {sameQuickContext,type QuickContext} from './quick-commands';
 import { ComposeDrafts, type ComposeTarget, type Ending } from './compose-drafts';
@@ -56,6 +56,7 @@ function App() {
   const [composeEnding,setComposeEnding]=useState<Ending>('none'),[composeOrigin,setComposeOrigin]=useState<string>();
   const [quickCommandsOpen,setQuickCommandsOpen]=useState(false);
   const [broadcastOpen,setBroadcastOpen]=useState(false);
+  const [broadcastSeed,setBroadcastSeed]=useState<BroadcastSeed>();
   const panes=useRef(new PaneLayout());
   const [,setPaneEpoch]=useState(0);
   const controllers=useRef(new Map<PaneKey,TerminalController>());
@@ -224,7 +225,7 @@ function App() {
   const serviceRef=useRef<Status|undefined>(undefined);serviceRef.current=service;
   const serviceStopped=useRef(false);
   const broadcastRun=useRef(new BroadcastRun({alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,id:requestId,ready:broadcastTargetReady,send:sendBroadcastTarget,query:queryBroadcastTarget}));
-  function closeBroadcast(){broadcastRun.current.cancel();setBroadcastOpen(false);}
+  function closeBroadcast(){broadcastRun.current.cancel();setBroadcastOpen(false);setBroadcastSeed(undefined);}
   const [splitSource,setSplitSource]=useState<{owner:string;first:PaneLive;nonce:string}>();
   const splitNonce=useRef('');
   function syncRoute(){const current=panes.current.current;selectedRef.current=current.requested;setSelected(current.requested);const c=controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
@@ -399,7 +400,7 @@ function App() {
 
       <button onClick={() => { drafts.current.invalidate();setComposeEnding('none');setComposeOrigin(undefined); setComposeOpen(open => !open); }}>基础撰写</button>
       <button onClick={openQuickCommands}>常用命令</button>
-      <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastOpen(true);}}>多目标发送</button>
+      <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed(undefined);setBroadcastOpen(true);}}>多目标发送</button>
 
       <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
         <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
@@ -444,8 +445,8 @@ function App() {
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={captureCurrentWorkspace} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
-    {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} close={closeBroadcast}/></Dialog>}
-    {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
+    {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} seed={broadcastSeed} close={closeBroadcast}/></Dialog>}
+    {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
     {composeOpen && <ComposePanel initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
     {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}

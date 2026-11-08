@@ -12,3 +12,7 @@ export function prepareQuickCommand(command:QuickCommand,values:Record<string,st
  const text=command.template.replace(pattern(),(_whole,name:string)=>values[name]);const payload=text+endings[command.ending];
  if(text.length>65536||new TextEncoder().encode(payload).length>(protocol==='SSH2'?196608:65536))throw new Error('替换后的内容超过当前连接单批上限，请缩短变量或模板。');return {text,ending:command.ending};
 }
+
+export function prepareCommandBatch(command:QuickCommand,values:Record<string,string>,owner:string){
+ if(!owner)throw new Error('会话服务尚未就绪，未准备。');const resolved=prepareQuickCommand(command,values,'SERIAL');return Object.freeze({owner,text:resolved.text,ending:resolved.ending,origin:command.name});
+}

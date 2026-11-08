@@ -1,26 +1,29 @@
 import {useEffect,useRef,useState} from 'react';
 import {Panel,Field,ErrorNotice} from './ui';
 import {visibleControls} from './log-search';
-import {BroadcastRun,broadcastPayload,type BroadcastPlan} from './broadcast';
+import {BroadcastRun,broadcastPayload,initialBroadcastDraft,type BroadcastSeed,type BroadcastPlan} from './broadcast';
 import {inspectBroadcastTargets} from './broadcast-api';
 type Candidate={connection_id:string;generation:number;protocol:string;state:string;label:string};
 const key=(c:Candidate)=>`${c.connection_id}/${c.generation}/${c.protocol}`;
-export function BroadcastPanel({owner,connections,run,close}:{owner:string;connections:readonly Candidate[];run:BroadcastRun;close():void}){
- const [selected,setSelected]=useState(new Set<string>()),[text,setText]=useState(''),[ending,setEnding]=useState('none'),[proposal,setProposal]=useState<BroadcastPlan>(),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[querying,setQuerying]=useState(''),[snapshot,setSnapshot]=useState(()=>run.snapshot());
+export function BroadcastPanel({owner,connections,run,seed,close}:{seed?:BroadcastSeed;owner:string;connections:readonly Candidate[];run:BroadcastRun;close():void}){
+ const initial=useRef(initialBroadcastDraft(owner,seed)),seedOwner=useRef(owner);
+ const [origin,setOrigin]=useState(initial.current.origin);
+ const [selected,setSelected]=useState(new Set<string>()),[text,setText]=useState(initial.current.text),[ending,setEnding]=useState(initial.current.ending),[proposal,setProposal]=useState<BroadcastPlan>(),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[querying,setQuerying]=useState(''),[snapshot,setSnapshot]=useState(()=>run.snapshot());
  const mounted=useRef(true),nonce=useRef(0),flight=useRef(false),currentOwner=useRef(owner);currentOwner.current=owner;
  const signature=connections.map(c=>`${key(c)}/${c.state}`).join('|');
  function invalidate(){nonce.current++;setBusy(false);setProposal(undefined);setConfirmed(false);setError('');}
  useEffect(()=>{mounted.current=true;const off=run.subscribe(()=>setSnapshot(run.snapshot()));return()=>{mounted.current=false;nonce.current++;off();run.cancel();};},[run]);
- useEffect(()=>{invalidate();setSelected(new Set());run.cancel();},[owner]);
+ useEffect(()=>{if(seedOwner.current!==owner){setText('');setEnding('none');setOrigin('');seedOwner.current=owner;}invalidate();setSelected(new Set());run.cancel();},[owner]);
  useEffect(()=>{invalidate();setSelected(previous=>new Set([...previous].filter(id=>connections.some(c=>key(c)===id&&c.state==='CONNECTED'))));},[signature]);
  async function preview(){if(flight.current||busy||snapshot.running||!owner)return;let payload;try{payload=broadcastPayload(text,ending);}catch(e){setError((e as Error).message);return;}const targets=[...selected].map(id=>connections.find(c=>key(c)===id)).filter((c):c is Candidate=>!!c);if(targets.length<2||targets.length>8){setError('请明确选择2–8个已连接的SSH2或串口目标。');return;}
   const version=++nonce.current,source=owner;setBusy(true);setError('');setConfirmed(false);setProposal(undefined);try{const frozen=await inspectBroadcastTargets(source,targets);if(mounted.current&&version===nonce.current&&currentOwner.current===source)setProposal({owner:source,targets:frozen,payload});}catch(e){if(mounted.current&&version===nonce.current)setError(e instanceof Error?e.message:'目标核对失败，未发送，请重新预览。');}finally{if(mounted.current&&version===nonce.current)setBusy(false);}
  }
- async function send(){if(flight.current||!proposal||!confirmed||snapshot.running||proposal.owner!==owner)return;const fixed=proposal;flight.current=true;setProposal(undefined);setConfirmed(false);setSelected(new Set());setText('');setEnding('none');setError('');try{await run.start(fixed);}catch(e){if(mounted.current)setError(e instanceof Error?e.message:'未能开始批次，请重新预览。');}finally{flight.current=false;}}
+ async function send(){if(flight.current||!proposal||!confirmed||snapshot.running||proposal.owner!==owner)return;const fixed=proposal;flight.current=true;setProposal(undefined);setConfirmed(false);setSelected(new Set());setText('');setEnding('none');setOrigin('');setError('');try{await run.start(fixed);}catch(e){if(mounted.current)setError(e instanceof Error?e.message:'未能开始批次，请重新预览。');}finally{flight.current=false;}}
  async function query(id:string){if(querying||snapshot.running)return;setQuerying(id);setError('');try{const ok=await run.query(id);if(mounted.current&&!ok)setError('原编号暂无法查询或服务已变化；未发送、未重试。');}finally{if(mounted.current)setQuerying('');}}
  const disabled=busy||snapshot.running;
  return <Panel title="多目标发送" label="多目标发送面板" close={()=>{nonce.current++;run.cancel();close();}} closeLabel="关闭多目标发送">
   {error&&<ErrorNotice title="多目标操作未完成">{error}</ErrorNotice>}
+  {origin&&<p aria-label="多目标模板来源">已从常用命令“{origin}”准备文本，可继续编辑；尚未选择目标或发送，仍须独立预览确认。</p>}
   <p>选择2–8个已有连接，按勾选顺序预览固定清单后发送一批文本。不跟随活动标签，不自动连接或重放。</p>
   <fieldset disabled={disabled||!owner}><legend>本次目标（默认不选）</legend>{connections.filter(c=>['SSH2','SERIAL'].includes(c.protocol)).map(c=><label className="check" key={key(c)}><input type="checkbox" aria-label={`多目标选择 ${c.connection_id}/${c.generation}`} disabled={c.state!=='CONNECTED'||!selected.has(key(c))&&selected.size>=8} checked={selected.has(key(c))} onChange={e=>{invalidate();setSelected(previous=>{const next=new Set(previous);if(e.target.checked)next.add(key(c));else next.delete(key(c));return next;});}}/>{visibleControls(c.label)} · {c.protocol} · 代次 {c.generation} · {c.connection_id.slice(0,8)} · {c.state}</label>)}{!connections.length&&<p>尚无连接，请先正常连接服务器或串口。</p>}</fieldset>
   <Field label="文本"><textarea aria-label="多目标正文" disabled={disabled||!owner} maxLength={65536} value={text} onChange={e=>{invalidate();setText(e.target.value);}}/></Field>
