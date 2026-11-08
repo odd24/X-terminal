@@ -1,6 +1,7 @@
 //! Structured configuration only. Credential material has no column or model field.
 mod host_keys;
 mod preferences;
+mod quick_commands;
 mod snapshot;
 mod workspaces;
 pub use snapshot::ConfigImage;
@@ -14,7 +15,7 @@ use std::{
 use uuid::Uuid;
 
 const APP_ID: i64 = 0x5354544d;
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -167,7 +168,19 @@ impl Store {
                 tx.execute_batch("PRAGMA user_version=5;")?;
                 workspaces::read(&tx)?;
             }
-            workspaces::migrate_v6(&tx)?;
+            if version < 6 {
+                workspaces::migrate_v6(&tx)?;
+            }
+            tx.execute_batch(
+                "CREATE TABLE quick_commands(id TEXT PRIMARY KEY NOT NULL,value TEXT NOT NULL);",
+            )?;
+            if tx.execute("INSERT INTO schema_migrations VALUES(7)", [])? != 1 {
+                return Err(Error::Corrupt);
+            }
+            tx.pragma_update(None, "user_version", 7)?;
+            if !quick_commands::read(&tx)?.is_empty() {
+                return Err(Error::Corrupt);
+            }
         }
         tx.commit()?;
         check(&connection)?;
@@ -247,6 +260,7 @@ impl Store {
         }
         self.preferences()?;
         self.workspaces()?;
+        self.quick_commands()?;
         Ok(())
     }
     pub fn put_folder(&mut self, folder: Folder) -> Result<()> {

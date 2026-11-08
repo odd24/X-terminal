@@ -2,6 +2,8 @@ use config_store::*;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+#[path = "support/quick_commands.rs"]
+mod quick_command_tests;
 #[path = "support/workspaces.rs"]
 mod workspace_tests;
 
@@ -744,7 +746,7 @@ fn make_v2(path: &Path) {
     store.put_profile(profile()).unwrap();
     drop(store);
     let conn = Connection::open(path).unwrap();
-    conn.execute_batch("DROP TABLE workspaces; DROP TABLE desktop_preferences; DELETE FROM schema_migrations WHERE version>=3; PRAGMA user_version=2").unwrap();
+    conn.execute_batch("DROP TABLE quick_commands; DROP TABLE workspaces; DROP TABLE desktop_preferences; DELETE FROM schema_migrations WHERE version>=3; PRAGMA user_version=2").unwrap();
 }
 #[test]
 fn preferences_v2_migration_and_readonly_old_backup_preserve_original() {
@@ -996,7 +998,7 @@ fn make_v3(path: &Path) -> DesktopPreferences {
         [value.to_string()],
     )
     .unwrap();
-    sql.execute_batch("DROP TABLE workspaces; DELETE FROM schema_migrations WHERE version>=4; PRAGMA user_version=3")
+    sql.execute_batch("DROP TABLE quick_commands; DROP TABLE workspaces; DELETE FROM schema_migrations WHERE version>=4; PRAGMA user_version=3")
         .unwrap();
     preferences
 }

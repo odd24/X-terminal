@@ -6,6 +6,8 @@ type Result<T> = std::result::Result<T, ValidationError>;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+mod quick_command;
+pub use quick_command::*;
 mod workspace;
 pub use workspace::*;
 

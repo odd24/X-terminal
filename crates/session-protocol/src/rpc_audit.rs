@@ -548,12 +548,15 @@ fn config_descriptor(r: &config::ConfigRequest) -> Descriptor {
     match r {
         C::Preferences {}
         | C::Workspaces {}
+        | C::QuickCommands {}
         | C::CredentialsPage { .. }
         | C::HostKeysPage { .. }
         | C::Page { .. }
         | C::Archives {} => descriptor(Area::Configuration, Verb::Read),
         C::SavePreferences { revision, .. }
         | C::SaveWorkspace { revision, .. }
+        | C::SaveQuickCommand { revision, .. }
+        | C::DeleteQuickCommand { revision, .. }
         | C::DeleteWorkspace { revision, .. } => resource(
             Area::Configuration,
             Verb::Configure,

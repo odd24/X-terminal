@@ -20,6 +20,7 @@ pub struct ConfigImage {
     pub host_keys: Vec<HostKey>,
     pub preferences: config_model::DesktopPreferences,
     pub workspaces: Vec<config_model::Workspace>,
+    pub quick_commands: Vec<config_model::QuickCommand>,
 }
 impl ConfigImage {
     pub fn digest(&self) -> Result<String> {
@@ -44,6 +45,7 @@ impl ConfigImage {
     }
     fn validate(&self) -> Result<()> {
         self.preferences.validate()?;
+        crate::quick_commands::validate_list(&self.quick_commands)?;
         if self.workspaces.len() > 8 {
             return Err(Error::Invalid("workspace limit"));
         }
@@ -108,6 +110,7 @@ impl Store {
             host_keys: host_keys::read(&tx)?,
             preferences: crate::preferences::read(&tx)?,
             workspaces: crate::workspaces::read(&tx)?,
+            quick_commands: crate::quick_commands::read(&tx)?,
         };
         image.validate()?;
         tx.commit()?;
@@ -161,7 +164,7 @@ impl Store {
             None::<fn(rusqlite::backup::Progress)>,
         )?;
         drop(source);
-        tx.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM workspaces; DELETE FROM profiles; DELETE FROM folders; DELETE FROM host_keys;")?;
+        tx.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM quick_commands; DELETE FROM workspaces; DELETE FROM profiles; DELETE FROM folders; DELETE FROM host_keys;")?;
         for folder in &image.folders {
             tx.execute(
                 "INSERT INTO folders VALUES(?1,?2,?3)",
@@ -215,6 +218,20 @@ impl Store {
             {
                 return Err(Error::Corrupt);
             }
+        }
+        for command in &image.quick_commands {
+            if tx.execute(
+                "INSERT INTO quick_commands VALUES(?1,?2)",
+                params![command.id.to_string(), serde_json::to_string(command)?],
+            )? != 1
+            {
+                return Err(Error::Corrupt);
+            }
+        }
+        let mut expected_commands = image.quick_commands.clone();
+        expected_commands.sort_by_key(|c| c.id);
+        if crate::quick_commands::read(&tx)? != expected_commands {
+            return Err(Error::Corrupt);
         }
         let mut expected = image.workspaces.clone();
         expected.sort_by_key(|w| w.id);

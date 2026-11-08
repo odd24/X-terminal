@@ -299,6 +299,34 @@ impl State {
             return Err(ConfigError::Invalid);
         }
         match request {
+            ConfigRequest::QuickCommands {} => Ok(ConfigReply::QuickCommands {
+                commands: self.store.quick_commands().map_err(config_error)?,
+                revision: self.revision,
+            }),
+            ConfigRequest::SaveQuickCommand { command, revision } => {
+                if revision != self.revision {
+                    return Err(ConfigError::Conflict);
+                }
+                self.store
+                    .put_quick_command(&command)
+                    .map_err(config_error)?;
+                self.changed();
+                Ok(ConfigReply::QuickCommands {
+                    commands: self.store.quick_commands().map_err(config_error)?,
+                    revision: self.revision,
+                })
+            }
+            ConfigRequest::DeleteQuickCommand { id, revision } => {
+                if revision != self.revision {
+                    return Err(ConfigError::Conflict);
+                }
+                self.store.delete_quick_command(id).map_err(config_error)?;
+                self.changed();
+                Ok(ConfigReply::QuickCommands {
+                    commands: self.store.quick_commands().map_err(config_error)?,
+                    revision: self.revision,
+                })
+            }
             ConfigRequest::Preferences {} => Ok(ConfigReply::Preferences {
                 preferences: self.store.preferences().map_err(config_error)?,
                 revision: self.revision,

@@ -82,7 +82,7 @@ fn v4(path: &Path) {
     drop(Store::open(path).unwrap());
     let sql = Connection::open(path).unwrap();
     sql.execute_batch(
-        "DROP TABLE workspaces;DELETE FROM schema_migrations WHERE version>=5;PRAGMA user_version=4",
+        "DROP TABLE quick_commands; DROP TABLE workspaces;DELETE FROM schema_migrations WHERE version>=5;PRAGMA user_version=4",
     )
     .unwrap();
 }
@@ -209,7 +209,7 @@ fn v5(path: &Path) -> Workspace {
     value.as_object_mut().unwrap().remove("split");
     sql.execute("UPDATE workspaces SET value=?1", [value.to_string()])
         .unwrap();
-    sql.execute_batch("DELETE FROM schema_migrations WHERE version>=6;PRAGMA user_version=5")
+    sql.execute_batch("DROP TABLE quick_commands; DELETE FROM schema_migrations WHERE version>=6;PRAGMA user_version=5")
         .unwrap();
     w
 }

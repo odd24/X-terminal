@@ -1,3 +1,5 @@
+#[path = "quick_command_cases.rs"]
+mod quick_command_cases;
 use super::*;
 #[path = "workspace_cases.rs"]
 mod workspace_cases;

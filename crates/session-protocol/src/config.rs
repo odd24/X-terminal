@@ -21,6 +21,15 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    QuickCommands {},
+    SaveQuickCommand {
+        command: config_model::QuickCommand,
+        revision: Uuid,
+    },
+    DeleteQuickCommand {
+        id: Uuid,
+        revision: Uuid,
+    },
     Workspaces {},
     SaveWorkspace {
         workspace: config_model::Workspace,
@@ -101,6 +110,11 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::QuickCommands {} => true,
+            Self::SaveQuickCommand { command, revision } => {
+                !revision.is_nil() && command.validate().is_ok()
+            }
+            Self::DeleteQuickCommand { id, revision } => !id.is_nil() && !revision.is_nil(),
             Self::Workspaces {} => true,
             Self::SaveWorkspace {
                 workspace,
@@ -209,6 +223,10 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    QuickCommands {
+        commands: Vec<config_model::QuickCommand>,
+        revision: Uuid,
+    },
     Workspaces {
         workspaces: Vec<config_model::Workspace>,
         revision: Uuid,
@@ -235,6 +253,7 @@ pub enum ConfigReply {
         artifact: ArchiveInfo,
     },
     BackupPreview {
+        quick_commands: u32,
         workspaces: u32,
         id: Uuid,
         digest: String,
@@ -432,5 +451,35 @@ mod workspace_split_contract_tests {
                 .any(|v| v == "split")
         );
         assert!(schema["properties"]["split"].to_string().contains("null"));
+    }
+}
+
+#[cfg(test)]
+mod quick_command_contract_tests {
+    use super::*;
+    #[test]
+    fn named_templates_are_strict_bounded_and_debug_redacted() {
+        let command = config_model::QuickCommand {
+            id: Uuid::new_v4(),
+            name: "synthetic-name".into(),
+            group: "synthetic-group".into(),
+            template: "synthetic-secret-body {{x}}".into(),
+            ending: config_model::CommandEnding::None,
+        };
+        let request = ConfigRequest::SaveQuickCommand {
+            command: command.clone(),
+            revision: Uuid::new_v4(),
+        };
+        assert!(request.validate());
+        let debug = format!("{request:?}");
+        for value in [&command.name, &command.group, &command.template] {
+            assert!(!debug.contains(value));
+        }
+        let descriptor = crate::Request::Config { request }.audit_descriptor(1);
+        let text = serde_json::to_string(&descriptor).unwrap();
+        assert!(!text.contains("synthetic"));
+        let mut value = serde_json::json!({"op":"save_quick_command","revision":Uuid::new_v4(),"command":command});
+        value["command"]["values"] = serde_json::json!({"x":"must not persist"});
+        assert!(serde_json::from_value::<ConfigRequest>(value).is_err());
     }
 }
