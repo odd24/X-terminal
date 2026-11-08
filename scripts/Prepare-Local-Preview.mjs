@@ -14,13 +14,22 @@ const files=[];
 for(const name of ['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe']){
   const source=path.resolve('target/debug',name),target=path.join(destination,name);
   await copyFile(source,target);const data=await readFile(target);
+  if(name==='shared-terminal-desktop.exe'){
+    assert.equal(data.toString('ascii',0,2),'MZ');
+    const pe=data.readUInt32LE(0x3c);
+    assert.equal(data.toString('ascii',pe,pe+4),'PE\0\0');
+    assert.equal(data.readUInt16LE(pe+24+68),2,'direct-launch desktop must use Windows GUI subsystem, including debug previews');
+  }
   files.push({name,bytes:data.length,sha256:createHash('sha256').update(data).digest('hex')});
 }
 await copyFile('docs/LOCAL_PREVIEW.md',path.join(destination,'README.md'));
 let ui,directory;
 try{
   directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-preview-ui-中文-'));
-  ui=await launchDesktop(directory,{executable:path.join(destination,'shared-terminal-desktop.exe')});
+  ui=await launchDesktop(directory,{executable:path.join(destination,'shared-terminal-desktop.exe'),windowsHide:false});
+  // Inspect only names/PIDs, never command lines or user terminal contents.
+  const consoleChildren=JSON.parse(execFileSync('pwsh',['-NoProfile','-Command',`$items = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=${ui.app.pid}" | Where-Object { $_.Name -match '^(conhost|OpenConsole|WindowsTerminal|powershell|pwsh)\\.exe$' } | Select-Object Name,ProcessId); ConvertTo-Json -InputObject $items -Compress`],{encoding:'utf8',windowsHide:true}));
+  assert.deepEqual(consoleChildren,[],'direct launch must not create a console or shell child');
   assert.deepEqual(await ui.invoke('service_list'),[],'ordinary service starts without test connections');
   let rejected=false;try{await ui.invoke('fixture_create');}catch{rejected=true;}assert.ok(rejected,'packaged ordinary service rejects fixture API');
   const broker=await ui.invoke('bridge_management_request',{request:{op:'info'}});

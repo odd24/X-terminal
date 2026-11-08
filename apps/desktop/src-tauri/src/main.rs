@@ -1,4 +1,5 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Development previews are launched directly too; they must not allocate a console.
+#![windows_subsystem = "windows"]
 
 mod agent_management;
 mod audit_history;
