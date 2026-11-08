@@ -68,7 +68,7 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
     // Tauri invoke is immutable. Intercept its real custom-protocol fetch
     // response instead; never replace service data with a fabricated success.
     // Assert interception counts in callers so an inactive hook cannot pass.
-    const interceptIpc = async ({ op, mode = 'delay', delayMs = 200, command: interceptedCommand = 'logging_request' }) => {
+    const interceptIpc = async ({ op, mode = 'delay', delayMs = 200, command: interceptedCommand = 'logging_request', connectionId }) => {
       assert.ok(['delay', 'error', 'hold'].includes(mode));
       await evaluate(`(() => {
         if(window.__desktopIpcResponseTest)throw new Error('IPC hook already installed');
@@ -76,8 +76,8 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
         const hook={original,count:0,releases:[]};window.__desktopIpcResponseTest=hook;
         window.fetch=async function(input,init){
           const response=await original.call(this,input,init);
-          let operation;try{operation=JSON.parse(init?.body).request?.op;}catch{}
-          if(new URL(String(input)).pathname===${JSON.stringify('/' + interceptedCommand)}&&operation===${JSON.stringify(op)}){
+          let operation,connection;try{const body=JSON.parse(init?.body);operation=body.request?.op;connection=(body.request?.connection??body.connection)?.connection_id;}catch{}
+          if(new URL(String(input)).pathname===${JSON.stringify('/' + interceptedCommand)}&&operation===${JSON.stringify(op)}&&(${JSON.stringify(connectionId)}===undefined||connection===${JSON.stringify(connectionId)})){
             hook.count++;
             if(${JSON.stringify(mode)}==='error'){
               const headers=new Headers(response.headers);headers.set('Tauri-Response','error');headers.set('content-type','application/json');headers.delete('content-length');

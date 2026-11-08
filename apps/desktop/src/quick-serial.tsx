@@ -12,7 +12,7 @@ const defaults:SerialSettings={protocol:'serial',port:'',baud_rate:115200,data_b
 const failures:Record<string,string>={DEVICE_UNAVAILABLE:'设备已拔出或不可用，请检查接线并刷新端口。',ACCESS_OR_BUSY:'端口被占用或访问被拒绝，请关闭占用程序后重试。',INVALID_PARAMETERS:'设备不支持这些参数，请检查波特率和流控。',IO:'设备通信中断，请检查连接。',CANCELLED:'本次连接已取消。',WORKER_FAILED:'串口线程异常，未自动重连。'};
 function safe(error:unknown){return error instanceof SerialRequestError||error instanceof ConfigRequestError?error.message:'串口操作未完成；结果可能不明，没有自动重试。';}
 function savedAttempt():Attempt|undefined {try{const id=sessionStorage.getItem(slot);if(id&&/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id))return {id,cancelled:false,connected:false};}catch{/* unavailable */}return undefined;}
-export function QuickSerial({requestedProfile,select,close,focus}:{requestedProfile?:string;select(id:string):void;close():void;focus(connection:ConnectionRef,profileId:string):void}){
+export function QuickSerial({requestedProfile,select,close,focus}:{requestedProfile?:string;select(id:string,expected?:{connection_id:string;generation:number}):void;close():void;focus(connection:ConnectionRef,profileId:string):void}){
   const [settings,setSettings]=useState<SerialSettings>(defaults),[inventory,setInventory]=useState<Inventory>(),[deviceId,setDeviceId]=useState('');
   const [profiles,setProfiles]=useState<Profile[]>([]),[profileId,setProfileId]=useState(''),[save,setSave]=useState(false);
   const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[message,setMessage]=useState('选择端口即可连接。只接收抓取UART日志无需发送命令。');
@@ -33,8 +33,8 @@ export function QuickSerial({requestedProfile,select,close,focus}:{requestedProf
     for(let n=0;n<120;n++){
       const status=await serial({op:'status',connection:a.connection});if(status.result!=='status'||status.connection.connection_id!==a.connection.connection_id||status.connection.generation!==a.connection.generation)throw new Error();
       if(!mounted.current||a.cancelled){await serial({op:'close',connection:a.connection});return;}
-      if(status.connection.state==='CONNECTED'){a.connected=true;forget();select(a.connection.connection_id);focus(a.connection,status.profile_id);return;}
-      if(['FAILED','DISCONNECTED'].includes(status.connection.state)){forget();setError(failures[status.failure??'']??'串口未能打开，请检查设备、占用和参数。');select(a.connection.connection_id);return;}
+      if(status.connection.state==='CONNECTED'){a.connected=true;forget();select(a.connection.connection_id,a.connection);focus(a.connection,status.profile_id);return;}
+      if(['FAILED','DISCONNECTED'].includes(status.connection.state)){forget();setError(failures[status.failure??'']??'串口未能打开，请检查设备、占用和参数。');select(a.connection.connection_id,a.connection);return;}
       await new Promise(r=>setTimeout(r,100));
     }
     throw new Error();

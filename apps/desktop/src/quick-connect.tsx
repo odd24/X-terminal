@@ -10,7 +10,7 @@ const ended = (state?: string) => state === 'FAILED' || state === 'DISCONNECTED'
 const states: Record<string,string> = { CONNECTING:'正在连接服务器…', AUTHENTICATING:'正在验证登录信息…', CONNECTED:'已连接，可以在终端工作', DISCONNECTED:'连接已断开', FAILED:'连接未成功', CLOSING:'正在断开…' };
 const failures: Record<string,string> = { TRANSPORT_TIMEOUT:'连接超时，请检查服务器地址、端口和网络。', TRANSPORT:'连接中断或服务器不可达，请检查网络和SSH服务。', HOST_KEY_REJECTED:'未信任此服务器，本次未继续登录。', HOST_KEY_CONFLICT:'主机指纹状态已变化，请重新核对。', APPROVAL_TIMEOUT:'确认已超时，请重新连接。', AUTHENTICATION_REJECTED:'用户名或密码/密钥未被服务器接受，请核对后重试。', CREDENTIAL_UNAVAILABLE:'无法读取密钥或凭据，请检查本地文件和口令。', CANCELLED:'本次连接已取消。', CONFIGURATION:'连接参数不可用，请检查配置。' };
 function safeError(error:unknown){return error instanceof SshRequestError||error instanceof ConfigRequestError?error.message:'无法完成操作，请核对连接信息、配置或本地密钥文件后重试。';}
-export function QuickConnect({ connection, intent, select, size, focus, close }: { connection?: Connection; intent?:SavedConnectIntent; select(id:string):void; size():{cols:number;rows:number}; focus(connection:ConnectionRef,profileId:string):void; close():void }) {
+export function QuickConnect({ connection, intent, select, size, focus, close }: { connection?: Connection; intent?:SavedConnectIntent; select(id:string,expected?:{connection_id:string;generation:number}):void; size():{cols:number;rows:number}; focus(connection:ConnectionRef,profileId:string):void; close():void }) {
   const [host,setHost]=useState(''),[username,setUsername]=useState(''),[port,setPort]=useState(22);
   const [auth,setAuth]=useState<Auth>('password'),[encoding,setEncoding]=useState<'utf8'|'gbk'|'gb18030'>('utf8');
   const [password,setPassword]=useState(''),[key,setKey]=useState(''),[passphrase,setPassphrase]=useState('');
@@ -55,7 +55,7 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
     if(reply.result!=='started')throw new Error('连接回复不匹配，请查询本次请求。');
     const ref=reference(reply.connection);a.connection=ref;
     if(!mounted.current||a.cancelled){await ssh({op:'close',connection:ref});return;}
-    setUnknown(false);select(ref.connection_id);setMessage('正在连接，请在此处完成必要的身份确认。');
+    setUnknown(false);select(ref.connection_id,ref);setMessage('正在连接，请在此处完成必要的身份确认。');
   }
   async function dispatchStart(a:Attempt,profileId:string,settings?:Settings){
     try {await accepted(await ssh(profileId?{op:'start',profile_id:profileId,request_id:a.id,...size()}:{op:'quick_start',settings:settings!,request_id:a.id,...size()}),a);}

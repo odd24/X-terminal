@@ -5,7 +5,7 @@ import { serial, serialResult, reference, type Inventory, type SerialStatus } fr
 import type { Connection } from './ssh-api';
 import { invoke } from '@tauri-apps/api/core';
 
-export function SerialPanel({ connection, select, requestedProfile, controlsOnly=false, summaryOnly=false, tools, closePanel }: { connection?: Connection; select(id: string): void; requestedProfile?: string; controlsOnly?:boolean; summaryOnly?:boolean; tools?():void; closePanel?():void }) {
+export function SerialPanel({ connection, select, requestedProfile, controlsOnly=false, summaryOnly=false, tools, closePanel }: { connection?: Connection; select(id: string,expected?:{connection_id:string;generation:number}): void; requestedProfile?: string; controlsOnly?:boolean; summaryOnly?:boolean; tools?():void; closePanel?():void }) {
   const [profiles,setProfiles]=useState<Profile[]>([]); const [profileId,setProfileId]=useState('');
   const [inventory,setInventory]=useState<Inventory>(); const [deviceId,setDeviceId]=useState('');
   const [status,setStatus]=useState<SerialStatus>(); const [approved,setApproved]=useState(false);
@@ -41,7 +41,7 @@ export function SerialPanel({ connection, select, requestedProfile, controlsOnly
     {inventory&&<small>可识别 {inventory.devices.length} 项；未识别端口：{inventory.unidentified_ports.join('、')||'无'}；元数据失败 {inventory.metadata_failures} 项。刷新后须重新选择，未识别项不按 COM 号回退打开。</small>}
     {settings&&<p aria-label="串口参数">{settings.port} · {settings.baud_rate} · {settings.data_bits}/{settings.parity}/{settings.stop_bits} · 流控 {settings.flow} · 编码 {settings.encoding} · DTR {String(settings.dtr_on_open)} · RTS {settings.rts_on_open===null?'由硬件流控管理':String(settings.rts_on_open)}</p>}
     <label className="check"><input aria-label="确认串口设备与控制线" type="checkbox" checked={approved} onChange={event=>setApproved(event.target.checked)} />已核对设备身份与参数；打开期间控制线变化可能使设备复位</label>
-    <button disabled={busy||!approved||!settings||!device||device.port!==settings.port} onClick={()=>void act(async()=>{if(!inventory||!device)throw new Error('请刷新并选择设备。');const reply=await serial({op:'start',profile_id:profileId,request_id:requestId(),revision:inventory.revision,device_id:device.device_id});if(reply.result!=='started')throw new Error('串口启动响应不匹配。');if(mounted.current){select(reply.connection.connection_id);setApproved(false);setMessage('已提交打开请求，请等待实际连接状态。');}})}>打开串口</button>
+    <button disabled={busy||!approved||!settings||!device||device.port!==settings.port} onClick={()=>void act(async()=>{if(!inventory||!device)throw new Error('请刷新并选择设备。');const reply=await serial({op:'start',profile_id:profileId,request_id:requestId(),revision:inventory.revision,device_id:device.device_id});if(reply.result!=='started')throw new Error('串口启动响应不匹配。');if(mounted.current){select(reply.connection.connection_id,reply.connection);setApproved(false);setMessage('已提交打开请求，请等待实际连接状态。');}})}>打开串口</button>
     </>}
     {controlsOnly&&<><div className="config-heading"><h2>串口通信</h2>{closePanel&&<button onClick={closePanel}>关闭串口详情</button>}</div><p role="status">{message==='选择配置并只读刷新设备；核对端口、身份及开口控制线后手动连接。'?'连接后持续接收；只抓取UART输出无需发送。':message}</p></>}
     {status&&<><p aria-label="串口状态">{status.connection.state} · {status.port} · {status.connection.connection_id} · 代次 {status.connection.generation} · 编码 {status.encoding}{status.failure&&` · ${status.failure}`}{status.cleanup_pending&&' · 正在清理句柄'} · 接收 {status.read_bytes} 字节 / 丢失 {status.dropped_bytes} 字节{status.break_cleanup_failure&&` · Break 清理失败 ${status.break_cleanup_failure}`}</p>

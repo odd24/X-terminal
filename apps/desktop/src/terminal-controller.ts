@@ -14,7 +14,7 @@ import type { ComposeTarget } from './compose-drafts';
 export type PaneConnection=ComposeTarget&{state:string};
 type Ref=Pick<PaneConnection,'connection_id'|'generation'>;
 type Page={connection:Ref;events:{seq:number;bytes:number[];gap_bytes?:number}[];next_cursor:number;available_from:number;truncated:boolean;disconnected:boolean};
-export type PaneSelection={owner:string;connection?:PaneConnection;active:boolean;epoch:number;fixture:boolean};
+export type PaneSelection={owner:string;connection?:PaneConnection;active:boolean;epoch:number;fixture:boolean;suspended?:boolean};
 export type TerminalView={status:string;inputFailure:string;failure:string;lastInput:string;decodeWarning:string;viewport:{cols:number;rows:number};renderedTarget?:ComposeTarget};
 export const initialTerminalView=():TerminalView=>({status:'正在连接会话服务',inputFailure:'',failure:'',lastInput:'尚无输入',decodeWarning:'',viewport:{cols:80,rows:24}});
 type Deps={selection():PaneSelection;preferences():DesktopPreferences;state(view:TerminalView):void;invalidateDrafts():void;input():void;search():void;proposal(p?:PasteProposal):void;message(text:string):void;reset():void};
@@ -176,12 +176,13 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     });
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(element);
-    function same(selection:PaneSelection){const now=deps.selection();return selection.owner===now.owner&&selection.connection?.connection_id===now.connection?.connection_id&&selection.connection?.generation===now.connection?.generation&&selection.connection?.protocol===now.connection?.protocol;}
+    function same(selection:PaneSelection){const now=deps.selection();return !now.suspended&&!selection.suspended&&selection.owner===now.owner&&selection.connection?.connection_id===now.connection?.connection_id&&selection.connection?.generation===now.connection?.generation&&selection.connection?.protocol===now.connection?.protocol;}
     async function poll(){
       try{
         const selection=deps.selection(),connection=selection.connection;
         current.fixture=selection.fixture;
         if(!selection.owner){current.writable=false;timer=window.setTimeout(()=>void poll(),100);return;}
+        if(selection.suspended){current.writable=false;clip.invalidate();update({renderedTarget:undefined,status:'会话已变化或正在绑定，请明确选择当前会话。'});timer=window.setTimeout(()=>void poll(),100);return;}
         const changed=owner!==selection.owner||connection?.connection_id!==current.connection?.connection_id||connection?.generation!==current.connection?.generation||connection?.protocol!==current.protocol;
         if(changed){
           current.writable=false;queue.close();queue=newQueue();lastSize='';clearTimeout(resizeTimer);

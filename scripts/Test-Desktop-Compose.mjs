@@ -103,5 +103,5 @@ try {
   assert.ok(fixture.exitCode!==null||fixture.signalCode!==null);
   assert.equal(path.dirname(path.resolve(directory)), path.resolve(tmpdir()));
   assert.ok(path.basename(directory).startsWith('shared-terminal-compose-ui-中文-'));
-  await rm(directory,{recursive:true,force:true});
+  await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }

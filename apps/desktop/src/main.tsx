@@ -7,8 +7,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { TerminalClipboard, type PasteProposal } from './terminal-clipboard';
 import { visibleControls } from './log-search';
 import { TerminalSearch } from './terminal-search-panel';
-import { createTerminalController, initialTerminalView, type TerminalController } from './terminal-controller';
-import { terminalAppearance, type ThemeChoice, type TerminalFont } from './appearance';
+import { initialTerminalView, type TerminalController, type TerminalView, type PaneSelection } from './terminal-controller';
+import { type ThemeChoice, type TerminalFont } from './appearance';
 import { AppearancePanel } from './appearance-panel';
 import { AgentPanel } from './agent-panel';
 import { ComposePanel } from './compose-panel';
@@ -26,6 +26,9 @@ import { SessionTabs } from './session-tabs';
 import { WorkspaceSession, captureWorkspace } from './workspace-session';
 import { WorkspacesPanel } from './workspaces-panel';
 import { Dialog } from './ui';
+import { TerminalPane } from './terminal-pane';
+import { SplitPanel } from './split-panel';
+import { PaneLayout, type PaneKey, type PaneLive } from './pane-layout';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { QuickSerial } from './quick-serial';
@@ -45,9 +48,13 @@ const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文�
 function App() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeEpoch, setComposeEpoch] = useState(0);
-  const [terminalView,setTerminalView]=useState(initialTerminalView);
+  const panes=useRef(new PaneLayout());
+  const [,setPaneEpoch]=useState(0);
+  const controllers=useRef(new Map<PaneKey,TerminalController>());
+  const [paneViews,setPaneViews]=useState<Partial<Record<PaneKey,TerminalView>>>({});
+  const terminalView=paneViews[panes.current.active]??initialTerminalView();
   const {renderedTarget,viewport,status,lastInput,inputFailure,decodeWarning}=terminalView;
-  const setInputFailure=(inputFailure:string)=>setTerminalView(v=>({...v,inputFailure}));
+  const setInputFailure=(inputFailure:string)=>setPaneViews(v=>({...v,[panes.current.active]:{...(v[panes.current.active]??initialTerminalView()),inputFailure}}));
   const drafts = useRef(new ComposeDrafts());
   const composeSend = useRef<((target: ComposeTarget, text: string) => boolean) | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -127,12 +134,10 @@ function App() {
   const clipboard = useRef<TerminalClipboard | undefined>(undefined);
   const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
   const [clipboardMessage, setClipboardMessage] = useState('');
-  function selectConnection(id: string) {
-    routeEpoch.current++;controller.current?.invalidate();
+  function selectConnection(id: string, expected?:Ref) {
     const target=liveConnections.current.find(c=>c.connection_id===id);if(target)tabClosures.current.show(target);setTabEpoch(value=>value+1);
-    drafts.current.invalidate(); clipboard.current?.invalidate(); selectedRef.current = id; setSelected(id);
+    panes.current.select(id,target,expected?.generation);routeChanged();
   }
-  const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<{ term: Terminal; fit: FitAddon; connection?: Ref; fixture: boolean; inputs: number; protocol: string; writable: boolean } | null>(null);
   const [service, setService] = useState<Status>();
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -204,25 +209,37 @@ function App() {
   }, []);
 
   const serviceRef=useRef<Status|undefined>(undefined);serviceRef.current=service;
-  const routeEpoch=useRef(0);
   const serviceStopped=useRef(false);
-  const controller=useRef<TerminalController|undefined>(undefined);
+  const [splitSource,setSplitSource]=useState<{owner:string;first:PaneLive;nonce:string}>();
+  const splitNonce=useRef('');
+  function syncRoute(){const current=panes.current.current;selectedRef.current=current.requested;setSelected(current.requested);const c=controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
+  function routeChanged(){drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
+  function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard)controllers.current.get(key)?.runtime.term.focus();}
+  function collapseSplit(keep?:PaneKey){panes.current.collapse(keep);routeChanged();}
+  function closeSplitPanel(){splitNonce.current='';setSplitSource(undefined);}
+  async function applySplit(second:PaneLive,direction:'horizontal'|'vertical'){
+    const source=splitSource;if(!source)throw new Error();const epoch=panes.current.epoch;
+    const native=await invoke<Status>('service_status'),live=await invoke<Connection[]>('service_list');
+    if(splitNonce.current!==source.nonce||epoch!==panes.current.epoch||native.service_id!==source.owner||serviceStopped.current)throw new Error();
+    const match=(c:Connection,t:PaneLive)=>c.connection_id===t.connection_id&&c.generation===t.generation&&c.protocol===t.protocol&&c.state==='CONNECTED';
+    const firstNow=live.find(c=>match(c,source.first)),secondNow=live.find(c=>match(c,second));if(!firstNow||!secondNow)throw new Error();
+    panes.current.split(native.service_id,firstNow,secondNow,direction);routeChanged();closeSplitPanel();
+  }
+  function paneSelection(key:PaneKey):PaneSelection{const slot=panes.current.slots.find(p=>p.key===key),binding=slot?.binding;
+    const live=binding&&liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation&&c.protocol===binding.protocol);
+    return {owner:serviceStopped.current?'':serviceRef.current?.service_id??'',connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:!!binding&&(!!slot?.retired||!!slot?.pending)};
+  }
+  function registerPane(key:PaneKey,c?:TerminalController){if(c)controllers.current.set(key,c);else controllers.current.delete(key);if(panes.current.active===key){runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;}}
   useEffect(()=>{let disposed=false,timer=0;
-    async function poll(){try{const native=await invoke<Status>('service_status');if(disposed)return;const sessions=await invoke<Connection[]>('service_list');if(disposed)return;
-      if(serviceRef.current&&serviceRef.current.service_id!==native.service_id){routeEpoch.current++;selectedRef.current='';setSelected('');}
-      serviceRef.current=native;setService(native);const old=liveConnections.current;liveConnections.current=sessions;setConnections(sessions);
-      const wanted=selectedRef.current;
-      if(wanted&&old.some(c=>c.connection_id===wanted)&&!sessions.some(c=>c.connection_id===wanted)){selectConnection('');}
-      else if(!wanted){const first=sessions.find(c=>!tabClosures.current.isHidden(c));if(first){selectedRef.current=first.connection_id;setSelected(first.connection_id);}}
+    async function poll(){try{const epoch=panes.current.epoch;const native=await invoke<Status>('service_status');if(disposed)return;const sessions=await invoke<Connection[]>('service_list');if(disposed)return;
+      serviceRef.current=native;setService(native);liveConnections.current=sessions;setConnections(sessions);
+      const beforeRetain=panes.current.epoch;if(panes.current.retain(native.service_id,sessions,epoch===panes.current.epoch)){if(panes.current.epoch!==beforeRetain)routeChanged();else syncRoute();}
+      if(panes.current.direction==='single'&&!panes.current.current.requested){const first=sessions.find(c=>!tabClosures.current.isHidden(c));if(first){panes.current.select(first.connection_id);panes.current.retain(native.service_id,sessions);syncRoute();}}
       timer=window.setTimeout(()=>void poll(),100);
-    }catch{if(!disposed){serviceStopped.current=true;routeEpoch.current++;controller.current?.invalidate();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
+    }catch{if(!disposed){serviceStopped.current=true;panes.current.epoch++;routeChanged();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
     void poll();return()=>{disposed=true;clearTimeout(timer);};
   },[]);
-  useEffect(()=>{const instance=createTerminalController(host.current!,{
-    selection:()=>({owner:serviceStopped.current?'':serviceRef.current?.service_id??'',connection:liveConnections.current.find(c=>c.connection_id===selectedRef.current),active:true,epoch:routeEpoch.current,fixture:serviceRef.current?.fixture??false}),
-    preferences:()=>preferenceRef.current,state:setTerminalView,invalidateDrafts:()=>drafts.current.invalidate(),input:()=>setComposeEpoch(v=>v+1),search:()=>setSearchOpen(true),proposal:setPasteProposal,message:setClipboardMessage,reset:()=>{setSnapshot('');setServiceScreen(undefined);}
-  });controller.current=instance;runtime.current=instance.runtime;clipboard.current=instance.clipboard;composeSend.current=instance.compose;
-  return()=>{instance.dispose();controller.current=undefined;runtime.current=null;clipboard.current=undefined;composeSend.current=undefined;drafts.current.invalidate();stopped.current=true;};},[]);
+  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length!==2)return;event.preventDefault();event.stopImmediatePropagation();focusPane(panes.current.slots.find(p=>p.key!==panes.current.active)!.key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
 
   useEffect(() => {
     const systemTheme = matchMedia('(prefers-color-scheme: dark)');
@@ -230,19 +247,14 @@ function App() {
       document.documentElement.dataset.theme = theme === 'system' ? (systemTheme.matches ? 'dark' : 'light') : theme;
       document.documentElement.dataset.terminalFont = terminalFont;
       document.documentElement.dataset.terminalPalette = preferences.terminal_palette;
-      if (runtime.current) {
-        const appearance = terminalAppearance();
-        runtime.current.term.options.theme = appearance.theme;
-        runtime.current.term.options.fontFamily = appearance.fontFamily;
-        runtime.current.fit.fit();
-      }
+      for(const c of controllers.current.values())c.appearance();
     };
     apply();
     systemTheme.addEventListener('change', apply);
     return () => systemTheme.removeEventListener('change', apply);
   }, [theme, terminalFont, preferences.terminal_palette]);
 
-  useEffect(() => { if (runtime.current) { runtime.current.term.options.fontSize = fontSize; runtime.current.fit.fit(); } }, [fontSize]);
+  useEffect(() => {for(const c of controllers.current.values())c.appearance();}, [fontSize]);
   useEffect(()=>{if(!quickOpen&&!serialDialog&&focusAfterConnect.current){focusAfterConnect.current=false;runtime.current?.term.focus();}},[quickOpen,serialDialog]);
 
   async function createFixture() {
@@ -290,7 +302,8 @@ function App() {
     const rank = (id: string) => tabOrder.includes(id) ? tabOrder.indexOf(id) : tabOrder.length + connections.findIndex(item => item.connection_id === id);
     return rank(a.connection_id) - rank(b.connection_id);
   }));
-  const active = connections.find(item => item.connection_id === selected);
+  const paneBinding=panes.current.current.binding;
+  const active = !panes.current.current.pending&&!panes.current.current.retired?connections.find(item => item.connection_id === paneBinding?.connection_id&&item.generation===paneBinding.generation&&item.protocol===paneBinding.protocol):undefined;
   const currentWorkspace=workspaceSession.current.layout;
   const pendingWorkspaceTabs=currentWorkspace?.tabs.filter(t=>{const ref=workspaceSession.current.binding(t.id),live=ref&&connections.find(c=>c.connection_id===ref.connection_id);return !live||['FAILED','DISCONNECTED'].includes(live.state);})??[];
   const activeDetails = active && catalog.current.get(active);
@@ -310,7 +323,7 @@ function App() {
   }
   function hideTab(connection: Connection) {
     if(!tabClosures.current.hide(connection))return;setTabEpoch(value=>value+1);
-    if (selectedRef.current === connection.connection_id) selectConnection(tabs.find(item => item.connection_id !== connection.connection_id)?.connection_id ?? '');
+    const wasSplit=panes.current.slots.length===2;if(panes.current.remove(connection)){routeChanged();if(!wasSplit)selectConnection(tabs.find(item=>item.connection_id!==connection.connection_id)?.connection_id??'');}
   }
   async function closeTab(target:Connection) {
     const decision=tabClosures.current.begin(target,liveConnections.current);
@@ -341,7 +354,7 @@ function App() {
   function finishWorkspace(connection:Ref,profileId:string,protocol:'SSH2'|'SERIAL',nonce:string){const pending=workspaceLaunch.current;if(!pending||pending.protocol!==protocol||pending.nonce!==nonce)return;
     const target={...connection,protocol,state:'CONNECTED'};if(pending.owner===service?.service_id&&workspaceSession.current.bind(pending.owner,pending.slot,profileId,target)){workspacePlacements.current.set(pending.slot,{owner:pending.owner,connection:target});setWorkspaceEpoch(v=>v+1);}else setTabMessage('本次参数或布局已改变，连接作为独立会话保留，布局引用未改变。');workspaceLaunch.current=undefined;
   }
-  function openWorkspace(workspace:Workspace,available:Profile[]){try{tabGroups.current.replace(workspace.groups);workspaceSession.current.open(workspace,service?.service_id??'',liveConnections.current);setProfiles(available);setSidebarOpen(workspace.navigation_open);for(const tab of workspace.tabs){const binding=workspaceSession.current.binding(tab.id);if(binding){const live=liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation);if(live)workspacePlacements.current.set(tab.id,{owner:service?.service_id??'',connection:live});}}const active=workspace.selected_tab&&workspaceSession.current.binding(workspace.selected_tab);if(active)selectConnection(active.connection_id);setWorkspaceEpoch(v=>v+1);setGroupEpoch(v=>v+1);setTabMessage('布局已打开，待连接项需明确连接；当前会话保留，没有自动登录或发送。');}catch{setTabMessage('布局无法打开，原连接保持。');}}
+  function openWorkspace(workspace:Workspace,available:Profile[]){try{collapseSplit();tabGroups.current.replace(workspace.groups);workspaceSession.current.open(workspace,service?.service_id??'',liveConnections.current);setProfiles(available);setSidebarOpen(workspace.navigation_open);for(const tab of workspace.tabs){const binding=workspaceSession.current.binding(tab.id);if(binding){const live=liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation);if(live)workspacePlacements.current.set(tab.id,{owner:service?.service_id??'',connection:live});}}const active=workspace.selected_tab&&workspaceSession.current.binding(workspace.selected_tab);if(active)selectConnection(active.connection_id);setWorkspaceEpoch(v=>v+1);setGroupEpoch(v=>v+1);setTabMessage('布局已打开，待连接项需明确连接；当前会话保留，没有自动登录或发送。');}catch{setTabMessage('布局无法打开，原连接保持。');}}
 
   return <main className="desktop-shell" style={{ '--navigation-width': `${navigationWidth}px` } as CSSProperties}>
     <header className="app-bar"><strong>共享终端</strong><button aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(value => !value)}>会话导航</button><span>{connections.length} 个服务连接</span></header>
@@ -369,6 +382,7 @@ function App() {
       <button onClick={() => setAppearanceOpen(open => !open)}>外观</button>
       <button onClick={()=>setGroupsOpen(true)}>标签分组</button>
       <button disabled={!service} onClick={()=>setWorkspaceOpen(true)}>工作区</button>
+      <button disabled={!active||active.state!=='CONNECTED'||!['SSH2','SERIAL'].includes(active.protocol)} onClick={()=>{if(active){const nonce=crypto.randomUUID();splitNonce.current=nonce;setSplitSource({owner:serviceRef.current!.service_id,first:{...active},nonce});}}}>分屏</button>
       <button onClick={() => setSerialOpen(open=>!open)}>串口高级工具</button>
       <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
@@ -382,7 +396,8 @@ function App() {
     <SessionTabs tabs={tabs} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)} owner={service?.service_id??''} selected={selected} list={tabList} name={tabName} select={selectConnection} close={target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} move={moveTab} assign={(target,group)=>{try{tabGroups.current.assign(service?.service_id??'',target,group);setGroupEpoch(value=>value+1);}catch(error){setTabMessage(error instanceof Error?error.message:'标签移动未完成。');}}}/>
     {currentWorkspace&&<div className="workspace-strip" aria-label="打开的工作区布局"><span>{currentWorkspace.name} · 待连接 {pendingWorkspaceTabs.length} 项</span>{pendingWorkspaceTabs.map(slot=>{const binding=workspaceSession.current.binding(slot.id),live=binding&&connections.find(c=>c.connection_id===binding.connection_id),profile=profiles.find(p=>p.id===slot.profile_id);return !live||['FAILED','DISCONNECTED'].includes(live.state)?<button key={slot.id} data-workspace-slot={slot.id} title={slot.id===currentWorkspace.selected_tab?'保存时的活动项':undefined} disabled={!profile||quickOpen||serialDialog} onClick={()=>{if(profile)connectProfile(profile,slot.id);}}>{profile?`连接 ${currentWorkspace.tabs.indexOf(slot)+1}. ${profile.name}`:`${currentWorkspace.tabs.indexOf(slot)+1}. 配置已删除`}</button>:null;})}<button onClick={()=>{workspaceSession.current.close();workspaceLaunch.current=undefined;workspacePlacements.current.clear();setWorkspaceEpoch(v=>v+1);}}>收起布局</button></div>}
     {!tabs.length && !quickOpen && <section className="terminal-empty"><h2>{currentWorkspace?'选择上方布局中的连接项':'连接服务器，开始工作'}</h2><p>{currentWorkspace?'布局已打开，尚未连接；每项连接仍核对当前配置、设备与身份。':'填写服务器地址和登录信息，即可进入终端。'}</p><button onClick={() => {workspaceLaunch.current=undefined;setQuickOpen(true);}}>新建SSH连接</button><p>通信记录可从顶部“终端日志”开始。</p></section>}
-    <div className="terminal" ref={host} aria-label="服务终端" />
+    {panes.current.slots.length===2&&<div className="split-tools"><span>{panes.current.direction==='horizontal'?'左右分屏':'上下分屏'} · F6切换输入窗格</span><button onClick={()=>collapseSplit()}>收起分屏，保留连接</button></div>}
+    <div className={`terminal-grid ${panes.current.direction}`} aria-label="终端窗格布局">{panes.current.slots.map(slot=>{const c=slot.binding&&connections.find(c=>c.connection_id===slot.binding!.connection_id&&c.generation===slot.binding!.generation&&c.protocol===slot.binding!.protocol);const view=paneViews[slot.key]??initialTerminalView();return <TerminalPane key={slot.key} rendered={view.renderedTarget} id={slot.key} split={panes.current.slots.length===2} active={panes.current.active===slot.key} label={c?tabName(c):slot.binding?'原会话已结束或变化':'尚无连接'} detail={slot.binding?`${slot.binding.protocol} · ${c?.state??'已变化'} · ${slot.binding.connection_id} / ${slot.binding.generation}`:''} preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} collapse={id=>collapseSplit(panes.current.slots.find(s=>s.key!==id)?.key)} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.status}/>;})}</div>
     {active?.protocol==='SERIAL'&&<SerialPanel summaryOnly connection={active} select={selectConnection} tools={()=>setSerialToolsOpen(true)}/>}
     <div className="status" role="status">{failure || inputFailure || status}</div>
     {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}
@@ -394,14 +409,15 @@ function App() {
     {quickOpen && <Dialog label="连接服务器" close={closeQuick}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SSH2',savedIntent?.request_id??'');focusAfterConnect.current=true;closeQuick();}} close={closeQuick} /></Dialog>}
     {serialDialog&&<Dialog label="连接串口设备" close={closeSerial}><QuickSerial key={serialNonce} requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined} select={selectConnection} close={closeSerial} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SERIAL',serialNonce);focusAfterConnect.current=true;closeSerial();}} /></Dialog>}
     {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
+    {splitSource&&<Dialog label="设置分屏" close={closeSplitPanel}><SplitPanel first={splitSource.first} connections={connections} label={connectionLabel} apply={applySplit} close={closeSplitPanel}/></Dialog>}
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={(name,available)=>captureWorkspace(name,tabs.map(c=>({...c,profile_id:catalog.current.get(c)?.profile_id})),available,tabGroups.current.list(),id=>tabGroups.current.groupOf(id),selected,sidebarOpen)} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
     {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
-    {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
-    <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />
+    {sshOpen && <SshPanel connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
+    <ExecPanel open={execOpen} connection={active} />
     {serialOpen && <SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} />}
     {serialToolsOpen&&active?.protocol==='SERIAL'&&<Dialog label="串口收发详情" close={()=>setSerialToolsOpen(false)}><SerialPanel controlsOnly connection={active} select={selectConnection} closePanel={()=>setSerialToolsOpen(false)}/></Dialog>}
     {searchOpen && <TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} />}

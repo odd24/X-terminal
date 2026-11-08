@@ -3,7 +3,7 @@ import { readConfiguration, type Profile } from './config-api';
 import { ssh, reference, type Connection, type SshStatus } from './ssh-api';
 import { requestId } from './request-id';
 
-export function SshPanel({ connection, select, size }: { connection?: Connection; select(id: string): void; size(): { cols: number; rows: number } }) {
+export function SshPanel({ connection, select, size }: { connection?: Connection; select(id: string,expected?:{connection_id:string;generation:number}): void; size(): { cols: number; rows: number } }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileId, setProfileId] = useState('');
   const [status, setStatus] = useState<SshStatus>();
@@ -56,7 +56,7 @@ export function SshPanel({ connection, select, size }: { connection?: Connection
       ? { op: 'reconnect', connection: active(), request_id, ...size() }
       : { op: 'start', profile_id: profileId, request_id, ...size() });
     if (reply.result !== 'started') throw new Error('SSH 建连响应不匹配。');
-    if (mounted.current) { select(reply.connection.connection_id); setMessage('已提交连接请求；请核对本连接的主机指纹与认证提示。'); }
+    if (mounted.current) { select(reply.connection.connection_id,reply.connection); setMessage('已提交连接请求；请核对本连接的主机指纹与认证提示。'); }
   }
   return <section className="config-panel ssh-panel" aria-label="SSH2 连接面板">
     <div className="config-heading"><h2>SSH2 连接</h2><button disabled={busy} onClick={() => void reload()}>刷新 SSH2 配置</button></div>
