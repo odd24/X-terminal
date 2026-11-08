@@ -43,3 +43,15 @@ test('ordinary and recovery save slots cannot restore each other, including fabr
   assert.equal(restoreSave(JSON.stringify(prepared()),'RECOVERY'),undefined);
   assert.deepEqual(restoreSave(JSON.stringify(recovery),'RECOVERY'),{...target,scope:recovery.scope});
 });
+
+test('text save retains only IDs and rejects JSONL or recovery sources with identical IDs',()=>{
+  const text={...target,scope:{...target.scope,mode:'TEXT'}};
+  const info={...prepared(),scope:text.scope};
+  assert.deepEqual(restoreSave(JSON.stringify({...info,reviewed:true}),'TEXT'),text);
+  assert.equal(checkedSave(info,text).scope.mode,'TEXT');
+  for(const mode of ['NORMAL','RECOVERY']) {
+    assert.equal(restoreSave(JSON.stringify(info),mode),undefined);
+    assert.throws(()=>checkedSave({...info,scope:{...text.scope,mode}},text));
+    assert.equal(restoreSave(JSON.stringify({...info,scope:{...text.scope,mode}}),'TEXT'),undefined);
+  }
+});

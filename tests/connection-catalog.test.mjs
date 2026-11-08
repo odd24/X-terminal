@@ -33,3 +33,13 @@ test('long-running create/forget cycles retain only current service entries', ()
   catalog.retain('service', []);
   assert.equal(catalog.size, 0);
 });
+
+test('temporary SSH target labels come from the matching generation and exclude authentication fields',()=>{
+  const catalog=new ConnectionCatalog();
+  const connection={connection_id:'temporary',generation:1,protocol:'SSH2'};
+  catalog.retain('owner',[connection]);
+  catalog.put('owner',connection,{profile_id:'temporary',encoding:'utf8',temporary_settings:{protocol:'ssh2',host:'host',port:22,username:'user',auth:'password',encoding:'utf8'},challenge:{password:'synthetic'}});
+  assert.deepEqual(catalog.get(connection),{profile_id:'temporary',encoding:'utf8',target_label:'user@host:22'});
+  catalog.retain('owner',[{...connection,generation:2}]);
+  assert.equal(catalog.get(connection),undefined);
+});

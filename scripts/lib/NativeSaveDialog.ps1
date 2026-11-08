@@ -59,7 +59,7 @@ for($attempt=0;$attempt -lt 100;$attempt++) {
         [void][NativeSaveTestWindow]::GetWindowThreadProcessId($window,[ref]$windowProcess)
         if($windowProcess -eq $TargetProcessId) {
             $caption=[Text.StringBuilder]::new(1024);[void][NativeSaveTestWindow]::GetWindowText($window,$caption,1024)
-            if($caption.ToString().StartsWith('另存终端导出')) { $candidates.Add($window) }
+            if($caption.ToString().StartsWith('另存终端导出') -or $caption.ToString() -eq '保存文本日志') { $candidates.Add($window) }
         }
         return $true
     }

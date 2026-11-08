@@ -1,17 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Auth, HostKeySummary } from './config-api';
+import type { Auth, HostKeySummary, Settings } from './config-api';
 export type Connection = { connection_id: string; generation: number; protocol: string; state: string };
 export type ConnectionRef = Pick<Connection, 'connection_id' | 'generation'>;
 export type Challenge =
   | { kind: 'host_key'; id: string; review: { candidate: HostKeySummary; known: HostKeySummary[]; status: 'unknown' | 'known' | 'changed'; revision: string } }
   | { kind: 'credentials'; id: string; auth: Auth; stored_available: boolean }
   | { kind: 'interactive'; id: string; name: string; instructions: string; prompts: { text: string; echo: boolean }[] };
-export type SshStatus = { connection: Connection; profile_id: string; encoding: 'utf8' | 'gbk' | 'gb18030'; challenge: Challenge | null; failure: string | null; shell_exit_status: number | null; shell_exit_signal: string | null };
+export type SshStatus = { connection: Connection; profile_id: string; temporary_settings?: Settings | null; encoding: 'utf8' | 'gbk' | 'gb18030'; challenge: Challenge | null; failure: string | null; shell_exit_status: number | null; shell_exit_signal: string | null };
 export type Receipt = { request_id: string; state: 'PENDING' | 'DISPATCHING' | 'PIPELINE_QUEUED' | 'UNKNOWN' | 'CANCELLED_BEFORE_DISPATCH'; pipeline_bytes: number | null; failure: string | null };
 export type ExecSummary = { end: string; exit_status: number | null; exit_signal: string | null; request_accepted: boolean | null; output_truncated: boolean; stdout_bytes: number; stderr_bytes: number };
 export type TaskStatus = { task_id: string; connection: ConnectionRef; encoding: 'utf8' | 'gbk' | 'gb18030'; phase: 'QUEUED' | 'RUNNING' | 'CANCELLING' | 'FINISHED'; summary: ExecSummary | null };
 export type ExecPage = { events: { seq: number; stderr: boolean; bytes: number[] }[]; next_cursor: number; available_from: number; truncated: boolean; completed: boolean };
 type Request =
+  | { op: 'quick_start'; settings: Settings; request_id: string; cols: number; rows: number }
+  | { op: 'start_status'; request_id: string }
+  | { op: 'authenticate_key'; connection: ConnectionRef; challenge_id: string; key_path: string; passphrase: string | null }
   | { op: 'exec'; connection: ConnectionRef; request_id: string; command: string; timeout_ms: number; max_output_bytes: number }
   | { op: 'exec_status' | 'exec_cancel'; connection: ConnectionRef; task_id: string }
   | { op: 'exec_read'; connection: ConnectionRef; task_id: string; cursor: number; max_bytes: number }
@@ -26,6 +29,7 @@ type Request =
   | { op: 'resize'; connection: ConnectionRef; request_id: string; cols: number; rows: number }
   | { op: 'input_status'; connection: ConnectionRef; request_id: string };
 export type SshReply = ({ result: 'exec' } & TaskStatus) | { result: 'exec_output'; connection: ConnectionRef; task_id: string; output: ExecPage } | { result: 'started'; connection: Connection } | ({ result: 'status' } & SshStatus) | ({ result: 'input' } & Receipt) | { result: 'accepted' };
+export class SshRequestError extends Error { constructor(readonly code:string,message:string){super(message);} }
 export async function ssh(request: Request): Promise<SshReply> {
   try { return await invoke<SshReply>('ssh_request', { request }); }
   catch (error) {
@@ -40,7 +44,7 @@ export async function ssh(request: Request): Promise<SshReply> {
       INVALID_SSH_REQUEST: 'SSH 请求参数无效。',
       NotFound: '连接、配置或请求已不存在。',
     };
-    throw new Error(messages[code] ?? 'SSH 请求失败；结果可能未知，未自动重试或重连。');
+    throw new SshRequestError(code,messages[code] ?? 'SSH 请求失败；结果可能未知，未自动重试或重连。');
   }
 }
 export function reference(connection: Connection): ConnectionRef {

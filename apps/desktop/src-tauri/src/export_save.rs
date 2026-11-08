@@ -37,6 +37,7 @@ use windows::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SourceMode {
+    Text,
     Normal,
     Recovery,
 }
@@ -53,6 +54,11 @@ impl Scope {
     pub fn source_status(&self) -> session_protocol::logging::Request {
         use session_protocol::logging::Request;
         match self.mode {
+            SourceMode::Text => Request::TextExportStatus {
+                connection: self.connection,
+                log_id: self.log_id,
+                request_id: self.request_id,
+            },
             SourceMode::Normal => Request::ExportStatus {
                 connection: self.connection,
                 log_id: self.log_id,
@@ -72,7 +78,8 @@ impl Scope {
     ) -> Result<ExportFingerprint, String> {
         use session_protocol::logging::{ExportPhase, Reply};
         let (connection, log_id, request_id, phase, bytes, hash) = match (self.mode, reply) {
-            (SourceMode::Normal, Reply::Export(info)) => (
+            (SourceMode::Text, Reply::TextExport(info))
+            | (SourceMode::Normal, Reply::Export(info)) => (
                 info.connection,
                 info.log_id,
                 info.request_id,
@@ -222,7 +229,7 @@ impl Drop for Apartment {
         }
     }
 }
-fn choose(owner: usize, id: Uuid) -> windows::core::Result<Option<PathBuf>> {
+fn choose(owner: usize, id: Uuid, mode: SourceMode) -> windows::core::Result<Option<PathBuf>> {
     let _apartment = Apartment::enter()?;
     unsafe {
         let dialog: IFileSaveDialog =
@@ -233,12 +240,22 @@ fn choose(owner: usize, id: Uuid) -> windows::core::Result<Option<PathBuf>> {
         )?;
         dialog.SetTitle(w!("另存终端导出"))?;
         dialog.SetOkButtonLabel(w!("选择保存位置"))?;
-        dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
-            pszName: w!("JSONL 日志 (*.jsonl)"),
-            pszSpec: w!("*.jsonl"),
-        }])?;
-        dialog.SetDefaultExtension(w!("jsonl"))?;
-        dialog.SetFileName(&HSTRING::from(format!("terminal-export-{id}.jsonl")))?;
+        if mode == SourceMode::Text {
+            dialog.SetTitle(w!("保存文本日志"))?;
+            dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
+                pszName: w!("文本日志 (*.log)"),
+                pszSpec: w!("*.log"),
+            }])?;
+            dialog.SetDefaultExtension(w!("log"))?;
+            dialog.SetFileName(&HSTRING::from(format!("terminal-{id}.log")))?;
+        } else {
+            dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
+                pszName: w!("JSONL 日志 (*.jsonl)"),
+                pszSpec: w!("*.jsonl"),
+            }])?;
+            dialog.SetDefaultExtension(w!("jsonl"))?;
+            dialog.SetFileName(&HSTRING::from(format!("terminal-export-{id}.jsonl")))?;
+        }
         if let Err(error) = dialog.Show(Some(HWND(owner as *mut _))) {
             if error.code().0 as u32 == 0x800704c7 {
                 return Ok(None);
@@ -314,7 +331,12 @@ impl Manager {
                             owner,
                             fingerprint,
                         } => {
-                            let selected = choose(owner, id);
+                            let mode = shared.lock().unwrap_or_else(|e| e.into_inner()).entries
+                                [&id]
+                                .info
+                                .scope
+                                .mode;
+                            let selected = choose(owner, id, mode);
                             let cancel = shared.lock().unwrap_or_else(|e| e.into_inner()).entries
                                 [&id]
                                 .cancel
@@ -798,6 +820,19 @@ mod tests {
             123
         );
         assert!(recovery.fingerprint(decode(ordinary)).is_err());
+        let mut text = normal.clone();
+        text.mode = SourceMode::Text;
+        assert!(matches!(
+            text.source_status(),
+            Request::TextExportStatus { .. }
+        ));
+        let plain = serde_json::json!({"result":"text_export","connection":text.connection,"log_id":text.log_id,"request_id":text.request_id,"phase":"COMPLETED","failure":null,"bytes":321,"sha256":"cd".repeat(32),"retained_records":1,"retained_raw_bytes":10,"retained_gap_bytes":0,"next_cursor":2});
+        assert_eq!(text.fingerprint(decode(plain.clone())).unwrap().bytes, 321);
+        assert!(normal.fingerprint(decode(plain.clone())).is_err());
+        assert!(recovery.fingerprint(decode(plain.clone())).is_err());
+        let mut wrong = plain;
+        wrong["result"] = serde_json::json!("export");
+        assert!(text.fingerprint(decode(wrong)).is_err());
         for mode in [serde_json::Value::Null, serde_json::json!("OTHER")] {
             let mut v = serde_json::to_value(&normal).unwrap();
             v["mode"] = mode;

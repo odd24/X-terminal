@@ -69,6 +69,9 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 html, body, #root { height: 100%; overflow: hidden; }
 main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: var(--space-2); }
 .app-bar { display: flex; align-items: center; gap: var(--space-4); }
+.primary-action { border-color: var(--accent); color: var(--accent-text); }
+.tools-menu-content { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); }
+.tools-menu[open] .tools-menu-content { position: fixed; z-index: 4; inset-inline: var(--space-3); margin-top: var(--space-2); background: var(--surface); border: var(--border-width) solid var(--border); border-radius: var(--radius-panel); }
 .app-bar span { color: var(--text-muted); font-size: var(--text-sm); }
 .desktop-shell nav { flex-wrap: nowrap; overflow-x: auto; margin: 0; padding: var(--space-1); }
 .desktop-shell nav > * { flex-shrink: 0; }

@@ -4,14 +4,14 @@ import type { ExportInfo } from './logging-api';
 import type { RecoveryExportInfo } from './log-recovery-export';
 import { checkedSave, restoreSave, terminalSave, type SaveInfo, type SaveScope, type SaveMode } from './log-save';
 import { requestId } from './request-id';
-const storageKey = (mode: SaveMode) => mode === 'RECOVERY' ? 'terminal-recovery-export-save-v1' : 'terminal-export-save-v1';
+const storageKey = (mode: SaveMode) => mode === 'TEXT' ? 'terminal-text-log-save-v1' : mode === 'RECOVERY' ? 'terminal-recovery-export-save-v1' : 'terminal-export-save-v1';
 const states: Record<SaveInfo['phase'], string> = { CHOOSING: '正在选择系统保存位置', AWAITING_CONFIRMATION: '目标文件已存在，等待明确替换确认', COPYING: '正在校验、复制并同步', COMPLETED: '本次另存已完成', CANCELLED: '另存已取消', EXPIRED: '替换确认已到期，未执行替换', FAILED: '另存失败，请核对目标与残留文件', RECOVERY_REQUIRED: '发布未完成，需要检查原文件备份；未自动重试' };
 const failures: Record<string, string> = { SOURCE: '源产物已变化或不可读，请重新核对导出', TARGET: '所选目标不可用或不是受支持的普通本地文件', DIALOG: '系统位置选择器不可用', STAGING: '无法在目标目录新建暂存文件', COPY: '复制中断或写入失败', SYNC: '无法确认文件已同步', PERMISSIONS: '无法保留原文件的访问权限', BACKUP: '无法保留原文件备份', PUBLISH: '目标名称发生冲突或发布失败', CANCELLED: '已请求取消' };
 type Task = SaveScope & { last?: SaveInfo };
 function remembered(mode: SaveMode) { try { const value = restoreSave(sessionStorage.getItem(storageKey(mode)), mode); return value?.scope.mode === mode ? value : undefined; } catch { return undefined; } }
-export function LogSavePanel({ source, mode = 'NORMAL' }: { source?: ExportInfo; mode?: 'NORMAL' } | { source?: RecoveryExportInfo; mode: 'RECOVERY' }) {
-  const key = storageKey(mode); const recovery = mode === 'RECOVERY'; const label = (text: string) => recovery ? `恢复${text}` : text;
-  const [task, setTask] = useState<Task | undefined>(() => remembered(mode)); const current = useRef(task);
+export function LogSavePanel({ source, mode = 'NORMAL', autoStart = false }: { source?: ExportInfo; mode?: 'NORMAL' | 'TEXT'; autoStart?: boolean } | { source?: RecoveryExportInfo; mode: 'RECOVERY'; autoStart?: boolean }) {
+  const key = storageKey(mode); const recovery = mode === 'RECOVERY'; const label = (text: string) => recovery ? `恢复${text}` : mode === 'TEXT' ? `文本${text}` : text;
+  const [task, setTask] = useState<Task | undefined>(() => {const old=remembered(mode);return mode!=='TEXT'||old?.scope.connection.connection_id===source?.connection.connection_id&&old?.scope.connection.generation===source?.connection.generation&&old?.scope.log_id===source?.log_id&&old?.scope.request_id===source?.request_id?old:undefined;}); const current = useRef(task);
   const [pending, setPending] = useState(false); const busy = useRef(false); const mounted = useRef(true);
   const [uncertain, setUncertain] = useState(!!task); const [missing, setMissing] = useState(false); const [reviewed, setReviewed] = useState(false); const [now, setNow] = useState(Date.now());
   const [message, setMessage] = useState(task ? '已恢复另存编号，请查询；不会重新选择位置或恢复覆盖同意。' : (recovery ? '未完整恢复产物发布后，可选择系统保存位置；另存不会修复源日志。' : '已完成导出后，可选择系统保存位置。'));
@@ -49,7 +49,18 @@ export function LogSavePanel({ source, mode = 'NORMAL' }: { source?: ExportInfo;
     const target: Task = { scope: { mode, connection: { ...source.connection }, log_id: source.log_id, request_id: source.request_id }, save_id: requestId() };
     current.current = target; setTask(target); setReviewed(false); setMissing(false); setUncertain(false); try { sessionStorage.setItem(key, JSON.stringify(target)); } catch { /* visible task ID remains usable */ } void run(target, 'start');
   }
+  const automatic=useRef(false);
+  useEffect(()=>{if(mode==='TEXT'&&autoStart&&!automatic.current){automatic.current=true;if(!current.current)start();}},[autoStart,mode]);
   const info = !uncertain && !missing ? task?.last : undefined; const active = !!task && !missing && (!task.last || !terminalSave(task.last) || uncertain);
+  if(mode==='TEXT')return <fieldset aria-label={label('导出另存')}><legend>保存日志</legend>
+    <div className="config-actions"><button disabled={!source||pending||active||uncertain||missing} onClick={start}>保存日志</button>{(uncertain||missing)&&<button ref={query} disabled={!task||pending} onClick={()=>{if(current.current)void run(current.current,'status');}}>查询保存结果</button>}{active&&!uncertain&&!missing&&<button disabled={pending||info?.cancel_requested} onClick={()=>{if(current.current)void run(current.current,'cancel');}}>取消保存</button>}{info?.phase==='COMPLETED'&&<button disabled={pending} onClick={()=>{if(current.current)void run(current.current,'open_directory');}}>打开目录</button>}</div>
+    <p role="status" aria-label={label('导出另存状态')}>{message}</p>
+    {info?.path&&<label>保存位置<input aria-label={label('另存文件路径')} readOnly value={info.path}/></label>}
+    {info?.phase==='AWAITING_CONFIRMATION'&&<><p>目标文件已存在（{info.existing_bytes} 字节）。确认替换后会在同目录保留原文件备份。</p><label className="check"><input ref={check} type="checkbox" aria-label={label('确认替换保存文件')} checked={reviewed} disabled={pending||uncertain||info.cancel_requested||now>=info.expires_at_ms!} onChange={event=>setReviewed(event.target.checked)}/>我已核对保存位置，确认替换并保留原文件备份</label><button ref={confirm} disabled={!reviewed||pending||uncertain||info.cancel_requested||now>=info.expires_at_ms!} onClick={()=>{if(current.current)void run(current.current,'confirm');}}>确认替换并保存</button></>}
+    {info?.backup&&<label>原文件备份<input aria-label={label('另存原文件备份')} readOnly value={info.backup}/></label>}
+    {info?.staging&&<label>未发布暂存文件<input readOnly value={info.staging}/></label>}
+    <details><summary>详细信息</summary><small>关闭面板会请求取消未完成任务，已发布文件不能撤销。保存使用系统选择器和文件校验；已有文件必须独立确认替换。结果不监控目录后来发生的变化。</small>{task&&<p className="data-location" aria-label={label('另存固定目标')}>文本日志 · {task.scope.log_id} · {task.scope.connection.connection_id} / {task.scope.connection.generation} · {task.scope.request_id} · {task.save_id}</p>}</details>
+  </fieldset>;
   return <fieldset aria-label={label("导出另存")}><legend>{recovery ? "另存未完整恢复产物" : "另存到自选位置"}</legend>
     {recovery && <p>恢复模式 · 未完整前缀。另存仅复制已发布的恢复 JSONL，保留停止报告；文件保存完成也不代表源日志完整。</p>}
     <small>使用系统位置选择器。新文件在验证与同步后发布；已有文件需另行确认，并在同目录保留原文件备份。当前替换仅支持普通可写本地文件，特殊属性文件请选新文件名。关闭面板会请求取消未完成任务，已发布文件不能撤销。</small>

@@ -409,6 +409,7 @@ try {
       await ctrlC();await ui.waitFor(`document.querySelector('[aria-label="剪贴板状态"]').textContent==='终端选区已复制'`);
       assert.equal((await control({op:'metrics'})).received.flat().length,before,'Ctrl+C with selection copies without interrupting');
       const clickPaste=async()=>{
+      await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
       const pasteButton=await ui.evaluate(`(()=>{const b=Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='粘贴到终端');b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
       await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...pasteButton});
       await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...pasteButton});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...pasteButton});

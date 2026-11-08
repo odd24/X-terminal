@@ -19,6 +19,7 @@ import { ConnectionCatalog } from './connection-catalog';
 import { config, type DesktopPreferences, type Profile } from './config-api';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
+import { QuickConnect } from './quick-connect';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { LoggingPanel, type LoggingSummary } from './logging-panel';
@@ -42,7 +43,7 @@ function App() {
   const [renderedTarget, setRenderedTarget] = useState<ComposeTarget>();
   const drafts = useRef(new ComposeDrafts());
   const composeSend = useRef<((target: ComposeTarget, text: string) => boolean) | undefined>(undefined);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [navigationWidth, setNavigationWidth] = useState(260);
   const tabList = useRef<HTMLDivElement>(null);
   const [treeRevision, setTreeRevision] = useState(0);
@@ -99,6 +100,7 @@ function App() {
   }
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [sshOpen, setSshOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
   const [loggingOpen,setLoggingOpen] = useState(false);
@@ -497,7 +499,7 @@ function App() {
   const profileName = (connection: Connection) => {
     const details = catalog.current.get(connection);
     const profile = details && profiles.find(item => item.id === details.profile_id && item.settings.protocol.toUpperCase() === connection.protocol);
-    return profile?.name;
+    return details?.target_label ?? profile?.name;
   };
   const tabName = (connection: Connection) => profileName(connection) ?? `${connection.protocol} · ${connection.connection_id.slice(0, 8)}`;
   const connectionLabel = (connection: Connection) => profileName(connection) ? `${profileName(connection)} · ${connection.protocol}` : tabName(connection);
@@ -530,11 +532,11 @@ function App() {
     setRequestedProfile(profile);
     if (profile.settings.protocol === 'serial') { setSerialOpen(true); setTabMessage('请在串口面板刷新并核对设备身份与控制线后显式打开。'); return; }
     if (profile.settings.protocol === 'ssh1') { setTabMessage('SSH1 正式适配尚未完成；不会改用 SSH2 或自动降级。'); return; }
-    setTabBusy(true); setSshOpen(true);
+    setTabBusy(true); setQuickOpen(true);
     try {
       const reply = await ssh({ op: 'start', profile_id: profile.id, request_id: requestId(), ...dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24) });
       if (reply.result !== 'started') throw new Error('连接响应不匹配；请在连接面板核对。');
-      selectConnection(reply.connection.connection_id); setTabMessage('已建立独立连接实例；请在 SSH2 面板核对身份与认证。');
+      selectConnection(reply.connection.connection_id); setTabMessage('正在连接，请完成服务器身份与认证确认。');
     } catch (error) { setTabMessage((error as Error).message); }
     finally { setTabBusy(false); }
   }
@@ -542,12 +544,17 @@ function App() {
   return <main className="desktop-shell" style={{ '--navigation-width': `${navigationWidth}px` } as CSSProperties}>
     <header className="app-bar"><strong>共享终端</strong><button aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(value => !value)}>会话导航</button><span>{connections.length} 个服务连接</span></header>
     <nav aria-label="会话控制">
+      <button className="primary-action" onClick={() => { setSshOpen(false); setQuickOpen(true); }}>连接服务器</button>
+      <button onClick={() => setSerialOpen(open => !open)}>串口连接</button>
+      <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
+      <details className="tools-menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.open = false; }}><summary>更多工具</summary><div className="tools-menu-content">
+
       <button onClick={() => setConfigurationOpen(open => !open)}>连接配置</button>
       <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
       <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
-      <button onClick={() => setSerialOpen(open => !open)}>串口连接</button>
+
       <button onClick={() => { drafts.current.invalidate(); setComposeOpen(open => !open); }}>基础撰写</button>
-      <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
+
       <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
         <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
         {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connectionLabel(connection)}{profileName(connection) ? ` · ${connection.connection_id.slice(0, 8)}` : ''} · 代次 {connection.generation}</option>)}
@@ -561,6 +568,8 @@ function App() {
       <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
       <label>字号 <input aria-label="字号" disabled={preferencesBusy} type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
+
+      </div></details>
     </nav>
     <div className={`desktop-body${sidebarOpen ? '' : ' sidebar-hidden'}`}>
     <aside className="session-sidebar" aria-label="会话导航"><SessionTree revision={treeRevision} loaded={setProfiles} connect={profile => void connectProfile(profile)} configure={() => setConfigurationOpen(true)} /><label>导航宽度<input aria-label="导航宽度" type="range" min="210" max="360" value={navigationWidth} onChange={event => setNavigationWidth(Number(event.target.value))} /></label></aside>
@@ -571,7 +580,7 @@ function App() {
       if (next < 0) return; event.preventDefault(); selectConnection(tabs[next].connection_id);
       tabList.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
     }} aria-selected={selected === connection.connection_id} title={`${tabName(connection)} · ${connection.protocol} · ${connection.state} · ${connection.connection_id} / ${connection.generation}`} onClick={() => selectConnection(connection.connection_id)}>{tabName(connection)}<small>{connection.state} · 代次 {connection.generation}</small></button><button aria-label={`关闭标签 ${connection.connection_id}`} onClick={() => { setTabMessage(''); setClosing(connection); }}>×</button></div>)}</div><button disabled={!selected || tabs[0]?.connection_id === selected} onClick={() => moveTab(-1)}>标签左移</button><button disabled={!selected || tabs.at(-1)?.connection_id === selected} onClick={() => moveTab(1)}>标签右移</button></div>
-    {!tabs.length && <p className="terminal-empty">从会话树选择配置连接，或在上方打开 SSH2 / 串口面板。隐藏标签保留在“会话”完整列表中。</p>}
+    {!tabs.length && !quickOpen && <section className="terminal-empty"><h2>连接服务器，开始工作</h2><p>填写服务器地址和登录信息，即可进入终端。</p><button onClick={() => setQuickOpen(true)}>新建SSH连接</button><p>通信记录可从顶部“终端日志”开始。</p></section>}
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || inputFailure || status}</div>
     {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}
@@ -580,6 +589,7 @@ function App() {
     {tabMessage && <div role="status" aria-label="标签操作状态">{tabMessage}</div>}
     </section>
     <aside className="auxiliary-panels" aria-label="辅助工具">
+    {quickOpen && <QuickConnect connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={() => runtime.current?.term.focus()} close={() => setQuickOpen(false)} />}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {closing && <section className="config-panel" aria-label="关闭标签确认"><h2>关闭连接标签</h2><p>{tabName(closing)} · {closing.protocol} · {closing.connection_id} / 代次 {closing.generation}</p><p>关闭连接会停止未发送输入；已发送动作不会撤销。保留连接仅隐藏标签，输出仍由服务有界保留，之后可从完整列表重新打开。</p><button disabled={tabBusy} onClick={() => void confirmClose()}>关闭连接并隐藏标签</button><button disabled={tabBusy} onClick={() => { hideTab(closing); setClosing(undefined); }}>保留连接隐藏标签</button><button disabled={tabBusy} autoFocus onClick={() => setClosing(undefined)}>取消关闭标签</button></section>}

@@ -4,6 +4,8 @@ import { reference, type Connection } from './ssh-api';
 import { requestId } from './request-id';
 import { LogHistoryPanel } from './log-history-panel';
 import { LogCapturePanel } from './log-capture-panel';
+import { BasicLogOutput } from './basic-log-output';
+import { invoke } from '@tauri-apps/api/core';
 import { capturePhases as phases } from './log-captures';
 const failures: Record<string, string> = { QUEUE_FULL: '写盘队列已满', DISK_FULL: '磁盘空间不足', STORAGE: '文件存储故障', INVALID_RECORD: '输出序号或代次异常', COUNTER_EXHAUSTED: '计数容量已耗尽', WORKER_PANICKED: '文件线程异常' };
 export type LoggingSummary = { connection: Pick<Connection, 'connection_id' | 'generation'>; text: string };
@@ -12,6 +14,8 @@ function summary(logs: LogInfo[]) {
   return latest ? `${phases[latest.phase]}${latest.failure ? ` · ${failures[latest.failure] ?? latest.failure}，后续输出未记录` : ''} · 源缺口 ${latest.source_gap_bytes} 字节 · 拒绝 ${latest.rejected_records} 条${latest.durable ? ' · 保留窗口同步完成' : ''}` : '未启用记录（本次服务）';
 }
 export function LoggingPanel({ connection, open, close, onStatus }: { connection?: Connection; open: boolean; close: () => void; onStatus(value: LoggingSummary | undefined): void }) {
+  const [directory,setDirectory]=useState('');
+  useEffect(()=>{let active=true;void invoke<string>('config_directory').then(d=>{if(active)setDirectory(d);}).catch(()=>{});return()=>{active=false;};},[]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
   const [selected, setSelected] = useState('');
   const [message, setMessage] = useState('');
@@ -74,10 +78,10 @@ export function LoggingPanel({ connection, open, close, onStatus }: { connection
       <details><summary>下次启动的轮转限额</summary><div className="form-grid"><label>每段合计 MiB<input aria-label="日志每段MiB" type="number" min="0.125" max="100" step="0.125" value={size} onChange={event => setSize(Number(event.target.value))} /></label><label>保留段数<input aria-label="日志保留段数" type="number" min="1" max="16" value={segments} onChange={event => setSegments(Number(event.target.value))} /></label></div><small>不修改正在运行的记录。达到限额会覆盖该份日志最早的分段；两文件合计最多 {size * segments} MiB。失败不会自动扩容或重新记录。</small></details>
       <div className="config-actions"><button disabled={busy || connection?.state !== 'CONNECTED' || visibleLogs.some(log => log.active) || !Number.isFinite(size) || size < 0.125 || size > 100 || !Number.isInteger(segments) || segments < 1 || segments > 16} onClick={() => void act('start')}>开始记录终端</button><button disabled={busy || !shown?.active} onClick={() => void act('stop')}>停止记录终端</button></div>
       {visibleLogs.length > 0 && <label>本次服务日志<select aria-label="日志记录" disabled={busy} value={shown?.log_id ?? ''} onChange={event => setSelected(event.target.value)}>{visibleLogs.map(log => <option key={log.log_id} value={log.log_id}>{log.log_id.slice(0, 8)} · {phases[log.phase]}</option>)}</select></label>}
-      {shown && <p aria-label="日志详情">{shown.log_id} · {phases[shown.phase]} · 编码 {shown.encoding} · 限额 {shown.limits.segment_bytes / 1024 / 1024} MiB × {shown.limits.segments} · 原始起点 {shown.source_cursor} / 文本起点 {shown.text_cursor} · 已接受 {shown.accepted_records} 条 / 成对写入 {shown.written_records} 条 · 最后成功写入的分段 {shown.first_retained_segment}–{shown.last_segment} / 退休 {shown.retired_segments} 段 · {shown.worker_finished ? '文件线程已结束' : '文件线程尚未结束'}{shown.durable ? ' · 保留窗口已同步' : ' · 尚无同步完成保证'}{shown.source_gap_bytes > 0 && ` · 接收源缺口 ${shown.source_gap_bytes} 字节，不能视为完整数据`}{shown.failure && ` · ${failures[shown.failure] ?? shown.failure}`}</p>}
+      {shown && <details><summary>记录详情</summary><p aria-label="日志详情">{shown.log_id} · {phases[shown.phase]} · 编码 {shown.encoding} · 限额 {shown.limits.segment_bytes / 1024 / 1024} MiB × {shown.limits.segments} · 原始起点 {shown.source_cursor} / 文本起点 {shown.text_cursor} · 已接受 {shown.accepted_records} 条 / 成对写入 {shown.written_records} 条 · 最后成功写入的分段 {shown.first_retained_segment}–{shown.last_segment} / 退休 {shown.retired_segments} 段 · {shown.worker_finished ? '文件线程已结束' : '文件线程尚未结束'}{shown.durable ? ' · 保留窗口已同步' : ' · 尚无同步完成保证'}{shown.source_gap_bytes > 0 && ` · 接收源缺口 ${shown.source_gap_bytes} 字节，不能视为完整数据`}{shown.failure && ` · ${failures[shown.failure] ?? shown.failure}`}</p></details>}
       <small>本次服务记录与持久历史分开显示。文件保留在应用数据目录的 terminal-logs。</small>
-      <LogCapturePanel />
-      <LogHistoryPanel />
+      {shown&&<><p aria-label="基础日志状态">{summary([shown])}</p><p className="data-location" aria-label="基础日志保存目录">保存目录：{directory ? `${directory}\\terminal-logs` : '正在读取…'}</p><BasicLogOutput key={shown.log_id} log={shown}/></>}
+      <details><summary>历史与高级日志管理</summary><LogCapturePanel /><LogHistoryPanel /></details>
       {message && <p role="status">{message}</p>}
     </section>}
   </>;
