@@ -25,7 +25,7 @@ try {
   const call = request => ui.invoke('agent_management_request', { request });
   const profile = { id: randomUUID(), folder_id: null, name: '授权合成串口', settings: { protocol: 'serial', port: 'COM7', baud_rate: 115200, data_bits: 8, stop_bits: 1, parity: 'none', flow: 'none', dtr_on_open: false, rts_on_open: false, encoding: 'utf8' } };
   await ui.invoke('config_request', { request: { op: 'save_profile', profile, credential: { action: 'keep' } } });
-  await ui.click('串口连接'); await ui.click('刷新串口配置与设备');
+  await ui.click('串口高级工具'); await ui.click('刷新串口配置与设备');
   await ui.waitFor(`document.querySelector('[aria-label="串口配置"]').options.length===2&&document.querySelector('[aria-label="串口设备"]').options.length===2`);
   await ui.fill('串口配置', profile.id);
   await ui.fill('串口设备', await ui.evaluate(`document.querySelector('[aria-label="串口设备"]').options[1].value`));

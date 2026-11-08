@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+S2/P10.1新增`test:desktop:quick-serial`（完整链第24入口，前置实际desktop:build），仅shared-terminal-quick-serial-ui-中文-及独立shared-terminal-save-ui-中文-自建根，feature内存设备：无配置直接打开/可选保存、初始DTR/RTS/硬件流控、库存身份/占用、快速重复Start一次、真实fetch丢应答/重载原编号查询/迟到取消只关新范围、被动UART持续输出且不发送命令、同连接开始停止日志/查看/真实系统另存与逐字节/SHA-256核对、文本/HEX/换行。原第6串口专项继续覆盖发送节奏/编码快照/取消/控制线/解码收尾；旧串口/Agent/MCP脚本仅将入口改为“串口高级工具”，权限和断言不放宽。所有串口fixture finally须实际编译恢复普通服务。真实COM、拔插、电平、Android板端与全局DPI/IME按实际记录，缺硬件不阻止软件验证。
+
 P12.1预览启动修复：`preview:local`须断言复制品Desktop PE subsystem=2（Windows GUI），并以`windowsHide:false`启动自建中文根，核对没有控制台/shell直接子进程、普通服务及WebView可用和退出清理；不再仅凭Harness隐藏启动成功推断直接双击无额外窗口。不操作用户现有窗口或重登服务器，PE=3应直接阻止生成可交付预览。
 
 CR-009更新第16 `test:desktop:navigation`：前置实际desktop:build及既有SSH夹具，只shared-terminal-navigation-ui-中文-自建根/合成SSH。现按当前策略覆盖双击/真实右键目标和选择一致、可用保存密码/加密密钥无需额外按钮、缺失/拒绝补录/必要指纹、快速Start手势一次/明确独立实例、搜索/排序、无确认Close/同拍去重、原代次延迟应答不隐藏新代次、丢Close不重放、丢Start只查且不自动认证、失败配置读回不自动Start、取消迟到新Start不误断旧连接，以及程序退出确认保留。原取消/保留隐藏确认断言按新要求替换，历史结果仍见P12记录；不是重跑旧全套/实机矩阵。纯session-tab-closures测试验证代次/owner/未知状态隔离。

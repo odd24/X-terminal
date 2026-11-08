@@ -24,6 +24,7 @@ import { SessionTabClosures } from './session-tab-closures';
 import { Dialog } from './ui';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
+import { QuickSerial } from './quick-serial';
 import { LoggingPanel, type LoggingSummary } from './logging-panel';
 import { serial, serialResult, type SerialStatus } from './serial-api';
 import { InputQueue } from './input-queue';
@@ -107,6 +108,8 @@ function App() {
   const focusAfterConnect = useRef(false);
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
+  const [serialDialog,setSerialDialog]=useState(false);
+  const [serialToolsOpen,setSerialToolsOpen]=useState(false);
   const [loggingOpen,setLoggingOpen] = useState(false);
   const [loggingSummary, setLoggingSummary] = useState<LoggingSummary>();
   const [viewport, setViewport] = useState({ cols: 80, rows: 24 });
@@ -450,7 +453,7 @@ function App() {
   }, [theme, terminalFont, preferences.terminal_palette]);
 
   useEffect(() => { if (runtime.current) { runtime.current.term.options.fontSize = fontSize; runtime.current.fit.fit(); } }, [fontSize]);
-  useEffect(()=>{if(!quickOpen&&focusAfterConnect.current){focusAfterConnect.current=false;runtime.current?.term.focus();}},[quickOpen]);
+  useEffect(()=>{if(!quickOpen&&!serialDialog&&focusAfterConnect.current){focusAfterConnect.current=false;runtime.current?.term.focus();}},[quickOpen,serialDialog]);
 
   async function createFixture() {
     setBusy(true);
@@ -535,7 +538,7 @@ function App() {
   function connectProfile(profile: Profile) {
     if (savedIntentFlight.current) return;
     setRequestedProfile(profile);
-    if (profile.settings.protocol === 'serial') { setSerialOpen(true); setTabMessage('请在串口面板刷新并核对设备身份与控制线后显式打开。'); return; }
+    if (profile.settings.protocol === 'serial') { setSerialDialog(true); return; }
     if (profile.settings.protocol === 'ssh1') { setTabMessage('SSH1 正式适配尚未完成；不会改用 SSH2 或自动降级。'); return; }
     const intent={profile_id:profile.id,request_id:requestId()};savedIntentFlight.current=intent;setSavedIntent(intent);setSshOpen(false);setQuickOpen(true);setTabMessage(`正在连接 ${profile.name}…`);
   }
@@ -544,7 +547,7 @@ function App() {
     <header className="app-bar"><strong>共享终端</strong><button aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(value => !value)}>会话导航</button><span>{connections.length} 个服务连接</span></header>
     <nav aria-label="会话控制">
       <button className="primary-action" onClick={() => { setSshOpen(false); setQuickOpen(true); }}>连接服务器</button>
-      <button onClick={() => setSerialOpen(open => !open)}>串口连接</button>
+      <button onClick={() => {setRequestedProfile(undefined);setSerialDialog(true);}}>串口连接</button>
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
       <details className="tools-menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.open = false; }}><summary>更多工具</summary><div className="tools-menu-content">
 
@@ -564,6 +567,7 @@ function App() {
       <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
       <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
       <button onClick={() => setAppearanceOpen(open => !open)}>外观</button>
+      <button onClick={() => setSerialOpen(open=>!open)}>串口高级工具</button>
       <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
       <label>字号 <input aria-label="字号" disabled={preferencesBusy} type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
@@ -581,6 +585,7 @@ function App() {
     }} aria-selected={selected === connection.connection_id} title={`${tabName(connection)} · ${connection.protocol} · ${connection.state} · ${connection.connection_id} / ${connection.generation}`} onClick={() => selectConnection(connection.connection_id)}>{tabName(connection)}{connection.protocol !== 'SSH2' && <small>{connection.state} · 代次 {connection.generation}</small>}</button><button aria-label={`关闭标签 ${connection.connection_id}`} disabled={tabClosures.current.pending(connection)} onClick={() => void closeTab({...connection})}>×</button></div>)}</div><button disabled={!selected || tabs[0]?.connection_id === selected} onClick={() => moveTab(-1)}>标签左移</button><button disabled={!selected || tabs.at(-1)?.connection_id === selected} onClick={() => moveTab(1)}>标签右移</button></div>
     {!tabs.length && !quickOpen && <section className="terminal-empty"><h2>连接服务器，开始工作</h2><p>填写服务器地址和登录信息，即可进入终端。</p><button onClick={() => setQuickOpen(true)}>新建SSH连接</button><p>通信记录可从顶部“终端日志”开始。</p></section>}
     <div className="terminal" ref={host} aria-label="服务终端" />
+    {active?.protocol==='SERIAL'&&<SerialPanel summaryOnly connection={active} select={selectConnection} tools={()=>setSerialToolsOpen(true)}/>}
     <div className="status" role="status">{failure || inputFailure || status}</div>
     {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}
     <div className="input-status">{active?.protocol === 'SSH2' ? 'SSH2 输入' : active?.protocol === 'SERIAL' ? '串口输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>
@@ -589,6 +594,7 @@ function App() {
     </section>
     <aside className="auxiliary-panels" aria-label="辅助工具">
     {quickOpen && <Dialog label="连接服务器" close={closeQuick}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={() => {focusAfterConnect.current=true;closeQuick();}} close={closeQuick} /></Dialog>}
+    {serialDialog&&<Dialog label="连接串口设备" close={()=>setSerialDialog(false)}><QuickSerial requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined} select={selectConnection} close={()=>setSerialDialog(false)} focus={()=>{focusAfterConnect.current=true;setSerialDialog(false);}} /></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
@@ -597,6 +603,7 @@ function App() {
     {sshOpen && <SshPanel connection={connections.find(item => item.connection_id === selected)} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
     <ExecPanel open={execOpen} connection={connections.find(item => item.connection_id === selected)} />
     {serialOpen && <SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} />}
+    {serialToolsOpen&&active?.protocol==='SERIAL'&&<Dialog label="串口收发详情" close={()=>setSerialToolsOpen(false)}><SerialPanel controlsOnly connection={active} select={selectConnection} closePanel={()=>setSerialToolsOpen(false)}/></Dialog>}
     {searchOpen && <TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} />}
     {pasteProposal && <section className="config-panel" aria-label="粘贴确认">
       <h2>确认粘贴到终端</h2>

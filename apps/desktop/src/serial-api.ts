@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { reference, type Connection, type ConnectionRef } from './ssh-api';
+import type { Settings } from './config-api';
 export { reference };
 export type Device = { device_id: string; port: string; instance_id: string };
 export type Inventory = { result: 'inventory'; revision: string; devices: Device[]; unidentified_ports: string[]; metadata_failures: number };
@@ -7,12 +8,17 @@ export type SerialStatus = { result: 'status'; connection: Connection; profile_i
 export type SerialReceipt = { result: 'input'; request_id: string; state: 'PENDING' | 'DRIVER_ACCEPTED' | 'CONTROL_APPLIED' | 'CANCELLED_BEFORE_DISPATCH' | 'UNKNOWN'; driver_accepted: number | null; failure: string | null };
 type Request =
   | { op: 'inventory' }
+  | { op: 'quick_start'; settings: Settings; request_id: string; revision: string; device_id: string }
+  | { op: 'start_status'; request_id: string }
   | { op: 'start'; profile_id: string; request_id: string; revision: string; device_id: string }
   | { op: 'status' | 'close' | 'forget'; connection: ConnectionRef }
   | { op: 'control'; connection: ConnectionRef; request_id: string; line: 'DTR' | 'RTS' | 'BREAK'; asserted: boolean }
   | { op: 'send'; connection: ConnectionRef; request_id: string; content: string; format: 'text' | 'hex'; ending: 'none' | 'cr' | 'lf' | 'cr_lf'; pace: { chunk_bytes: number; interval_ms: number } }
   | { op: 'input_status'; connection: ConnectionRef; request_id: string };
 export type SerialReply = Inventory | SerialStatus | SerialReceipt | { result: 'started'; connection: Connection } | { result: 'accepted' };
+export class SerialRequestError extends Error {
+  constructor(public readonly code: string, message: string) { super(message); }
+}
 export async function serial(request: Request): Promise<SerialReply> {
   try { return await invoke<SerialReply>('serial_request', { request }); }
   catch (error) {
@@ -27,7 +33,8 @@ export async function serial(request: Request): Promise<SerialReply> {
       StaleGeneration: '连接代次已变化，本次操作未转发到新连接。',
       PermissionDenied: '当前客户端没有串口控制权限。',
     };
-    throw new Error(messages[String(error)] ?? '串口请求失败，结果可能未知；未自动重试或重连。');
+    const code=typeof error==='string'&&Object.hasOwn(messages,error)?error:'UNKNOWN';
+    throw new SerialRequestError(code,messages[code] ?? '串口请求失败，结果可能未知；未自动重试或重连。');
   }
 }
 export async function serialResult(target: ConnectionRef, initial: SerialReply, alive: () => boolean = () => true): Promise<SerialReceipt> {

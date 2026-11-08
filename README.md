@@ -1,5 +1,7 @@
 # Windows 终端模拟器
 
+当前顺序推进S2/P10.1：S1 SSH和基本日志软件阶段已收尾；串口/UART复用同一终端与日志服务，主连接使用共享弹窗、保存可选、初始DTR/RTS明确，连接后可只接收抓取。软件、内存IPC与真实设备验证分列，用户暂时没有设备，真实COM/Android板端待验。当前状态以[主方案](docs/EXECUTION_PLAN.md#现行路线cr-006)、[P10.1记录](docs/records/P10.1.md)为准，下文较早“待反馈/未展开S2”按历史理解。
+
 面向 SSH/串口调试、延续 Xshell 使用习惯、支持 Codex 通过 MCP 协作的 Windows 桌面终端。
 
 初版主要需求已固定：**SSH连接服务器工作、串口/UART通信或抓取设备输出（如Android UART log）、两者基本通信日志**。先SSH再串口，日志随各连接流程交付，简单开始/停止并查看保存位置；界面围绕连接、终端、日志，其他能力后续。见[主要需求](docs/REQUIREMENTS.md#初版主要需求2026-11-08用户明确)和[执行方案](docs/EXECUTION_PLAN.md#现行路线cr-006)。

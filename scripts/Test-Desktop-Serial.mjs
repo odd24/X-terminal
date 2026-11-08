@@ -12,7 +12,7 @@ const build = fixture => {
 let ui;let directory;
 try {
   build(true);
-  directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-serial-ui-'));
+  directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-serial-ui-中文-'));
   ui=await launchDesktop(directory,{fixture:true});
   const save=async(name,encoding='utf8',flow='none')=>{
     const profile={id:crypto.randomUUID(),folder_id:null,name,settings:{protocol:'serial',port:'COM7',baud_rate:115200,data_bits:8,stop_bits:1,parity:'none',flow,dtr_on_open:false,rts_on_open:flow==='hardware'?null:false,encoding}};
@@ -32,7 +32,7 @@ try {
   const waitRaw=async(connection,expected)=>{
     for(let attempt=0;attempt<200;attempt++){const bytes=await raw(connection);if(bytes.length>=expected.length){assert.deepEqual(bytes,expected);return;}await delay(25);}throw new Error('serial raw echo did not arrive');
   };
-  await ui.click('串口连接');await ui.click('刷新串口配置与设备');
+  await ui.click('串口高级工具');await ui.click('刷新串口配置与设备');
   await ui.waitFor(`document.querySelector('[aria-label="串口配置"]').options.length===3 && document.querySelector('[aria-label="串口设备"]').options.length===2`);
   assert.equal(await ui.evaluate(`document.querySelector('.serial-panel').textContent.includes('COM99')`),true);
   await ui.fill('串口配置',utf8.id);
@@ -60,7 +60,7 @@ try {
   await ui.evaluate(`window.__serialReloadProbe=true`);await ui.command('Page.reload');
   await ui.waitFor(`window.__serialReloadProbe===undefined && document.querySelector('footer')?.textContent.includes('服务 ')`);
   assert.equal((await ui.invoke('service_status')).pid,pid);
-  await ui.click('串口连接');await state('CONNECTED');await waitRaw(connection,expected);
+  await ui.click('串口高级工具');await state('CONNECTED');await waitRaw(connection,expected);
   await ui.fill('串口每段字节',1);await ui.fill('串口段间隔',1000);await ui.fill('串口发送内容','x'.repeat(61));await ui.click('发送串口内容');
   await ui.waitFor(`document.querySelector('[aria-label="串口发送内容"]').value===''`);
   const pacedId=await recent();
@@ -134,7 +134,7 @@ try {
   assert.equal(gb18030Screen.encoding,'gb18030');assert.ok(gb18030Screen.contents.includes('\u{10000}'));
   await ui.waitFor(`document.querySelector('footer [aria-label="活动编码"]')?.textContent==='编码：GB18030'`);
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="接收解码提示"]')`),false);
-  await ui.click('串口连接');await state('CONNECTED');await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
+  await ui.click('串口高级工具');await state('CONNECTED');await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
   for(const item of await ui.invoke('service_list')) {
     await ui.fill('会话',item.connection_id);await ui.waitFor(`document.querySelector('[aria-label="串口状态"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);
     await ui.click('移除串口记录');await ui.waitFor(`!Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(item.connection_id)})`);
@@ -144,6 +144,6 @@ try {
 } finally {
   try {
     await ui?.close();
-    if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-serial-ui-'));await rm(target,{recursive:true,force:true});}
+    if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-serial-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
   } finally { build(false); }
 }

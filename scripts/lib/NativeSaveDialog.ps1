@@ -51,7 +51,7 @@ function Find-PickerButton($picker) {
     }
     return $null
 }
-$edit=$null;$button=$null;$controlWaits=0
+$edit=$null;$button=$null;$controlWaits=0;$lastPicker=$null
 for($attempt=0;$attempt -lt 100;$attempt++) {
     $candidates=[Collections.Generic.List[IntPtr]]::new()
     $callback=[NativeSaveTestWindow+Callback]{ param($window,$unused)
@@ -64,7 +64,7 @@ for($attempt=0;$attempt -lt 100;$attempt++) {
         return $true
     }
     [void][NativeSaveTestWindow]::EnumWindows($callback,[IntPtr]::Zero)
-    if($candidates.Count) { $handle=$candidates[0];[void][NativeSaveTestWindow]::ShowWindow($handle,9);$dialog=[Windows.Automation.AutomationElement]::FromHandle($handle) }
+    if($candidates.Count) { $handle=$candidates[0];[void][NativeSaveTestWindow]::ShowWindow($handle,9);$dialog=[Windows.Automation.AutomationElement]::FromHandle($handle);$lastPicker=$dialog }
     if($dialog) {
         $edit=if($Action -eq 'select') { Find-FileNameEditor $dialog } else { $null }
         $button=Find-PickerButton $dialog
@@ -78,7 +78,15 @@ for($attempt=0;$attempt -lt 100;$attempt++) {
     }
     if($dialog) { break }; Start-Sleep -Milliseconds 100
 }
-if(!$dialog) { throw "The native save picker controls were not ready in the test process: action=$Action attempts=$attempt controlWaits=$controlWaits" }
+if(!$dialog) {
+    if($lastPicker) {
+        # Diagnostics are bounded to the exact owned test picker, never the desktop tree.
+        $nodes=$lastPicker.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)
+        Write-Output "PICKER diagnostic target=$TargetProcessId children=$($nodes.Count) rootType=$($lastPicker.Current.ControlType.ProgrammaticName) rootProcess=$($lastPicker.Current.ProcessId)"
+        for($i=0;$i -lt [Math]::Min(30,$nodes.Count);$i++) { $node=$nodes[$i].Current;Write-Output "CONTROL type=$($node.ControlType.ProgrammaticName) id=$($node.AutomationId) name=$($node.Name) enabled=$($node.IsEnabled) offscreen=$($node.IsOffscreen)" }
+    }
+    throw "The native save picker controls were not ready in the test process: action=$Action attempts=$attempt controlWaits=$controlWaits"
+}
 Write-Output "READY native picker action=$Action attempts=$attempt controlWaits=$controlWaits"
 if($Action -eq 'select') {
     if(!$edit) { throw 'Native file-name editor 1001 not found.' }
