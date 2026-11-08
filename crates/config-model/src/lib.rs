@@ -6,6 +6,8 @@ type Result<T> = std::result::Result<T, ValidationError>;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+mod workspace;
+pub use workspace::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

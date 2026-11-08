@@ -1,4 +1,6 @@
 use super::*;
+#[path = "workspace_cases.rs"]
+mod workspace_cases;
 use session_core::access::{Action, AuditKind, Scope, Target};
 use session_protocol::agent::{Reply as AR, Request as A};
 #[path = "agent_context.rs"]

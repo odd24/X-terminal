@@ -303,6 +303,35 @@ impl State {
                 preferences: self.store.preferences().map_err(config_error)?,
                 revision: self.revision,
             }),
+            ConfigRequest::Workspaces {} => Ok(ConfigReply::Workspaces {
+                workspaces: self.store.workspaces().map_err(config_error)?,
+                revision: self.revision,
+            }),
+            ConfigRequest::SaveWorkspace {
+                workspace,
+                revision,
+            } => {
+                if revision != self.revision {
+                    return Err(ConfigError::Conflict);
+                }
+                self.store.put_workspace(&workspace).map_err(config_error)?;
+                self.changed();
+                Ok(ConfigReply::Workspaces {
+                    workspaces: self.store.workspaces().map_err(config_error)?,
+                    revision: self.revision,
+                })
+            }
+            ConfigRequest::DeleteWorkspace { id, revision } => {
+                if revision != self.revision {
+                    return Err(ConfigError::Conflict);
+                }
+                self.store.delete_workspace(id).map_err(config_error)?;
+                self.changed();
+                Ok(ConfigReply::Workspaces {
+                    workspaces: self.store.workspaces().map_err(config_error)?,
+                    revision: self.revision,
+                })
+            }
             ConfigRequest::SavePreferences {
                 preferences,
                 revision,

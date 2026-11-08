@@ -21,6 +21,15 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    Workspaces {},
+    SaveWorkspace {
+        workspace: config_model::Workspace,
+        revision: Uuid,
+    },
+    DeleteWorkspace {
+        id: Uuid,
+        revision: Uuid,
+    },
     Preferences {},
     SavePreferences {
         preferences: config_model::DesktopPreferences,
@@ -92,6 +101,12 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::Workspaces {} => true,
+            Self::SaveWorkspace {
+                workspace,
+                revision,
+            } => !revision.is_nil() && workspace.validate().is_ok(),
+            Self::DeleteWorkspace { id, revision } => !id.is_nil() && !revision.is_nil(),
             Self::Preferences {} => true,
             Self::SavePreferences {
                 preferences,
@@ -194,6 +209,10 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    Workspaces {
+        workspaces: Vec<config_model::Workspace>,
+        revision: Uuid,
+    },
     Preferences {
         preferences: config_model::DesktopPreferences,
         revision: Uuid,
@@ -216,6 +235,7 @@ pub enum ConfigReply {
         artifact: ArchiveInfo,
     },
     BackupPreview {
+        workspaces: u32,
         id: Uuid,
         digest: String,
         folders: u32,

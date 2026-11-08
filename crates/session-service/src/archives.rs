@@ -163,6 +163,7 @@ impl Archives {
     pub fn inspect(&self, id: Uuid, state: Option<&State>) -> Result<ConfigReply, ConfigError> {
         let image = self.read(id)?;
         Ok(ConfigReply::BackupPreview {
+            workspaces: image.workspaces.len() as u32,
             id,
             digest: image.digest().map_err(config_error)?,
             folders: image.folders.len() as u32,

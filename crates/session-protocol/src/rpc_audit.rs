@@ -547,11 +547,14 @@ fn config_descriptor(r: &config::ConfigRequest) -> Descriptor {
     use config::ConfigRequest as C;
     match r {
         C::Preferences {}
+        | C::Workspaces {}
         | C::CredentialsPage { .. }
         | C::HostKeysPage { .. }
         | C::Page { .. }
         | C::Archives {} => descriptor(Area::Configuration, Verb::Read),
-        C::SavePreferences { revision, .. } => resource(
+        C::SavePreferences { revision, .. }
+        | C::SaveWorkspace { revision, .. }
+        | C::DeleteWorkspace { revision, .. } => resource(
             Area::Configuration,
             Verb::Configure,
             ResourceKind::ConfigurationRevision,

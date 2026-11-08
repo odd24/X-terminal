@@ -2,6 +2,8 @@ use config_store::*;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+#[path = "support/workspaces.rs"]
+mod workspace_tests;
 
 struct Temp(PathBuf);
 impl Temp {
@@ -742,7 +744,7 @@ fn make_v2(path: &Path) {
     store.put_profile(profile()).unwrap();
     drop(store);
     let conn = Connection::open(path).unwrap();
-    conn.execute_batch("DROP TABLE desktop_preferences; DELETE FROM schema_migrations WHERE version>=3; PRAGMA user_version=2").unwrap();
+    conn.execute_batch("DROP TABLE workspaces; DROP TABLE desktop_preferences; DELETE FROM schema_migrations WHERE version>=3; PRAGMA user_version=2").unwrap();
 }
 #[test]
 fn preferences_v2_migration_and_readonly_old_backup_preserve_original() {
@@ -783,7 +785,7 @@ fn preferences_v2_migration_and_readonly_old_backup_preserve_original() {
             .unwrap()
             .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
             .unwrap(),
-        4
+        SCHEMA_VERSION
     );
     drop(store);
     assert!(Store::open(&path).unwrap().migration_backup.is_none());
@@ -888,7 +890,7 @@ fn invalid_corrupt_missing_and_external_newer_preferences_do_not_silently_reset(
         Err(Error::Schema)
     ));
     assert_eq!(std::fs::read(&path).unwrap(), before);
-    sql.execute_batch("PRAGMA user_version=4").unwrap();
+    sql.execute_batch("PRAGMA user_version=5").unwrap();
     drop(store);
     let valid = serde_json::to_value(DesktopPreferences::default()).unwrap();
     for value in [
@@ -993,7 +995,7 @@ fn make_v3(path: &Path) -> DesktopPreferences {
         [value.to_string()],
     )
     .unwrap();
-    sql.execute_batch("DELETE FROM schema_migrations WHERE version=4; PRAGMA user_version=3")
+    sql.execute_batch("DROP TABLE workspaces; DELETE FROM schema_migrations WHERE version>=4; PRAGMA user_version=3")
         .unwrap();
     preferences
 }
@@ -1078,7 +1080,7 @@ fn palette_migration_failure_preserves_v3_and_current_missing_field_is_corrupt()
 #[test]
 fn duplicate_preference_fields_are_rejected_for_both_legacy_and_current_versions() {
     let temp = Temp::new();
-    for version in [3, 4] {
+    for version in [3, 5] {
         let path = temp.path(&format!("重复字段-{version}.sqlite"));
         if version == 3 {
             make_v3(&path);

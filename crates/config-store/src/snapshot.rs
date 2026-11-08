@@ -19,6 +19,7 @@ pub struct ConfigImage {
     pub profiles: Vec<Profile>,
     pub host_keys: Vec<HostKey>,
     pub preferences: config_model::DesktopPreferences,
+    pub workspaces: Vec<config_model::Workspace>,
 }
 impl ConfigImage {
     pub fn digest(&self) -> Result<String> {
@@ -43,6 +44,16 @@ impl ConfigImage {
     }
     fn validate(&self) -> Result<()> {
         self.preferences.validate()?;
+        if self.workspaces.len() > 8 {
+            return Err(Error::Invalid("workspace limit"));
+        }
+        let mut workspace_ids = HashSet::new();
+        for workspace in &self.workspaces {
+            workspace.validate()?;
+            if !workspace_ids.insert(workspace.id) {
+                return Err(Error::Corrupt);
+            }
+        }
         if self.folders.len() > 1024 || self.profiles.len() > 10000 || self.host_keys.len() > 1024 {
             return Err(Error::Invalid("backup limits"));
         }
@@ -96,6 +107,7 @@ impl Store {
             profiles: self.profiles()?,
             host_keys: host_keys::read(&tx)?,
             preferences: crate::preferences::read(&tx)?,
+            workspaces: crate::workspaces::read(&tx)?,
         };
         image.validate()?;
         tx.commit()?;
@@ -149,7 +161,7 @@ impl Store {
             None::<fn(rusqlite::backup::Progress)>,
         )?;
         drop(source);
-        tx.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM profiles; DELETE FROM folders; DELETE FROM host_keys;")?;
+        tx.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM workspaces; DELETE FROM profiles; DELETE FROM folders; DELETE FROM host_keys;")?;
         for folder in &image.folders {
             tx.execute(
                 "INSERT INTO folders VALUES(?1,?2,?3)",
@@ -193,6 +205,20 @@ impl Store {
             params![serde_json::to_string(&image.preferences)?],
         )? != 1
         {
+            return Err(Error::Corrupt);
+        }
+        for workspace in &image.workspaces {
+            if tx.execute(
+                "INSERT INTO workspaces VALUES(?1,?2)",
+                params![workspace.id.to_string(), serde_json::to_string(workspace)?],
+            )? != 1
+            {
+                return Err(Error::Corrupt);
+            }
+        }
+        let mut expected = image.workspaces.clone();
+        expected.sort_by_key(|w| w.id);
+        if crate::workspaces::read(&tx)? != expected {
             return Err(Error::Corrupt);
         }
         tx.commit()?;
