@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-08 S2/P10.1已顺序开始：简洁串口弹窗、Desktop临时快照、只接收UART与基本日志贯通，复用原服务/日志/共享控件。实现与分层证据集中[P10.1](records/P10.1.md)，软件/内存与真实COM明确分开，未操作用户真实设备。Step-ID: P10.1。
+
 2026-11-08用户明确持续推进：S1/P12.1按既有新流程、基本日志、真实登录及CR-008/009/启动修复证据收尾为软件阶段DONE，未发现基本可用性阻塞；最新版全部实机/认证及全局长稳仍开放。详见[盘点](records/P12.1.md#s1-软件阶段收尾与顺序推进2026-11-08)。现在顺序进入S2/P10.1，不以等待每版反馈停工；未重跑无变化旧套。Step-ID: P12.1。
 
 2026-11-08 P12.1定位开发预览额外终端窗口为debug Desktop的PE console子系统，软件修复dc9b459；实际构建及fb3ba36b新复制品PE=2、不隐藏启动/无控制台子进程、普通服务/退出PASS，路径及旧Harness盲区见[记录](records/P12.1.md#开发预览额外终端窗口修复2026-11-08)。用户现有窗口和SSH会话不动，不扩S2。Step-ID: P12.1。
@@ -201,7 +203,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P08.3 | 配置服务/编辑器/主机密钥/备份恢复/凭据整理 | DONE | [P08.3](records/P08.3.md) | Step-ID: P08.3 |
 | P09 | SSH2 正式接入（服务/终端/任务 GUI、rekey、输入/任务/建连窗口及连接移除；实机/长稳待验） | IN_PROGRESS | [P09](records/P09.md) | Step-ID: P09 |
 | P10 | 串口正式接入（身份/I/O/服务/GUI/发送软件已验证；接收解码见P11.1，日志/实机继续） | IN_PROGRESS | [P10](records/P10.md) | Step-ID: P10 |
-| P10.1 | S2简洁串口连接/基本收发，等待S1阶段门 | TODO | 待实施时创建 | — |
+| P10.1 | S2简洁串口/UART和基本日志，S1软件阶段后顺序实施 | IN_PROGRESS | [P10.1](records/P10.1.md) | Step-ID: P10.1 |
 | P11 | 编码/日志/终端行为 | IN_PROGRESS | [P11](records/P11.md) | Step-ID: P11.1 / Step-ID: P11.2 |
 | P11.1 | 桌面增量接收解码 | DONE | [P11.1](records/P11.1.md) | Step-ID: P11.1 |
 | P11.2 | 服务派生文本与屏幕 | DONE | [P11.2](records/P11.2.md) | Step-ID: P11.2 |
@@ -211,7 +213,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.6 | 终端查找与受控剪贴板 | DONE | [P11.6](records/P11.6.md) | Step-ID: P11.6 |
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
-| P12.1 | SSH已实际登录，弹窗/地址/错误软件专项通过，待新版反馈 | IN_PROGRESS | [P12.1](records/P12.1.md) | Step-ID: P12.1 |
+| P12.1 | S1软件阶段完成，实机兼容/全局长稳边界保留，顺序进入S2 | DONE | [P12.1](records/P12.1.md) | Step-ID: P12.1 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | 初版9工具真实stdio桥已完成/验证；完整v1工具后续，本版P16前置已满足 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |

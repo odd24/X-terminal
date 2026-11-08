@@ -3,6 +3,8 @@ use super::*;
 mod disconnect_tests;
 #[path = "tests_forget.rs"]
 mod forget_tests;
+#[path = "tests_quick.rs"]
+mod quick_tests;
 use session_protocol::{
     SensitiveBytes,
     config::{ConfigRequest, CredentialEdit},
@@ -681,6 +683,7 @@ async fn creation_receipt_capacity_retires_ordered_history_but_keeps_opaque_dupl
     {
         let mut inner = manager.inner.lock().unwrap();
         let spec = Start {
+            temporary: None,
             owner: None,
             profile_id: profile,
             revision,
@@ -690,7 +693,7 @@ async fn creation_receipt_capacity_retires_ordered_history_but_keeps_opaque_dupl
             inner.starts.insert(
                 ordered(stamp),
                 (
-                    spec,
+                    spec.clone(),
                     ConnectionInfo {
                         connection_id: ConnectionId(Uuid::new_v4()),
                         generation: 2,

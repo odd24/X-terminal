@@ -54,8 +54,9 @@ impl Factory for Native {
         Worker::spawn_guarded(config, device, dispatch)
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct Start {
+    temporary: Option<config_store::Settings>,
     owner: Option<Uuid>,
     profile_id: Uuid,
     revision: Uuid,
@@ -116,11 +117,11 @@ impl Manager {
     fn duplicate(
         inner: &Inner,
         id: Uuid,
-        start: Start,
+        start: &Start,
     ) -> Result<Option<ConnectionInfo>, ErrorCode> {
         match inner.starts.get(&id) {
             Some((old, _)) if old.owner != start.owner => Err(ErrorCode::PermissionDenied),
-            Some((old, result)) if *old == start => Ok(Some(result.clone())),
+            Some((old, result)) if old == start => Ok(Some(result.clone())),
             Some(_) => Err(ErrorCode::InvalidArgument),
             None => {
                 inner.window.check(id)?;
@@ -170,6 +171,35 @@ impl Manager {
         }
         self.tick();
         match request {
+            Request::QuickStart {
+                settings,
+                request_id,
+                revision,
+                device_id,
+            } => {
+                self.start_from(
+                    identity,
+                    request_id,
+                    request_id,
+                    revision,
+                    device_id,
+                    Some(settings),
+                )
+                .await
+            }
+            Request::StartStatus { request_id } => {
+                let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                Self::owner(&store, identity)?;
+                let (start, connection) =
+                    inner.starts.get(&request_id).ok_or(ErrorCode::NotFound)?;
+                if start.owner.is_some() {
+                    return Err(ErrorCode::PermissionDenied);
+                }
+                Ok(Reply::Started {
+                    connection: connection.clone(),
+                })
+            }
             Request::ForgetStart {
                 connection,
                 request_id,

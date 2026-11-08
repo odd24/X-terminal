@@ -8,17 +8,34 @@ impl Manager {
         revision: Uuid,
         device_id: Uuid,
     ) -> Result<Reply, ErrorCode> {
+        self.start_from(identity, profile_id, request_id, revision, device_id, None)
+            .await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn start_from(
+        &self,
+        identity: Option<&Identity>,
+        profile_id: Uuid,
+        request_id: Uuid,
+        revision: Uuid,
+        device_id: Uuid,
+        temporary: Option<config_store::Settings>,
+    ) -> Result<Reply, ErrorCode> {
         let (start, authority) = {
             let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
             let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
             let owner = Self::owner(&store, identity)?;
+            if temporary.is_some() && owner.is_some() {
+                return Err(ErrorCode::PermissionDenied);
+            }
             let spec = Start {
+                temporary: temporary.clone(),
                 owner,
                 profile_id,
                 revision,
                 device_id,
             };
-            if let Some(connection) = Self::duplicate(&inner, request_id, spec)? {
+            if let Some(connection) = Self::duplicate(&inner, request_id, &spec)? {
                 return Ok(Reply::Started { connection });
             }
             let now = store.now();
@@ -43,11 +60,21 @@ impl Manager {
                     revision,
                 }
             });
-        let lookup = self.config.request(query).await;
+        let lookup = if let Some(settings) = temporary {
+            Ok(Value::Profile(config_store::Profile {
+                id: profile_id,
+                folder_id: None,
+                name: "Temporary serial".into(),
+                settings,
+                credential_ref: None,
+            }))
+        } else {
+            self.config.request(query).await
+        };
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         Self::owner(&store, identity)?;
-        if let Some(connection) = Self::duplicate(&inner, request_id, start)? {
+        if let Some(connection) = Self::duplicate(&inner, request_id, &start)? {
             return Ok(Reply::Started { connection });
         }
         if let Some((identity, permit)) = &authority {

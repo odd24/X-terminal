@@ -444,6 +444,14 @@ fn ssh_descriptor(r: &ssh::Request) -> Descriptor {
 fn serial_descriptor(r: &serial::Request) -> Descriptor {
     use serial::Request as S;
     match r {
+        S::QuickStart { request_id, .. } => Descriptor {
+            request_id: Some(*request_id),
+            ..descriptor(Area::Serial, Verb::Connect)
+        },
+        S::StartStatus { request_id } => Descriptor {
+            request_id: Some(*request_id),
+            ..descriptor(Area::Serial, Verb::Status)
+        },
         S::Inventory {} => descriptor(Area::Serial, Verb::Inspect),
         S::Start {
             profile_id,

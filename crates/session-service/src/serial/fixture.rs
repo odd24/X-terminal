@@ -21,6 +21,9 @@ impl Factory for MemoryFactory {
                 Ok(Echo {
                     bytes: VecDeque::new(),
                     hardware: config.flow_control == serialport::FlowControl::Hardware,
+                    passive: config.baud_rate == 57600,
+                    next: Instant::now(),
+                    sequence: 0,
                 })
             },
             dispatch,
@@ -30,12 +33,21 @@ impl Factory for MemoryFactory {
 struct Echo {
     bytes: VecDeque<u8>,
     hardware: bool,
+    passive: bool,
+    next: Instant,
+    sequence: u32,
 }
 impl worker::Port for Echo {
     fn bytes_to_read(&self) -> io::Result<u32> {
         Ok(self.bytes.len() as u32)
     }
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<transport_serial::ReadOutcome> {
+        if self.passive && self.next.elapsed() >= Duration::from_millis(80) {
+            self.sequence += 1;
+            self.bytes
+                .extend(format!("UART synthetic Android启动 log {}\r\n", self.sequence).bytes());
+            self.next = Instant::now();
+        }
         if self.bytes.is_empty() {
             std::thread::sleep(Duration::from_millis(1));
             return Ok(transport_serial::ReadOutcome::Idle);
@@ -47,6 +59,9 @@ impl worker::Port for Echo {
         Ok(transport_serial::ReadOutcome::Data(count))
     }
     fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.passive {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
         if self.bytes.len() + bytes.len() > 65536 {
             return Err(io::ErrorKind::WouldBlock.into());
         }

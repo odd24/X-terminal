@@ -9,6 +9,15 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    QuickStart {
+        settings: config_model::Settings,
+        request_id: Uuid,
+        revision: Uuid,
+        device_id: Uuid,
+    },
+    StartStatus {
+        request_id: Uuid,
+    },
     ForgetStart {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -71,6 +80,19 @@ impl Request {
             !reference.connection_id.0.is_nil() && reference.generation > 0
         };
         match self {
+            Self::QuickStart {
+                settings,
+                request_id,
+                revision,
+                device_id,
+            } => {
+                matches!(settings, config_model::Settings::Serial { .. })
+                    && settings.validate().is_ok()
+                    && [request_id, revision, device_id]
+                        .iter()
+                        .all(|id| !id.is_nil())
+            }
+            Self::StartStatus { request_id } => !request_id.is_nil(),
             Self::Send {
                 connection,
                 request_id,
@@ -213,6 +235,33 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quick_start_is_strict_serial_only_and_status_is_number_only() {
+        let id = Uuid::new_v4();
+        let value = serde_json::json!({"op":"quick_start","request_id":id,"revision":id,"device_id":id,"settings":{"protocol":"serial","port":"COM7","baud_rate":115200,"data_bits":8,"stop_bits":1,"parity":"none","flow":"none","dtr_on_open":false,"rts_on_open":false,"encoding":"utf8"}});
+        assert!(
+            serde_json::from_value::<Request>(value.clone())
+                .unwrap()
+                .validate()
+        );
+        let mut invalid = value.clone();
+        invalid["settings"]["rts_on_open"] = serde_json::Value::Null;
+        assert!(
+            !serde_json::from_value::<Request>(invalid)
+                .unwrap()
+                .validate()
+        );
+        let mut invalid = value;
+        invalid["owner"] = serde_json::json!(id);
+        assert!(serde_json::from_value::<Request>(invalid).is_err());
+        assert!(Request::StartStatus { request_id: id }.validate());
+        assert!(
+            !Request::StartStatus {
+                request_id: Uuid::nil()
+            }
+            .validate()
+        );
+    }
     #[test]
     fn disconnect_requires_original_number_and_generation_without_caller_owner() {
         let connection = ConnectionRef {
