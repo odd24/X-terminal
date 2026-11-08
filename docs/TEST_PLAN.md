@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+CR-009更新第16 `test:desktop:navigation`：前置实际desktop:build及既有SSH夹具，只shared-terminal-navigation-ui-中文-自建根/合成SSH。现按当前策略覆盖双击/真实右键目标和选择一致、可用保存密码/加密密钥无需额外按钮、缺失/拒绝补录/必要指纹、快速Start手势一次/明确独立实例、搜索/排序、无确认Close/同拍去重、原代次延迟应答不隐藏新代次、丢Close不重放、丢Start只查且不自动认证、失败配置读回不自动Start、取消迟到新Start不误断旧连接，以及程序退出确认保留。原取消/保留隐藏确认断言按新要求替换，历史结果仍见P12记录；不是重跑旧全套/实机矩阵。纯session-tab-closures测试验证代次/owner/未知状态隔离。
+
 P12.1现场配置错误回归新增`test:desktop:quick-config`（第23入口，前置实际desktop:build），仅shared-terminal-quick-config-ui-中文-自建根/合成SSH：两个独立桌面/浏览器目录共用同一个自建配置根，验证真实ConfigReply LOCKED、初读失败告警/禁止Start、原owner退出后须重启；真实save_profile fetch丢应答只读回、不重复保存/不自动登录、用户明确选保存目标后正常凭据登录；真实非法密钥保存拒绝、page读故障不静默。`config-error.test.mjs`验证安全类型/不确定结果及原始异常不泄露，未知对象不得调用toString。最后原弹窗仅跑受影响--fast，未重跑无变化135秒超时/旧全套；用户真实失败现场与合成证据分列。
 
 CR-008/P12.1新增`test:desktop:ssh-dialog`，前置实际desktop:build，仅shared-terminal-ssh-dialog-ui-中文-自建根/合成SSH：居中模态、终端列宽不缩小、原生模态及Tab边界、Esc/焦点恢复/待连接关闭取消、成功关闭并聚焦终端；配置/外观共享弹窗；只显示地址/同地址独立标签、保存目标后来修改及重载不改旧连接地址；实际认证拒绝/网络大类/密钥不可读/超时和应答丢失的明显role=alert，原编号只查。原QuickSSH专项适配成功关闭语义，受影响日志仅跑其有限分支，不重跑无变化旧全套。真实保存凭据登录经用户明确授权，在正在使用的原应用中独立验证，不将合成Harness指向用户目录；结果/边界见[P12.1](records/P12.1.md)。Harness为自建根单独设置WebView数据目录，避免与用户打开的窗口/浏览器状态共享；不操作用户WebView存储。

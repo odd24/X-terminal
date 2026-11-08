@@ -19,7 +19,8 @@ import { ConnectionCatalog } from './connection-catalog';
 import { config, type DesktopPreferences, type Profile } from './config-api';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
-import { QuickConnect } from './quick-connect';
+import { QuickConnect, type SavedConnectIntent } from './quick-connect';
+import { SessionTabClosures } from './session-tab-closures';
 import { Dialog } from './ui';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
@@ -50,14 +51,12 @@ function App() {
   const [treeRevision, setTreeRevision] = useState(0);
   const [requestedProfile, setRequestedProfile] = useState<Profile>();
   const [tabOrder, setTabOrder] = useState<string[]>([]);
-  const [hiddenTabs, setHiddenTabs] = useState<string[]>([]);
-  const hiddenRef = useRef<string[]>([]);
+  const tabClosures=useRef(new SessionTabClosures());
+  const [,setTabEpoch]=useState(0);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const catalog = useRef(new ConnectionCatalog());
   const [, setCatalogEpoch] = useState(0);
-  const [closing, setClosing] = useState<Connection>();
   const [tabMessage, setTabMessage] = useState('');
-  const [tabBusy, setTabBusy] = useState(false);
   const [exitConfirm, setExitConfirm] = useState(false);
   const allowExit = useRef(false);
   const liveConnections = useRef<Connection[]>([]);
@@ -102,6 +101,9 @@ function App() {
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [sshOpen, setSshOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [savedIntent,setSavedIntent]=useState<SavedConnectIntent>();
+  const savedIntentFlight=useRef<SavedConnectIntent|undefined>(undefined);
+  function closeQuick(){savedIntentFlight.current=undefined;setSavedIntent(undefined);setQuickOpen(false);setTabMessage(previous=>previous.startsWith('正在连接 ')?'':previous);}
   const focusAfterConnect = useRef(false);
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
@@ -114,7 +116,7 @@ function App() {
   const [clipboardMessage, setClipboardMessage] = useState('');
   function selectConnection(id: string) {
     setRenderedTarget(undefined);
-    hiddenRef.current = hiddenRef.current.filter(item => item !== id); setHiddenTabs(hiddenRef.current);
+    const target=liveConnections.current.find(c=>c.connection_id===id);if(target)tabClosures.current.show(target);setTabEpoch(value=>value+1);
     drafts.current.invalidate(); clipboard.current?.invalidate(); selectedRef.current = id; setSelected(id);
   }
   const host = useRef<HTMLDivElement>(null);
@@ -141,7 +143,7 @@ function App() {
     catalog.current.retain(owner, retained);
     const ids = new Set(retained.map(item => item.connection_id));
     setTabOrder(previous => previous.filter(id => ids.has(id)));
-    hiddenRef.current = hiddenRef.current.filter(id => ids.has(id)); setHiddenTabs(hiddenRef.current);
+    tabClosures.current.retain(owner,retained);
     setCatalogEpoch(value => value + 1);
     let disposed = false, timer = 0;
     async function readDetails() {
@@ -337,7 +339,7 @@ function App() {
         if (disposed) return;
         setConnections(sessions);
         const wanted = selectedRef.current;
-        const connection = sessions.find(item => item.connection_id === wanted) ?? (!wanted ? sessions.find(item => !hiddenRef.current.includes(item.connection_id)) : undefined);
+        const connection = sessions.find(item => item.connection_id === wanted) ?? (!wanted ? sessions.find(item => !tabClosures.current.isHidden(item)) : undefined);
         if (!connection && wanted && current.connection?.connection_id !== wanted) {
           current.writable = false;
           setStatus('正在刷新所选会话；输入尚未发送');
@@ -491,7 +493,7 @@ function App() {
     } catch { setInputFailure('服务端屏幕读取失败；未重试。'); }
   }
 
-  const tabs = [...connections.filter(item => !hiddenTabs.includes(item.connection_id))].sort((a, b) => {
+  const tabs = [...connections.filter(item => !tabClosures.current.isHidden(item))].sort((a, b) => {
     const rank = (id: string) => tabOrder.includes(id) ? tabOrder.indexOf(id) : tabOrder.length + connections.findIndex(item => item.connection_id === id);
     return rank(a.connection_id) - rank(b.connection_id);
   });
@@ -512,36 +514,30 @@ function App() {
     [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]]; setTabOrder(ids);
   }
   function hideTab(connection: Connection) {
-    hiddenRef.current = [...new Set([...hiddenRef.current, connection.connection_id])]; setHiddenTabs(hiddenRef.current);
+    if(!tabClosures.current.hide(connection))return;setTabEpoch(value=>value+1);
     if (selectedRef.current === connection.connection_id) selectConnection(tabs.find(item => item.connection_id !== connection.connection_id)?.connection_id ?? '');
   }
-  async function confirmClose() {
-    if (!closing || tabBusy) return;
-    const target = closing; setTabBusy(true);
+  async function closeTab(target:Connection) {
+    const decision=tabClosures.current.begin(target,liveConnections.current);
+    if(decision==='stale'){setTabMessage('连接代次已变化；未关闭新连接。');return;}
+    if(decision==='pending')return;
+    if(decision==='unknown'){setTabMessage('关闭结果尚未确认，未重复发送。请在连接面板核对当前状态。');return;}
+    if(decision==='hide'){hideTab(target);setTabMessage('已结束的会话标签已关闭。');return;}
+    setTabEpoch(value=>value+1);setTabMessage('正在关闭会话…');
     try {
-      const latest = connections.find(item => item.connection_id === target.connection_id);
-      if (!latest || latest.generation !== target.generation) throw new Error('连接代次已变化；未关闭新连接。');
-      if (!['DISCONNECTED', 'FAILED'].includes(latest.state)) {
-        if (target.protocol === 'SSH2') await ssh({ op: 'close', connection: { connection_id: target.connection_id, generation: target.generation } });
-        else if (target.protocol === 'SERIAL') await serial({ op: 'close', connection: { connection_id: target.connection_id, generation: target.generation } });
-        else throw new Error('此连接请使用对应控制面板关闭；可选择保留连接隐藏标签。');
-      }
-      hideTab(target); setClosing(undefined); setTabMessage('关闭请求已提交，标签已隐藏；服务状态以全部连接列表为准，已发送动作不会撤销。');
-    } catch (error) { setTabMessage((error as Error).message + ' 未自动重试；可在对应连接面板核对实际状态。'); }
-    finally { setTabBusy(false); }
+      if (target.protocol === 'SSH2') await ssh({ op: 'close', connection: { connection_id: target.connection_id, generation: target.generation } });
+      else if (target.protocol === 'SERIAL') await serial({ op: 'close', connection: { connection_id: target.connection_id, generation: target.generation } });
+      else throw new Error('此连接请使用对应控制面板关闭。');
+      tabClosures.current.finish(target,'accepted');hideTab(target);setTabMessage('关闭请求已提交；只关闭原代次标签，实际连接状态以服务为准。');
+    } catch (error) { tabClosures.current.finish(target,'unknown');setTabMessage((error instanceof Error?error.message:'关闭未获确认。') + ' 结果可能未知，未自动重试；请在连接面板核对实际状态。'); }
+    finally { setTabEpoch(value=>value+1); }
   }
-  async function connectProfile(profile: Profile) {
-    if (tabBusy) return;
+  function connectProfile(profile: Profile) {
+    if (savedIntentFlight.current) return;
     setRequestedProfile(profile);
     if (profile.settings.protocol === 'serial') { setSerialOpen(true); setTabMessage('请在串口面板刷新并核对设备身份与控制线后显式打开。'); return; }
     if (profile.settings.protocol === 'ssh1') { setTabMessage('SSH1 正式适配尚未完成；不会改用 SSH2 或自动降级。'); return; }
-    setTabBusy(true); setQuickOpen(true);
-    try {
-      const reply = await ssh({ op: 'start', profile_id: profile.id, request_id: requestId(), ...dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24) });
-      if (reply.result !== 'started') throw new Error('连接响应不匹配；请在连接面板核对。');
-      selectConnection(reply.connection.connection_id); setTabMessage('正在连接，请完成服务器身份与认证确认。');
-    } catch (error) { setTabMessage((error as Error).message); }
-    finally { setTabBusy(false); }
+    const intent={profile_id:profile.id,request_id:requestId()};savedIntentFlight.current=intent;setSavedIntent(intent);setSshOpen(false);setQuickOpen(true);setTabMessage(`正在连接 ${profile.name}…`);
   }
 
   return <main className="desktop-shell" style={{ '--navigation-width': `${navigationWidth}px` } as CSSProperties}>
@@ -575,14 +571,14 @@ function App() {
       </div></details>
     </nav>
     <div className={`desktop-body${sidebarOpen ? '' : ' sidebar-hidden'}`}>
-    <aside className="session-sidebar" aria-label="会话导航"><SessionTree revision={treeRevision} loaded={setProfiles} connect={profile => void connectProfile(profile)} configure={() => setConfigurationOpen(true)} /><label>导航宽度<input aria-label="导航宽度" type="range" min="210" max="360" value={navigationWidth} onChange={event => setNavigationWidth(Number(event.target.value))} /></label></aside>
+    <aside className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent} revision={treeRevision} loaded={setProfiles} connect={profile => void connectProfile(profile)} configure={() => setConfigurationOpen(true)} /><label>导航宽度<input aria-label="导航宽度" type="range" min="210" max="360" value={navigationWidth} onChange={event => setNavigationWidth(Number(event.target.value))} /></label></aside>
     <section className="terminal-workspace" aria-label="终端工作区">
     <div className="tab-tools"><div role="tablist" aria-label="连接标签" ref={tabList}>{tabs.map(connection => <div className="connection-tab" key={connection.connection_id}><button role="tab" data-connection-id={connection.connection_id} tabIndex={selected === connection.connection_id ? 0 : -1} onKeyDown={event => {
       const index = tabs.findIndex(item => item.connection_id === connection.connection_id);
       const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
       if (next < 0) return; event.preventDefault(); selectConnection(tabs[next].connection_id);
       tabList.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
-    }} aria-selected={selected === connection.connection_id} title={`${tabName(connection)} · ${connection.protocol} · ${connection.state} · ${connection.connection_id} / ${connection.generation}`} onClick={() => selectConnection(connection.connection_id)}>{tabName(connection)}{connection.protocol !== 'SSH2' && <small>{connection.state} · 代次 {connection.generation}</small>}</button><button aria-label={`关闭标签 ${connection.connection_id}`} onClick={() => { setTabMessage(''); setClosing(connection); }}>×</button></div>)}</div><button disabled={!selected || tabs[0]?.connection_id === selected} onClick={() => moveTab(-1)}>标签左移</button><button disabled={!selected || tabs.at(-1)?.connection_id === selected} onClick={() => moveTab(1)}>标签右移</button></div>
+    }} aria-selected={selected === connection.connection_id} title={`${tabName(connection)} · ${connection.protocol} · ${connection.state} · ${connection.connection_id} / ${connection.generation}`} onClick={() => selectConnection(connection.connection_id)}>{tabName(connection)}{connection.protocol !== 'SSH2' && <small>{connection.state} · 代次 {connection.generation}</small>}</button><button aria-label={`关闭标签 ${connection.connection_id}`} disabled={tabClosures.current.pending(connection)} onClick={() => void closeTab({...connection})}>×</button></div>)}</div><button disabled={!selected || tabs[0]?.connection_id === selected} onClick={() => moveTab(-1)}>标签左移</button><button disabled={!selected || tabs.at(-1)?.connection_id === selected} onClick={() => moveTab(1)}>标签右移</button></div>
     {!tabs.length && !quickOpen && <section className="terminal-empty"><h2>连接服务器，开始工作</h2><p>填写服务器地址和登录信息，即可进入终端。</p><button onClick={() => setQuickOpen(true)}>新建SSH连接</button><p>通信记录可从顶部“终端日志”开始。</p></section>}
     <div className="terminal" ref={host} aria-label="服务终端" />
     <div className="status" role="status">{failure || inputFailure || status}</div>
@@ -592,10 +588,9 @@ function App() {
     {tabMessage && <div role="status" aria-label="标签操作状态">{tabMessage}</div>}
     </section>
     <aside className="auxiliary-panels" aria-label="辅助工具">
-    {quickOpen && <Dialog label="连接服务器" close={()=>setQuickOpen(false)}><QuickConnect connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={() => {focusAfterConnect.current=true;setQuickOpen(false);}} close={() => setQuickOpen(false)} /></Dialog>}
+    {quickOpen && <Dialog label="连接服务器" close={closeQuick}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={() => {focusAfterConnect.current=true;closeQuick();}} close={closeQuick} /></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
-    {closing && <section className="config-panel" aria-label="关闭标签确认"><h2>关闭连接标签</h2><p>{tabName(closing)} · {closing.protocol} · {closing.connection_id} / 代次 {closing.generation}</p><p>关闭连接会停止未发送输入；已发送动作不会撤销。保留连接仅隐藏标签，输出仍由服务有界保留，之后可从完整列表重新打开。</p><button disabled={tabBusy} onClick={() => void confirmClose()}>关闭连接并隐藏标签</button><button disabled={tabBusy} onClick={() => { hideTab(closing); setClosing(undefined); }}>保留连接隐藏标签</button><button disabled={tabBusy} autoFocus onClick={() => setClosing(undefined)}>取消关闭标签</button></section>}
     {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
     {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}

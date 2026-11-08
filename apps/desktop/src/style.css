@@ -76,6 +76,9 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 .app-dialog > .config-panel { margin: 0; border: 0; }
 .notice-error { margin-block: var(--space-4); padding: var(--space-4); color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border: var(--border-width) solid var(--danger); border-inline-start-width: var(--message-border); border-radius: var(--radius-control); }
 .notice-error p { margin-block: var(--space-2) 0; }
+.context-menu { position: fixed; z-index: 5; min-width: var(--context-menu-width); max-width: calc(100vw - var(--space-4)); padding: var(--space-2); background: var(--surface-raised); color: var(--text); border: var(--border-width) solid var(--border); border-radius: var(--radius-control); }
+.context-menu > * { display: block; width: 100%; text-align: start; }
+.context-menu small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: var(--space-1); }
 .tools-menu-content { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); }
 .tools-menu[open] .tools-menu-content { position: fixed; z-index: 4; inset-inline: var(--space-3); margin-top: var(--space-2); background: var(--surface); border: var(--border-width) solid var(--border); border-radius: var(--radius-panel); }
 .app-bar span { color: var(--text-muted); font-size: var(--text-sm); }

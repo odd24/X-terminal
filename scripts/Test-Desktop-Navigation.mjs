@@ -1,152 +1,56 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { requestId } from '../apps/desktop/src/request-id.ts';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
-
-const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-navigation-ui-中文-'));
-const fixture = spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'), [directory], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-const lines = createInterface({ input: fixture.stdout })[Symbol.asyncIterator]();
-let ui;
-try {
-  const server = await Promise.race([lines.next().then(item => JSON.parse(item.value)), delay(10000).then(() => { throw new Error('fixture startup timeout'); })]);
-  ui = await launchDesktop(directory, { fixture: true });
-  const folder = { id: crypto.randomUUID(), parent_id: null, name: '合成会话组' };
-  await ui.invoke('config_request', { request: { op: 'save_folder', folder } });
-  const profile = { id: crypto.randomUUID(), folder_id: folder.id, name: '同配置多实例 中文', settings: { protocol: 'ssh2', host: '127.0.0.1', port: server.port, username: 'synthetic', auth: 'password', encoding: 'utf8' } };
-  await ui.invoke('config_request', { request: { op: 'save_profile', profile, credential: { action: 'keep' } } });
-  await ui.click('刷新会话树');
-  await ui.fill('搜索会话配置', '中文');
-  const treeButton = `Array.from(document.querySelectorAll('.session-tree-list button')).find(button=>button.firstChild.textContent===${JSON.stringify(profile.name)})`;
-  await ui.waitFor(`!!(${treeButton})`);
-  await ui.evaluate(`(${treeButton}).click()`);
-  assert.equal((await ui.invoke('service_list')).length, 0, 'single click only selects Profile');
-  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="配置详情"]').textContent`)).includes(profile.name));
-  await ui.evaluate(`(${treeButton}).dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
-  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===1`);
-  const [first] = await ui.invoke('service_list');
-  await ui.click('连接选中配置');
-  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===2`);
-  const second = (await ui.invoke('service_list')).find(item => item.connection_id !== first.connection_id);
-  assert.notEqual(first.connection_id, second.connection_id);
-  await ui.fill('搜索会话配置', '不存在的名称');
-  assert.equal(await ui.evaluate(`document.querySelectorAll('.session-tree-list button').length`), 0);
-  assert.equal((await ui.invoke('service_list')).length, 2, 'search cannot change connections');
-  await ui.fill('搜索会话配置', '');
-  // Use the full immutable identity from the accessible tab title.
-  await ui.evaluate(`Array.from(document.querySelectorAll('[role="tab"]')).find(item=>item.title.includes(${JSON.stringify(first.connection_id)})).click()`);
-  await ui.waitFor(`document.querySelector('[aria-label="会话"]').value===${JSON.stringify(first.connection_id)}`);
-  await ui.click('标签右移');
-  assert.equal(await ui.evaluate(`document.querySelectorAll('[role="tab"]')[1].getAttribute('aria-selected')`), 'true');
-  await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(item=>item.getAttribute('aria-label')===${JSON.stringify('关闭标签 ' + first.connection_id)}).click()`);
-  await ui.click('取消关闭标签');
-  assert.equal((await ui.invoke('service_list')).find(item=>item.connection_id===first.connection_id).generation, first.generation);
-  await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(item=>item.getAttribute('aria-label')===${JSON.stringify('关闭标签 ' + first.connection_id)}).click()`);
-  await ui.click('保留连接隐藏标签');
-  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===1`);
-  assert.equal((await ui.invoke('service_list')).length, 2, 'hiding never forgets or disconnects');
-  await ui.fill('会话', first.connection_id);
-  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===2`);
-  await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(item=>item.getAttribute('aria-label')===${JSON.stringify('关闭标签 ' + first.connection_id)}).click()`);
-  await ui.click('关闭连接并隐藏标签');
-  for (let attempt=0; attempt<100; attempt++) {
-    if (['DISCONNECTED','FAILED'].includes((await ui.invoke('service_list')).find(item=>item.connection_id===first.connection_id).state)) break;
-    await delay(50);
-  }
-  assert.ok(['DISCONNECTED','FAILED'].includes((await ui.invoke('service_list')).find(item=>item.connection_id===first.connection_id).state));
-  assert.equal((await ui.invoke('service_list')).find(item=>item.connection_id===second.connection_id).generation, second.generation);
-  await ui.click('退出桌面');
-  await ui.waitFor(`!!document.querySelector('[aria-label="退出桌面确认"]')`);
-  await ui.click('取消退出');
-  assert.equal(ui.app.exitCode, null);
-  await ui.click('SSH2 连接'); // fold authentication tool, leaving the terminal dominant
-  for (let index=0; index<11; index++) { await ui.click('新建合成会话'); await delay(200); }
-  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===12`);
-  assert.equal(await ui.evaluate(`document.querySelector('[role="tablist"]').scrollWidth>document.querySelector('[role="tablist"]').clientWidth`), true);
-  await ui.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
-  await ui.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
-  const selectedId = await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);
-  await ui.evaluate(`Array.from(document.querySelectorAll('[role="tab"]')).find(item=>item.getAttribute('aria-selected')==='true').focus()`);
-  await ui.command('Input.dispatchKeyEvent', { type:'keyDown', key:'Home', code:'Home', windowsVirtualKeyCode:36 });
-  await ui.command('Input.dispatchKeyEvent', { type:'keyUp', key:'Home', code:'Home', windowsVirtualKeyCode:36 });
-  assert.equal(await ui.evaluate(`document.querySelector('[role="tab"]').getAttribute('aria-selected')`),'true');
-  await ui.fill('会话',selectedId);
-  const hiddenTarget = (await ui.invoke('service_list')).find(item=>item.connection_id===selectedId);
-  await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(item=>item.getAttribute('aria-label')===${JSON.stringify('关闭标签 '+selectedId)}).click()`);
-  await ui.click('保留连接隐藏标签');
-  await ui.invoke('fixture_append',{connection:{connection_id:hiddenTarget.connection_id,generation:hiddenTarget.generation},bytes:[...Buffer.from('BACKGROUND-HIDDEN-CONTINUES')]});
-  await ui.fill('会话',selectedId);
-  for(let attempt=0;attempt<100;attempt++) {
-    await ui.click('屏幕快照');
-    if(await ui.evaluate(`document.querySelector('pre[aria-label="屏幕快照"]')?.textContent.includes('BACKGROUND-HIDDEN-CONTINUES')`))break;
-    await delay(50);
-  }
-  assert.equal(await ui.evaluate(`document.querySelector('pre[aria-label="屏幕快照"]')?.textContent.includes('BACKGROUND-HIDDEN-CONTINUES')`),true);
-  await ui.click('关闭屏幕快照');
-  await ui.fill('导航宽度',320);
-  assert.equal(await ui.evaluate(`Math.round(document.querySelector('.session-sidebar').getBoundingClientRect().width)`),320);
-  await ui.screenshot('desktop-navigation-native.png');
-  await ui.click('会话导航');
-  assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.session-sidebar')).display`), 'none');
-  const dimensions = await ui.evaluate(`(()=>{const rect=document.querySelector('.terminal').getBoundingClientRect();return {height:rect.height,width:rect.width,window:innerHeight}})()`);
-  assert.ok(dimensions.height>dimensions.window/2, 'terminal occupies most of the native window height');
-  await ui.command('Page.reload');
-  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===13`);
-  assert.equal((await ui.invoke('service_list')).length, 13, 'reload reopens views without recreating service connections');
-  const tabFor = id => `Array.from(document.querySelectorAll('[role="tab"]')).find(item=>item.dataset.connectionId===${JSON.stringify(id)})`;
-  await ui.waitFor(`(${tabFor(first.connection_id)})?.textContent.includes(${JSON.stringify(profile.name)}) && (${tabFor(second.connection_id)})?.textContent.includes(${JSON.stringify(profile.name)})`);
-  await ui.click('SSH2 连接');
-  await ui.waitFor(`!!document.querySelector('[aria-label="SSH2 配置"] option[value="${profile.id}"]')`);
-  await ui.fill('SSH2 配置',profile.id);
-  await ui.click('建立 SSH2 连接');
-  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===14`);
-  const panelTarget=(await ui.invoke('service_list')).find(item=>!([first.connection_id,second.connection_id].includes(item.connection_id)) && item.protocol==='SSH2');
-  assert.ok(panelTarget);
-  await ui.waitFor(`(${tabFor(panelTarget.connection_id)})?.textContent.includes(${JSON.stringify(profile.name)})`);
-  const renamed={...profile,name:'更新名称 中文 <b>仅文本</b>'};
-  await ui.invoke('config_request',{request:{op:'save_profile',profile:renamed,credential:{action:'keep'}}});
-  await ui.click('刷新会话树');
-  for(const target of [first,second,panelTarget]) {
-    await ui.waitFor(`(${tabFor(target.connection_id)})?.textContent.includes(${JSON.stringify(renamed.name)})`);
-    assert.equal(await ui.evaluate(`(${tabFor(target.connection_id)}).querySelector('b')===null`),true,'Profile names remain text');
-  }
-  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),panelTarget.connection_id,'renaming cannot select a different target');
-  await ui.click('关闭 SSH2 连接');
-  await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(button=>button.textContent==='移除连接记录' && !button.matches(':disabled'))`);
-  await ui.click('移除连接记录');
-  await ui.waitFor(`!(${tabFor(panelTarget.connection_id)}) && !document.querySelector('[aria-label="会话"] option[value="${panelTarget.connection_id}"]')`);
-  await ui.invoke('config_request',{request:{op:'delete_profile',id:profile.id}});
-  await ui.click('刷新会话树');
-  for(const target of [first,second]) {
-    await ui.waitFor(`!(${tabFor(target.connection_id)})?.textContent.includes(${JSON.stringify(renamed.name)})`);
-    assert.ok((await ui.evaluate(`(${tabFor(target.connection_id)}).title`)).includes(target.connection_id),'missing configuration retains exact connection identity');
-  }
-  await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(item=>item.getAttribute('aria-label')===${JSON.stringify('关闭标签 '+first.connection_id)}).click()`);
-  await ui.click('保留连接隐藏标签');
-  await ui.invoke('ssh_request',{request:{op:'forget',connection:{connection_id:first.connection_id,generation:first.generation}}});
-  await ui.waitFor(`!document.querySelector('[aria-label="会话"] option[value="${first.connection_id}"]')`);
-  await ui.fill('会话',second.connection_id);
-  await ui.waitFor(`(${tabFor(second.connection_id)})?.getAttribute('aria-selected')==='true'`);
-  await ui.waitFor(`document.querySelector('[aria-label="活动编码"]')?.textContent==='编码：UTF-8'`);
-  await ui.waitFor(`document.querySelector('[aria-label="权限状态"]')?.textContent.includes('桌面输入未就绪')`);
-  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="活动连接摘要"]').textContent`)).includes('SSH2'));
-  const localSize=await ui.evaluate(`document.querySelector('[aria-label="终端视口尺寸"]').textContent`);
-  assert.match(localSize,/视口：[1-9]\d*×[1-9]\d*/);
-  const [localCols,localRows]=localSize.match(/\d+/g).map(Number);
-  await ui.fill('字号',28);
-  await ui.waitFor(`(()=>{const size=document.querySelector('[aria-label="终端视口尺寸"]').textContent.match(/\\d+/g).map(Number);return size[0]<${localCols} && size[1]<${localRows}})()`);
-  await ui.fill('字号',15);
-  await ui.waitFor(`document.querySelector('[aria-label="终端视口尺寸"]').textContent===${JSON.stringify(localSize)}`);
-  await ui.evaluate(`document.querySelector('.connection-details').open=true`);
-  assert.ok((await ui.evaluate(`document.querySelector('.connection-details').textContent`)).includes(second.connection_id));
-  await ui.screenshot('desktop-status-native.png');
-  await ui.screenshot('desktop-navigation-identities-native.png');
-  console.log('PASS navigation native WebView: Profile single/double click, independent instances, search, tab selection/reorder/overflow/close/hide, exit confirmation, terminal-first layout, reload/panel-created names, rename/delete text-only identity preservation, forget including hidden target; synthetic only');
-} finally {
-  await ui?.close(); fixture.kill(); await delay(200);
-  assert.equal(path.dirname(path.resolve(directory)), path.resolve(tmpdir()));
-  assert.ok(path.basename(directory).startsWith('shared-terminal-navigation-ui-中文-'));
-  await rm(directory, { recursive: true, force: true });
-}
+let directory,ui,fixture;
+const wait=async(test,label)=>{for(let i=0;i<300;i++){if(await test())return;await delay(100);}throw new Error(`Timed out: ${label}`);};
+try{
+ directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-navigation-ui-中文-'));
+ fixture=spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'),[directory],{windowsHide:true,stdio:['pipe','pipe','pipe']});const lines=createInterface({input:fixture.stdout})[Symbol.asyncIterator]();
+ const next=async()=>{let timer;try{return await Promise.race([lines.next().then(x=>JSON.parse(x.value)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('fixture timeout')),10000);})]);}finally{clearTimeout(timer);}};const server=await next();const control=async r=>{fixture.stdin.write(JSON.stringify(r)+'\n');return next();};
+ ui=await launchDesktop(directory,{fixture:true});
+ const config=request=>ui.invoke('config_request',{request}),ssh=request=>ui.invoke('ssh_request',{request}),list=()=>ui.invoke('service_list');
+ const ref=c=>({connection_id:c.connection_id,generation:c.generation});
+ const profile=(name,host='127.0.0.1',auth='password')=>({id:crypto.randomUUID(),folder_id:null,name,settings:{protocol:'ssh2',host,port:server.port,username:'synthetic',auth,encoding:'utf8'}});
+ const a=profile('已保存 A'),b=profile('右键目标 B','localhost'),missing=profile('缺少凭据 C','localhost'),wrong=profile('错误凭据 D'),key=profile('加密密钥 E','127.0.0.1','public_key');
+ for(const p of [a,b,missing,wrong])assert.equal((await config({op:'save_profile',profile:p,credential:p===missing?{action:'clear'}:{action:'replace',value:{password:p===wrong?'wrong-synthetic':server.password,private_key:null,passphrase:null}}})).result,'saved_profile');
+ assert.equal((await config({op:'save_profile_key_file',profile:key,key_path:server.key_path,passphrase:server.password})).result,'saved_profile');
+ await ui.click('会话导航');await ui.click('刷新会话树');
+ const tree=p=>`Array.from(document.querySelectorAll('.session-tree-list button')).find(b=>b.firstChild.textContent===${JSON.stringify(p.name)})`;
+ const double=async(p,count=1)=>{await ui.waitFor(`!!(${tree(p)})`);await ui.evaluate(`(()=>{const b=${tree(p)};for(let i=0;i<${count};i++)b.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));})()`);};
+ const context=async p=>{const point=await ui.evaluate(`(()=>{const b=${tree(p)};b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...point});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...point});await ui.waitFor(`!!document.querySelector('[role="menu"][aria-label="会话配置菜单"]')`);};
+ const chooseContext=()=>ui.evaluate(`document.querySelector('[role="menuitem"]').click()`);
+ const current=async()=>{const id=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);return (await list()).find(c=>c.connection_id===id);};
+ const connected=async()=>{await wait(async()=>{const c=await current();return c?.state==='CONNECTED'&&!(await ui.evaluate(`!!document.querySelector('dialog:modal')`));},'saved login reaches terminal');await ui.waitFor(`document.activeElement?.classList.contains('xterm-helper-textarea')`);return current();};
+ const trust=async()=>{await ui.waitFor(`!!document.querySelector('[aria-label="快速连接核对指纹"]')`);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="快速连接核对指纹"]').checked`),false);await ui.evaluate(`document.querySelector('[aria-label="快速连接核对指纹"]').click()`);await ui.click('信任并继续登录');};
+ const closeButton=c=>`Array.from(document.querySelectorAll('button')).find(b=>b.getAttribute('aria-label')===${JSON.stringify('关闭标签 '+c.connection_id)})`;
+ const tab=c=>`document.querySelector('[role="tab"][data-connection-id="${c.connection_id}"]')`;
+ await ui.waitFor(`!!(${tree(a)})`);await ui.evaluate(`(${tree(a)}).click()`);assert.equal((await list()).length,0,'single click only selects');
+ const startHeld=await ui.interceptIpc({command:'ssh_request',op:'start',mode:'hold'});await double(a,3);await wait(async()=>await startHeld.count()===1,'single held Start');assert.equal((await list()).length,1);assert.equal((await control({op:'metrics'})).attempts,0);await startHeld.restore();await trust();const first=await connected();
+ await double(a);const second=await connected();assert.notEqual(first.connection_id,second.connection_id);assert.equal((await list()).length,2,'a later deliberate activation creates an independent instance');
+ assert.equal(await ui.evaluate(`document.querySelector('[aria-label="标签操作状态"]')?.textContent.startsWith('正在连接 ')??false`),false,'successful or closed progress cannot stay on the terminal');
+ await ui.click('标签左移');assert.equal(await ui.evaluate(`document.querySelector('[role="tab"]').dataset.connectionId`),second.connection_id);await ui.fill('搜索会话配置','不存在的名称');assert.equal(await ui.evaluate(`document.querySelectorAll('.session-tree-list button').length`),0);assert.equal((await list()).length,2);await ui.fill('搜索会话配置','');
+ await ui.evaluate(`(${tree(a)}).click()`);const selectedBefore=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);await context(b);assert.equal(await ui.evaluate(`(${tree(b)}).getAttribute('aria-pressed')`),'true');assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),selectedBefore);
+ await ui.screenshot('P12.1-saved-session-context.png');await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await ui.waitFor(`!document.querySelector('[role="menu"]')`);assert.ok(await ui.evaluate(`document.activeElement===${tree(b)}`));
+ await context(b);await chooseContext();await trust();const right=await connected();assert.equal((await ssh({op:'status',connection:ref(right)})).profile_id,b.id,'right-click target must not use previous selection');
+ await context(missing);await chooseContext();await ui.waitFor(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='提交本次登录信息')`);const missingAttempts=(await control({op:'metrics'})).attempts;await delay(300);assert.equal((await control({op:'metrics'})).attempts,missingAttempts,'no blank or guessed credential dispatch');await ui.fill('SSH登录密码',server.password);await ui.click('提交本次登录信息');await connected();
+ const beforeWrong=(await control({op:'metrics'})).attempts;await double(wrong);await ui.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('未被服务器接受')`);await delay(350);assert.equal((await control({op:'metrics'})).attempts,beforeWrong+1,'rejected stored credential is never looped');await ui.fill('SSH登录密码',server.password);await ui.click('提交本次登录信息');await connected();
+ await double(key);const keyed=await connected();assert.equal((await ssh({op:'status',connection:ref(keyed)})).profile_id,key.id);
+ // Exact ref close, same-turn dedup, then reconnect while its real response is held.
+ const closeHeld=await ui.interceptIpc({command:'ssh_request',op:'close',mode:'hold'});await ui.evaluate(`(()=>{const b=${closeButton(first)};b.click();b.click();})()`);await wait(async()=>await closeHeld.count()===1,'one close dispatch');assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="关闭标签确认"]')`),false);await wait(async()=>['DISCONNECTED','FAILED'].includes((await list()).find(c=>c.connection_id===first.connection_id).state),'old transport ended');
+ const restarted=await ssh({op:'reconnect',connection:ref(first),request_id:requestId(),cols:80,rows:24});assert.equal(restarted.result,'started');const newer=restarted.connection;await ui.waitFor(`(${tab(first)})?.title.includes(${JSON.stringify('/ '+newer.generation)})`);await closeHeld.restore();await delay(200);assert.ok(await ui.evaluate(`!!(${tab(newer)})`),'late old close cannot hide new generation');assert.ok(!['FAILED','DISCONNECTED'].includes((await list()).find(c=>c.connection_id===newer.connection_id).state));
+ await ui.evaluate(`(${closeButton(newer)}).click()`);await ui.waitFor(`!(${tab(newer)})`);
+ const closeLost=await ui.interceptIpc({command:'ssh_request',op:'close',mode:'error'});await ui.evaluate(`(${closeButton(right)}).click()`);await ui.waitFor(`document.querySelector('[aria-label="标签操作状态"]')?.textContent.includes('结果可能未知')`);assert.equal(await closeLost.count(),1);await wait(async()=>['DISCONNECTED','FAILED'].includes((await list()).find(c=>c.connection_id===right.connection_id).state),'lost close is actually ended');await ui.waitFor(`(${tab(right)})?.title.includes('DISCONNECTED')||(${tab(right)})?.title.includes('FAILED')`);await ui.evaluate(`(${closeButton(right)}).click()`);await ui.waitFor(`!(${tab(right)})`);assert.equal(await closeLost.count(),1,'hiding an ended target must not resend unknown close');await closeLost.restore();
+ const beforeUnknown=(await list()).length,authBefore=(await control({op:'metrics'})).attempts;const startLost=await ui.interceptIpc({command:'ssh_request',op:'start',mode:'error'});await double(a,2);await ui.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('连接结果不明')`);await double(a,2);assert.equal(await startLost.count(),1);assert.equal((await list()).length,beforeUnknown+1);assert.equal((await control({op:'metrics'})).attempts,authBefore);await startLost.restore();await ui.click('查询本次连接');await ui.waitFor(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='使用已记住的凭据')`);assert.equal((await control({op:'metrics'})).attempts,authBefore,'query cannot automatically authenticate');await ui.click('使用已记住的凭据');await connected();
+ const beforeRead=(await list()).length;const readFault=await ui.interceptIpc({command:'config_request',op:'page',mode:'error'});await double(a);await ui.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('读取连接配置失败')`);assert.equal(await readFault.count(),1);await readFault.restore();await ui.click('重新读取配置');await ui.waitFor(`document.querySelector('[aria-label="快速连接已保存"]')?.value===${JSON.stringify(a.id)}&&!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='连接').disabled`);assert.equal((await list()).length,beforeRead,'recovering a failed read cannot silently resume direct Start');await ui.click('连接');await connected();
+ // Cancelling before Start reply must close only the later returned new ref.
+ await ui.evaluate(`(${tab(keyed)}).click()`);const beforeCancelIds=(await list()).map(c=>c.connection_id),beforeCancel=beforeCancelIds.length,cancelAuth=(await control({op:'metrics'})).attempts;const late=await ui.interceptIpc({command:'ssh_request',op:'start',mode:'hold'});await double(a);await wait(async()=>await late.count()===1,'late Start held');await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await ui.waitFor(`!document.querySelector('dialog:modal')`);await late.restore();await wait(async()=>{const all=await list();const added=all.find(c=>!beforeCancelIds.includes(c.connection_id)&&all.length===beforeCancel+1);return added&&['DISCONNECTED','FAILED'].includes(added.state);},'late cancelled Start closes');assert.equal((await list()).find(c=>c.connection_id===keyed.connection_id).state,'CONNECTED');assert.equal((await control({op:'metrics'})).attempts,cancelAuth);
+ await ui.invoke('plugin:window|close',{label:'main'});await ui.waitFor(`!!document.querySelector('[aria-label="退出桌面确认"]')`);await ui.click('取消退出');assert.equal(ui.app.exitCode,null,'session close policy must not remove application exit confirmation');
+ await ui.screenshot('P12.1-saved-session-final.png');
+ await writeFile('artifacts/P12.1-saved-session-result.json',JSON.stringify({result:'PASS',singleClickSelects:true,rapidStartOnce:true,doubleClickSavedPassword:true,rightClickActualTarget:true,knownHostNoExtraClick:true,missingCredentialPrompt:true,rejectedStoredCredentialOnce:true,savedEncryptedKey:true,noCloseConfirmation:true,closeDispatchOnce:true,lateClosePreservesNewGeneration:true,unknownCloseNotReplayed:true,unknownStartOriginalQuery:true,lateCancelledStartPreservesOldSession:true,applicationExitConfirmationRetained:true,scope:'owned synthetic SSH; no user connections'},null,2)+'\n');console.log('PASS saved sessions/navigation: double/right-click stored password/key, correct context target, missing/rejected auth fallback, no-confirm exact-ref close/dedup/late-generation/unknown, cancelled late Start, application exit confirmation retained; synthetic only');
+}catch(error){console.error('navigation failure:',error.message);if(ui){await ui.screenshot('P12.1-saved-session-failure.png').catch(()=>{});await writeFile('artifacts/P12.1-saved-session-failure.txt',await ui.evaluate(`document.body.innerText`).catch(String));}throw error;}
+finally{await ui?.close();fixture?.kill();if(fixture&&fixture.exitCode===null&&fixture.signalCode===null)await new Promise(resolve=>fixture.once('exit',resolve));if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-navigation-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}
