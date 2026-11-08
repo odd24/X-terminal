@@ -1,6 +1,16 @@
 use crate::{Error, Result, Store, Workspace, metadata, require_current};
 use rusqlite::{Connection, TransactionBehavior, params};
 use uuid::Uuid;
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyWorkspace {
+    id: Uuid,
+    name: String,
+    groups: Vec<crate::WorkspaceGroup>,
+    tabs: Vec<crate::WorkspaceTab>,
+    selected_tab: Option<Uuid>,
+    navigation_open: bool,
+}
 pub(super) fn read(connection: &Connection) -> Result<Vec<Workspace>> {
     if metadata(connection)?.1 < 5 {
         return Ok(Vec::new());
@@ -11,7 +21,20 @@ pub(super) fn read(connection: &Connection) -> Result<Vec<Workspace>> {
     let mut result = Vec::new();
     for row in rows {
         let (id, text) = row?;
-        let value: Workspace = serde_json::from_str(&text).map_err(|_| Error::Corrupt)?;
+        let value: Workspace = if metadata(connection)?.1 == 5 {
+            let old: LegacyWorkspace = serde_json::from_str(&text).map_err(|_| Error::Corrupt)?;
+            Workspace {
+                id: old.id,
+                name: old.name,
+                groups: old.groups,
+                tabs: old.tabs,
+                selected_tab: old.selected_tab,
+                navigation_open: old.navigation_open,
+                split: None,
+            }
+        } else {
+            serde_json::from_str(&text).map_err(|_| Error::Corrupt)?
+        };
         value.validate().map_err(|_| Error::Corrupt)?;
         if id != value.id.to_string() {
             return Err(Error::Corrupt);
@@ -22,6 +45,26 @@ pub(super) fn read(connection: &Connection) -> Result<Vec<Workspace>> {
         return Err(Error::Invalid("workspace limit"));
     }
     Ok(result)
+}
+pub(super) fn migrate_v6(connection: &Connection) -> Result<()> {
+    let expected = read(connection)?;
+    for workspace in &expected {
+        if connection.execute(
+            "UPDATE workspaces SET value=?1 WHERE id=?2",
+            params![serde_json::to_string(workspace)?, workspace.id.to_string()],
+        )? != 1
+        {
+            return Err(Error::Corrupt);
+        }
+    }
+    if connection.execute("INSERT INTO schema_migrations VALUES(6)", [])? != 1 {
+        return Err(Error::Corrupt);
+    }
+    connection.pragma_update(None, "user_version", 6)?;
+    if read(connection)? != expected {
+        return Err(Error::Corrupt);
+    }
+    Ok(())
 }
 impl Store {
     pub fn workspaces(&self) -> Result<Vec<Workspace>> {

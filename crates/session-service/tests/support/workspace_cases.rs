@@ -32,17 +32,29 @@ async fn workspace_metadata_is_desktop_only_revision_bound_backed_up_and_never_c
         .unwrap();
     let id = Uuid::new_v4();
     let tab = Uuid::new_v4();
+    let second_tab = Uuid::new_v4();
     let workspace = config_store::Workspace {
         id,
         name: "synthetic workspace".into(),
         groups: vec![],
-        tabs: vec![config_store::WorkspaceTab {
-            id: tab,
-            profile_id: profile.id,
-            group_id: None,
-        }],
+        tabs: vec![
+            config_store::WorkspaceTab {
+                id: tab,
+                profile_id: profile.id,
+                group_id: None,
+            },
+            config_store::WorkspaceTab {
+                id: second_tab,
+                profile_id: profile.id,
+                group_id: None,
+            },
+        ],
         selected_tab: Some(tab),
         navigation_open: true,
+        split: Some(config_store::WorkspaceSplit {
+            direction: config_store::WorkspaceSplitDirection::Vertical,
+            tabs: [tab, second_tab],
+        }),
     };
     let C::Workspaces { revision, .. } = config_call(&mut desktop, Q::Workspaces {}).await else {
         panic!()

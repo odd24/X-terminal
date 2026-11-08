@@ -392,3 +392,45 @@ mod preference_tests {
         assert!(serde_json::from_value::<ConfigRequest>(value).is_err());
     }
 }
+
+#[cfg(test)]
+mod workspace_split_contract_tests {
+    use super::*;
+    #[test]
+    fn split_is_required_nullable_in_both_wire_and_schema_and_cannot_carry_connection_capabilities()
+    {
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let profile = Uuid::new_v4();
+        let workspace = serde_json::json!({"id":Uuid::new_v4(),"name":"layout","groups":[],"tabs":[{"id":first,"profile_id":profile,"group_id":null},{"id":second,"profile_id":profile,"group_id":null}],"selected_tab":first,"navigation_open":false,"split":null});
+        let mut request = serde_json::json!({"op":"save_workspace","workspace":workspace,"revision":Uuid::new_v4()});
+        assert!(
+            serde_json::from_value::<ConfigRequest>(request.clone())
+                .unwrap()
+                .validate()
+        );
+        request["workspace"]
+            .as_object_mut()
+            .unwrap()
+            .remove("split");
+        assert!(serde_json::from_value::<ConfigRequest>(request.clone()).is_err());
+        request["workspace"]["split"] =
+            serde_json::json!({"direction":"horizontal","tabs":[first,second]});
+        assert!(
+            serde_json::from_value::<ConfigRequest>(request.clone())
+                .unwrap()
+                .validate()
+        );
+        request["workspace"]["split"]["generation"] = 1.into();
+        assert!(serde_json::from_value::<ConfigRequest>(request).is_err());
+        let schema = serde_json::to_value(schemars::schema_for!(config_model::Workspace)).unwrap();
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == "split")
+        );
+        assert!(schema["properties"]["split"].to_string().contains("null"));
+    }
+}

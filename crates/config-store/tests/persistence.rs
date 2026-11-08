@@ -890,7 +890,8 @@ fn invalid_corrupt_missing_and_external_newer_preferences_do_not_silently_reset(
         Err(Error::Schema)
     ));
     assert_eq!(std::fs::read(&path).unwrap(), before);
-    sql.execute_batch("PRAGMA user_version=5").unwrap();
+    sql.pragma_update(None, "user_version", SCHEMA_VERSION)
+        .unwrap();
     drop(store);
     let valid = serde_json::to_value(DesktopPreferences::default()).unwrap();
     for value in [
@@ -1080,7 +1081,7 @@ fn palette_migration_failure_preserves_v3_and_current_missing_field_is_corrupt()
 #[test]
 fn duplicate_preference_fields_are_rejected_for_both_legacy_and_current_versions() {
     let temp = Temp::new();
-    for version in [3, 5] {
+    for version in [3, SCHEMA_VERSION] {
         let path = temp.path(&format!("重复字段-{version}.sqlite"));
         if version == 3 {
             make_v3(&path);
