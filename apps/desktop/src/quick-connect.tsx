@@ -10,7 +10,7 @@ const ended = (state?: string) => state === 'FAILED' || state === 'DISCONNECTED'
 const states: Record<string,string> = { CONNECTING:'正在连接服务器…', AUTHENTICATING:'正在验证登录信息…', CONNECTED:'已连接，可以在终端工作', DISCONNECTED:'连接已断开', FAILED:'连接未成功', CLOSING:'正在断开…' };
 const failures: Record<string,string> = { TRANSPORT_TIMEOUT:'连接超时，请检查服务器地址、端口和网络。', TRANSPORT:'连接中断或服务器不可达，请检查网络和SSH服务。', HOST_KEY_REJECTED:'未信任此服务器，本次未继续登录。', HOST_KEY_CONFLICT:'主机指纹状态已变化，请重新核对。', APPROVAL_TIMEOUT:'确认已超时，请重新连接。', AUTHENTICATION_REJECTED:'用户名或密码/密钥未被服务器接受，请核对后重试。', CREDENTIAL_UNAVAILABLE:'无法读取密钥或凭据，请检查本地文件和口令。', CANCELLED:'本次连接已取消。', CONFIGURATION:'连接参数不可用，请检查配置。' };
 function safeError(error:unknown){return error instanceof SshRequestError||error instanceof ConfigRequestError?error.message:'无法完成操作，请核对连接信息、配置或本地密钥文件后重试。';}
-export function QuickConnect({ connection, intent, select, size, focus, close }: { connection?: Connection; intent?:SavedConnectIntent; select(id:string):void; size():{cols:number;rows:number}; focus():void; close():void }) {
+export function QuickConnect({ connection, intent, select, size, focus, close }: { connection?: Connection; intent?:SavedConnectIntent; select(id:string):void; size():{cols:number;rows:number}; focus(connection:ConnectionRef,profileId:string):void; close():void }) {
   const [host,setHost]=useState(''),[username,setUsername]=useState(''),[port,setPort]=useState(22);
   const [auth,setAuth]=useState<Auth>('password'),[encoding,setEncoding]=useState<'utf8'|'gbk'|'gb18030'>('utf8');
   const [password,setPassword]=useState(''),[key,setKey]=useState(''),[passphrase,setPassphrase]=useState('');
@@ -38,7 +38,7 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
         const a=attempt.current;
         if(!a&&['CONNECTING','AUTHENTICATING'].includes(reply.connection.state))enterAfterAuth.current=ref;
         if(ended(reply.connection.state)){if(a?.connection?.connection_id===ref.connection_id)a.secret=undefined;}
-        if(reply.connection.state==='CONNECTED'&&notified.current!==`${ref.connection_id}:${ref.generation}`){notified.current=`${ref.connection_id}:${ref.generation}`;const owned=a?.connection?.connection_id===ref.connection_id&&a.connection.generation===ref.generation&&!a.cancelled;const entering=owned||!a&&enterAfterAuth.current?.connection_id===ref.connection_id&&enterAfterAuth.current.generation===ref.generation;if(entering){if(a)a.secret=undefined;setPassword('');setPassphrase('');setMessage('登录成功，直接在终端输入。');focus();}}
+        if(reply.connection.state==='CONNECTED'&&notified.current!==`${ref.connection_id}:${ref.generation}`){notified.current=`${ref.connection_id}:${ref.generation}`;const owned=a?.connection?.connection_id===ref.connection_id&&a.connection.generation===ref.generation&&!a.cancelled;const entering=owned||!a&&enterAfterAuth.current?.connection_id===ref.connection_id&&enterAfterAuth.current.generation===ref.generation;if(entering){if(a)a.secret=undefined;setPassword('');setPassphrase('');setMessage('登录成功，直接在终端输入。');focus(ref,reply.profile_id);}}
         if(reply.challenge?.kind==='credentials'&&a?.connection?.connection_id===ref.connection_id&&a.connection.generation===ref.generation&&a.secret&&!a.cancelled){
           const secret=a.secret;a.secret=undefined;
           if(secret.saved&&!reply.challenge.stored_available)setOperationError('已保存凭据不可用，请补充本次登录信息。');

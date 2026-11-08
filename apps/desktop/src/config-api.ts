@@ -10,10 +10,14 @@ export type Settings =
 export type Folder = { id: string; parent_id: string | null; name: string };
 export type PortableProfile = { id: string; folder_id: string | null; name: string; settings: Settings };
 export type Profile = PortableProfile & { credential_ref: string | null; credential_missing?: boolean };
+export type Workspace={id:string;name:string;groups:{id:string;name:string}[];tabs:{id:string;profile_id:string;group_id:string|null}[];selected_tab:string|null;navigation_open:boolean};
 export type HostEndpoint = { protocol: 'ssh1' | 'ssh2'; host: string; port: number };
 export type HostKeySummary = { endpoint: HostEndpoint; algorithm: string; fingerprint: string };
 export type CredentialEdit = { action: 'keep' | 'clear' } | { action: 'replace'; value: { password: string | null; private_key: string | null; passphrase: string | null } };
 export type ConfigRequest = { op: 'preferences' }
+  | {op:'workspaces'}
+  | {op:'save_workspace';workspace:Workspace;revision:string}
+  | {op:'delete_workspace';id:string;revision:string}
   | { op: 'save_preferences'; preferences: DesktopPreferences; revision: string }
   | { op: 'page'; revision: string | null; offset: number; folders: boolean }
   | { op: 'credentials_page'; revision: string | null; offset: number }
@@ -33,8 +37,8 @@ export type ConfigRequest = { op: 'preferences' }
 type Page = { result: 'page'; revision: string; folders: Folder[]; profiles: Profile[]; next_offset: number | null; missing_credential_profiles: string[] };
 export type ArchiveInfo = { id: string; kind: 'backup' | 'export'; filename: string; bytes: number; modified_ms: number };
 export type DesktopPreferences = { theme: 'dark' | 'light' | 'system'; terminal_font: 'consolas' | 'cascadia'; terminal_palette: 'follow_theme' | 'black_green' | 'black_white'; font_size: number; ctrl_c_copy: boolean; ctrl_v_paste: boolean; right_click_paste: boolean };
-export type BackupPreview = { result: 'backup_preview'; id: string; digest: string; folders: number; profiles: number; host_keys: number; missing_credentials: number; current_revision: string | null; sample_profiles: string[]; preferences: DesktopPreferences };
-export type Reply = { result: 'preferences'; preferences: DesktopPreferences; revision: string } | Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null }
+export type BackupPreview = { result: 'backup_preview'; id: string; digest: string; folders: number; profiles: number; host_keys: number; workspaces:number; missing_credentials: number; current_revision: string | null; sample_profiles: string[]; preferences: DesktopPreferences };
+export type Reply = {result:'workspaces';workspaces:Workspace[];revision:string} | { result: 'preferences'; preferences: DesktopPreferences; revision: string } | Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null }
   | { result: 'credentials_page'; revision: string; entries: CredentialInfo[]; next_offset: number | null }
   | CredentialPreview
   | { result: 'archives'; entries: ArchiveInfo[] } | { result: 'artifact'; artifact: ArchiveInfo } | BackupPreview

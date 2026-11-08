@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P17新增`test:desktop:workspaces`（完整链第26入口，前置实际desktop:build）：仅shared-terminal-workspaces-ui-中文-自建根/合成SSH/内存串口，串口fixture的finally必须实际恢复普通服务。覆盖保存只布局、临时排除/同配置独立项、真实fetch保存丢应答双击仅一次/只重读、同配置目录进程重启后无会话/不自动打开、显式SSH与串口新身份及设备选择、无输入重放、实际分组顺序、串口精确14字节回显、备份布局计数、配置悬空禁用、收起/默认未勾选删除只影响元数据。原第16导航与备份专项按影响复验；迁移/回滚/能力拒绝/IPC等分层结果见[P17](records/P17.md)，非真实COM、分屏或全局DPI通过。下段第25入口的“持久工作区待后续”为该子包历史范围。
+
 S3/P17新增`test:desktop:tab-groups`（完整链第25入口，前置实际desktop:build，入口编译原合成SSH夹具），仅shared-terminal-tab-groups-ui-中文-自建根：同一保存配置三个独立实例、分组创建/重命名/排序/归属/解散、文本名称不解释HTML、原生WebView HTML5 DataTransfer拖动数据/旧代次和外服务拒绝、真实键盘选择、操作前后服务会话与接收字节不变、标签直接关闭/隐藏已结束标签重显不重连、reload清空分组且不重放。拖放事件验证不是完整物理鼠标/DPI矩阵，持久工作区/分屏/完整T08仍待后续；受影响原第16导航专项须实际验证，未改串口/服务/解析器不重复旧全套。
 
 S2/P10.1新增`test:desktop:quick-serial`（完整链第24入口，前置实际desktop:build），仅shared-terminal-quick-serial-ui-中文-及独立shared-terminal-save-ui-中文-自建根，feature内存设备：无配置直接打开/可选保存、初始DTR/RTS/硬件流控、库存身份/占用、快速重复Start一次、真实fetch丢应答/重载原编号查询/迟到取消只关新范围、被动UART持续输出且不发送命令、同连接开始停止日志/查看/真实系统另存与逐字节/SHA-256核对、文本/HEX/换行。原第6串口专项继续覆盖发送节奏/编码快照/取消/控制线/解码收尾；旧串口/Agent/MCP脚本仅将入口改为“串口高级工具”，权限和断言不放宽。所有串口fixture finally须实际编译恢复普通服务。真实COM、拔插、电平、Android板端与全局DPI/IME按实际记录，缺硬件不阻止软件验证。

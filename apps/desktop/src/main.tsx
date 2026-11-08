@@ -16,7 +16,7 @@ import { ComposePanel } from './compose-panel';
 import { ComposeDrafts, type ComposeTarget } from './compose-drafts';
 import { SessionTree } from './session-tree';
 import { ConnectionCatalog } from './connection-catalog';
-import { config, type DesktopPreferences, type Profile } from './config-api';
+import { config, type DesktopPreferences, type Profile, type Workspace } from './config-api';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { QuickConnect, type SavedConnectIntent } from './quick-connect';
@@ -24,6 +24,8 @@ import { SessionTabClosures } from './session-tab-closures';
 import { TabGroups } from './tab-groups';
 import { TabGroupsPanel } from './tab-groups-panel';
 import { SessionTabs } from './session-tabs';
+import { WorkspaceSession, captureWorkspace } from './workspace-session';
+import { WorkspacesPanel } from './workspaces-panel';
 import { Dialog } from './ui';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
@@ -58,6 +60,11 @@ function App() {
   const tabClosures=useRef(new SessionTabClosures());
   const tabGroups=useRef(new TabGroups());
   const [groupEpoch,setGroupEpoch]=useState(0),[groupsOpen,setGroupsOpen]=useState(false);
+  const workspaceSession=useRef(new WorkspaceSession());
+  const [workspaceOpen,setWorkspaceOpen]=useState(false),[workspaceEpoch,setWorkspaceEpoch]=useState(0);
+  const workspaceLaunch=useRef<{slot:string;nonce:string;owner:string;protocol:'SSH2'|'SERIAL'}|undefined>(undefined);
+  const workspacePlacements=useRef(new Map<string,{owner:string;connection:Connection}>());
+  const [serialNonce,setSerialNonce]=useState('');
   const [,setTabEpoch]=useState(0);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const catalog = useRef(new ConnectionCatalog());
@@ -109,7 +116,7 @@ function App() {
   const [quickOpen, setQuickOpen] = useState(false);
   const [savedIntent,setSavedIntent]=useState<SavedConnectIntent>();
   const savedIntentFlight=useRef<SavedConnectIntent|undefined>(undefined);
-  function closeQuick(){savedIntentFlight.current=undefined;setSavedIntent(undefined);setQuickOpen(false);setTabMessage(previous=>previous.startsWith('正在连接 ')?'':previous);}
+  function closeQuick(){if(workspaceLaunch.current?.protocol==='SSH2')workspaceLaunch.current=undefined;savedIntentFlight.current=undefined;setSavedIntent(undefined);setQuickOpen(false);setTabMessage(previous=>previous.startsWith('正在连接 ')?'':previous);}
   const focusAfterConnect = useRef(false);
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
@@ -153,6 +160,7 @@ function App() {
     setTabOrder(previous => previous.filter(id => ids.has(id)));
     tabClosures.current.retain(owner,retained);
     tabGroups.current.retain(owner,retained);setGroupEpoch(value=>value+1);
+    workspaceSession.current.retain(owner,retained);
     setCatalogEpoch(value => value + 1);
     let disposed = false, timer = 0;
     async function readDetails() {
@@ -171,6 +179,10 @@ function App() {
     if (owner) void readDetails();
     return () => { disposed = true; clearTimeout(timer); };
   }, [service?.service_id, connectionIdentities]);
+
+  useEffect(()=>{const owner=service?.service_id??'';let placed=false;for(const [slot,item] of workspacePlacements.current){if(item.owner!==owner){workspacePlacements.current.delete(slot);continue;}const live=liveConnections.current.find(c=>c.connection_id===item.connection.connection_id&&c.generation===item.connection.generation&&c.protocol===item.connection.protocol);if(!live)continue;const tab=workspaceSession.current.layout?.tabs.find(t=>t.id===slot);if(tab){try{tabGroups.current.assign(owner,live,tab.group_id??'');placed=true;}catch{/* a removed group is presentation-only */}}workspacePlacements.current.delete(slot);}
+    if(placed){setTabOrder(previous=>{const base=[...liveConnections.current].sort((a,b)=>(previous.indexOf(a.connection_id)<0?previous.length:previous.indexOf(a.connection_id))-(previous.indexOf(b.connection_id)<0?previous.length:previous.indexOf(b.connection_id)));return workspaceSession.current.order(base).map(c=>c.connection_id);});setGroupEpoch(v=>v+1);}
+  },[workspaceEpoch,connectionIdentities,service?.service_id]);
 
   useEffect(() => {
     if (!service?.service_id) return;
@@ -507,6 +519,8 @@ function App() {
     return rank(a.connection_id) - rank(b.connection_id);
   }));
   const active = connections.find(item => item.connection_id === selected);
+  const currentWorkspace=workspaceSession.current.layout;
+  const pendingWorkspaceTabs=currentWorkspace?.tabs.filter(t=>{const ref=workspaceSession.current.binding(t.id),live=ref&&connections.find(c=>c.connection_id===ref.connection_id);return !live||['FAILED','DISCONNECTED'].includes(live.state);})??[];
   const activeDetails = active && catalog.current.get(active);
   const activeLog = active && loggingSummary?.connection.connection_id === active.connection_id && loggingSummary.connection.generation === active.generation ? loggingSummary.text : active ? '正在查询本次日志状态' : '尚无活动连接';
   const inputReady = !!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure;
@@ -541,19 +555,27 @@ function App() {
     } catch (error) { tabClosures.current.finish(target,'unknown');setTabMessage((error instanceof Error?error.message:'关闭未获确认。') + ' 结果可能未知，未自动重试；请在连接面板核对实际状态。'); }
     finally { setTabEpoch(value=>value+1); }
   }
-  function connectProfile(profile: Profile) {
+  function connectProfile(profile: Profile,slot?:string) {
     if (savedIntentFlight.current) return;
+    if(slot&&workspaceSession.current.layout?.tabs.find(t=>t.id===slot)?.profile_id!==profile.id){setTabMessage('布局配置引用已变化，请重新打开布局。');return;}
+    workspaceLaunch.current=undefined;
     setRequestedProfile(profile);
-    if (profile.settings.protocol === 'serial') { setSerialDialog(true); return; }
+    if (profile.settings.protocol === 'serial') {const nonce=crypto.randomUUID();setSerialNonce(nonce);if(slot)workspaceLaunch.current={slot,nonce,owner:service?.service_id??'',protocol:'SERIAL'};setSerialDialog(true); return; }
     if (profile.settings.protocol === 'ssh1') { setTabMessage('SSH1 正式适配尚未完成；不会改用 SSH2 或自动降级。'); return; }
     const intent={profile_id:profile.id,request_id:requestId()};savedIntentFlight.current=intent;setSavedIntent(intent);setSshOpen(false);setQuickOpen(true);setTabMessage(`正在连接 ${profile.name}…`);
+    if(slot)workspaceLaunch.current={slot,nonce:intent.request_id,owner:service?.service_id??'',protocol:'SSH2'};
   }
+  function closeSerial(){if(workspaceLaunch.current?.protocol==='SERIAL')workspaceLaunch.current=undefined;setSerialDialog(false);}
+  function finishWorkspace(connection:Ref,profileId:string,protocol:'SSH2'|'SERIAL',nonce:string){const pending=workspaceLaunch.current;if(!pending||pending.protocol!==protocol||pending.nonce!==nonce)return;
+    const target={...connection,protocol,state:'CONNECTED'};if(pending.owner===service?.service_id&&workspaceSession.current.bind(pending.owner,pending.slot,profileId,target)){workspacePlacements.current.set(pending.slot,{owner:pending.owner,connection:target});setWorkspaceEpoch(v=>v+1);}else setTabMessage('本次参数或布局已改变，连接作为独立会话保留，布局引用未改变。');workspaceLaunch.current=undefined;
+  }
+  function openWorkspace(workspace:Workspace,available:Profile[]){try{tabGroups.current.replace(workspace.groups);workspaceSession.current.open(workspace,service?.service_id??'',liveConnections.current);setProfiles(available);setSidebarOpen(workspace.navigation_open);for(const tab of workspace.tabs){const binding=workspaceSession.current.binding(tab.id);if(binding){const live=liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation);if(live)workspacePlacements.current.set(tab.id,{owner:service?.service_id??'',connection:live});}}const active=workspace.selected_tab&&workspaceSession.current.binding(workspace.selected_tab);if(active)selectConnection(active.connection_id);setWorkspaceEpoch(v=>v+1);setGroupEpoch(v=>v+1);setTabMessage('布局已打开，待连接项需明确连接；当前会话保留，没有自动登录或发送。');}catch{setTabMessage('布局无法打开，原连接保持。');}}
 
   return <main className="desktop-shell" style={{ '--navigation-width': `${navigationWidth}px` } as CSSProperties}>
     <header className="app-bar"><strong>共享终端</strong><button aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(value => !value)}>会话导航</button><span>{connections.length} 个服务连接</span></header>
     <nav aria-label="会话控制">
-      <button className="primary-action" onClick={() => { setSshOpen(false); setQuickOpen(true); }}>连接服务器</button>
-      <button onClick={() => {setRequestedProfile(undefined);setSerialDialog(true);}}>串口连接</button>
+      <button className="primary-action" onClick={() => {workspaceLaunch.current=undefined;setSshOpen(false); setQuickOpen(true); }}>连接服务器</button>
+      <button onClick={() => {workspaceLaunch.current=undefined;setSerialNonce(crypto.randomUUID());setRequestedProfile(undefined);setSerialDialog(true);}}>串口连接</button>
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
       <details className="tools-menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.open = false; }}><summary>更多工具</summary><div className="tools-menu-content">
 
@@ -574,6 +596,7 @@ function App() {
       <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
       <button onClick={() => setAppearanceOpen(open => !open)}>外观</button>
       <button onClick={()=>setGroupsOpen(true)}>标签分组</button>
+      <button disabled={!service} onClick={()=>setWorkspaceOpen(true)}>工作区</button>
       <button onClick={() => setSerialOpen(open=>!open)}>串口高级工具</button>
       <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
@@ -585,7 +608,8 @@ function App() {
     <aside className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent} revision={treeRevision} loaded={setProfiles} connect={profile => void connectProfile(profile)} configure={() => setConfigurationOpen(true)} /><label>导航宽度<input aria-label="导航宽度" type="range" min="210" max="360" value={navigationWidth} onChange={event => setNavigationWidth(Number(event.target.value))} /></label></aside>
     <section className="terminal-workspace" aria-label="终端工作区">
     <SessionTabs tabs={tabs} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)} owner={service?.service_id??''} selected={selected} list={tabList} name={tabName} select={selectConnection} close={target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} move={moveTab} assign={(target,group)=>{try{tabGroups.current.assign(service?.service_id??'',target,group);setGroupEpoch(value=>value+1);}catch(error){setTabMessage(error instanceof Error?error.message:'标签移动未完成。');}}}/>
-    {!tabs.length && !quickOpen && <section className="terminal-empty"><h2>连接服务器，开始工作</h2><p>填写服务器地址和登录信息，即可进入终端。</p><button onClick={() => setQuickOpen(true)}>新建SSH连接</button><p>通信记录可从顶部“终端日志”开始。</p></section>}
+    {currentWorkspace&&<div className="workspace-strip" aria-label="打开的工作区布局"><span>{currentWorkspace.name} · 待连接 {pendingWorkspaceTabs.length} 项</span>{pendingWorkspaceTabs.map(slot=>{const binding=workspaceSession.current.binding(slot.id),live=binding&&connections.find(c=>c.connection_id===binding.connection_id),profile=profiles.find(p=>p.id===slot.profile_id);return !live||['FAILED','DISCONNECTED'].includes(live.state)?<button key={slot.id} data-workspace-slot={slot.id} title={slot.id===currentWorkspace.selected_tab?'保存时的活动项':undefined} disabled={!profile||quickOpen||serialDialog} onClick={()=>{if(profile)connectProfile(profile,slot.id);}}>{profile?`连接 ${currentWorkspace.tabs.indexOf(slot)+1}. ${profile.name}`:`${currentWorkspace.tabs.indexOf(slot)+1}. 配置已删除`}</button>:null;})}<button onClick={()=>{workspaceSession.current.close();workspaceLaunch.current=undefined;workspacePlacements.current.clear();setWorkspaceEpoch(v=>v+1);}}>收起布局</button></div>}
+    {!tabs.length && !quickOpen && <section className="terminal-empty"><h2>{currentWorkspace?'选择上方布局中的连接项':'连接服务器，开始工作'}</h2><p>{currentWorkspace?'布局已打开，尚未连接；每项连接仍核对当前配置、设备与身份。':'填写服务器地址和登录信息，即可进入终端。'}</p><button onClick={() => {workspaceLaunch.current=undefined;setQuickOpen(true);}}>新建SSH连接</button><p>通信记录可从顶部“终端日志”开始。</p></section>}
     <div className="terminal" ref={host} aria-label="服务终端" />
     {active?.protocol==='SERIAL'&&<SerialPanel summaryOnly connection={active} select={selectConnection} tools={()=>setSerialToolsOpen(true)}/>}
     <div className="status" role="status">{failure || inputFailure || status}</div>
@@ -595,9 +619,10 @@ function App() {
     {tabMessage && <div role="status" aria-label="标签操作状态">{tabMessage}</div>}
     </section>
     <aside className="auxiliary-panels" aria-label="辅助工具">
-    {quickOpen && <Dialog label="连接服务器" close={closeQuick}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={() => {focusAfterConnect.current=true;closeQuick();}} close={closeQuick} /></Dialog>}
-    {serialDialog&&<Dialog label="连接串口设备" close={()=>setSerialDialog(false)}><QuickSerial requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined} select={selectConnection} close={()=>setSerialDialog(false)} focus={()=>{focusAfterConnect.current=true;setSerialDialog(false);}} /></Dialog>}
+    {quickOpen && <Dialog label="连接服务器" close={closeQuick}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SSH2',savedIntent?.request_id??'');focusAfterConnect.current=true;closeQuick();}} close={closeQuick} /></Dialog>}
+    {serialDialog&&<Dialog label="连接串口设备" close={closeSerial}><QuickSerial key={serialNonce} requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined} select={selectConnection} close={closeSerial} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SERIAL',serialNonce);focusAfterConnect.current=true;closeSerial();}} /></Dialog>}
     {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
+    {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={(name,available)=>captureWorkspace(name,tabs.map(c=>({...c,profile_id:catalog.current.get(c)?.profile_id})),available,tabGroups.current.list(),id=>tabGroups.current.groupOf(id),selected,sidebarOpen)} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
