@@ -2,6 +2,43 @@ use super::*;
 use sha2::Digest;
 use std::io::Write;
 
+#[test]
+fn readable_text_uses_verified_retained_source_and_same_safe_artifact_budget() {
+    let temp = Temp::new();
+    let (root, meta, status) = capture(&temp, 3);
+    let mut store = ExportStore::open(&temp.0).unwrap();
+    let id = Uuid::new_v4();
+    let artifact = store
+        .create_text(&root, status.log_id, meta.connection, id, || false)
+        .unwrap();
+    let file = store.path().join(id.to_string()).join("export.jsonl");
+    let bytes = fs::read(&file).unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    assert!(text.starts_with("# 终端通信日志 UTF-8\r\n"));
+    assert!(text.contains("中文\\u{0000}\\u{001b}[31m<script>\r\n😀"));
+    assert!(!text.contains('\0') && !text.contains('\u{1b}'));
+    assert!(text.contains("接收缺口：17 字节"));
+    assert!(text.contains("日志结束"));
+    assert_eq!(artifact.summary.retained_gap_bytes, 17);
+    assert_eq!(artifact.bytes, bytes.len() as u64);
+    assert_eq!(artifact.sha256, sha2::Sha256::digest(&bytes).as_slice());
+    assert!(
+        store
+            .create_text(&root, status.log_id, meta.connection, id, || false)
+            .is_err()
+    );
+    assert_eq!(fs::read(file).unwrap(), bytes);
+    let cancelled = Uuid::new_v4();
+    assert_eq!(
+        store
+            .create_text(&root, status.log_id, meta.connection, cancelled, || true)
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::Interrupted
+    );
+    assert!(!store.path().join(cancelled.to_string()).exists());
+}
+
 pub(super) fn capture(temp: &Temp, count: u64) -> (ManagedRoot, Metadata, Status) {
     let root = ManagedRoot::open(&temp.0).unwrap();
     let meta = metadata();

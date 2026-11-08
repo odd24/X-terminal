@@ -288,6 +288,14 @@ fn agent_descriptor(r: &agent::Request) -> Descriptor {
 fn ssh_descriptor(r: &ssh::Request) -> Descriptor {
     use ssh::Request as S;
     match r {
+        S::StartStatus { request_id } => Descriptor {
+            request_id: Some(*request_id),
+            ..descriptor(Area::Ssh2, Verb::Status)
+        },
+        S::QuickStart { request_id, .. } => Descriptor {
+            request_id: Some(*request_id),
+            ..descriptor(Area::Ssh2, Verb::Connect)
+        },
         S::Start {
             profile_id,
             request_id,
@@ -416,6 +424,7 @@ fn ssh_descriptor(r: &ssh::Request) -> Descriptor {
         }
         S::Status { connection } => target(Area::Ssh2, Verb::Status, *connection, None),
         S::AnswerHost { connection, .. }
+        | S::AuthenticateKey { connection, .. }
         | S::Authenticate { connection, .. }
         | S::AnswerInteractive { connection, .. } => {
             target(Area::Ssh2, Verb::Authorize, *connection, None)
@@ -672,7 +681,12 @@ fn logging_descriptor(r: &logging::Request) -> Descriptor {
             *log_id,
             Some(*connection),
         ),
-        L::ExportStart {
+        L::TextExportStart {
+            connection,
+            log_id,
+            request_id,
+        }
+        | L::ExportStart {
             connection,
             log_id,
             request_id,
@@ -691,7 +705,12 @@ fn logging_descriptor(r: &logging::Request) -> Descriptor {
             ),
             *request_id,
         ),
-        L::ExportStatus {
+        L::TextExportStatus {
+            connection,
+            log_id,
+            request_id,
+        }
+        | L::ExportStatus {
             connection,
             log_id,
             request_id,
@@ -710,7 +729,12 @@ fn logging_descriptor(r: &logging::Request) -> Descriptor {
             ),
             *request_id,
         ),
-        L::ExportCancel {
+        L::TextExportCancel {
+            connection,
+            log_id,
+            request_id,
+        }
+        | L::ExportCancel {
             connection,
             log_id,
             request_id,

@@ -10,7 +10,11 @@ async fn main() {
     let directory =
         std::path::PathBuf::from(std::env::args_os().nth(1).expect("fixture directory"));
     assert!(directory.is_absolute() && directory.is_dir());
-    let fixture = fixture::Fixture::start().await;
+    let port = std::env::args()
+        .nth(2)
+        .map(|s| s.parse::<u16>().expect("synthetic loopback port"))
+        .unwrap_or(0);
+    let fixture = fixture::Fixture::start_on(port).await;
     let key_path = directory.join("synthetic-client-key");
     let mut file = std::fs::OpenOptions::new()
         .write(true)

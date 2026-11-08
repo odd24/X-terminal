@@ -15,6 +15,7 @@ use wire::{ExportFailure as F, ExportInfo, ExportPhase as P};
 const RECEIPTS: usize = 64;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
+    Text,
     Normal,
     Recovery,
 }
@@ -178,6 +179,17 @@ impl Worker {
                                     )
                                     .map(Artifact::Recovery);
                             }
+                            if job.mode == Mode::Text {
+                                return store
+                                    .create_text(
+                                        &root,
+                                        job.log_id,
+                                        job.connection,
+                                        job.request_id,
+                                        || job.cancel.load(Ordering::Acquire),
+                                    )
+                                    .map(Artifact::Normal);
+                            }
                             store
                                 .create(&root, job.log_id, job.connection, job.request_id, || {
                                     job.cancel.load(Ordering::Acquire)
@@ -243,6 +255,38 @@ impl Worker {
         Ok(self
             .duplicate_mode(connection, log_id, request_id, Mode::Normal)?
             .map(|(info, _)| info))
+    }
+    pub(super) fn text_duplicate(
+        &self,
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    ) -> Result<Option<ExportInfo>, ErrorCode> {
+        Ok(self
+            .duplicate_mode(connection, log_id, request_id, Mode::Text)?
+            .map(|(i, _)| i))
+    }
+    pub(super) fn text_submit(
+        &self,
+        directory: PathBuf,
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    ) -> Result<ExportInfo, ErrorCode> {
+        Ok(self
+            .submit_mode(directory, connection, log_id, request_id, Mode::Text)?
+            .0)
+    }
+    pub(super) fn text_status(
+        &self,
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+        cancel: bool,
+    ) -> Result<ExportInfo, ErrorCode> {
+        Ok(self
+            .status_mode(connection, log_id, request_id, cancel, Mode::Text)?
+            .0)
     }
     fn duplicate_mode(
         &self,

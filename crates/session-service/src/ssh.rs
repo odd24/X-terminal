@@ -36,8 +36,9 @@ use transport_ssh2::session::{
     self as transport, AuthState, Authentication, Cancellation, SecretText, ShellEvent, Ssh2Session,
 };
 use uuid::Uuid;
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct Start {
+    temporary: Option<Settings>,
     owner: Option<Uuid>,
     previous: Option<ConnectionRef>,
     profile_id: Uuid,
@@ -45,6 +46,7 @@ struct Start {
     rows: u32,
 }
 struct Entry {
+    temporary: Option<Profile>,
     reference: ConnectionRef,
     restart_gate: Arc<tokio::sync::Mutex<()>>,
     exec: exec::Tasks,
@@ -72,6 +74,11 @@ impl Manager {
             .ok_or(ErrorCode::NotFound)?;
         if entry.reference != connection {
             return Err(ErrorCode::StaleGeneration);
+        }
+        // A temporary target is never a saved Profile/revision grant target,
+        // even if a Desktop later creates a saved UUID with the same value.
+        if entry.temporary.is_some() {
+            return Err(ErrorCode::Unsupported);
         }
         Ok(entry.profile_id)
     }
@@ -107,6 +114,10 @@ impl QueuedInput {
 }
 
 enum Answer {
+    KeyFile {
+        path: String,
+        passphrase: Option<Sensitive>,
+    },
     Host(bool),
     Credentials {
         use_saved: bool,
@@ -144,6 +155,55 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::QuickStart {
+                settings,
+                request_id,
+                cols,
+                rows,
+            } => {
+                {
+                    let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    store.pairing.require_desktop(identity, store.now())?;
+                }
+                let profile = Profile {
+                    id: request_id,
+                    folder_id: None,
+                    name: "临时SSH连接".into(),
+                    credential_ref: None,
+                    settings,
+                };
+                self.start_from(
+                    Some(identity),
+                    request_id,
+                    request_id,
+                    cols,
+                    rows,
+                    Some(profile),
+                )
+                .await
+            }
+            ssh::Request::StartStatus { request_id } => {
+                let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                store.pairing.require_desktop(identity, store.now())?;
+                let Some((start, connection)) = inner.requests.get(&request_id) else {
+                    inner.request_window.check(request_id)?;
+                    return Err(ErrorCode::NotFound);
+                };
+                if start.owner.is_some() {
+                    return Err(ErrorCode::PermissionDenied);
+                }
+                Ok(ssh::Reply::Started {
+                    connection: connection.clone(),
+                })
+            }
+            request @ ssh::Request::AuthenticateKey { .. } => {
+                {
+                    let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    store.pairing.require_desktop(identity, store.now())?;
+                }
+                self.handle(request).await
+            }
             ssh::Request::ForgetStart {
                 connection,
                 request_id,
@@ -303,6 +363,22 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            ssh::Request::QuickStart { .. } | ssh::Request::StartStatus { .. } => {
+                Err(ErrorCode::PermissionDenied)
+            }
+            ssh::Request::AuthenticateKey {
+                connection,
+                challenge_id,
+                key_path,
+                passphrase,
+            } => self.answer(
+                connection,
+                challenge_id,
+                Answer::KeyFile {
+                    path: key_path,
+                    passphrase,
+                },
+            ),
             ssh::Request::ForgetStart {
                 connection,
                 request_id,
@@ -432,6 +508,7 @@ impl Manager {
                     .get(&connection.connection_id)
                     .ok_or(ErrorCode::NotFound)?;
                 Ok(ssh::Reply::Status(Box::new(ssh::Status {
+                    temporary_settings: entry.temporary.as_ref().map(|p| p.settings.clone()),
                     connection: info,
                     profile_id: entry.profile_id,
                     encoding: entry.encoding.clone(),
@@ -611,6 +688,13 @@ impl Manager {
             (challenge, &answer),
             (Challenge::HostKey { .. }, Answer::Host(_))
                 | (Challenge::Credentials { .. }, Answer::Credentials { .. })
+                | (
+                    Challenge::Credentials {
+                        auth: Auth::PublicKey,
+                        ..
+                    },
+                    Answer::KeyFile { .. }
+                )
                 | (Challenge::Interactive { .. }, Answer::Interactive(_))
         ) {
             return Err(ErrorCode::InvalidArgument);
@@ -831,18 +915,43 @@ impl Actor {
         if auth == Auth::KeyboardInteractive {
             return Ok(Authentication::KeyboardInteractive);
         }
-        let Answer::Credentials {
-            use_saved,
-            password,
-        } = self
+        let answer = self
             .ask(Challenge::Credentials {
                 id: Uuid::new_v4(),
                 auth: auth.clone(),
                 stored_available: profile.credential_ref.is_some(),
             })
-            .await?
-        else {
-            return Err(Failure::Transport);
+            .await?;
+        let (use_saved, password) = match answer {
+            Answer::Credentials {
+                use_saved,
+                password,
+            } => (use_saved, password),
+            Answer::KeyFile { path, passphrase } if auth == Auth::PublicKey => {
+                let Value::Credential(value) = self
+                    .config(Internal::TemporaryKey { path, passphrase })
+                    .await
+                    .map_err(|_| Failure::CredentialUnavailable)?
+                else {
+                    return Err(Failure::CredentialUnavailable);
+                };
+                return Ok(Authentication::PublicKey {
+                    pem: SecretText::new(
+                        value
+                            .private_key
+                            .ok_or(Failure::CredentialUnavailable)?
+                            .expose()
+                            .to_owned(),
+                    )
+                    .map_err(map_error)?,
+                    passphrase: value
+                        .passphrase
+                        .map(|v| SecretText::new(v.expose().to_owned()))
+                        .transpose()
+                        .map_err(map_error)?,
+                });
+            }
+            _ => return Err(Failure::CredentialUnavailable),
         };
         if !use_saved {
             if auth != Auth::Password {

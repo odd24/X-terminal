@@ -91,6 +91,7 @@ mod tests {
     fn opaque_start_receipts_remain_pinned_after_their_connections_are_removed() {
         let mut inner = Inner::default();
         let start = Start {
+            temporary: None,
             owner: None,
             previous: None,
             profile_id: Uuid::new_v4(),
@@ -106,7 +107,7 @@ mod tests {
         for _ in 0..1024 {
             inner
                 .requests
-                .insert(Uuid::new_v4(), (start, result.clone()));
+                .insert(Uuid::new_v4(), (start.clone(), result.clone()));
         }
         let retained: Vec<_> = inner.requests.keys().copied().collect();
         let ordered = Uuid::from_u128((100u128 << 80) | 0x7000_8000_0000_0000_0001);

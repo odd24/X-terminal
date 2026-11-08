@@ -42,12 +42,26 @@ impl Manager {
         cols: u32,
         rows: u32,
     ) -> Result<ssh::Reply, ErrorCode> {
+        self.start_from(identity, profile_id, request_id, cols, rows, None)
+            .await
+    }
+    pub(super) async fn start_from(
+        &self,
+        identity: Option<&Identity>,
+        profile_id: Uuid,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+        temporary: Option<Profile>,
+    ) -> Result<ssh::Reply, ErrorCode> {
+        let temporary_settings = temporary.as_ref().map(|p| p.settings.clone());
         let (owner, authority) = {
             let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
             let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
             let now = store.now();
             let owner = Self::start_owner(&store, identity)?;
             let start = Start {
+                temporary: temporary_settings.clone(),
                 owner,
                 previous: None,
                 profile_id,
@@ -78,6 +92,7 @@ impl Manager {
             (owner, authority)
         };
         let start = Start {
+            temporary: temporary_settings.clone(),
             owner,
             previous: None,
             profile_id,
@@ -93,7 +108,11 @@ impl Manager {
                     revision,
                 }
             });
-        let lookup = self.config.request(query).await;
+        let lookup = if let Some(profile) = &temporary {
+            Ok(Value::Profile(profile.clone()))
+        } else {
+            self.config.request(query).await
+        };
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         Self::start_owner(&store, identity)?;
@@ -134,6 +153,7 @@ impl Manager {
         inner.entries.insert(
             connection.connection_id,
             Entry {
+                temporary,
                 reference: connection.reference(),
                 restart_gate: Arc::new(tokio::sync::Mutex::new(())),
                 exec: exec::Tasks::default(),
@@ -263,6 +283,105 @@ mod tests {
             );
             Arc::try_unwrap(manager).ok().unwrap().close().await;
         }
+    }
+
+    #[tokio::test]
+    async fn quick_desktop_snapshot_is_not_saved_or_an_agent_connect_and_receipts_only_query() {
+        let request_id = Uuid::new_v4();
+        let (store, desktop, agent) = setup(request_id, 30000);
+        let (config, _query) = Access::held_profile(); // any attempted saved-profile lookup would not complete
+        let manager = Manager::new(store.clone(), config);
+        let settings = profile(request_id, 22).settings;
+        let request = || ssh::Request::QuickStart {
+            settings: settings.clone(),
+            request_id,
+            cols: 80,
+            rows: 24,
+        };
+        assert!(matches!(
+            manager.handle_authenticated(&agent, request()).await,
+            Err(ErrorCode::PermissionDenied)
+        ));
+        assert!(matches!(
+            manager
+                .handle_authenticated(&desktop, ssh::Request::StartStatus { request_id })
+                .await,
+            Err(ErrorCode::NotFound)
+        ));
+        assert!(manager.inner.lock().unwrap().entries.is_empty());
+        let ssh::Reply::Started { connection } = manager
+            .handle_authenticated(&desktop, request())
+            .await
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert!(matches!(
+            manager.grant_profile(connection.reference()),
+            Err(ErrorCode::Unsupported)
+        ));
+        assert_eq!(
+            manager.inner.lock().unwrap().entries[&connection.connection_id]
+                .temporary
+                .as_ref()
+                .unwrap()
+                .credential_ref,
+            None
+        );
+        let ssh::Reply::Started {
+            connection: duplicate,
+        } = manager
+            .handle_authenticated(&desktop, request())
+            .await
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(duplicate, connection);
+        let mut changed = settings.clone();
+        if let Settings::Ssh2 { port, .. } = &mut changed {
+            *port = 23;
+        }
+        assert!(matches!(
+            manager
+                .handle_authenticated(
+                    &desktop,
+                    ssh::Request::QuickStart {
+                        settings: changed,
+                        request_id,
+                        cols: 80,
+                        rows: 24
+                    }
+                )
+                .await,
+            Err(ErrorCode::InvalidArgument)
+        ));
+        assert!(matches!(
+            manager
+                .handle_authenticated(&agent, ssh::Request::StartStatus { request_id })
+                .await,
+            Err(ErrorCode::PermissionDenied)
+        ));
+        manager
+            .handle_authenticated(
+                &desktop,
+                ssh::Request::Close {
+                    connection: connection.reference(),
+                },
+            )
+            .await
+            .unwrap();
+        // Closed-before-first-poll cannot start a transport. Status remains the original receipt.
+        let ssh::Reply::Started { connection: old } = manager
+            .handle_authenticated(&desktop, ssh::Request::StartStatus { request_id })
+            .await
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(old, connection);
+        assert_eq!(manager.inner.lock().unwrap().entries.len(), 1);
+        manager.close().await;
     }
     #[tokio::test]
     async fn revocation_between_start_receipt_and_actor_first_poll_never_opens_socket() {

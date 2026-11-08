@@ -214,7 +214,12 @@ impl Manager {
                 };
                 self.cleanup.request(directory, request).await
             }
-            request @ (Request::ExportStart {
+            request @ (Request::TextExportStart {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Request::ExportStart {
                 connection,
                 log_id,
                 request_id,
@@ -224,9 +229,14 @@ impl Manager {
                 log_id,
                 request_id,
             }) => {
+                let text = matches!(request, Request::TextExportStart { .. });
                 let recovery = matches!(request, Request::RecoveryExportStart { .. });
                 let duplicate = || {
-                    if recovery {
+                    if text {
+                        self.export
+                            .text_duplicate(connection, log_id, request_id)
+                            .map(|v| v.map(|v| Reply::TextExport(Box::new(v))))
+                    } else if recovery {
                         self.export
                             .recovery_duplicate(connection, log_id, request_id)
                             .map(|info| info.map(|info| Reply::RecoveryExport(Box::new(info))))
@@ -254,7 +264,11 @@ impl Manager {
                 else {
                     return Err(ErrorCode::InvalidState);
                 };
-                if recovery {
+                if text {
+                    self.export
+                        .text_submit(directory, connection, log_id, request_id)
+                        .map(|v| Reply::TextExport(Box::new(v)))
+                } else if recovery {
                     self.export
                         .recovery_submit(directory, connection, log_id, request_id)
                         .map(|info| Reply::RecoveryExport(Box::new(info)))
@@ -264,7 +278,17 @@ impl Manager {
                         .map(|info| Reply::Export(Box::new(info)))
                 }
             }
-            request @ (Request::RecoveryExportStatus {
+            request @ (Request::TextExportStatus {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Request::TextExportCancel {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Request::RecoveryExportStatus {
                 connection,
                 log_id,
                 request_id,
@@ -285,6 +309,18 @@ impl Manager {
                 request_id,
             }) => {
                 if matches!(
+                    request,
+                    Request::TextExportStatus { .. } | Request::TextExportCancel { .. }
+                ) {
+                    self.export
+                        .text_status(
+                            connection,
+                            log_id,
+                            request_id,
+                            matches!(request, Request::TextExportCancel { .. }),
+                        )
+                        .map(|v| Reply::TextExport(Box::new(v)))
+                } else if matches!(
                     request,
                     Request::RecoveryExportStatus { .. } | Request::RecoveryExportCancel { .. }
                 ) {

@@ -22,6 +22,21 @@ impl Limits {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    TextExportStart {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
+    TextExportStatus {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
+    TextExportCancel {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        request_id: Uuid,
+    },
     Start {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -153,7 +168,22 @@ impl Request {
                 ..
             } => return !id.is_nil() && !preview_id.is_nil() && !confirmation.is_nil(),
             Self::HistoryList {} | Self::RecoveryList {} => return true,
-            Self::RecoveryExportStart {
+            Self::TextExportStart {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Self::TextExportStatus {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Self::TextExportCancel {
+                connection,
+                log_id,
+                request_id,
+            }
+            | Self::RecoveryExportStart {
                 connection,
                 log_id,
                 request_id,
@@ -409,6 +439,7 @@ pub struct ExportInfo {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    TextExport(Box<ExportInfo>),
     CleanupList {
         kind: CleanupKind,
         ids: Vec<Uuid>,

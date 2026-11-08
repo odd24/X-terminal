@@ -159,6 +159,7 @@ mod tests {
         manager.inner.lock().unwrap().entries.insert(
             connection.connection_id,
             Entry {
+                temporary: None,
                 reference: connection,
                 restart_gate: Arc::new(tokio::sync::Mutex::new(())),
                 exec: exec::Tasks::default(),

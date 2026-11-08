@@ -156,6 +156,26 @@ impl ExportStore {
         })
     }
 
+    pub fn create_text(
+        &mut self,
+        source: &ManagedRoot,
+        log_id: Uuid,
+        connection: ConnectionRef,
+        export_id: Uuid,
+        mut is_cancelled: impl FnMut() -> bool,
+    ) -> io::Result<ExportArtifact> {
+        if export_id.is_nil() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid text export id",
+            ));
+        }
+        drop(crate::ArchiveReader::open(source, log_id, connection)?);
+        self.create_inner(export_id, &mut is_cancelled, |output, cancelled| {
+            crate::export::export_text(source, log_id, connection, output, cancelled)
+        })
+    }
+
     fn create_inner<S>(
         &mut self,
         export_id: Uuid,

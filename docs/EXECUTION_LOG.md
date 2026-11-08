@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-08 P12.1获用户明确实施授权后启动S1：QuickStart临时快照/原编号只查与临时密钥认证接原服务，新增单一文本日志投影并复用安全保存。后端实质检查已有结果，界面/实际构建及新流程专项仍在进行，未宣称S1达标。详情见[P12.1](records/P12.1.md)，下一阶段串口不展开。Step-ID: P12.1。
+
 2026-11-08 D08固定用户初版三项主要需求：[CR-007](changes/CR-007.md)保留原话，SSH服务器工作、串口/UART通信/抓信息（含Android UART log）、两者基本日志；日志纳入S1/S2各自完成条件，普通界面简洁清晰，高级功能后续。需求与主方案/测试/AGENTS已同步，仅文档归档，下一实现仍P12.1，未宣称新功能通过。见[D08](records/D08.md)。Step-ID: D08。
 
 2026-11-08 D07按用户最新反馈重新规划[CR-006](changes/CR-006.md)：唯一主方案[EXECUTION_PLAN](EXECUTION_PLAN.md#现行路线cr-006)，先P12.1简洁SSH2直接登录/基本使用，达标后P10.1串口，再逐阶段复用/补齐最终R01–R16。本项仅方案文档，新SSH流程/串口均TODO，不把旧初版/已有技术测试当新体验通过；验证与归档见[D07](records/D07.md)。Step-ID: D07。
@@ -201,7 +203,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P11.6 | 终端查找与受控剪贴板 | DONE | [P11.6](records/P11.6.md) | Step-ID: P11.6 |
 | P11.7 | 服务屏幕 resize/reflow | IN_PROGRESS | [P11.7](records/P11.7.md) | Step-ID: P11.7 |
 | P12 | 基础桌面体验（共享显示/导航/基础撰写及受管理偏好已有软件证据；Alpha及完整验收继续） | IN_PROGRESS | [P12](records/P12.md) | Step-ID: P12 |
-| P12.1 | S1简洁SSH2直接登录与基本使用，当前下一实现 | TODO | 待实施时创建 | — |
+| P12.1 | S1简洁SSH2直接登录/基本使用/日志实施中，尚未验收 | IN_PROGRESS | [P12.1](records/P12.1.md) | Step-ID: P12.1 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
 | P15 | 初版9工具真实stdio桥已完成/验证；完整v1工具后续，本版P16前置已满足 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |

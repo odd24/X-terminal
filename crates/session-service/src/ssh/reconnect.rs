@@ -36,7 +36,7 @@ impl Manager {
         if let Some(result) = self.reconnect_duplicate(identity, connection, id, cols, rows)? {
             return Ok(ssh::Reply::Started { connection: result });
         }
-        let (gate, owner, restart, authority, profile_id) = {
+        let (gate, owner, restart, authority, profile_id, temporary) = {
             let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
             let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
             let owner = Self::start_owner(&store, identity)?;
@@ -66,6 +66,9 @@ impl Manager {
                 .entries
                 .get(&connection.connection_id)
                 .ok_or(ErrorCode::NotFound)?;
+            if owner.is_some() && entry.temporary.is_some() {
+                return Err(ErrorCode::PermissionDenied);
+            }
             entry.receipts.check_available(id)?;
             entry.exec.check_available(id)?;
             if inner.disconnects.lookup(owner, connection, id)?.is_some() {
@@ -90,6 +93,7 @@ impl Manager {
                 restart,
                 authority,
                 entry.profile_id,
+                entry.temporary.clone(),
             )
         };
         // Serialize only restarts of this connection; no session/configuration lock is held while awaiting cleanup.
@@ -120,7 +124,11 @@ impl Manager {
                     revision,
                 }
             });
-        let lookup = self.config.request(query).await;
+        let lookup = if let Some(profile) = &temporary {
+            Ok(Value::Profile(profile.clone()))
+        } else {
+            self.config.request(query).await
+        };
         let old = {
             let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
             let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
@@ -200,6 +208,7 @@ impl Manager {
         inner.entries.insert(
             connection.connection_id,
             Entry {
+                temporary,
                 reference,
                 restart_gate: gate.clone(),
                 exec: exec::Tasks::default(),
@@ -222,6 +231,7 @@ impl Manager {
             id,
             (
                 Start {
+                    temporary: None,
                     owner,
                     previous: Some(connection),
                     profile_id,

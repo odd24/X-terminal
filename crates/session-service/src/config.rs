@@ -23,6 +23,10 @@ enum Message {
     },
 }
 pub(crate) enum Internal {
+    TemporaryKey {
+        path: String,
+        passphrase: Option<session_protocol::Sensitive>,
+    },
     LoggingDirectory,
     Profile(Uuid),
     ProfileRevision {
@@ -224,6 +228,13 @@ impl State {
                     .map_err(config_error)?
                     .ok_or(ConfigError::NotFound)?,
             )),
+            Internal::TemporaryKey { path, passphrase } => {
+                Ok(Value::Credential(CredentialBundle {
+                    password: None,
+                    private_key: Some(read_key_file(&path)?),
+                    passphrase,
+                }))
+            }
             Internal::Credential(profile) => {
                 if self
                     .store
@@ -350,91 +361,13 @@ impl State {
                 key_path,
                 passphrase,
             } => {
-                use std::io::Read;
-                let path = std::path::Path::new(&key_path);
-                // A key import is a local regular-file operation, never a device/UNC/ADS open.
-                let bytes = key_path.as_bytes();
-                if bytes.len() < 4
-                    || !bytes[0].is_ascii_alphabetic()
-                    || bytes[1] != b':'
-                    || !matches!(bytes[2], b'\\' | b'/')
-                    || key_path[2..].contains(':')
-                    || !path.is_absolute()
-                {
-                    return Err(ConfigError::Invalid);
-                }
-                let root: Vec<u16> = format!("{}:\\", bytes[0] as char)
-                    .encode_utf16()
-                    .chain(Some(0))
-                    .collect();
-                let drive = unsafe {
-                    windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(root.as_ptr())
-                };
-                if !matches!(
-                    drive,
-                    windows_sys::Win32::System::WindowsProgramming::DRIVE_FIXED
-                        | windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOVABLE
-                ) {
-                    return Err(ConfigError::Invalid);
-                }
-                for component in path.components() {
-                    if let std::path::Component::Normal(name) = component {
-                        let name = name
-                            .to_string_lossy()
-                            .split('.')
-                            .next()
-                            .unwrap_or("")
-                            .trim_end_matches(' ')
-                            .to_ascii_uppercase();
-                        if ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"]
-                            .contains(&name.as_str())
-                            || (name.starts_with("COM") || name.starts_with("LPT"))
-                                && (name[3..].parse::<u8>().is_ok_and(|n| (1..=9).contains(&n))
-                                    || ["¹", "²", "³"].contains(&&name[3..]))
-                        {
-                            return Err(ConfigError::Invalid);
-                        }
-                    }
-                }
-                let metadata = std::fs::symlink_metadata(path).map_err(|_| ConfigError::Storage)?;
-                if !metadata.is_file()
-                    || metadata.file_type().is_symlink()
-                    || metadata.len() > 65536
-                {
-                    return Err(ConfigError::Invalid);
-                }
-                let mut file = OpenOptions::new()
-                    .read(true)
-                    .custom_flags(
-                        windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
-                    )
-                    .open(path)
-                    .map_err(|_| ConfigError::Storage)?
-                    .take(65537);
-                let mut key = zeroize::Zeroizing::new(String::new());
-                file.read_to_string(&mut key)
-                    .map_err(|_| ConfigError::Invalid)?;
-                if key.len() > 65536
-                    || ![
-                        "-----BEGIN OPENSSH PRIVATE KEY-----",
-                        "-----BEGIN PRIVATE KEY-----",
-                        "-----BEGIN ENCRYPTED PRIVATE KEY-----",
-                        "-----BEGIN RSA PRIVATE KEY-----",
-                        "-----BEGIN EC PRIVATE KEY-----",
-                    ]
-                    .iter()
-                    .any(|prefix| key.starts_with(prefix))
-                {
-                    return Err(ConfigError::Invalid);
-                }
+                let key = read_key_file(&key_path)?;
                 self.handle(ConfigRequest::SaveProfile {
                     profile,
                     credential: CredentialEdit::Replace {
                         value: CredentialBundle {
                             password: None,
-                            private_key: Some(session_protocol::Sensitive::new(std::mem::take(
-                                &mut *key,
-                            ))),
+                            private_key: Some(key),
                             passphrase,
                         },
                     },
@@ -614,4 +547,78 @@ pub(super) fn vault_error(error: credential_vault::Error) -> ConfigError {
         credential_vault::Error::Invalid => ConfigError::Invalid,
         _ => ConfigError::CredentialUnavailable,
     }
+}
+
+fn read_key_file(key_path: &str) -> Result<session_protocol::Sensitive, ConfigError> {
+    use std::io::Read;
+    let path = std::path::Path::new(&key_path);
+    // A key import is a local regular-file operation, never a device/UNC/ADS open.
+    let bytes = key_path.as_bytes();
+    if bytes.len() < 4
+        || !bytes[0].is_ascii_alphabetic()
+        || bytes[1] != b':'
+        || !matches!(bytes[2], b'\\' | b'/')
+        || key_path[2..].contains(':')
+        || !path.is_absolute()
+    {
+        return Err(ConfigError::Invalid);
+    }
+    let root: Vec<u16> = format!("{}:\\", bytes[0] as char)
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let drive = unsafe { windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(root.as_ptr()) };
+    if !matches!(
+        drive,
+        windows_sys::Win32::System::WindowsProgramming::DRIVE_FIXED
+            | windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOVABLE
+    ) {
+        return Err(ConfigError::Invalid);
+    }
+    for component in path.components() {
+        if let std::path::Component::Normal(name) = component {
+            let name = name
+                .to_string_lossy()
+                .split('.')
+                .next()
+                .unwrap_or("")
+                .trim_end_matches(' ')
+                .to_ascii_uppercase();
+            if ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"].contains(&name.as_str())
+                || (name.starts_with("COM") || name.starts_with("LPT"))
+                    && (name[3..].parse::<u8>().is_ok_and(|n| (1..=9).contains(&n))
+                        || ["¹", "²", "³"].contains(&&name[3..]))
+            {
+                return Err(ConfigError::Invalid);
+            }
+        }
+    }
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| ConfigError::Storage)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 65536 {
+        return Err(ConfigError::Invalid);
+    }
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|_| ConfigError::Storage)?
+        .take(65537);
+    let mut key = zeroize::Zeroizing::new(String::new());
+    file.read_to_string(&mut key)
+        .map_err(|_| ConfigError::Invalid)?;
+    if key.len() > 65536
+        || ![
+            "-----BEGIN OPENSSH PRIVATE KEY-----",
+            "-----BEGIN PRIVATE KEY-----",
+            "-----BEGIN ENCRYPTED PRIVATE KEY-----",
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "-----BEGIN EC PRIVATE KEY-----",
+        ]
+        .iter()
+        .any(|prefix| key.starts_with(prefix))
+    {
+        return Err(ConfigError::Invalid);
+    }
+
+    Ok(session_protocol::Sensitive::new(std::mem::take(&mut *key)))
 }

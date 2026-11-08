@@ -44,6 +44,7 @@ fn setup(config: Access, lifetime: u64) -> (Manager, ConnectionRef, Uuid, Identi
     manager.inner.lock().unwrap().entries.insert(
         c.connection_id,
         Entry {
+            temporary: None,
             reference: c,
             restart_gate: Arc::new(tokio::sync::Mutex::new(())),
             exec: exec::Tasks::default(),
@@ -78,6 +79,46 @@ fn profile(id: Uuid, port: u16) -> Profile {
             encoding: config_store::Encoding::Utf8,
         },
     }
+}
+
+#[tokio::test]
+async fn a_temporary_target_cannot_borrow_a_colliding_saved_profile_revision_connect_grant() {
+    let (config, _query) = Access::held_profile();
+    let (manager, c, profile_id, _desktop, agent) = setup(config, 30000);
+    manager
+        .inner
+        .lock()
+        .unwrap()
+        .entries
+        .get_mut(&c.connection_id)
+        .unwrap()
+        .temporary = Some(profile(profile_id, 2222));
+    assert!(matches!(
+        manager.grant_profile(c),
+        Err(ErrorCode::Unsupported)
+    ));
+    assert!(matches!(
+        timeout(
+            Duration::from_millis(100),
+            manager.reconnect_as(Some(&agent), c, Uuid::new_v4(), 80, 24)
+        )
+        .await
+        .unwrap(),
+        Err(ErrorCode::PermissionDenied)
+    ));
+    assert_eq!(
+        manager
+            .store
+            .lock()
+            .unwrap()
+            .sessions
+            .info(c)
+            .unwrap()
+            .generation,
+        c.generation
+    );
+    assert!(manager.inner.lock().unwrap().requests.is_empty());
+    manager.close().await;
 }
 
 #[tokio::test]

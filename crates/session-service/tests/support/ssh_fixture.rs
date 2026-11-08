@@ -316,12 +316,18 @@ pub enum Observation {
 }
 impl Fixture {
     pub async fn start() -> Self {
-        Self::options(false).await
+        Self::start_on(0).await
+    }
+    pub async fn start_on(port: u16) -> Self {
+        Self::with_port(false, false, port).await
     }
     pub async fn options(stall: bool) -> Self {
         Self::with_rekey(stall, false).await
     }
     pub async fn with_rekey(stall: bool, rekey: bool) -> Self {
+        Self::with_port(stall, rekey, 0).await
+    }
+    async fn with_port(stall: bool, rekey: bool, port: u16) -> Self {
         let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let client_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let pin = key.public_key().fingerprint(HashAlg::Sha256).to_string();
@@ -361,7 +367,7 @@ impl Fixture {
             auth_rejection_time_initial: Some(Duration::ZERO),
             ..Default::default()
         });
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
             .await
             .unwrap();
         let port = listener.local_addr().unwrap().port();

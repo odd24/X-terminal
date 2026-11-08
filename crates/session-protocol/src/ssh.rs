@@ -8,6 +8,21 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    StartStatus {
+        request_id: Uuid,
+    },
+    QuickStart {
+        settings: config_model::Settings,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+    },
+    AuthenticateKey {
+        connection: ConnectionRef,
+        challenge_id: Uuid,
+        key_path: String,
+        passphrase: Option<Sensitive>,
+    },
     ExecReadProtected {
         connection: ConnectionRef,
         task_id: Uuid,
@@ -111,6 +126,34 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         match self {
+            Self::StartStatus { request_id } => !request_id.is_nil(),
+            Self::QuickStart {
+                settings,
+                request_id,
+                cols,
+                rows,
+            } => {
+                matches!(settings, config_model::Settings::Ssh2 { .. })
+                    && settings.validate().is_ok()
+                    && !request_id.is_nil()
+                    && (2..=500).contains(cols)
+                    && (1..=200).contains(rows)
+            }
+            Self::AuthenticateKey {
+                connection,
+                challenge_id,
+                key_path,
+                passphrase,
+            } => {
+                valid(*connection)
+                    && !challenge_id.is_nil()
+                    && !key_path.is_empty()
+                    && key_path.len() <= 32768
+                    && !key_path.contains('\0')
+                    && passphrase
+                        .as_ref()
+                        .is_none_or(|p| p.expose().len() <= 65536)
+            }
             Self::ExecReadProtected {
                 connection,
                 task_id,
@@ -267,6 +310,43 @@ impl Request {
 fn valid(connection: ConnectionRef) -> bool {
     !connection.connection_id.0.is_nil() && connection.generation > 0
 }
+
+#[cfg(test)]
+mod quick_tests {
+    use super::*;
+    #[test]
+    fn quick_contract_has_no_credentials_or_agent_operation_and_audit_has_no_target_parameters() {
+        let id = Uuid::new_v4();
+        let settings = serde_json::json!({"protocol":"ssh2","host":"synthetic-private-host","port":22,"username":"synthetic-user","auth":"password","encoding":"utf8"});
+        let value = serde_json::json!({"op":"quick_start","settings":settings,"request_id":id,"cols":80,"rows":24});
+        let request: Request = serde_json::from_value(value.clone()).unwrap();
+        assert!(request.validate());
+        assert!(crate::operation::ssh_key(&request).unwrap().is_none());
+        let descriptor = crate::Request::Ssh { request }.audit_descriptor(1);
+        let audit = serde_json::to_string(&descriptor).unwrap();
+        assert!(!audit.contains("synthetic-private-host") && !audit.contains("synthetic-user"));
+        for field in ["password", "credential_ref", "role", "token"] {
+            let mut bad = value.clone();
+            bad[field] = serde_json::json!("not-accepted");
+            assert!(serde_json::from_value::<Request>(bad).is_err());
+        }
+        let c = ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        };
+        let request = Request::AuthenticateKey {
+            connection: c,
+            challenge_id: id,
+            key_path: "C:\\synthetic-sensitive-path".into(),
+            passphrase: Some(Sensitive::new("synthetic-private-phrase".into())),
+        };
+        assert!(request.validate());
+        assert!(crate::operation::ssh_key(&request).unwrap().is_none());
+        let text =
+            serde_json::to_string(&crate::Request::Ssh { request }.audit_descriptor(2)).unwrap();
+        assert!(!text.contains("sensitive-path") && !text.contains("private-phrase"));
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Prompt {
@@ -318,6 +398,7 @@ pub enum Failure {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Status {
+    pub temporary_settings: Option<config_model::Settings>,
     pub connection: ConnectionInfo,
     pub profile_id: Uuid,
     pub encoding: config_model::Encoding,
