@@ -3,14 +3,14 @@ import { ComposeDrafts, type ComposeTarget, type ComposeProposal, type Ending } 
 import { visibleControls } from './log-search';
 import { Panel, Field } from './ui';
 
-export function ComposePanel({ drafts, target, ready, send, close }: {
-  drafts: ComposeDrafts; target?: ComposeTarget; ready: boolean;
+export function ComposePanel({ drafts, target, ready, send, close, initialEnding='none',origin }: {
+  drafts: ComposeDrafts; target?: ComposeTarget; ready: boolean;initialEnding?:Ending;origin?:string;
   send(target: ComposeTarget, payload: string): boolean; close(): void;
 }) {
   const [, update] = useState(0);
-  const [ending, setEnding] = useState<Ending>('none');
+  const [ending, setEnding] = useState<Ending>(initialEnding);
   const [proposal, setProposal] = useState<ComposeProposal>();
-  const [message, setMessage] = useState('草稿仅保留在本窗口；切换/重连不继承预览，重载清空。');
+  const [message, setMessage] = useState(origin?`已从常用命令“${origin}”准备，尚未发送；请核对目标、内容与末尾换行。`:'草稿仅保留在本窗口；切换/重连不继承预览，重载清空。');
   const refresh = () => update(value => value + 1);
   const invalidate = () => { drafts.invalidate(); setProposal(undefined); };
   return <Panel title="基础撰写" label="基础撰写面板" close={() => { invalidate(); close(); }} closeLabel="关闭撰写">

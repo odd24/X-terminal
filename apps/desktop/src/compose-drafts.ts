@@ -9,17 +9,19 @@ const endings: Record<Ending, string> = { none: '', cr: '\r', lf: '\n', crlf: '\
 export class ComposeDrafts {
   private drafts = new Map<string, string>();
   private pending?: ComposeProposal;
+  private changes=0;
+  get revision(){return this.changes;}
   get count() { return this.drafts.size; }
   get(target: ComposeTarget) { return this.drafts.get(key(target)) ?? ''; }
   invalidate() { this.pending = undefined; }
-  clear() { this.invalidate(); this.drafts.clear(); }
+  clear() { this.invalidate(); this.drafts.clear();this.changes++; }
   edit(target: ComposeTarget, text: string) {
     this.invalidate();
     if (text.length > 65536) throw new Error('草稿最多 65536 个 UTF-16 单元；此次修改未保存。');
     const id = key(target);
-    if (!text) { this.drafts.delete(id); return; }
+    if (!text) { this.drafts.delete(id);this.changes++; return; }
     if (!this.drafts.has(id) && this.drafts.size >= 64) throw new Error('本窗口草稿已达 64 份；请先清空草稿。');
-    this.drafts.set(id, text);
+    this.drafts.set(id, text);this.changes++;
   }
   prepare(target: ComposeTarget, ending: Ending): ComposeProposal {
     this.invalidate();

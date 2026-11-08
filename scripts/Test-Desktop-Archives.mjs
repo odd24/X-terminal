@@ -35,6 +35,8 @@ try {
   assert.deepEqual((await call({ op: 'inspect_backup', id:backup.id })).preferences,backedPreferences);
   assert.ok(await ui.evaluate(`document.querySelector('[aria-label="备份桌面偏好"]').textContent.includes('22')`));
   assert.ok(await ui.evaluate(`document.querySelector('[aria-label="确认恢复备份"]').parentElement.textContent.includes('桌面偏好')`));
+  assert.ok(await ui.evaluate(`document.querySelector('[aria-label="确认恢复备份"]').parentElement.textContent.includes('常用命令')`));
+  assert.ok(await ui.evaluate(`document.querySelector('[aria-label="备份预览"]').textContent.includes('常用命令 0')`));
   await ui.evaluate(`document.querySelector('[aria-label="备份桌面偏好"]').scrollIntoView({block:'center'})`);
   assert.ok(await ui.evaluate(`document.querySelector('[aria-label="备份桌面偏好"]').textContent.includes('黑底绿字')`));
   await ui.screenshot('desktop-preferences-backup-native.png');

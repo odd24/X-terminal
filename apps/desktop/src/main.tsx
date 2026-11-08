@@ -12,7 +12,9 @@ import { type ThemeChoice, type TerminalFont } from './appearance';
 import { AppearancePanel } from './appearance-panel';
 import { AgentPanel } from './agent-panel';
 import { ComposePanel } from './compose-panel';
-import { ComposeDrafts, type ComposeTarget } from './compose-drafts';
+import {QuickCommandsPanel} from './quick-commands-panel';
+import {sameQuickContext,type QuickContext} from './quick-commands';
+import { ComposeDrafts, type ComposeTarget, type Ending } from './compose-drafts';
 import { SessionTree } from './session-tree';
 import { ConnectionCatalog } from './connection-catalog';
 import { config, type DesktopPreferences, type Profile, type Workspace } from './config-api';
@@ -48,6 +50,8 @@ const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文�
 function App() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeEpoch, setComposeEpoch] = useState(0);
+  const [composeEnding,setComposeEnding]=useState<Ending>('none'),[composeOrigin,setComposeOrigin]=useState<string>();
+  const [quickCommandsOpen,setQuickCommandsOpen]=useState(false);
   const panes=useRef(new PaneLayout());
   const [,setPaneEpoch]=useState(0);
   const controllers=useRef(new Map<PaneKey,TerminalController>());
@@ -218,7 +222,7 @@ function App() {
   const [splitSource,setSplitSource]=useState<{owner:string;first:PaneLive;nonce:string}>();
   const splitNonce=useRef('');
   function syncRoute(){const current=panes.current.current;selectedRef.current=current.requested;setSelected(current.requested);const c=controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
-  function routeChanged(){drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
+  function routeChanged(){setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
   function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard)controllers.current.get(key)?.runtime.term.focus();}
   function cancelWorkspaceSplit(){workspaceSession.current.cancelSplit();restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);}
   function collapseSplit(keep?:PaneKey){cancelWorkspaceSplit();panes.current.collapse(keep);routeChanged();}
@@ -245,7 +249,7 @@ function App() {
     }catch{if(!disposed){serviceStopped.current=true;panes.current.epoch++;routeChanged();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
     void poll();return()=>{disposed=true;clearTimeout(timer);};
   },[]);
-  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length!==2)return;event.preventDefault();event.stopImmediatePropagation();focusPane(panes.current.slots.find(p=>p.key!==panes.current.active)!.key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
+  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(event.ctrlKey&&event.shiftKey&&!event.altKey&&!event.metaKey&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog:modal')){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)openQuickCommands();return;}if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length!==2)return;event.preventDefault();event.stopImmediatePropagation();focusPane(panes.current.slots.find(p=>p.key!==panes.current.active)!.key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
 
   useEffect(() => {
     const systemTheme = matchMedia('(prefers-color-scheme: dark)');
@@ -366,6 +370,15 @@ function App() {
   function captureCurrentWorkspace(name:string,available:Profile[]){const layout=panes.current.slots;const view=panes.current.direction==='single'?undefined:{direction:panes.current.direction,connections:panes.current.owner===serviceRef.current?.service_id?layout.filter(p=>p.binding&&!p.pending&&!p.retired).map(p=>p.binding!):[]};return captureWorkspace(name,tabs.map(c=>({...c,profile_id:catalog.current.get(c)?.profile_id})),available,tabGroups.current.list(),id=>tabGroups.current.groupOf(id),panes.current.current.requested,sidebarOpen,view);}
 
 
+  function quickContext():QuickContext|undefined {const slot=panes.current.current,binding=slot.binding,owner=serviceRef.current?.service_id;if(!owner||serviceStopped.current||slot.pending||slot.retired||!binding)return;
+    const live=liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation&&c.protocol===binding.protocol&&c.state==='CONNECTED');const c=controllers.current.get(slot.key),view=paneViews[slot.key];
+    if(!live||!c?.runtime.writable||view?.failure||view?.inputFailure||view?.renderedTarget?.connection_id!==live.connection_id||view.renderedTarget.generation!==live.generation||c.runtime.connection?.connection_id!==live.connection_id||c.runtime.connection.generation!==live.generation||!['SSH2','SERIAL','FIXTURE'].includes(live.protocol))return;
+    return {owner,pane:slot.key,epoch:panes.current.epoch,target:{connection_id:live.connection_id,generation:live.generation,protocol:live.protocol},draftVersion:drafts.current.revision};
+  }
+  function openQuickCommands(){drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setQuickCommandsOpen(true);}
+  function prepareQuickDraft(context:QuickContext,text:string,ending:Ending,replace:boolean,name:string){const now=quickContext();if(!sameQuickContext(context,now)||drafts.current.get(context.target)&&!replace)return false;try{drafts.current.edit(context.target,text);}catch{return false;}setComposeEnding(ending);setComposeOrigin(name);setComposeEpoch(v=>v+1);setComposeOpen(true);setQuickCommandsOpen(false);return true;}
+  const commandContext=quickContext();
+
   return <main className="desktop-shell" style={{ '--navigation-width': `${navigationWidth}px` } as CSSProperties}>
     <header className="app-bar"><strong>共享终端</strong><button aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(value => !value)}>会话导航</button><span>{connections.length} 个服务连接</span></header>
     <nav aria-label="会话控制">
@@ -378,7 +391,8 @@ function App() {
       <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
       <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
 
-      <button onClick={() => { drafts.current.invalidate(); setComposeOpen(open => !open); }}>基础撰写</button>
+      <button onClick={() => { drafts.current.invalidate();setComposeEnding('none');setComposeOrigin(undefined); setComposeOpen(open => !open); }}>基础撰写</button>
+      <button onClick={openQuickCommands}>常用命令</button>
 
       <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
         <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
@@ -423,7 +437,8 @@ function App() {
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={captureCurrentWorkspace} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
-    {composeOpen && <ComposePanel key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
+    {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
+    {composeOpen && <ComposePanel initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
     {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
     {sshOpen && <SshPanel connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
