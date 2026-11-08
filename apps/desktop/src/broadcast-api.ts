@@ -6,10 +6,11 @@ type Live={connection_id:string;generation:number;protocol:string;state:string};
 const reference=(t:Pick<BroadcastTarget,'connection_id'|'generation'>)=>({connection_id:t.connection_id,generation:t.generation});
 export async function inspectBroadcastTargets(owner:string,targets:readonly Pick<BroadcastTarget,'connection_id'|'generation'|'protocol'>[]):Promise<BroadcastTarget[]>{
  const native=await invoke<{service_id:string}>('service_status');if(native.service_id!==owner)throw new Error('服务已变化，请重新选择目标。');
+ const matches=(c:Live,t:Pick<BroadcastTarget,'connection_id'|'generation'|'protocol'>)=>c.connection_id===t.connection_id&&c.generation===t.generation&&c.protocol===t.protocol&&c.state==='CONNECTED';
  const live=await invoke<Live[]>('service_list'),result:BroadcastTarget[]=[];
  for(const t of targets){if(!live.some(c=>c.connection_id===t.connection_id&&c.generation===t.generation&&c.protocol===t.protocol&&c.state==='CONNECTED'))throw new Error('所选目标已断开、正在认证或代次变化；未发送，请重新选择。');
-  if(t.protocol==='SSH2'){const status=await ssh({op:'status',connection:reference(t)});if(status.result!=='status'||status.connection.state!=='CONNECTED'||status.challenge)throw new Error('SSH目标未就绪，未发送。');result.push({...reference(t),protocol:t.protocol,label:status.server_host,encoding:status.encoding});}
-  else if(t.protocol==='SERIAL'){const status=await serial({op:'status',connection:reference(t)});if(status.result!=='status'||status.connection.state!=='CONNECTED'||status.cleanup_pending)throw new Error('串口目标未就绪，未发送。');result.push({...reference(t),protocol:t.protocol,label:status.port,encoding:status.encoding});}
+  if(t.protocol==='SSH2'){const status=await ssh({op:'status',connection:reference(t)});if(status.result!=='status'||!matches(status.connection,t)||status.challenge)throw new Error('SSH目标未就绪，未发送。');result.push({...reference(t),protocol:t.protocol,label:status.server_host,encoding:status.encoding});}
+  else if(t.protocol==='SERIAL'){const status=await serial({op:'status',connection:reference(t)});if(status.result!=='status'||!matches(status.connection,t)||status.cleanup_pending)throw new Error('串口目标未就绪，未发送。');result.push({...reference(t),protocol:t.protocol,label:status.port,encoding:status.encoding});}
   else throw new Error('此入口仅支持SSH2和串口文本。');
  }
  return result;
@@ -20,7 +21,7 @@ function project(target:BroadcastTarget,id:string,receipt:Receipt|SerialReceipt)
  if(receipt.request_id!==id)return unknown('回执编号不匹配；未重试');
  const bytes='pipeline_bytes'in receipt?receipt.pipeline_bytes:receipt.driver_accepted;
  if(bytes!==null&&(!Number.isSafeInteger(bytes)||bytes<0))return unknown('回执计数无效；未重试');
- if(receipt.state==='PIPELINE_QUEUED'||receipt.state==='DRIVER_ACCEPTED')return bytes===null?unknown('缺少接受计数；未重试'):{state:'ACCEPTED',message:target.protocol==='SSH2'?'SSH发送管线已接受；不代表远端已执行':'串口驱动已接受；不代表设备已执行',bytes};
+ if(target.protocol==='SSH2'&&receipt.state==='PIPELINE_QUEUED'||target.protocol==='SERIAL'&&receipt.state==='DRIVER_ACCEPTED')return bytes===null?unknown('缺少接受计数；未重试'):{state:'ACCEPTED',message:target.protocol==='SSH2'?'SSH发送管线已接受；不代表远端已执行':'串口驱动已接受；不代表设备已执行',bytes};
  if(receipt.state==='CANCELLED_BEFORE_DISPATCH')return {state:'REJECTED',message:'服务在派发前取消',bytes};return unknown('尚未取得最终接受回执；只查原编号，不重发',bytes);
 }
 async function finish(target:BroadcastTarget,id:string,first:Receipt|SerialReceipt):Promise<BroadcastReceipt>{

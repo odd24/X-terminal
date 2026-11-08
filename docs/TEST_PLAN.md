@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P18新增`test:desktop:broadcast`（完整链第30入口，前置实际desktop:build、入口编译gui_ssh_fixture），只用shared-terminal-broadcast-ui-中文-自建根/合成SSH/内存串口，finally实际恢复普通服务。覆盖默认无目标/正文/确认、固定混合目标与独立编号、精确字面Unicode/CRLF、预览不发/活动标签不扩大、READ+WRITE+CONTROL票据只有显式发送后被原Desktop接管撤下写控制、取消仅停未开始、真实fetch丢应答命中1次/原编号仅查询不恢复余项、目标结束不改发、GBK明确拒绝与UTF8接受的部分结果、关闭和reload不恢复正文/同意/重放。模型另验await预检中取消和服务变化。实际结果见[P18](records/P18.md)；连续键盘同步/完整R07/SSH1/实机/全局矩阵仍开放。
+
 P19新增`test:desktop:quick-commands`（完整链第29入口，前置实际desktop:build、入口编译gui_ssh_fixture），只用shared-terminal-quick-commands-ui-中文-自建根/合成SSH/内存串口，finally实际恢复普通服务。覆盖schema6实际启动迁移/旧副本、分组模板/真实保存丢应答一次、显式替换草稿、快捷键只打开、字面变量/原撰写预览与一次确认、精确SSH及串口CR、挂起读取后目标切换拒绝覆盖、备份恢复/重启零会话与变量同意不恢复、明确删除。模型和Rust/IPC补充边界/权限/审计/回滚，实际证据见[P19](records/P19.md)。完整R08/R09、多目标/历史/节奏、真实COM仍开放。
 
 P17新增`test:desktop:workspace-split`（完整链第28入口，前置实际desktop:build、gui_ssh_fixture），只shared-terminal-workspace-split-ui-中文-自建根/合成SSH/内存串口，finally实际普通服务恢复。覆盖停自身服务构造schema5并实际启动升级/旧副本只读保持、只元数据/临时分屏略过不补Profile、保存真实fetch丢应答一次/重读、不猜现有同Profile实例、跨进程零会话/不自动打开、部分不分屏/两明确连接及保存焦点一次恢复、手动选择取消且迟到绑定不覆盖、两协议新身份/串口无探测精确12字节、缺失配置不拿现有UART补位、备份恢复元数据不建连。模型/迁移回滚/严格合约与真实IPC分列[P17](records/P17.md#受管理分屏界面与跨进程验证)，不当真实COM或完整R06通过；下段“持久分屏待后续”按当时历史范围理解。

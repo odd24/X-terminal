@@ -222,3 +222,6 @@ P12终端配色按ADR-043升级schema 4，跟随应用/黑底绿字/黑底白字
 
 
 P19活动连接常用命令按ADR-066使用schema7受管理模板库；变量值/草稿/发送同意不持久化，准备前重读revision并核对服务/窗格/代次/草稿版本，准备后仍经原撰写预览确认。新增test:desktop:quick-commands为完整第29入口，前置实际desktop:build，仅shared-terminal-quick-commands-ui-中文-自建根/合成SSH/内存串口，finally实际恢复普通服务。完整P19依赖P18的多目标及历史/节奏仍开放，不从此包推导通过；旧schema6程序不能读写新库，备份恢复内容不降版本。
+
+
+P18显式文本批次按ADR-067独立更多工具入口，默认无目标/正文/确认，2–8个精确SSH2/SERIAL代次按勾选顺序冻结，明确Desktop人工接管后沿原服务FIFO/独立编号；未知停未开始，只查原编号不重放，取消/关闭不撤回已派发。新增test:desktop:broadcast第30入口，前置实际desktop:build，只shared-terminal-broadcast-ui-中文-自建根/合成SSH/内存串口，finally实际恢复普通服务。schema7保持，不授Agent广播，不继承活动窗格/模板同意；连续键盘同步、完整R07/SSH1/实机仍开放。
