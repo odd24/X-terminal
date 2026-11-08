@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P12.1现场配置错误回归新增`test:desktop:quick-config`（第23入口，前置实际desktop:build），仅shared-terminal-quick-config-ui-中文-自建根/合成SSH：两个独立桌面/浏览器目录共用同一个自建配置根，验证真实ConfigReply LOCKED、初读失败告警/禁止Start、原owner退出后须重启；真实save_profile fetch丢应答只读回、不重复保存/不自动登录、用户明确选保存目标后正常凭据登录；真实非法密钥保存拒绝、page读故障不静默。`config-error.test.mjs`验证安全类型/不确定结果及原始异常不泄露，未知对象不得调用toString。最后原弹窗仅跑受影响--fast，未重跑无变化135秒超时/旧全套；用户真实失败现场与合成证据分列。
+
 CR-008/P12.1新增`test:desktop:ssh-dialog`，前置实际desktop:build，仅shared-terminal-ssh-dialog-ui-中文-自建根/合成SSH：居中模态、终端列宽不缩小、原生模态及Tab边界、Esc/焦点恢复/待连接关闭取消、成功关闭并聚焦终端；配置/外观共享弹窗；只显示地址/同地址独立标签、保存目标后来修改及重载不改旧连接地址；实际认证拒绝/网络大类/密钥不可读/超时和应答丢失的明显role=alert，原编号只查。原QuickSSH专项适配成功关闭语义，受影响日志仅跑其有限分支，不重跑无变化旧全套。真实保存凭据登录经用户明确授权，在正在使用的原应用中独立验证，不将合成Harness指向用户目录；结果/边界见[P12.1](records/P12.1.md)。Harness为自建根单独设置WebView数据目录，避免与用户打开的窗口/浏览器状态共享；不操作用户WebView存储。
 
 P12.1新增`npm run test:desktop:quick-ssh`（前置实际`desktop:build`，入口编译原SSH夹具），纳入完整桌面第21入口；既有1–20不改编号。本次按影响仅执行新SSH专项及受影响旧SSH专项，不因此重跑全21。只用shared-terminal-quick-ssh-ui-中文-自建根、实际合成回环SSH与shared-terminal-save-ui-中文-自建保存根；核对无保存首登、必要身份确认、密码/临时加密密钥、焦点/中文/粘贴、错误/取消/生产超时/变化指纹拒绝、原编号只查、可选保存，以及实际日志字节/UTF-8文本/指纹/系统另存。真实服务器、真实COM及全局DPI/输入法分列，实际结果见[P12.1](records/P12.1.md)。

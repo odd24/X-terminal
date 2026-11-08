@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { ConfigRequestError } from './config-error';
+export { ConfigRequestError, messages } from './config-error';
 export type Encoding = 'utf8' | 'gbk' | 'gb18030';
 export type Auth = 'password' | 'public_key' | 'keyboard_interactive';
 export type Settings =
@@ -38,27 +40,13 @@ export type Reply = { result: 'preferences'; preferences: DesktopPreferences; re
   | { result: 'archives'; entries: ArchiveInfo[] } | { result: 'artifact'; artifact: ArchiveInfo } | BackupPreview
   | { result: 'restored'; revision: string; safety_backup: ArchiveInfo; missing_credentials: number }
   | { result: 'recovered'; directory_id: string; missing_credentials: number };
-export const messages: Record<string, string> = {
-  IN_USE: '凭据仍被当前配置或受管理备份引用，未删除。请先移除引用或保留凭据。',
-  CAPACITY: '备份或恢复目录数量达到上限，请先整理副本。',
-  INVALID: '配置无效，或目录仍被引用。请检查参数和目录关系。',
-  NOT_FOUND: '配置已不存在，请刷新。', CONFLICT: '配置已变化，请刷新后重试。',
-  LOCKED: '该数据目录已被另一服务使用。请退出另一桌面后重新启动。',
-  UNSUPPORTED_SCHEMA: '数据库版本不受支持，未覆盖文件。请使用匹配版本或备份，并重新启动。',
-  CORRUPT: '配置或凭据库损坏，未重建文件。请保留原文件并使用备份恢复后重新启动。',
-  STORAGE: '配置存储不可用。请检查目录权限和磁盘空间。',
-  CREDENTIAL_UNAVAILABLE: '保存的凭据不可用。请重新输入或移除该配置的引用。',
-  CONFIG_CHANNEL_UNAVAILABLE: '配置通道不可用，未自动重试。请重新启动桌面。',
-  INVALID_CONFIGURATION: '配置参数无效，请检查输入。',
-  CapacityExceeded: '配置队列已满，此次操作未被接受。',
-};
 export type CredentialInfo = { id: string; current_profiles: number };
 export type CredentialPreview = { result: 'credential_preview'; id: string; revision: string; current_profiles: number; backup_profiles: number };
 export async function config(request: ConfigRequest): Promise<Reply> {
   let reply: Reply | { result: 'error'; code: string };
   try { reply = await invoke('config_request', { request }); }
-  catch (error) { throw new Error(messages[String(error)] ?? '配置请求失败；结果可能未知，未自动重试。'); }
-  if (reply.result === 'error') throw new Error(messages[reply.code] ?? '配置请求失败。');
+  catch (error) { throw new ConfigRequestError(error,error!=='INVALID_CONFIGURATION'); }
+  if (reply.result === 'error') throw new ConfigRequestError(reply.code);
   return reply;
 }
 export async function readConfiguration(): Promise<{ folders: Folder[]; profiles: Profile[]; revision: string }> {
@@ -69,12 +57,12 @@ export async function readConfiguration(): Promise<{ folders: Folder[]; profiles
     let offset = 0;
     for (;;) {
       const reply = await config({ op: 'page', revision, offset, folders: folderPage });
-      if (reply.result !== 'page') throw new Error('配置响应不匹配。');
+      if (reply.result !== 'page') throw new ConfigRequestError('INVALID_CONFIGURATION_REPLY',true);
       revision = reply.revision; folders.push(...reply.folders); profiles.push(...reply.profiles.map(profile => ({...profile,credential_missing:reply.missing_credential_profiles.includes(profile.id)})));
       if (reply.next_offset === null) break;
       offset = reply.next_offset;
     }
   }
-  if (!revision) throw new Error("配置版本缺失。");
+  if (!revision) throw new ConfigRequestError('INVALID_CONFIGURATION_REPLY',true);
   return { folders, profiles, revision };
 }

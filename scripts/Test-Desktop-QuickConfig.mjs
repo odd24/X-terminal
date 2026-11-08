@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
+let directory, owner, locked, ui, fixture;
+const wait=async(check,label)=>{for(let n=0;n<300;n++){if(await check())return;await delay(100);}throw new Error(`Timed out: ${label}`);};
+try{
+ directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-quick-config-ui-中文-'));
+ owner=await launchDesktop(directory,{fixture:true});
+ locked=await launchDesktop(directory,{fixture:true,webviewDirectory:path.join(directory,'webview-second')});
+ const page=app=>app.invoke('config_request',{request:{op:'page',revision:null,offset:0,folders:false}});
+ assert.equal((await page(locked)).code,'LOCKED','actual second service returns the real directory lock code');
+ await locked.click('连接服务器');await locked.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('读取连接配置失败')&&document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('另一服务')`);
+ assert.equal(await locked.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='连接').disabled`),true);
+ await locked.evaluate(`document.querySelector('dialog:modal form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);
+ assert.deepEqual(await locked.invoke('service_list'),[],'even a submit event cannot bypass failed configuration loading');
+ await locked.screenshot('P12.1-quick-config-locked.png');
+ await owner.close();owner=null;
+ await locked.click('重新读取配置');await locked.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('重新启动本窗口')`);assert.equal((await page(locked)).code,'LOCKED','old worker does not silently reacquire ownership');
+ await locked.close();locked=null;
+ fixture=spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'),[directory],{windowsHide:true,stdio:['pipe','pipe','pipe']});const lines=createInterface({input:fixture.stdout})[Symbol.asyncIterator]();
+ const next=async()=>{let timer;try{return await Promise.race([lines.next().then(x=>JSON.parse(x.value)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('fixture timeout')),10000);})]);}finally{clearTimeout(timer);}};const server=await next();const control=async r=>{fixture.stdin.write(JSON.stringify(r)+'\n');return next();};
+ ui=await launchDesktop(directory,{fixture:true,webviewDirectory:path.join(directory,'webview-restarted')});assert.equal((await page(ui)).profiles.length,0);
+ const show=async()=>{await ui.click('连接服务器');await ui.waitFor(`!!document.querySelector('[aria-label="SSH服务器"]')&&!document.querySelector('[aria-label="SSH服务器"]').disabled`);};
+ const fill=async()=>{await ui.fill('SSH服务器','127.0.0.1');await ui.fill('SSH用户名','synthetic');await ui.evaluate(`Array.from(document.querySelectorAll('summary')).find(s=>s.textContent==='高级连接设置').parentElement.open=true`);await ui.fill('SSH端口',server.port);};
+ await show();await fill();await ui.fill('SSH登录密码',server.password);await ui.evaluate(`document.querySelector('[aria-label="保存SSH连接"]').click()`);await ui.evaluate(`document.querySelector('[aria-label="记住SSH凭据"]').click()`);
+ const lost=await ui.interceptIpc({command:'config_request',op:'save_profile',mode:'error'});await ui.click('连接');await ui.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('保存连接/凭据的结果不明')`);assert.equal(await lost.count(),1);await lost.restore();
+ assert.deepEqual(await ui.invoke('service_list'),[]);assert.equal((await control({op:'metrics'})).attempts,0);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="SSH登录密码"]').value`),'');assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='连接').disabled`),true);
+ const saved=(await page(ui)).profiles;assert.equal(saved.length,1);assert.notEqual(saved[0].credential_ref,null);assert.ok(!(await ui.evaluate(`document.body.innerText`)).includes(server.password));
+ await ui.screenshot('P12.1-quick-config-save-unknown.png');
+ await ui.click('重新读取配置');await ui.waitFor(`document.querySelector('[aria-label="快速连接已保存"]')?.options.length===2`);assert.deepEqual(await ui.invoke('service_list'),[],'readback must not automatically save again or start SSH');assert.equal((await page(ui)).profiles.length,1);
+ await ui.fill('快速连接已保存',saved[0].id);await ui.click('连接');await ui.waitFor(`!!document.querySelector('[aria-label="快速连接核对指纹"]')`);await ui.evaluate(`document.querySelector('[aria-label="快速连接核对指纹"]').click()`);await ui.click('信任并继续登录');
+ await wait(async()=>{const list=await ui.invoke('service_list');return list.length===1&&list[0].state==='CONNECTED'&&!(await ui.evaluate(`!!document.querySelector('dialog:modal')`));},'explicit saved-credential login after readback');
+ const beforeAttempts=(await control({op:'metrics'})).attempts;
+ await show();await fill();await ui.fill('SSH登录方式','public_key');await ui.fill('SSH密钥文件','\\\\.\\COM89');await ui.evaluate(`document.querySelector('[aria-label="保存SSH连接"]').click()`);await ui.evaluate(`document.querySelector('[aria-label="记住SSH凭据"]').click()`);await ui.click('连接');
+ await ui.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('保存连接/凭据失败')&&document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('尚未发起SSH登录')`);assert.equal((await ui.invoke('service_list')).length,1);assert.equal((await control({op:'metrics'})).attempts,beforeAttempts);assert.equal((await page(ui)).profiles.length,1);await ui.screenshot('P12.1-quick-config-save-rejected.png');
+ await ui.click('收起连接窗口');
+ const readLost=await ui.interceptIpc({command:'config_request',op:'page',mode:'error'});await ui.click('连接服务器');await ui.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('读取连接配置失败')`);assert.equal(await readLost.count(),1);await readLost.restore();assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='连接').disabled`),true);
+ await ui.click('重新读取配置');await ui.waitFor(`!document.querySelector('dialog:modal [role="alert"]')`);assert.equal((await ui.invoke('service_list')).length,1);assert.equal((await control({op:'metrics'})).attempts,beforeAttempts);
+ await writeFile('artifacts/P12.1-quick-config-result.json',JSON.stringify({result:'PASS',actualLockedReply:true,loadFailureVisibleAndBlocksStart:true,restartRequired:true,lostSaveReply:1,saveNotReplayed:true,readbackDoesNotStart:true,explicitSavedCredentialLogin:true,rejectedSaveDoesNotStart:true,readFailureNotSilent:true,rawSecretsExcluded:true,scope:'owned temporary directory and synthetic SSH only'},null,2)+'\n');console.log('PASS quick configuration: actual two-service LOCKED, visible read/save stages, lost save reply readback without replay/start, explicit stored login, rejected key save and lost read, no raw secrets');
+}catch(error){console.error('quick configuration failure:',error.message);if(ui)await ui.screenshot('P12.1-quick-config-failure.png').catch(()=>{});throw error;}
+finally{await ui?.close();await locked?.close();await owner?.close();fixture?.kill();if(fixture&&fixture.exitCode===null&&fixture.signalCode===null)await new Promise(resolve=>fixture.once('exit',resolve));if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-quick-config-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}
