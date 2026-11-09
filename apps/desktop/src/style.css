@@ -170,3 +170,8 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 
 /* Trigger excerpts are source-proven text, not synthetic terminal coordinates. */
 .config-panel mark { background:var(--terminal-selection-background); color:var(--text); }
+
+/* Shared structured configuration before/after review; retain global tokens. */
+.config-diff { width:100%; table-layout:fixed; border-collapse:collapse; }
+.config-diff th, .config-diff td { text-align:left; vertical-align:top; padding:var(--space-2); border-bottom:var(--border-width) solid var(--border); overflow-wrap:anywhere; }
+.config-diff th:first-child { width:20%; }

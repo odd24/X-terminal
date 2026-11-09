@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P21新增`test:desktop:batch-config`，完整链第44入口，前置实际desktop:build/入口编译gui_ssh_fixture；只shared-terminal-batch-config-ui-中文-自建根、合成SSH与内存UART，finally普通服务实际恢复。精确同名ID/逐字段差异/默认无同意/取消、外部SQL整库CAS、预览及应用真实丢应答原ID查询、关闭/重载只读恢复、串口波特率/目录与初始线保留，以及活跃原代次/输入和凭据库字节核对；结果集中[P21](records/P21.md)，不把首批编辑当完整迁移、实机或全44通过。
+
 P21首包按[ADR-079](decisions/ADR-079.md)验证精确批量选择/有序前后差异、取消/独立同意、revision及全库摘要CAS、一次事务与回读/中途失败回滚、owner/原编号恢复和已连接Actor不变。S3仅有界证据盘点、不重跑旧套，不据此宣布S3/G3通过；完整导入/版本/外部冲突/Xshell合成与真实兼容仍分别规划，结果集中[P21](records/P21.md)。
 
 P20新增`test:desktop:triggers`（完整链第43入口，前置实际desktop:build，入口编译gui_ssh_fixture），只shared-terminal-triggers-ui-中文-自建根/两个合成SSH服务与内存UART，finally实际恢复普通服务。覆盖默认无来源/动作/同意、启用后新文本水位、真实跨块字符串/有限正则、四动作与只读零发送、冷却/限次、非法正则拒绝、源自回显一次自动批次/混合独立回执、取消/真实丢应答原编号只查、编辑后迟到原生命中丢弃、实际文本环覆盖缺口撤激活、UART解码来源、来源退休/新代次不继承，以及关闭/reload清规则/记录。记录容量/字节与Unicode、动作独立/迟到/失败未知由模型补充；原生槽位/worker与核心严格预算另验，实际范围/失败见[P20](records/P20.md)。不把这些专项拼成全43或实机/全局/长期通过。

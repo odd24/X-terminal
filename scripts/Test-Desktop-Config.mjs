@@ -5,7 +5,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 
-const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-config-ui-'));
+const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-config-ui-中文-'));
 const secret = 'synthetic-password-P08.3-only';
 const syntheticKey='-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic-key-import-only\n-----END OPENSSH PRIVATE KEY-----\n';
 let ui;
@@ -103,6 +103,6 @@ try {
 } finally {
   await ui?.close();
   assert.equal(path.dirname(path.resolve(directory)), path.resolve(tmpdir()));
-  assert.ok(path.basename(directory).startsWith('shared-terminal-config-ui-'));
+  assert.ok(path.basename(directory).startsWith('shared-terminal-config-ui-中文-'));
   await rm(directory, { recursive: true, maxRetries: 20, retryDelay: 100 });
 }

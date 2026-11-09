@@ -15,7 +15,9 @@ export type QuickCommand={id:string;name:string;group:string;template:string;end
 export type HostEndpoint = { protocol: 'ssh1' | 'ssh2'; host: string; port: number };
 export type HostKeySummary = { endpoint: HostEndpoint; algorithm: string; fingerprint: string };
 export type CredentialEdit = { action: 'keep' | 'clear' } | { action: 'replace'; value: { password: string | null; private_key: string | null; passphrase: string | null } };
-export type ConfigRequest = {op:'recheck';service_id:string}|{op:'quick_commands'}|{op:'save_quick_command';command:QuickCommand;revision:string}|{op:'delete_quick_command';id:string;revision:string}|{ op: 'preferences' }
+export type BatchPatch={folder:{kind:'keep'}|{kind:'move';folder_id:string|null};encoding:Encoding|null;ssh_port:number|null;serial_baud:number|null};
+export type BatchReceipt={id:string;revision:string;state:'PREVIEW'|'APPLIED'|'CANCELLED'|'REJECTED'|'EXPIRED';reason:string|null;changed_count:number;rows:{before:PortableProfile;after:PortableProfile}[]};
+export type ConfigRequest = {op:'preview_batch';id:string;revision:string;ids:string[];patch:BatchPatch}|{op:'apply_batch'|'batch_status'|'cancel_batch';id:string}| {op:'recheck';service_id:string}|{op:'quick_commands'}|{op:'save_quick_command';command:QuickCommand;revision:string}|{op:'delete_quick_command';id:string;revision:string}|{ op: 'preferences' }
   | {op:'workspaces'}
   | {op:'save_workspace';workspace:Workspace;revision:string}
   | {op:'delete_workspace';id:string;revision:string}
@@ -39,7 +41,7 @@ type Page = { result: 'page'; revision: string; folders: Folder[]; profiles: Pro
 export type ArchiveInfo = { id: string; kind: 'backup' | 'export'; filename: string; bytes: number; modified_ms: number };
 export type DesktopPreferences = { theme: 'dark' | 'light' | 'system'; terminal_font: 'consolas' | 'cascadia'; terminal_palette: 'follow_theme' | 'black_green' | 'black_white'; font_size: number; ctrl_c_copy: boolean; ctrl_v_paste: boolean; right_click_paste: boolean };
 export type BackupPreview = { result: 'backup_preview'; id: string; digest: string; folders: number; profiles: number; host_keys: number; workspaces:number; quick_commands:number; missing_credentials: number; current_revision: string | null; sample_profiles: string[]; preferences: DesktopPreferences };
-export type Reply = {result:'rechecked';service_id:string}|{result:'quick_commands';commands:QuickCommand[];revision:string}|{result:'workspaces';workspaces:Workspace[];revision:string} | { result: 'preferences'; preferences: DesktopPreferences; revision: string } | Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null }
+export type Reply = {result:'batch';receipt:BatchReceipt}| {result:'rechecked';service_id:string}|{result:'quick_commands';commands:QuickCommand[];revision:string}|{result:'workspaces';workspaces:Workspace[];revision:string} | { result: 'preferences'; preferences: DesktopPreferences; revision: string } | Page | { result: 'saved_profile'; profile: Profile; revision: string } | { result: 'updated'; revision: string } | { result: 'host_keys_page'; revision: string; keys: HostKeySummary[]; next_offset: number | null }
   | { result: 'credentials_page'; revision: string; entries: CredentialInfo[]; next_offset: number | null }
   | CredentialPreview
   | { result: 'archives'; entries: ArchiveInfo[] } | { result: 'artifact'; artifact: ArchiveInfo } | BackupPreview
