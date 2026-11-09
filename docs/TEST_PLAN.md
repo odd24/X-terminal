@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P22新增确定性I/O门和显式ignored有限磁盘阶段对照，分别验证append/flush/sync阻塞时32队列/状态锁及真实FileJournal的阶段停顿；诊断收集PASS不等于T19通过。2026-11-10 E盘实时/实时+审计组明确QUEUE_FULL，正式1800秒未运行；下一只做ADR约束下同盘有限独立checkpoint可行性实验，详[P22](records/P22.md)，不从同步调用总耗时猜单个文件/OS根因。
+
 P22/T19第四轮只证明仪表可维持节奏及队列失败显式守恒：2源QUEUE_FULL、7条/28672字节拒绝，总ACK=accepted+rejected；未通过32秒，更未正式1800秒。1worker慢探测独立检查PASS，原始EOF保留并以stopped-counters首错核对；下一须可控Journal控制组量化write/flush/sync/锁/调度后修复，保持原限额，不凭假说重复长跑，详[P22](records/P22.md)。
 
 P22/T19显式长测入口`test:logs:calibrate`与`test:logs:throughput`不加入日常46入口；按[CR-019](changes/CR-019.md)/[P22设计与实际失败](records/P22.md)核对8源全部生成/ACK/accepted/written/flush/sync/退休与全程序号/字节/SHA，不以尾部或局部秒桶推导全程。当前3次短校准早退、正式未启动，只有cp前缀日志完整性通过；T19阈值未通过，旧260RPC审计异常保留，修仪表后仅一次同65RPC形态短校准再决定正式。
