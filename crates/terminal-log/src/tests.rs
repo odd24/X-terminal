@@ -11,6 +11,7 @@ use std::{
 
 mod archive;
 mod export;
+mod live;
 mod recovery;
 mod recovery_export;
 

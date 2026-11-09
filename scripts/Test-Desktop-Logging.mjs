@@ -147,9 +147,12 @@ try {
   const failedDirectory=path.join(directory,'terminal-logs',info.log_id);
   const retained=new Map();for(const name of await readdir(failedDirectory))retained.set(name,await readFile(path.join(failedDirectory,name)));
   const renewed=ref(await ui.invoke('fixture_lifecycle',{connection:target,action:'reconnect'}));
+  await ui.waitFor(`document.querySelector('[role="tab"][data-connection-id="${renewed.connection_id}"]')?.textContent.includes('代次 ${renewed.generation}')`);
+  assert.ok((await ui.evaluate(`document.querySelector('[aria-label="日志目标"]').textContent`)).includes('尚无连接'),'a new generation must not silently replace the pane/log target');
+  await ui.evaluate(`document.querySelector('[role="tab"][data-connection-id="${renewed.connection_id}"]').click()`);
   await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes('/ '+${renewed.generation})`);
   await ui.waitFor(`document.querySelector('footer [aria-label="日志状态"]')?.textContent.includes('未启用记录')`);
-  await ui.evaluate(`document.querySelector('[aria-label="捕获记录维护"]').open=true`);
+  await ui.evaluate(`(()=>{const panel=document.querySelector('[aria-label="捕获记录维护"]');let parent=panel.parentElement.closest('details');while(parent){parent.open=true;parent=parent.parentElement.closest('details');}panel.open=true;})()`);
   await ui.click('刷新捕获维护清单');
   await ui.waitFor(`!document.querySelector('[aria-label="捕获维护选择"]').disabled`);
   await ui.fill('捕获维护选择',info.log_id);
@@ -161,6 +164,7 @@ try {
   await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes(${JSON.stringify(other.connection_id)})`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="捕获维护选择"]').value`),info.log_id,'switching active connections cannot change the maintenance target');
   const lostRelease=await ui.interceptIpc({op:'release_failed',mode:'error'});
+  await ui.command('Page.bringToFront');await ui.waitFor(`document.hasFocus()&&Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='解除失败记录关联（不删除文件）').getClientRects().length>0`);
   await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='解除失败记录关联（不删除文件）').focus()`);
   await ui.click('解除失败记录关联（不删除文件）');
   await ui.waitFor(`document.querySelector('[aria-label="捕获维护状态"]')?.textContent.includes('结果可能未知')`);
@@ -201,8 +205,12 @@ try {
   assert.equal((await request({op:'status',connection:renewed,log_id:active.log_id})).phase,'RELEASED');assert.equal(await readFile(detachedFailure,'utf8'),'synthetic second completion collision');
   await ui.screenshot('desktop-capture-maintenance-no-connection-synthetic.png');
   console.log('PASS logging native WebView: scoped capture/rotation/history/export; global maintenance finds old generation, lost release reply requires original query, exact files/old Start preserved, new generation continues, removed connection remains maintainable without an active session; synthetic only');
+} catch (error) {
+  console.error('LOGGING_BODY_FAILURE',error);
+  if(ui){await ui.screenshot('P11.4-logging-regression-failure.png').catch(()=>{});await writeFile('artifacts/P11.4-logging-regression-failure.txt',await ui.evaluate('document.body.innerText').catch(String));}
+  throw error;
 } finally {
   await ui?.close();
   const target = path.resolve(directory);assert.equal(path.dirname(target), path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-logging-ui-中文-'));
-  await rm(target, { recursive: true, force: true });
+  await rm(target, { recursive: true, force: true, maxRetries:10, retryDelay:100 });
 }

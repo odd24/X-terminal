@@ -48,6 +48,115 @@ fn limits() -> wire::Limits {
         segments: 2,
     }
 }
+
+#[tokio::test]
+async fn start_status_is_query_only_and_readable_target_is_frozen_service_metadata() {
+    let temp = Temp::new();
+    let config = crate::config::ConfigWorker::start(Some(temp.0.clone())).unwrap();
+    let store = Store::test_store();
+    let manager = Manager::new(store.clone(), config.access()).unwrap();
+    let connection = connection(&store);
+    let request_id = Uuid::new_v4();
+    assert_eq!(
+        manager
+            .handle(Request::StartStatus {
+                connection,
+                request_id
+            })
+            .await
+            .unwrap_err(),
+        ErrorCode::NotFound
+    );
+    assert_eq!(
+        store
+            .lock()
+            .unwrap()
+            .sessions
+            .capture_id(connection)
+            .unwrap(),
+        None
+    );
+    let Reply::Info(first) = manager
+        .handle_named(
+            Request::Start {
+                connection,
+                request_id,
+                limits: limits(),
+            },
+            Some("192.168.10.250".into()),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    let log_id = first.log_id;
+    let query = loop {
+        let Reply::Info(info) = manager
+            .handle(Request::StartStatus {
+                connection,
+                request_id,
+            })
+            .await
+            .unwrap()
+        else {
+            panic!()
+        };
+        if info.readable.is_some() {
+            break info;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    };
+    let name = query.readable.unwrap().filename;
+    assert!(name.starts_with("192.168.10.250_"));
+    assert!(name.ends_with(".log"));
+    let Reply::Info(duplicate) = manager
+        .handle_named(
+            Request::Start {
+                connection,
+                request_id,
+                limits: limits(),
+            },
+            Some("changed-label".into()),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(duplicate.log_id, log_id);
+    assert_eq!(duplicate.readable.unwrap().filename, name);
+    assert_eq!(
+        manager
+            .handle(Request::StartStatus {
+                connection: ConnectionRef {
+                    generation: connection.generation + 1,
+                    ..connection
+                },
+                request_id
+            })
+            .await
+            .unwrap_err(),
+        ErrorCode::InvalidArgument
+    );
+    manager
+        .handle(Request::Stop { connection, log_id })
+        .await
+        .unwrap();
+    let Reply::Info(query) = manager
+        .handle(Request::StartStatus {
+            connection,
+            request_id,
+        })
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(query.log_id, log_id);
+    manager.close().await.unwrap();
+    config.close().await.unwrap();
+}
 async fn failed_without_directory(
     manager: &Manager,
     path: &std::path::Path,

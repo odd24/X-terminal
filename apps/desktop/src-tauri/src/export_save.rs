@@ -37,6 +37,7 @@ use windows::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SourceMode {
+    Menu,
     Text,
     Normal,
     Recovery,
@@ -54,7 +55,7 @@ impl Scope {
     pub fn source_status(&self) -> session_protocol::logging::Request {
         use session_protocol::logging::Request;
         match self.mode {
-            SourceMode::Text => Request::TextExportStatus {
+            SourceMode::Text | SourceMode::Menu => Request::TextExportStatus {
                 connection: self.connection,
                 log_id: self.log_id,
                 request_id: self.request_id,
@@ -240,7 +241,7 @@ fn choose(owner: usize, id: Uuid, mode: SourceMode) -> windows::core::Result<Opt
         )?;
         dialog.SetTitle(w!("另存终端导出"))?;
         dialog.SetOkButtonLabel(w!("选择保存位置"))?;
-        if mode == SourceMode::Text {
+        if matches!(mode, SourceMode::Text | SourceMode::Menu) {
             dialog.SetTitle(w!("保存文本日志"))?;
             dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
                 pszName: w!("文本日志 (*.log)"),
@@ -268,7 +269,7 @@ fn choose(owner: usize, id: Uuid, mode: SourceMode) -> windows::core::Result<Opt
         Ok(Some(PathBuf::from(value?)))
     }
 }
-fn open_directory(path: &Path, owner: usize) -> Result<(), String> {
+pub(crate) fn open_directory(path: &Path, owner: usize) -> Result<(), String> {
     use std::os::windows::fs::MetadataExt;
     let _apartment = Apartment::enter().map_err(|_| "SHELL_UNAVAILABLE")?;
     let meta = std::fs::symlink_metadata(path).map_err(|_| "DIRECTORY_UNAVAILABLE")?;
@@ -292,7 +293,46 @@ fn open_directory(path: &Path, owner: usize) -> Result<(), String> {
         Ok(())
     }
 }
+pub(crate) fn open_readable(path: &Path) -> Result<(), String> {
+    let _apartment = Apartment::enter().map_err(|_| "SHELL_UNAVAILABLE")?;
+    // Fixed Windows text editor, never a command or association supplied by content.
+    let system = std::env::var_os("SystemRoot").ok_or("SHELL_UNAVAILABLE")?;
+    let executable = PathBuf::from(system).join("System32").join("notepad.exe");
+    if !executable.is_file() {
+        return Err("SHELL_UNAVAILABLE".into());
+    }
+    let executable = HSTRING::from(executable.to_string_lossy().as_ref());
+    let parameters = HSTRING::from(format!("\"{}\"", display(path)));
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            &executable,
+            &parameters,
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize <= 32 {
+        Err("SHELL_UNAVAILABLE".into())
+    } else {
+        Ok(())
+    }
+}
 impl Manager {
+    pub fn source_active(
+        &self,
+        connection: ConnectionRef,
+        request_id: Uuid,
+    ) -> Result<bool, String> {
+        let state = self.registry.lock().map_err(|_| "INVALID_STATE")?;
+        Ok(state.entries.values().any(|e| {
+            e.info.scope.mode == SourceMode::Menu
+                && e.info.scope.connection == connection
+                && e.info.scope.request_id == request_id
+                && active(&e.info)
+        }))
+    }
     pub fn new(directory: PathBuf) -> std::io::Result<Self> {
         let registry = Arc::new(Mutex::new(Registry::default()));
         let shared = registry.clone();
@@ -604,12 +644,18 @@ fn copy(
     fingerprint: ExportFingerprint,
 ) {
     set_phase(shared, id, "COPYING", None, None);
-    let (cancel, export_id) = {
+    let (cancel, export_id, mode) = {
         let state = shared.lock().unwrap_or_else(|e| e.into_inner());
         let e = &state.entries[&id];
-        (e.cancel.clone(), e.info.scope.request_id)
+        (e.cancel.clone(), e.info.scope.request_id, e.info.scope.mode)
     };
-    let mut source = match VerifiedExport::open(directory, export_id, fingerprint, || {
+    let menu_directory = directory.join("terminal-menu");
+    let source_directory = if mode == SourceMode::Menu {
+        menu_directory.as_path()
+    } else {
+        directory
+    };
+    let mut source = match VerifiedExport::open(source_directory, export_id, fingerprint, || {
         cancel.load(Ordering::Acquire)
     }) {
         Ok(s) => s,
@@ -630,6 +676,7 @@ fn copy(
         }
     };
     let report = target.save(&mut source, || cancel.load(Ordering::Acquire));
+    drop(source);
     let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
     let info = &mut state.entries.get_mut(&id).unwrap().info;
     info.phase = report.phase.into();

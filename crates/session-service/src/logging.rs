@@ -124,10 +124,25 @@ impl Manager {
             F::InvalidRecord => wire::Failure::InvalidRecord,
             F::CounterExhausted => wire::Failure::CounterExhausted,
             F::DiskFull => wire::Failure::DiskFull,
+            F::Capacity => wire::Failure::Capacity,
             F::Storage => wire::Failure::Storage,
             F::WorkerPanicked => wire::Failure::WorkerPanicked,
         });
         Ok(wire::Info {
+            readable: status.readable.map(|v| wire::ReadableInfo {
+                filename: v.filename,
+                written_records: v.written_records,
+                flushed_records: v.flushed_records,
+                synced_records: v.synced_records,
+                written_bytes: v.written_bytes,
+                flushed_bytes: v.flushed_bytes,
+                synced_bytes: v.synced_bytes,
+                written_gap_bytes: v.written_gap_bytes,
+                flushed_gap_bytes: v.flushed_gap_bytes,
+                synced_gap_bytes: v.synced_gap_bytes,
+                flushed_at_ms: v.flushed_at_ms,
+                synced_at_ms: v.synced_at_ms,
+            }),
             log_id: status.log_id,
             connection: status.connection,
             protocol: entry.metadata.protocol,
@@ -175,11 +190,40 @@ impl Manager {
             }
         }
     }
+    #[cfg(test)]
     pub(crate) async fn handle(&self, request: Request) -> Result<Reply, ErrorCode> {
+        self.handle_named(request, None).await
+    }
+    pub(crate) async fn handle_named(
+        &self,
+        request: Request,
+        window_name: Option<String>,
+    ) -> Result<Reply, ErrorCode> {
         if !request.validate() {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            Request::StartStatus {
+                connection,
+                request_id,
+            } => {
+                let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                let (start, id) = inner.starts.get(&request_id).ok_or_else(|| {
+                    inner
+                        .window
+                        .check(request_id)
+                        .err()
+                        .unwrap_or(ErrorCode::NotFound)
+                })?;
+                if start.connection != connection {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                Ok(Reply::Info(Box::new(self.info(
+                    inner.entries.get(id).ok_or(ErrorCode::NotFound)?,
+                    inner.removed.contains(id),
+                    inner.released.contains(id),
+                )?)))
+            }
             request @ (Request::CleanupList { .. }
             | Request::CleanupPreview { .. }
             | Request::CleanupStatus { .. }
@@ -445,13 +489,14 @@ impl Manager {
                     text_cursor: position.text_cursor,
                 };
                 let logger = Arc::new(
-                    Logger::start(
+                    Logger::start_readable(
                         root.0.path().to_path_buf(),
                         metadata.clone(),
                         terminal_log::Limits {
                             segment_bytes: limits.segment_bytes,
                             segments: limits.segments,
                         },
+                        window_name.unwrap_or_else(|| "终端".into()),
                     )
                     .map_err(|error| {
                         if error.kind() == io::ErrorKind::WouldBlock {

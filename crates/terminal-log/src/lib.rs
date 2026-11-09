@@ -21,6 +21,9 @@ mod recovery;
 mod recovery_export;
 pub use recovery::{RecoveryInfo, RecoveryPage, RecoveryReader, RecoveryStop, RecoveryStopKind};
 pub use recovery_export::{RecoverySummary, export_recovery_jsonl};
+mod live_text;
+mod user_file;
+pub use user_file::{ReadableSnapshot, UserLogDirectory, UserLogFile};
 mod storage;
 pub use archive::{ArchiveInfo, ArchivePage, ArchiveReader, Completion};
 #[cfg(windows)]
@@ -31,6 +34,7 @@ pub use directory::ManagedRoot;
 pub use export::{ExportSummary, export_jsonl};
 pub use export_store::{ExportArtifact, ExportStore, MAX_EXPORT_BYTES, RecoveryArtifact};
 pub use format::{RawFrame, RawReader, SegmentHeader};
+pub use live_text::{ReadableStatus, readable_stem, safe_window_name};
 pub use paired::PairReader;
 use serde::{Deserialize, Serialize};
 use session_core::{presentation::TextEvent, session::*};
@@ -150,6 +154,7 @@ pub enum Failure {
     QueueFull,
     InvalidRecord,
     CounterExhausted,
+    Capacity,
     DiskFull,
     Storage,
     WorkerPanicked,
@@ -159,6 +164,7 @@ pub enum Failure {
 pub struct Status {
     pub log_id: Uuid,
     pub connection: ConnectionRef,
+    pub readable: Option<ReadableStatus>,
     pub phase: Phase,
     pub failure: Option<Failure>,
     pub accepted_records: u64,
@@ -176,6 +182,7 @@ pub struct Status {
     pub worker_finished: bool,
 }
 struct Shared {
+    _readable_guard: Option<std::fs::File>,
     sender: Option<SyncSender<Record>>,
     status: Status,
     source_cursor: u64,
@@ -218,10 +225,22 @@ pub struct Logger {
     thread: Option<JoinHandle<()>>,
 }
 trait Journal: Send {
+    fn checkpoint(&mut self, _sync: bool) -> io::Result<()> {
+        Ok(())
+    }
+    fn readable(&self) -> Option<ReadableStatus> {
+        None
+    }
+    fn readable_guard(&self) -> io::Result<Option<std::fs::File>> {
+        Ok(None)
+    }
     fn append(&mut self, record: &Record) -> io::Result<(u64, u64)>;
     fn finish(&mut self, status: &Status) -> io::Result<()>;
 }
 fn failure(error: &io::Error) -> Failure {
+    if error.kind() == io::ErrorKind::FileTooLarge {
+        return Failure::Capacity;
+    }
     if error.kind() == io::ErrorKind::StorageFull
         || (cfg!(windows) && matches!(error.raw_os_error(), Some(39 | 112)))
     {
@@ -246,6 +265,28 @@ impl Logger {
             )?))
         })
     }
+    pub fn start_readable(
+        root: PathBuf,
+        metadata: Metadata,
+        limits: Limits,
+        window_name: String,
+    ) -> io::Result<Self> {
+        if !root.is_absolute() || !metadata.valid() || !limits.valid() || window_name.len() > 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid readable setup",
+            ));
+        }
+        Self::spawn(metadata, move |id, metadata| {
+            Ok(Box::new(storage::FileJournal::open_readable(
+                root,
+                id,
+                metadata,
+                limits,
+                &window_name,
+            )?))
+        })
+    }
     fn spawn(
         metadata: Metadata,
         factory: impl FnOnce(Uuid, Metadata) -> io::Result<Box<dyn Journal>> + Send + 'static,
@@ -254,12 +295,14 @@ impl Logger {
         let id = Uuid::new_v4();
         let (sender, receiver) = mpsc::sync_channel(QUEUE_RECORDS);
         let shared = Arc::new(Mutex::new(Shared {
+            _readable_guard: None,
             sender: Some(sender),
             source_cursor: metadata.source_cursor,
             text_cursor: metadata.text_cursor,
             status: Status {
                 log_id: id,
                 connection: metadata.connection,
+                readable: None,
                 phase: Phase::Opening,
                 failure: None,
                 accepted_records: 0,
@@ -288,23 +331,46 @@ impl Logger {
                         let mut journal = factory(id, header)?;
                         {
                             let mut state = state.lock().unwrap();
+                            state._readable_guard = journal.readable_guard()?;
+                            state.status.readable = journal.readable();
                             if state.status.phase == Phase::Opening {
                                 state.status.phase = Phase::Recording;
                             }
                         }
-                        while let Ok(record) = receiver.recv() {
-                            let (first, last) = journal.append(&record)?;
-                            let mut state = state.lock().unwrap();
-                            state.status.written_records += 1;
-                            state.status.written_raw_bytes += record.raw_bytes();
-                            state.status.first_retained_segment = first;
-                            state.status.last_segment = last;
-                            state.status.retired_segments = first - 1;
+                        let mut flushed = std::time::Instant::now();
+                        let mut synced = flushed;
+                        loop {
+                            match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                                Ok(record) => {
+                                    let (first, last) = journal.append(&record)?;
+                                    let mut state = state.lock().unwrap();
+                                    state.status.written_records += 1;
+                                    state.status.written_raw_bytes += record.raw_bytes();
+                                    state.status.first_retained_segment = first;
+                                    state.status.last_segment = last;
+                                    state.status.retired_segments = first - 1;
+                                    state.status.readable = journal.readable();
+                                }
+                                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                            }
+                            if flushed.elapsed() >= std::time::Duration::from_millis(100) {
+                                let sync = synced.elapsed() >= std::time::Duration::from_secs(1);
+                                journal.checkpoint(sync)?;
+                                state.lock().unwrap().status.readable = journal.readable();
+                                flushed = std::time::Instant::now();
+                                if sync {
+                                    synced = flushed;
+                                }
+                            }
                         }
+                        journal.checkpoint(true)?;
+                        state.lock().unwrap().status.readable = journal.readable();
                         let status = state.lock().unwrap().status.clone();
                         // A latched queue/validation fault must never publish a clean marker.
                         if status.failure.is_none() {
                             journal.finish(&status)?;
+                            state.lock().unwrap().status.readable = journal.readable();
                         }
                         Ok(())
                     }));

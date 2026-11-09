@@ -8,6 +8,7 @@ use std::{
 use uuid::Uuid;
 
 pub(crate) struct FileJournal {
+    live: Option<crate::live_text::LiveText>,
     // Retain non-delete-sharing Windows directory handles to prevent junction/rename
     // substitution during all file creation, rotation and completion operations.
     _guards: Vec<File>,
@@ -125,6 +126,7 @@ impl FileJournal {
         let source = metadata.source_cursor;
         let text = metadata.text_cursor;
         let mut result = Self {
+            live: None,
             _guards: guards,
             directory,
             id,
@@ -138,6 +140,27 @@ impl FileJournal {
         };
         result.segment(1, source, text)?;
         Ok(result)
+    }
+    pub(crate) fn open_readable(
+        root: PathBuf,
+        id: Uuid,
+        metadata: Metadata,
+        limits: Limits,
+        name: &str,
+    ) -> io::Result<Self> {
+        let data = root
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid log root"))?
+            .to_path_buf();
+        let mut journal = Self::open(root, id, metadata.clone(), limits)?;
+        journal.live = Some(crate::live_text::LiveText::open(
+            &data,
+            name,
+            &metadata,
+            id,
+            crate::live_text::MAX_LIVE_BYTES,
+        )?);
+        Ok(journal)
     }
     fn paths(&self, segment: u64) -> (PathBuf, PathBuf) {
         (
@@ -192,6 +215,22 @@ impl FileJournal {
     }
 }
 impl Journal for FileJournal {
+    fn checkpoint(&mut self, sync: bool) -> io::Result<()> {
+        if let Some(live) = &mut self.live {
+            live.checkpoint(sync)?;
+        }
+        if sync {
+            self.sync()?;
+        }
+        Ok(())
+    }
+    fn readable(&self) -> Option<crate::ReadableStatus> {
+        self.live.as_ref().map(|live| live.status.clone())
+    }
+    fn readable_guard(&self) -> io::Result<Option<File>> {
+        self.live.as_ref().map(|live| live.guard()).transpose()
+    }
+
     fn append(&mut self, record: &Record) -> io::Result<(u64, u64)> {
         let raw = format::raw_frame(record);
         let mut text =
@@ -219,6 +258,9 @@ impl Journal for FileJournal {
         }
         self.raw.as_mut().unwrap().write_all(&raw)?;
         self.text.as_mut().unwrap().write_all(&text)?;
+        if let Some(live) = &mut self.live {
+            live.append(record)?;
+        }
         self.bytes += size;
         if let Some(raw) = &record.raw {
             self.source_cursor = raw.seq + 1;
@@ -229,7 +271,7 @@ impl Journal for FileJournal {
         ))
     }
     fn finish(&mut self, status: &Status) -> io::Result<()> {
-        self.sync()?;
+        self.checkpoint(true)?;
         let completion = crate::Completion {
             format_version: 1,
             log_id: self.id,

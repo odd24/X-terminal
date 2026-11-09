@@ -14,6 +14,16 @@ pub struct ExportFingerprint {
     pub bytes: u64,
     pub sha256: [u8; 32],
 }
+impl ExportFingerprint {
+    /// Private parameter binding or artifact receipt; callers must not expose a
+    /// digest of terminal content as an authentication or public audit field.
+    pub fn for_bytes(bytes: &[u8]) -> Self {
+        Self {
+            bytes: bytes.len() as u64,
+            sha256: Sha256::digest(bytes).into(),
+        }
+    }
+}
 pub struct VerifiedExport {
     _guards: Vec<File>,
     file: File,

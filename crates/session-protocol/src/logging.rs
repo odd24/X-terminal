@@ -37,6 +37,10 @@ pub enum Request {
         log_id: Uuid,
         request_id: Uuid,
     },
+    StartStatus {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Start {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -269,6 +273,15 @@ impl Request {
                 }
                 connection
             }
+            Self::StartStatus {
+                connection,
+                request_id,
+            } => {
+                if request_id.is_nil() {
+                    return false;
+                }
+                connection
+            }
             Self::Start {
                 connection,
                 request_id,
@@ -365,6 +378,7 @@ pub enum Phase {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Failure {
+    Capacity,
     QueueFull,
     InvalidRecord,
     CounterExhausted,
@@ -374,7 +388,25 @@ pub enum Failure {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ReadableInfo {
+    pub filename: String,
+    pub written_records: u64,
+    pub flushed_records: u64,
+    pub synced_records: u64,
+    pub written_bytes: u64,
+    pub flushed_bytes: u64,
+    pub synced_bytes: u64,
+    pub written_gap_bytes: u64,
+    pub flushed_gap_bytes: u64,
+    pub synced_gap_bytes: u64,
+    pub flushed_at_ms: u64,
+    pub synced_at_ms: u64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Info {
+    #[serde(default)]
+    pub readable: Option<ReadableInfo>,
     pub log_id: Uuid,
     pub connection: ConnectionRef,
     pub protocol: Protocol,
@@ -476,6 +508,24 @@ pub enum Reply {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn start_status_is_strict_query_without_limits_name_or_path() {
+        let connection = super::ConnectionRef {
+            connection_id: super::ConnectionId(uuid::Uuid::new_v4()),
+            generation: 1,
+        };
+        let base = serde_json::json!({"op":"start_status","connection":connection,"request_id":uuid::Uuid::new_v4()});
+        assert!(
+            serde_json::from_value::<super::Request>(base.clone())
+                .unwrap()
+                .validate()
+        );
+        for field in ["path", "window_name", "limits", "role"] {
+            let mut v = base.clone();
+            v[field] = serde_json::json!("injected");
+            assert!(serde_json::from_value::<super::Request>(v).is_err());
+        }
+    }
     #[test]
     fn capture_inventory_is_strict_and_full_registry_with_maximum_counters_fits_ipc() {
         assert!(Request::CaptureList {}.validate());

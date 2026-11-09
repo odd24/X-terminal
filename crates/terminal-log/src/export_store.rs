@@ -52,6 +52,139 @@ impl<W: Write> Write for Limited<W> {
 }
 
 impl ExportStore {
+    /// Entire fixed flushed ranges, including active files; never stops capture.
+    /// Trusted service watermarks are required, not renderer paths or lengths.
+    pub fn create_live_bundle(
+        &mut self,
+        data: &Path,
+        sources: &[crate::ReadableSnapshot],
+        connection: ConnectionRef,
+        export_id: Uuid,
+        mut cancel: impl FnMut() -> bool,
+    ) -> io::Result<ExportArtifact> {
+        if export_id.is_nil()
+            || sources.is_empty()
+            || sources.len() > 64
+            || sources
+                .iter()
+                .any(|s| s.connection != connection || s.log_id.is_nil())
+            || sources
+                .iter()
+                .map(|s| s.log_id)
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                != sources.len()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid live bundle",
+            ));
+        }
+        self.create_inner(export_id,&mut cancel,|output,cancelled|{
+            writeln!(output,"# 当前代次全部已记录日志：固定已刷新保留范围快照（{}份）",sources.len())?;
+            writeln!(output,"# 每份读取至下列已刷新水位；起录前未记录，源缺口/拒绝内容不在文件；活跃录制继续追加，不包含快照后的新输出。")?;
+            let mut total=ExportSummary{retained_records:0,retained_raw_bytes:0,retained_gap_bytes:0,next_cursor:1};
+            for source in sources {
+                if cancelled(){return Err(io::ErrorKind::Interrupted.into());}
+                writeln!(output,"\r\n# 快照范围 {}",serde_json::to_string(source)?)?;
+                let mut file=crate::UserLogFile::open(data,&source.filename,connection,source.log_id)?;
+                file.copy_prefix(source.bytes,output,&mut *cancelled)?;
+                total.retained_records=total.retained_records.checked_add(source.flushed_records).ok_or_else(||io::Error::other("snapshot count exhausted"))?;
+                total.retained_gap_bytes=total.retained_gap_bytes.checked_add(source.source_gap_bytes).ok_or_else(||io::Error::other("snapshot gap exhausted"))?;
+            }
+            output.flush()?;Ok(total)
+        })
+    }
+    /// A complete sequence of stopped, verified retained logs for one generation.
+    /// The caller supplies service-approved IDs; no renderer output paths exist.
+    pub fn create_text_bundle(
+        &mut self,
+        source: &ManagedRoot,
+        log_ids: &[Uuid],
+        connection: ConnectionRef,
+        export_id: Uuid,
+        mut cancel: impl FnMut() -> bool,
+    ) -> io::Result<ExportArtifact> {
+        if export_id.is_nil()
+            || log_ids.is_empty()
+            || log_ids.len() > 64
+            || log_ids.iter().any(|id| id.is_nil())
+            || log_ids
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                != log_ids.len()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid bundle scope",
+            ));
+        }
+        for id in log_ids {
+            drop(crate::ArchiveReader::open(source, *id, connection)?);
+        }
+        self.create_inner(export_id, &mut cancel, |output, cancelled| {
+            writeln!(
+                output,
+                "# 全部已记录日志的保留范围：{} 份；起录前/退休/源缺失内容不在本文件。",
+                log_ids.len()
+            )?;
+            let mut total = ExportSummary {
+                retained_records: 0,
+                retained_raw_bytes: 0,
+                retained_gap_bytes: 0,
+                next_cursor: 1,
+            };
+            for id in log_ids {
+                let part =
+                    crate::export::export_text(source, *id, connection, output, &mut *cancelled)?;
+                for (sum, value) in [
+                    (&mut total.retained_records, part.retained_records),
+                    (&mut total.retained_raw_bytes, part.retained_raw_bytes),
+                    (&mut total.retained_gap_bytes, part.retained_gap_bytes),
+                ] {
+                    *sum = sum
+                        .checked_add(value)
+                        .ok_or_else(|| io::Error::other("bundle counter exhausted"))?;
+                }
+                total.next_cursor = part.next_cursor;
+            }
+            Ok(total)
+        })
+    }
+    /// Frozen rendered text, distinctly a display snapshot, not communication history.
+    pub fn create_display(
+        &mut self,
+        text: &str,
+        export_id: Uuid,
+        mut cancel: impl FnMut() -> bool,
+    ) -> io::Result<ExportArtifact> {
+        if export_id.is_nil()
+            || text.is_empty()
+            || text.len() > 4 * 1024 * 1024
+            || text
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\r' | '\n' | '\t'))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid display snapshot",
+            ));
+        }
+        self.create_inner(export_id, &mut cancel, |output, cancelled| {
+            if cancelled() {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            output.write_all(text.as_bytes())?;
+            output.flush()?;
+            Ok(ExportSummary {
+                retained_records: 0,
+                retained_raw_bytes: 0,
+                retained_gap_bytes: 0,
+                next_cursor: 1,
+            })
+        })
+    }
     /// Trusted service data directory only, never an IPC/user-supplied output
     /// path. On Windows the exclusive lock prevents multiple export owners.
     pub fn open(data_directory: &Path) -> io::Result<Self> {

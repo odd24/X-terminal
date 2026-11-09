@@ -635,6 +635,10 @@ fn config_descriptor(r: &config::ConfigRequest) -> Descriptor {
 fn logging_descriptor(r: &logging::Request) -> Descriptor {
     use logging::Request as L;
     match r {
+        L::StartStatus {
+            connection,
+            request_id,
+        } => target(Area::Logging, Verb::Status, *connection, Some(*request_id)),
         L::Start {
             connection,
             request_id,

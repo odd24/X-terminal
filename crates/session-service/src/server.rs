@@ -181,7 +181,48 @@ impl Runtime {
             store.pairing.require_active(identity, self.now())?;
             store.pairing.require_desktop(identity, self.now())?;
         }
-        self.logging.handle(request).await.map(Reply::Logging)
+        let name = if let logging::Request::Start { connection, .. } = &request {
+            let protocol = self
+                .store
+                .lock()
+                .map_err(|_| ErrorCode::InvalidState)?
+                .sessions
+                .info(*connection)
+                .ok()
+                .map(|c| c.protocol);
+            match protocol {
+                Some(Protocol::Ssh2) => match self
+                    .ssh
+                    .handle(ssh::Request::Status {
+                        connection: *connection,
+                    })
+                    .await
+                {
+                    Ok(ssh::Reply::Status(s)) => Some(s.server_host),
+                    _ => None,
+                },
+                Some(Protocol::Serial) => match self
+                    .serial
+                    .handle_authenticated(
+                        identity,
+                        serial::Request::Status {
+                            connection: *connection,
+                        },
+                    )
+                    .await
+                {
+                    Ok(serial::Reply::Status(s)) => Some(s.port),
+                    _ => None,
+                },
+                _ => None,
+            }
+        } else {
+            None
+        };
+        self.logging
+            .handle_named(request, name)
+            .await
+            .map(Reply::Logging)
     }
     async fn handle_serial(
         &self,
