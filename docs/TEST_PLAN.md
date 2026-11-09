@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P19新增`test:desktop:compose-pacing`（完整链第41入口，前置实际desktop:build，入口编译gui_ssh_fixture），仅shared-terminal-compose-pacing-ui-中文-自建根/合成SSH/内存UART，finally必须实际恢复普通服务。覆盖默认整批/参数失效、行界与精确Unicode/换行、每片段独立编号/回执后间隔、双击单次、实际应答挂起后的停止/关闭/切目标/人工输入、串口原队列及取消、真实Start丢应答不重发/停尾部、重载不恢复。模型补预算/选区/Unicode、单FIFO占位/定时/取消/路由/未知失败封闭，结果见[P19](records/P19.md#有界逐行发送2026-11-09)。逐行保留原草稿、不记整份历史，实际COM/现场SSH、完整P19/R09/全局仍开放。
+
 CR-016扩第39`test:desktop:log-menu`，前置最终实际desktop:build：真实系统按钮必须为“保存”，一次Start和系统点击到落盘逐字节/SHA、无重复“保存日志”按钮/无残留操作面板、原完整目标textarea焦点、最近路径等于可信回执路径、只清理自身副本；系统取消/覆盖取消结束UI且原文件不动，必要覆盖默认无勾选/备份保持；真实同长源篡改FAILED必须保留alert，Start/Status真实fetch丢应答仅原编号查询；切换后已发布原范围无新目标弹窗/抢焦点或改写。仅自建中文根/合成SSH/内存UART，finally实际恢复普通服务。TEXT共用控件按影响验证旧21日志场景（优先node scripts/Test-Desktop-QuickSsh.mjs --logging-only）与24，普通确认不因简洁而默认省略，完整40入口/实机另列。
 
 P12.1新增`test:desktop:config-recheck`为完整第40入口，前置实际desktop:build；只shared-terminal-config-recheck-ui-中文-自建根/内存串口库存，不打开任何COM。两组自建owner/blocked桌面验证配置LOCKED≠串口占用、库存失败独立、当前持有仍拒、退出后普通读仍拒、原service_id显式重查/重复门/原窗口PID保持、错误旧服务ID拒、held/lost应答不自动连接/丢回复后不重开库或改revision、UART参数保持、偏好/树只读刷新，finally实际恢复普通服务。Windows IPC独立补正常退出/已确认测试服务强制退出/竞争者先取得、原库/错误schema或损坏字节不动。旧23/24仅受影响复验，不重复全套；高级审计/实机另列。

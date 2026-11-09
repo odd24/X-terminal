@@ -1,7 +1,8 @@
+import { composeParts } from './compose-pacing.ts';
 export type ComposeTarget = { connection_id: string; generation: number; protocol: string };
 export type Ending = 'none' | 'cr' | 'lf' | 'crlf';
 export type ComposeRange={start:number;end:number};
-export type ComposeProposal = { target: ComposeTarget; text: string; source:string; revision:number; selection:ComposeRange|null; payload: string; ending: Ending };
+export type ComposeProposal = { target: ComposeTarget; text: string; source:string; revision:number; selection:ComposeRange|null; payload: string; ending: Ending; interval:number };
 const key = (target: ComposeTarget) => `${target.connection_id}/${target.generation}/${target.protocol}`;
 const same = (a: ComposeTarget | undefined, b: ComposeTarget) => !!a && key(a) === key(b);
 const endings: Record<Ending, string> = { none: '', cr: '\r', lf: '\n', crlf: '\r\n' };
@@ -24,7 +25,7 @@ export class ComposeDrafts {
     if (!this.drafts.has(id) && this.drafts.size >= 64) throw new Error('本窗口草稿已达 64 份；请先清空草稿。');
     this.drafts.set(id, text);this.changes++;
   }
-  prepare(target: ComposeTarget, ending: Ending, selection?:ComposeRange): ComposeProposal {
+  prepare(target: ComposeTarget, ending: Ending, selection?:ComposeRange, interval=0): ComposeProposal {
     this.invalidate();
     if (!['SSH2', 'SERIAL', 'FIXTURE'].includes(target.protocol)) throw new Error('此协议尚不可撰写发送。');
     const source=this.get(target);
@@ -36,7 +37,8 @@ export class ComposeDrafts {
     if (!Object.hasOwn(endings, ending)) throw new Error('换行选项无效；未发送。');
     const payload = text + endings[ending];
     if (new TextEncoder().encode(payload).length > (target.protocol === 'SSH2' ? 196608 : 65536)) throw new Error('内容连同追加换行超过单批字节上限；未发送。');
-    return this.pending = Object.freeze({ target: Object.freeze({ ...target }), text, source, revision:this.changes, selection:selection?Object.freeze({...selection}):null, payload, ending });
+    if(interval!==0){if(!['SSH2','SERIAL'].includes(target.protocol))throw new Error('此协议尚不支持逐行发送。');composeParts(payload,interval);}
+    return this.pending = Object.freeze({ target: Object.freeze({ ...target }), text, source, revision:this.changes, selection:selection?Object.freeze({...selection}):null, payload, ending, interval });
   }
   finish(proposal:ComposeProposal):boolean {
     if(this.get(proposal.target)!==proposal.source||this.changes!==proposal.revision)return false;

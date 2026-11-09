@@ -13,6 +13,7 @@ import { ssh, dimensions, type Receipt, type SshReply } from './ssh-api';
 import { serial, serialResult, type SerialStatus } from './serial-api';
 import type { DesktopPreferences } from './config-api';
 import type { ComposeTarget } from './compose-drafts';
+import type { ComposePacing } from './compose-pacing';
 export type PaneConnection=ComposeTarget&{state:string};
 type Ref=Pick<PaneConnection,'connection_id'|'generation'>;
 type Page={connection:Ref;events:{seq:number;bytes:number[];gap_bytes?:number}[];next_cursor:number;available_from:number;truncated:boolean;disconnected:boolean};
@@ -67,49 +68,58 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       setStatus(message + '；终端已清屏并重置解析状态，后续内容可能从序列中间开始');
     }
     let queueVersion=0;
-    const newQueue = () => {const version=++queueVersion;return new InputQueue(error => { if (!disposed&&version===queueVersion) setInputFailure(error instanceof Error && error.message !== 'unknown' ? `${error.message} 已停止本页面后续输入，未重试。` : '输入结果可能未知；已停止本页面后续输入，未重试。请核对远端状态。'); });};
+    let pacedCompose:ComposePacing|undefined;
+    const newQueue = () => {const version=++queueVersion;return new InputQueue(error => { if (!disposed&&version===queueVersion) {pacedCompose?.cancel();setInputFailure(error instanceof Error && error.message !== 'unknown' ? `${error.message} 已停止本页面后续输入，未重试。` : '输入结果可能未知；已停止本页面后续输入，未重试。请核对远端状态。');} });};
     let queue = newQueue();
     let resizeTimer = 0;
     let lastSize = '';
     type InputAction={ bytes: number[] } | { cols: number; rows: number } | { text: string };
-    function submit(action: InputAction,keyboard=false) {
+    function submit(action: InputAction,keyboard=false,pacing?:ComposePacing) {
       const target = current.connection;
       const protocol = current.protocol;
       const writing='text' in action||'bytes' in action;
       if (!target || !['SSH2','SERIAL'].includes(protocol) || !current.writable || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&!active()) return false;
       const epoch=deps.selection().epoch;
+      const inputOwner=owner;
       const id = requestId();
       const dispatch = async (action:InputAction) => {
         // A selection change drops unsent input rather than retargeting it.
-        if (disposed || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&(!active()||deps.selection().epoch!==epoch)) return;
+        if (disposed || owner!==inputOwner || current.protocol!==protocol || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&(!active()||deps.selection().epoch!==epoch)) return false;
+        const dispatchId=pacing?requestId():id;
         if (protocol === 'SERIAL') {
-          if (!('text' in action)) return;
-          const initial = await serial({ op: 'send', connection: target, request_id: id, content: action.text, format: 'text', ending: 'none', pace: { chunk_bytes: 1024, interval_ms: 0 } });
+          if (!('text' in action)) return false;
+          const initial = await serial({ op: 'send', connection: target, request_id: dispatchId, content: action.text, format: 'text', ending: 'none', pace: { chunk_bytes: 1024, interval_ms: 0 } });
+          if(initial.result!=='input'||initial.request_id!==dispatchId)throw new Error('receipt');
           const receipt = await serialResult(target, initial, () => bound(target));
           if (receipt.state !== 'DRIVER_ACCEPTED') throw new Error('unknown');
           if (!disposed && bound(target)) setLastInput('串口驱动已接受；不代表设备已执行');
-          return;
+          return true;
         }
         const reply = await ssh('text' in action
-          ? { op: 'write_text', connection: target, request_id: id, text: action.text }
+          ? { op: 'write_text', connection: target, request_id: dispatchId, text: action.text }
           : 'bytes' in action
-          ? { op: 'write', connection: target, request_id: id, bytes: action.bytes }
-          : { op: 'resize', connection: target, request_id: id, ...action });
-        if (reply.result !== 'input') throw new Error('receipt');
+          ? { op: 'write', connection: target, request_id: dispatchId, bytes: action.bytes }
+          : { op: 'resize', connection: target, request_id: dispatchId, ...action });
+        if (reply.result !== 'input'||reply.request_id!==dispatchId) throw new Error('receipt');
         let receipt: Receipt = reply;
         const deadline = Date.now() + 17000;let waitMs=4;
         while (receipt.state === 'PENDING' || receipt.state === 'DISPATCHING') {
-          if (disposed || !bound(target)) return;
+          if (disposed || !bound(target)) return false;
           if (Date.now() > deadline) throw new Error('unknown');
-          const result = await ssh({ op: 'input_status', connection: target, request_id: id });
-          if (result.result !== 'input') throw new Error('receipt');
+          const result = await ssh({ op: 'input_status', connection: target, request_id: dispatchId });
+          if (result.result !== 'input'||result.request_id!==dispatchId) throw new Error('receipt');
           receipt = result;
           if(receipt.state==='PENDING'||receipt.state==='DISPATCHING'){await new Promise(resolve=>setTimeout(resolve,waitMs));waitMs=Math.min(50,waitMs*2);}
         }
         if (receipt.state !== 'PIPELINE_QUEUED') throw new Error('unknown');
         if (!disposed && bound(target)) setLastInput('已进入 SSH 发送管线；不代表远端已执行');
+        return true;
       };
-      const accepted=keyboard&&protocol==='SSH2'&&'text' in action?queue.enqueueKeyboard(action.text,`${owner}/${target.connection_id}/${target.generation}/${epoch}`,text=>dispatch({text})):queue.enqueue(()=>dispatch(action));
+      const run=async()=>{await dispatch(action);};
+      const accepted=pacing?queue.enqueue(async()=>{
+        try{await pacing.run(part=>dispatch({text:part}),()=>!disposed&&owner===inputOwner&&current.protocol===protocol&&bound(target)&&active()&&deps.selection().epoch===epoch&&deps.selection().connection?.state==='CONNECTED'&&current.writable);}
+        finally{if(pacedCompose===pacing)pacedCompose=undefined;}
+      }):keyboard&&protocol==='SSH2'&&'text' in action?queue.enqueueKeyboard(action.text,`${owner}/${target.connection_id}/${target.generation}/${epoch}`,async text=>{await dispatch({text});}):queue.enqueue(run);
       // Error text can resize the terminal, enqueueing another resize against a
       // stopped queue. Keep the original dispatch failure visible.
       if (!accepted) setInputFailure(previous => previous || '输入队列已满或已停止；此次输入未发送。');
@@ -147,6 +157,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     });
     function receiveInput(data: string, compose = false, keyboard=false): boolean {
       if (!active()||!bound(current.connection)) return false;
+      if(!compose)pacedCompose?.cancel();
       wakeOutput();
       if (!compose) deps.input();
       deps.invalidateDrafts(); clip.invalidate();
@@ -171,8 +182,14 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         .finally(() => current.inputs--);
       return true;
     }
-    const compose = (target:ComposeTarget, text:string) => {
+    const compose = (target:ComposeTarget, text:string, pacing?:ComposePacing) => {
       if (disposed || !current.connection || !bound(target) || current.connection.connection_id !== target.connection_id || current.connection.generation !== target.generation || current.protocol !== target.protocol || !current.writable) return false;
+      if(pacedCompose?.busy)return false;
+      if(pacing){
+        if(!['SSH2','SERIAL'].includes(current.protocol)||pacing.parts.join('')!==text||!pacing.busy)return false;
+        pacedCompose=pacing;wakeOutput();deps.invalidateDrafts();clip.invalidate();
+        const accepted=submit({text},false,pacing);if(!accepted){pacing.cancel();pacedCompose=undefined;}return accepted;
+      }
       return receiveInput(text, true);
     };
     const input = term.onData(data => receiveInput(data,false,true));
@@ -199,7 +216,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         if(selection.suspended){current.writable=false;clip.invalidate();update({renderedTarget:undefined,status:'会话已变化或正在绑定，请明确选择当前会话。'});timer=window.setTimeout(()=>void poll(),100);return;}
         const changed=owner!==selection.owner||connection?.connection_id!==current.connection?.connection_id||connection?.generation!==current.connection?.generation||connection?.protocol!==current.protocol;
         if(changed){
-          current.writable=false;queue.close();queue=newQueue();lastSize='';clearTimeout(resizeTimer);
+          current.writable=false;pacedCompose?.cancel();queue.close();queue=newQueue();lastSize='';clearTimeout(resizeTimer);
           deps.invalidateDrafts();clip.invalidate();update({renderedTarget:undefined});current.writer.close();
           let encoding='utf8';
           if(connection&&['SSH2','SERIAL'].includes(connection.protocol)){
@@ -238,9 +255,9 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     }
     void poll();
     return {runtime:current,clipboard:clip,compose,
-      invalidate(){clip.invalidate();update({renderedTarget:undefined});},
+      invalidate(){pacedCompose?.cancel();clip.invalidate();update({renderedTarget:undefined});},
       appearance(){const appearance=terminalAppearance();term.options.theme=appearance.theme;term.options.fontFamily=appearance.fontFamily;term.options.fontSize=deps.preferences().font_size;fit.fit();},
-      dispose(){disposed=true;clip.invalidate();element.removeEventListener('paste',paste,true);element.removeEventListener('contextmenu',contextMenu,true);clearTimeout(timer);queue.close();clearTimeout(resizeTimer);resize.dispose();observer.disconnect();input.dispose();current.writer.close();term.dispose();}
+      dispose(){disposed=true;pacedCompose?.cancel();clip.invalidate();element.removeEventListener('paste',paste,true);element.removeEventListener('contextmenu',contextMenu,true);clearTimeout(timer);queue.close();clearTimeout(resizeTimer);resize.dispose();observer.disconnect();input.dispose();current.writer.close();term.dispose();}
     };
 }
 export type TerminalController=ReturnType<typeof createTerminalController>;
