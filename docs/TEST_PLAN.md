@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P22/T19第四轮只证明仪表可维持节奏及队列失败显式守恒：2源QUEUE_FULL、7条/28672字节拒绝，总ACK=accepted+rejected；未通过32秒，更未正式1800秒。1worker慢探测独立检查PASS，原始EOF保留并以stopped-counters首错核对；下一须可控Journal控制组量化write/flush/sync/锁/调度后修复，保持原限额，不凭假说重复长跑，详[P22](records/P22.md)。
+
 P22/T19显式长测入口`test:logs:calibrate`与`test:logs:throughput`不加入日常46入口；按[CR-019](changes/CR-019.md)/[P22设计与实际失败](records/P22.md)核对8源全部生成/ACK/accepted/written/flush/sync/退休与全程序号/字节/SHA，不以尾部或局部秒桶推导全程。当前3次短校准早退、正式未启动，只有cp前缀日志完整性通过；T19阈值未通过，旧260RPC审计异常保留，修仪表后仅一次同65RPC形态短校准再决定正式。
 
 P22新增第46入口`test:desktop:security`，按[CR-018](changes/CR-018.md)仅合成SSH/内存UART及中文自建根/秘密哨兵，经原GUI明确配对和真实stdio最小9工具验证T17确定性权限边界；每协议38次严格拒绝、保护文本/屏幕、原owner/未批准代次/接管/撤销、字节与审计编号核对、实际服务失联UNKNOWN不重放。测试改动复用已验证构建，三二进制原始SHA已核对；内存fixture finally普通build及正常启动拒fixture实际PASS，详细失败/最终调用见[P22](records/P22.md)。不测试模型是否听从注入，不称模型注入完全解决、全46或完整T17/P22通过；哨兵未变仅证明无写副作用，路径能力由schema/严格拒绝核对。

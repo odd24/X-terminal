@@ -41,6 +41,21 @@ fn require(ok: bool, reason: &str) -> Result<()> {
 fn digest(bytes: impl AsRef<[u8]>) -> String {
     hex(Sha256::digest(bytes.as_ref()).as_slice())
 }
+async fn offload<T: Send + 'static>(
+    probe: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tokio::task::spawn_blocking(probe).await?
+}
+async fn wait_slot(clock: tokio::time::Instant, start: Instant, n: u64) -> Result<(Duration, f64)> {
+    let due = Duration::from_nanos(n * BATCH * 1_000_000_000 / HZ);
+    tokio::time::sleep_until(clock + due).await;
+    let late = start.elapsed().saturating_sub(due).as_secs_f64();
+    require(
+        late <= 0.250,
+        "offering missed deadline; no end catch-up allowed",
+    )?;
+    Ok((due, late))
+}
 fn payload(stream: usize, seq: u64) -> Vec<u8> {
     let mut b = vec![b'A'; BLOCK];
     for (i, c) in b.iter_mut().enumerate() {
@@ -250,6 +265,7 @@ fn targets(streams: &[Stream]) -> Vec<Target> {
         .collect()
 }
 async fn sample(client: &mut Client, streams: &[Target], root: &Path, pid: u32) -> Result<Value> {
+    let phase_start = Instant::now();
     let mut logs = vec![];
     for s in streams {
         require(
@@ -257,13 +273,24 @@ async fn sample(client: &mut Client, streams: &[Target], root: &Path, pid: u32) 
             "live verifier stopped; no tail-only fallback",
         )?;
         let i = info(client, s.connection, s.id).await?;
-        require(
-            i.failure.is_none()
-                && i.rejected_records == 0
-                && i.rejected_raw_bytes == 0
-                && i.source_gap_bytes == 0,
-            "explicit capture failure/rejection/gap",
-        )?;
+        if i.failure.is_some()
+            || i.rejected_records != 0
+            || i.rejected_raw_bytes != 0
+            || i.source_gap_bytes != 0
+        {
+            let fault = json!({"stage":"capture","status":i});
+            let path = root.join("first-fault.json");
+            offload(move || {
+                serde_json::to_writer_pretty(File::create_new(path)?, &fault)?;
+                Ok(())
+            })
+            .await?;
+            return Err(io::Error::other(format!(
+                "capture failure {:?}; rejected_records={}; rejected_bytes={}; source_gap={}",
+                i.failure, i.rejected_records, i.rejected_raw_bytes, i.source_gap_bytes
+            ))
+            .into());
+        }
         s.verify.last.store(i.last_segment, Ordering::SeqCst);
         let verified = s.verify.stats.lock().unwrap().clone();
         // Before a segment disappears, its full prefix must already have been independently checked.
@@ -273,6 +300,8 @@ async fn sample(client: &mut Client, streams: &[Target], root: &Path, pid: u32) 
         )?;
         logs.push(json!({"status":i,"verified_prefix":verified}));
     }
+    let status_query_s = phase_start.elapsed().as_secs_f64();
+    let audit_start = Instant::now();
     let audit = request(
         client,
         Request::RpcAudit {
@@ -280,10 +309,15 @@ async fn sample(client: &mut Client, streams: &[Target], root: &Path, pid: u32) 
         },
     )
     .await?;
-    let service = memory(pid)?;
-    let harness = memory(std::process::id())?;
-    let available = free(root)?;
-    let disk = disk_bytes(root)?;
+    let audit_query_s = audit_start.elapsed().as_secs_f64();
+    let path = root.to_owned();
+    let (service,harness,available,disk,probe_timing)=offload(move ||->Result<_>{
+        let t=Instant::now();let service=memory(pid)?;let service_memory_s=t.elapsed().as_secs_f64();
+        let t=Instant::now();let harness=memory(std::process::id())?;let harness_memory_s=t.elapsed().as_secs_f64();
+        let t=Instant::now();let available=free(&path)?;let free_space_s=t.elapsed().as_secs_f64();
+        let t=Instant::now();let disk=disk_bytes(&path)?;let disk_walk_s=t.elapsed().as_secs_f64();
+        Ok((service,harness,available,disk,json!({"service_memory_s":service_memory_s,"harness_memory_s":harness_memory_s,"free_space_s":free_space_s,"disk_walk_s":disk_walk_s})))
+    }).await?;
     require(
         available >= 16 * GIB + 16 * 1024 * 1024 && disk <= 8 * GIB - 16 * 1024 * 1024,
         "disk low-water/budget stop (16MiB drain reserve)",
@@ -298,7 +332,7 @@ async fn sample(client: &mut Client, streams: &[Target], root: &Path, pid: u32) 
         "harness memory budget stop",
     )?;
     Ok(
-        json!({"logs":logs,"audit":audit,"service_memory":service,"harness_memory":harness,"disk_bytes":disk,"disk_available":available}),
+        json!({"logs":logs,"audit":audit,"service_memory":service,"harness_memory":harness,"disk_bytes":disk,"disk_available":available,"timing":{"status_query_s":status_query_s,"audit_query_s":audit_query_s,"blocking_probes":probe_timing}}),
     )
 }
 async fn measured(
@@ -315,9 +349,13 @@ async fn measured(
     let mut acked = 0u64;
     let mut max_late = 0f64;
     let mut max_rpc = 0f64;
+    let mut slow_rpcs = Vec::<Value>::new();
     let mut first_ack = None;
     let mut last_ack = 0f64;
     let start = Instant::now();
+    let started_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis();
     let clock = tokio::time::Instant::now();
     let stop = Arc::new(AtomicBool::new(false));
     let monitor_error = Arc::new(Mutex::new(None::<String>));
@@ -351,13 +389,11 @@ async fn measured(
     };
     let outcome: Result<()> = async {
         for n in 0..total {
-            let due = Duration::from_nanos(n * BATCH * 1_000_000_000 / HZ);
-            tokio::time::sleep_until(clock + due).await;
+            let (due,late)=wait_slot(clock,start,n).await?;
             if let Some(e) = monitor_error.lock().unwrap().clone() {
                 return Err(io::Error::other(e).into());
             }
             let elapsed = start.elapsed();
-            let late = elapsed.saturating_sub(due).as_secs_f64();
             max_late = max_late.max(late);
             require(
                 elapsed < Duration::from_secs(seconds) && late <= 0.250,
@@ -373,6 +409,7 @@ async fn measured(
             s.expected.update(&b);
             s.count += BATCH;
             let rpc = Instant::now();
+            let request_started_s=start.elapsed().as_secs_f64();
             request(
                 client,
                 Request::AppendFixture {
@@ -385,6 +422,8 @@ async fn measured(
             acked += BLOCK as u64 * BATCH;
             acked_counter.store(acked, Ordering::SeqCst);
             last_ack = start.elapsed().as_secs_f64();
+            let rpc_seconds=rpc.elapsed().as_secs_f64();
+            if rpc_seconds>=0.050 {slow_rpcs.push(json!({"rpc_no":n,"stream":n as usize%STREAMS,"scheduled_s":due.as_secs_f64(),"request_started_s":request_started_s,"ack_s":last_ack,"rpc_s":rpc_seconds}));slow_rpcs.sort_by(|a,b|b["rpc_s"].as_f64().unwrap().total_cmp(&a["rpc_s"].as_f64().unwrap()));slow_rpcs.truncate(16);}
             if first_ack.is_none() {
                 first_ack = Some(last_ack);
             }
@@ -402,7 +441,7 @@ async fn measured(
         .map(|e| e.to_string())
         .or(monitor_error.lock().unwrap().clone());
     Ok(
-        json!({"error":error,"generated_bytes":generated,"ipc_ack_bytes":acked,"elapsed_s":elapsed,"generated_bytes_per_wall_second":generated as f64/elapsed,"ipc_bytes_per_wall_second":acked as f64/elapsed,"first_ack_s":first_ack,"last_ack_s":last_ack,"second_buckets_bytes":buckets,"max_schedule_late_s":max_late,"max_rpc_s":max_rpc}),
+        json!({"error":error,"generated_bytes":generated,"ipc_ack_bytes":acked,"elapsed_s":elapsed,"generated_bytes_per_wall_second":generated as f64/elapsed,"ipc_bytes_per_wall_second":acked as f64/elapsed,"first_ack_s":first_ack,"last_ack_s":last_ack,"second_buckets_bytes":buckets,"max_schedule_late_s":max_late,"max_rpc_s":max_rpc,"started_unix_ms":started_unix_ms,"slow_rpcs":slow_rpcs,"runtime_workers":tokio::runtime::Handle::current().metrics().num_workers(),"batch_blocks":BATCH}),
     )
 }
 async fn run(
@@ -537,54 +576,62 @@ async fn run(
         if v["records"] != s.count || v["sha256"] != expected {
             verification_error = Some("full journal digest/count mismatch".into());
         }
-        if let Some(status) = final_status.get(index) {
-            let readable = status
-                .readable
-                .as_ref()
-                .ok_or_else(|| io::Error::other("missing live text status"))?;
-            let mut input = BufReader::new(File::open(root.join("logs").join(&readable.filename))?);
-            let header = format!(
-                "# 终端通信日志 UTF-8\r\n# 日志 {}；连接 {} / {}\r\n# 仅起录后的接收输出/终端回显；不含认证表单，未独立记录发送；起录前内容未记录。\r\n",
-                s.id, s.connection.connection_id.0, s.connection.generation
-            );
-            let mut actual_header = vec![0; header.len()];
-            input.read_exact(&mut actual_header)?;
-            require(actual_header == header.as_bytes(), "live header mismatch")?;
-            let mut hash = Sha256::new();
-            for seq in 0..s.count {
-                let mut block = vec![0; BLOCK];
-                input.read_exact(&mut block)?;
+        let live_check: Result<()> = (|| {
+            if let Some(status) = final_status.get(index) {
+                let readable = status
+                    .readable
+                    .as_ref()
+                    .ok_or_else(|| io::Error::other("missing live text status"))?;
+                let mut input =
+                    BufReader::new(File::open(root.join("logs").join(&readable.filename))?);
+                let header = format!(
+                    "# 终端通信日志 UTF-8\r\n# 日志 {}；连接 {} / {}\r\n# 仅起录后的接收输出/终端回显；不含认证表单，未独立记录发送；起录前内容未记录。\r\n",
+                    s.id, s.connection.connection_id.0, s.connection.generation
+                );
+                let mut actual_header = vec![0; header.len()];
+                input.read_exact(&mut actual_header)?;
+                require(actual_header == header.as_bytes(), "live header mismatch")?;
+                let mut hash = Sha256::new();
+                for seq in 0..s.count {
+                    let mut block = vec![0; BLOCK];
+                    input.read_exact(&mut block)?;
+                    require(
+                        block == payload(index, seq),
+                        "live file byte/sequence mismatch",
+                    )?;
+                    hash.update(&block);
+                }
+                let mut tail = [0];
+                require(input.read(&mut tail)? == 0, "unexpected live suffix")?;
                 require(
-                    block == payload(index, seq),
-                    "live file byte/sequence mismatch",
+                    hex(hash.finalize().as_slice()) == expected,
+                    "independent live digest mismatch",
                 )?;
-                hash.update(&block);
+                require(
+                    status.accepted_records == s.count
+                        && status.written_records == s.count
+                        && status.accepted_raw_bytes == s.count * BLOCK as u64
+                        && status.written_raw_bytes == s.count * BLOCK as u64
+                        && status.rejected_records == 0
+                        && status.source_gap_bytes == 0
+                        && status.durable
+                        && status.failure.is_none(),
+                    "final capture conservation/durability failed",
+                )?;
+                require(
+                    readable.written_bytes == header.len() as u64 + s.count * BLOCK as u64
+                        && readable.flushed_bytes == readable.written_bytes
+                        && readable.synced_bytes == readable.written_bytes,
+                    "written/flush/sync counters differ",
+                )?;
             }
-            let mut tail = [0];
-            require(input.read(&mut tail)? == 0, "unexpected live suffix")?;
-            require(
-                hex(hash.finalize().as_slice()) == expected,
-                "independent live digest mismatch",
-            )?;
-            require(
-                status.accepted_records == s.count
-                    && status.written_records == s.count
-                    && status.accepted_raw_bytes == s.count * BLOCK as u64
-                    && status.written_raw_bytes == s.count * BLOCK as u64
-                    && status.rejected_records == 0
-                    && status.source_gap_bytes == 0
-                    && status.durable
-                    && status.failure.is_none(),
-                "final capture conservation/durability failed",
-            )?;
-            require(
-                readable.written_bytes == header.len() as u64 + s.count * BLOCK as u64
-                    && readable.flushed_bytes == readable.written_bytes
-                    && readable.synced_bytes == readable.written_bytes,
-                "written/flush/sync counters differ",
-            )?;
+            Ok(())
+        })();
+        if let Err(e) = live_check {
+            verification_error.get_or_insert_with(|| e.to_string());
         }
     }
+    let final_sample_result = sample(client, &targets(&streams), root, pid).await;
     let error = load
         .as_ref()
         .err()
@@ -596,7 +643,8 @@ async fn run(
                 .map(str::to_owned)
         })
         .or(stop_error)
-        .or(verification_error);
+        .or(verification_error.clone())
+        .or_else(|| final_sample_result.as_ref().err().map(|e| e.to_string()));
     let min = load
         .as_ref()
         .ok()
@@ -615,8 +663,69 @@ async fn run(
                 && v["ipc_ack_bytes"] == v["generated_bytes"]
         });
     Ok(
-        json!({"passed":pass,"error":error,"duration_seconds":seconds,"streams":STREAMS,"block_bytes":BLOCK,"offered_bytes_per_second":HZ*BLOCK as u64,"minimum_complete_second_ipc_bytes":min,"load":load.ok(),"final_status":final_status,"full_journal_verification":verified,"final_sample":sample(client,&targets(&streams),root,pid).await?,"scope":"Named Pipe synthetic append -> production parser/capture/raw+JSONL+live text; not SSH/UART or GUI"}),
+        json!({"passed":pass,"error":error,"verification_error":verification_error,"duration_seconds":seconds,"streams":STREAMS,"block_bytes":BLOCK,"offered_bytes_per_second":HZ*BLOCK as u64,"minimum_complete_second_ipc_bytes":min,"load":load.ok(),"final_status":final_status,"full_journal_verification":verified,"final_sample":final_sample_result.ok(),"scope":"Named Pipe synthetic append -> production parser/capture/raw+JSONL+live text; not SSH/UART or GUI"}),
     )
+}
+#[cfg(test)]
+mod instrument_tests {
+    use super::*;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn instrument_slow_probe_does_not_pause_scheduled_generator() -> Result<()> {
+        let active = Arc::new(AtomicU64::new(0));
+        let peak = Arc::new(AtomicU64::new(0));
+        let monitor = {
+            let active = active.clone();
+            let peak = peak.clone();
+            tokio::spawn(async move {
+                for _ in 0..4 {
+                    let active = active.clone();
+                    let peak = peak.clone();
+                    offload(move || {
+                        let n = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(n, Ordering::SeqCst);
+                        thread::sleep(Duration::from_millis(350));
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        Ok(())
+                    })
+                    .await?;
+                }
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            })
+        };
+        let clock = tokio::time::Instant::now();
+        let start = Instant::now();
+        let mut max_late = 0f64;
+        for n in 0..130 {
+            let (_, late) = wait_slot(clock, start, n).await?;
+            max_late = max_late.max(late);
+            let mut bytes = vec![];
+            for k in 0..BATCH {
+                bytes.extend(payload(0, n * BATCH + k));
+            }
+            let request = Request::AppendFixture {
+                connection: ConnectionRef {
+                    connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+                    generation: 1,
+                },
+                bytes,
+            };
+            let encoded = serde_json::to_vec(&request)?;
+            require(
+                encoded.len() < session_protocol::MAX_FRAME,
+                "instrument encoding frame budget",
+            )?;
+        }
+        monitor.await??;
+        require(
+            active.load(Ordering::SeqCst) == 0 && peak.load(Ordering::SeqCst) == 1,
+            "probes must never overlap or queue without bound",
+        )?;
+        println!(
+            "INSTRUMENT_SELF_CHECK {}",
+            json!({"slots":130,"elapsed_s":start.elapsed().as_secs_f64(),"max_lateness_s":max_late,"runtime_workers":tokio::runtime::Handle::current().metrics().num_workers(),"slow_probe_ms":350,"probes":4,"peak_concurrent":peak.load(Ordering::SeqCst),"production_service_started":false})
+        );
+        Ok(())
+    }
 }
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -678,8 +787,12 @@ async fn main() -> Result<()> {
     let mut client = Client::connect(&instance, token.expose(), pid).await?.0;
     let monitor_client = Client::connect(&instance, token.expose(), pid).await?.0;
     let result = run(&mut client, monitor_client, &root, pid, seconds, segment).await;
+    let shutdown_started = Instant::now();
     let shutdown = request(&mut client, Request::Shutdown {}).await;
+    let shutdown_request_s = shutdown_started.elapsed().as_secs_f64();
+    let wait_started = Instant::now();
     let exited = timeout(Duration::from_secs(15), child.wait()).await;
+    let service_wait_s = wait_started.elapsed().as_secs_f64();
     let clean = shutdown.is_ok() && matches!(exited,Ok(Ok(s)) if s.success());
     if !clean {
         let _ = child.kill().await;
@@ -688,6 +801,7 @@ async fn main() -> Result<()> {
     let report = match result {
         Ok(mut v) => {
             v["owned_service_clean_exit"] = json!(clean);
+            v["cleanup"] = json!({"shutdown_request_s":shutdown_request_s,"service_wait_s":service_wait_s,"shutdown_ok":shutdown.is_ok(),"forced_kill":!clean});
             v
         }
         Err(e) => json!({"passed":false,"error":e.to_string(),"owned_service_clean_exit":clean}),
