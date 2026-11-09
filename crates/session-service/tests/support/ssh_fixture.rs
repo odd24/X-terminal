@@ -23,6 +23,8 @@ struct Server {
     received: Arc<Mutex<Vec<Vec<u8>>>>,
     sizes: Arc<Mutex<Vec<(u32, u32)>>>,
     stall: Arc<AtomicBool>,
+    keyboard_echo: Arc<AtomicBool>,
+    received_at: Arc<Mutex<Vec<u128>>>,
     unblock: Arc<tokio::sync::Notify>,
     client_key: russh::keys::PublicKey,
     password: Arc<String>,
@@ -140,6 +142,12 @@ impl server::Handler for Server {
         bytes: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        self.received_at.lock().unwrap().push(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros(),
+        );
         self.received.lock().unwrap().push(bytes.to_vec());
         self.observations
             .lock()
@@ -148,7 +156,19 @@ impl server::Handler for Server {
         if self.stall.swap(false, Ordering::SeqCst) {
             self.unblock.notified().await;
         }
-        session.data(channel, bytes.to_vec())?;
+        if self.keyboard_echo.load(Ordering::SeqCst) {
+            let mut echo = Vec::with_capacity(bytes.len());
+            for &byte in bytes {
+                if byte == 0x7f || byte == 0x08 {
+                    echo.extend_from_slice(b"\x08 \x08");
+                } else {
+                    echo.push(byte);
+                }
+            }
+            session.data(channel, echo)?;
+        } else {
+            session.data(channel, bytes.to_vec())?;
+        }
         Ok(())
     }
     async fn window_change_request(
@@ -294,6 +314,8 @@ impl server::Handler for Server {
     }
 }
 pub struct Fixture {
+    pub keyboard_echo: Arc<AtomicBool>,
+    pub received_at: Arc<Mutex<Vec<u128>>>,
     pub unblock: Arc<tokio::sync::Notify>,
     pub exec_calls: Arc<Mutex<Vec<Vec<u8>>>>,
     pub observations: Arc<Mutex<Vec<Observation>>>,
@@ -336,6 +358,8 @@ impl Fixture {
         let attempts = Arc::new(AtomicUsize::new(0));
         let shell = Arc::new(Mutex::new(None));
         let received = Arc::new(Mutex::new(Vec::new()));
+        let keyboard_echo = Arc::new(AtomicBool::new(false));
+        let received_at = Arc::new(Mutex::new(Vec::new()));
         let sizes = Arc::new(Mutex::new(Vec::new()));
         let observations = Arc::new(Mutex::new(Vec::new()));
         let exec_calls = Arc::new(Mutex::new(Vec::new()));
@@ -348,6 +372,8 @@ impl Fixture {
             received: received.clone(),
             sizes: sizes.clone(),
             stall: Arc::new(AtomicBool::new(stall)),
+            keyboard_echo: keyboard_echo.clone(),
+            received_at: received_at.clone(),
             unblock: unblock.clone(),
             client_key: client_key.public_key().clone(),
             password: password.clone(),
@@ -379,6 +405,8 @@ impl Fixture {
         });
         let shutdown = rx.await.unwrap();
         Self {
+            keyboard_echo,
+            received_at,
             unblock,
             exec_calls,
             observations,

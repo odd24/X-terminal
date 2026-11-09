@@ -39,6 +39,7 @@ async fn main() {
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();
         match value["op"].as_str().unwrap() {
             "metrics" => {}
+            "keyboard_echo" => fixture.keyboard_echo.store(true, Ordering::SeqCst),
             "disconnect" => fixture.disconnect().await,
             "end" => fixture.end(7).await,
             "push" => {
@@ -58,6 +59,7 @@ async fn main() {
             serde_json::json!({
                 "attempts":fixture.attempts.load(Ordering::SeqCst),
                 "received":*fixture.received.lock().unwrap(),
+                "received_at_us":*fixture.received_at.lock().unwrap(),
                 "sizes":*fixture.sizes.lock().unwrap(),
                 "exec_calls":*fixture.exec_calls.lock().unwrap()
             })

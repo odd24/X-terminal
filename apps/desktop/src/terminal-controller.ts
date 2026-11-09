@@ -20,7 +20,7 @@ export const initialTerminalView=():TerminalView=>({status:'正在连接会话�
 type Deps={selection():PaneSelection;preferences():DesktopPreferences;state(view:TerminalView):void;invalidateDrafts():void;input():void;search():void;proposal(p?:PasteProposal):void;message(text:string):void;reset():void};
 export function createTerminalController(element:HTMLDivElement,deps:Deps){
     let view=initialTerminalView(),owner='';
-    const update=(patch:Partial<TerminalView>)=>{view={...view,...patch};deps.state(view);};
+    const update=(patch:Partial<TerminalView>)=>{if(Object.entries(patch).every(([key,value])=>view[key as keyof TerminalView]===value))return;view={...view,...patch};deps.state(view);};
     const setViewport=(viewport:TerminalView['viewport'])=>update({viewport});
     const setDecodeWarning=(decodeWarning:string)=>update({decodeWarning});
     const setStatus=(status:string)=>update({status});
@@ -40,6 +40,8 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     setViewport({ cols: term.cols, rows: term.rows });
     const current = { term, fit, writer: new TerminalWriter(term), connection: undefined as Ref | undefined, fixture: false, inputs: 0, protocol: '', writable: false };
     let disposed = false;
+    let timer=0,polling=false,lastPollAt=0,interactiveUntil=0;
+    function wakeOutput(){interactiveUntil=Date.now()+500;if(!polling){clearTimeout(timer);timer=window.setTimeout(()=>void poll(),Math.max(0,16-(Date.now()-lastPollAt)));}}
     let cursor = 1;
     let gap = false;
     let decoder = new OutputDecoder('utf8');
@@ -67,14 +69,15 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     let queue = newQueue();
     let resizeTimer = 0;
     let lastSize = '';
-    function submit(action: { bytes: number[] } | { cols: number; rows: number } | { text: string }) {
+    type InputAction={ bytes: number[] } | { cols: number; rows: number } | { text: string };
+    function submit(action: InputAction,keyboard=false) {
       const target = current.connection;
       const protocol = current.protocol;
       const writing='text' in action||'bytes' in action;
       if (!target || !['SSH2','SERIAL'].includes(protocol) || !current.writable || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&!active()) return false;
       const epoch=deps.selection().epoch;
       const id = requestId();
-      const accepted = queue.enqueue(async () => {
+      const dispatch = async (action:InputAction) => {
         // A selection change drops unsent input rather than retargeting it.
         if (disposed || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&(!active()||deps.selection().epoch!==epoch)) return;
         if (protocol === 'SERIAL') {
@@ -92,18 +95,19 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           : { op: 'resize', connection: target, request_id: id, ...action });
         if (reply.result !== 'input') throw new Error('receipt');
         let receipt: Receipt = reply;
-        const deadline = Date.now() + 17000;
+        const deadline = Date.now() + 17000;let waitMs=4;
         while (receipt.state === 'PENDING' || receipt.state === 'DISPATCHING') {
-          await new Promise(resolve => setTimeout(resolve, 50));
           if (disposed || !bound(target)) return;
           if (Date.now() > deadline) throw new Error('unknown');
           const result = await ssh({ op: 'input_status', connection: target, request_id: id });
           if (result.result !== 'input') throw new Error('receipt');
           receipt = result;
+          if(receipt.state==='PENDING'||receipt.state==='DISPATCHING'){await new Promise(resolve=>setTimeout(resolve,waitMs));waitMs=Math.min(50,waitMs*2);}
         }
         if (receipt.state !== 'PIPELINE_QUEUED') throw new Error('unknown');
         if (!disposed && bound(target)) setLastInput('已进入 SSH 发送管线；不代表远端已执行');
-      });
+      };
+      const accepted=keyboard&&protocol==='SSH2'&&'text' in action?queue.enqueueKeyboard(action.text,`${owner}/${target.connection_id}/${target.generation}/${epoch}`,text=>dispatch({text})):queue.enqueue(()=>dispatch(action));
       // Error text can resize the terminal, enqueueing another resize against a
       // stopped queue. Keep the original dispatch failure visible.
       if (!accepted) setInputFailure(previous => previous || '输入队列已满或已停止；此次输入未发送。');
@@ -133,8 +137,9 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       if (event.key.toLowerCase() === 'f' && event.shiftKey) { event.preventDefault(); deps.search(); return false; }
       return true;
     });
-    function receiveInput(data: string, compose = false): boolean {
+    function receiveInput(data: string, compose = false, keyboard=false): boolean {
       if (!active()||!bound(current.connection)) return false;
+      wakeOutput();
       if (!compose) deps.input();
       deps.invalidateDrafts(); clip.invalidate();
       if (current.protocol === 'SERIAL') {
@@ -147,7 +152,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         if (/[\uD800-\uDFFF]/u.test(data)) { setInputFailure('输入包含不完整 Unicode 字符；此次输入未发送'); return false; }
         if (new TextEncoder().encode(data).length > 196608) { setInputFailure('单次文本超过输入上限；此次输入未发送'); return false; }
         setLastInput('SSH 键盘输入已收到，按连接编码发送；内容不显示');
-        return submit({ text: data });
+        return submit({ text: data },keyboard);
       }
       if (!current.fixture || current.protocol !== 'FIXTURE' || !current.connection) return false;
       setLastInput(JSON.stringify(data));
@@ -162,7 +167,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       if (disposed || !current.connection || !bound(target) || current.connection.connection_id !== target.connection_id || current.connection.generation !== target.generation || current.protocol !== target.protocol || !current.writable) return false;
       return receiveInput(text, true);
     };
-    const input = term.onData(data => receiveInput(data));
+    const input = term.onData(data => receiveInput(data,false,true));
     const resize = term.onResize(({ cols, rows }) => {
       setViewport({ cols, rows });
       clearTimeout(resizeTimer);
@@ -178,6 +183,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     observer.observe(element);
     function same(selection:PaneSelection){const now=deps.selection();return !now.suspended&&!selection.suspended&&selection.owner===now.owner&&selection.connection?.connection_id===now.connection?.connection_id&&selection.connection?.generation===now.connection?.generation&&selection.connection?.protocol===now.connection?.protocol;}
     async function poll(){
+      if(disposed||polling)return;polling=true;lastPollAt=Date.now();
       try{
         const selection=deps.selection(),connection=selection.connection;
         current.fixture=selection.fixture;
@@ -212,16 +218,17 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           if(disposed)return;if(!same(selection)){timer=window.setTimeout(()=>void poll(),0);return;}
           for(const event of page.events){if(event.gap_bytes){await outputGap(`设备接收输出缺口：丢失 ${event.gap_bytes} 字节`);if(disposed)return;if(!same(selection))break;continue;}display(decoder.decode(new Uint8Array(event.bytes)));}
           if(page.disconnected&&page.events.length===0)display(decoder.finish());
+          if(page.events.length)interactiveUntil=Date.now()+500;
           cursor=page.next_cursor;await current.writer.drain();if(disposed)return;
-          if(same(selection)){update({renderedTarget:{...current.connection,protocol:current.protocol}});if(!gap)setStatus(page.disconnected?'会话已断开':'服务输出已同步');}
+          if(same(selection)){if(view.renderedTarget?.connection_id!==current.connection.connection_id||view.renderedTarget.generation!==current.connection.generation||view.renderedTarget.protocol!==current.protocol)update({renderedTarget:{...current.connection,protocol:current.protocol}});if(!gap)setStatus(page.disconnected?'会话已断开':'服务输出已同步');}
         }else setStatus('服务就绪 · 尚无活动连接');
-        if(!disposed)timer=window.setTimeout(()=>void poll(),100);
+        if(!disposed)timer=window.setTimeout(()=>void poll(),Date.now()<interactiveUntil?16:100);
       }catch(error){
         if(!disposed&&['StaleGeneration','NotFound'].includes(String(error))){current.writable=false;timer=window.setTimeout(()=>void poll(),100);return;}
         if(!disposed){current.fixture=false;current.writable=false;setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}
-      }
+      }finally{polling=false;}
     }
-    let timer=0;void poll();
+    void poll();
     return {runtime:current,clipboard:clip,compose,
       invalidate(){clip.invalidate();update({renderedTarget:undefined});},
       appearance(){const appearance=terminalAppearance();term.options.theme=appearance.theme;term.options.fontFamily=appearance.fontFamily;term.options.fontSize=deps.preferences().font_size;fit.fit();},

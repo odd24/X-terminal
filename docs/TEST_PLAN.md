@@ -318,3 +318,5 @@ P12新增test:desktop:preferences（前置desktop:build，第18入口）以中�
 P12终端配色新增schema 3迁移与只读旧备份原文件保持、旧偏好/版本备份、失败事务回滚、当前缺字段拒绝和配色摘要/安全副本恢复测试。协议必填枚举与真实Windows IPC以非默认配色保存/备份/重启；原生preferences/archives扩展三方案、应用主题独立、保存/重载/服务重启/目录隔离及来源屏幕保持。准确结果见P12，真实DPI/中文输入法矩阵仍开放。
 
 P08会话树管理新增test:desktop:tree-actions（前置实际desktop:build，完整桌面第35入口）：仅shared-terminal-tree-actions-ui-中文-自建根/合成SSH，空目录/root归属、嵌套缩进与折叠、搜索主动收起、叶子协议title保留、同名精确编辑/所属目录/凭据keep、删除取消/快速重复/真实fetch丢应答只读核对、活跃连接与保护记录保留、目标已不存在拒绝。普通服务不启用串口feature，不从专项推导实机/全局UI。原配置专项同步明确删除确认。
+
+P12.1快速键盘专项test:desktop:input-latency（前置实际desktop:build，第36入口），只中文自建根/合成SSH，无真实业务输入：重复字符/Backspace/Delete精确字节、真实事件→RPC/管线→远端时间戳→read/DOM分段、空闲主线程样本/read频率/不并发、7连接/双窗格混合与隔离、焦点往返丢未派发合并尾项、真实write丢应答只一次/原窗格停止且另一窗格可用；--baseline只用于旧构建诊断，不把复现丢输入算产品通过。队列模型追加合并边界/容量/活跃冻结/未知关闭，受影响split/compose/clipboard/output回归；split内存串口finally必须实际恢复普通服务。
