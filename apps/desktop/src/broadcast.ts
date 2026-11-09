@@ -14,10 +14,13 @@ export function broadcastPayload(text:string,ending:string){
  if(!Object.hasOwn(endings,ending)||!text||text.length>65536||/[\uD800-\uDFFF]/u.test(text))throw new Error('请输入完整Unicode正文并选择末尾换行。');
  const payload=text+endings[ending];if(new TextEncoder().encode(payload).length>65536)throw new Error('单批正文含末尾换行最多64KiB UTF-8；实际编码仍由各连接核对。');return payload;
 }
+export function broadcastTargets(owner:string,targets:readonly BroadcastTarget[]):BroadcastTarget[]{
+ if(!owner||targets.length<2||targets.length>8||new Set(targets.map(key)).size!==targets.length)throw new Error('请选择2–8个不同的连接。');
+ for(const t of targets)if(!t.connection_id||!Number.isSafeInteger(t.generation)||t.generation<1||!['SSH2','SERIAL'].includes(t.protocol)||!['utf8','gbk','gb18030'].includes(t.encoding))throw new Error('目标身份或编码无效，请重新预览。');
+ return targets.map(t=>({...t}));
+}
 function copyPlan(plan:BroadcastPlan):BroadcastPlan{
- if(!plan.owner||plan.targets.length<2||plan.targets.length>8||new Set(plan.targets.map(key)).size!==plan.targets.length)throw new Error('请选择2–8个不同的连接。');
- for(const t of plan.targets)if(!t.connection_id||!Number.isSafeInteger(t.generation)||t.generation<1||!['SSH2','SERIAL'].includes(t.protocol)||!['utf8','gbk','gb18030'].includes(t.encoding))throw new Error('目标身份或编码无效，请重新预览。');
- broadcastPayload(plan.payload,'none');return {owner:plan.owner,payload:plan.payload,targets:plan.targets.map(t=>({...t}))};
+ const targets=broadcastTargets(plan.owner,plan.targets);broadcastPayload(plan.payload,'none');return {owner:plan.owner,payload:plan.payload,targets};
 }
 type Dependencies={alive(owner:string):boolean;id():string;ready(owner:string,target:BroadcastTarget):Promise<boolean>;send(target:BroadcastTarget,id:string,payload:string):Promise<BroadcastReceipt>;query(target:BroadcastTarget,id:string):Promise<BroadcastReceipt>};
 export class BroadcastRun{

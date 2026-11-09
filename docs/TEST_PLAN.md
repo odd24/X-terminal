@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P18新增`test:desktop:continuous-input`（完整链第42入口，前置实际desktop:build，入口编译gui_ssh_fixture），仅shared-terminal-continuous-ui-中文-自建根/合成SSH/内存UART，finally必须实际恢复普通服务。验证默认关闭/固定范围和独立同意、真实MCP租约阻止预览、Chromium组合输入提交与两协议Unicode/CR/退格/Ctrl/方向精确字节、标签不扩大、Esc不群发、blur/粘贴/关闭停尾、租约核对失败、真实Start丢应答原编号只查不续发、GBK拒绝停模式、目标退休和reload不改投。模型补16项/4KiB有界合并、停止竞态、逐目标计数与旧查询隔离，实际结果见[P18](records/P18.md#独立键盘区连续同步2026-11-09)。不将Chromium合成组合输入当真实Windows IME或COM/现场SSH/完整R07验收。
+
 P19新增`test:desktop:compose-pacing`（完整链第41入口，前置实际desktop:build，入口编译gui_ssh_fixture），仅shared-terminal-compose-pacing-ui-中文-自建根/合成SSH/内存UART，finally必须实际恢复普通服务。覆盖默认整批/参数失效、行界与精确Unicode/换行、每片段独立编号/回执后间隔、双击单次、实际应答挂起后的停止/关闭/切目标/人工输入、串口原队列及取消、真实Start丢应答不重发/停尾部、重载不恢复。模型补预算/选区/Unicode、单FIFO占位/定时/取消/路由/未知失败封闭，结果见[P19](records/P19.md#有界逐行发送2026-11-09)。逐行保留原草稿、不记整份历史，实际COM/现场SSH、完整P19/R09/全局仍开放。
 
 CR-016扩第39`test:desktop:log-menu`，前置最终实际desktop:build：真实系统按钮必须为“保存”，一次Start和系统点击到落盘逐字节/SHA、无重复“保存日志”按钮/无残留操作面板、原完整目标textarea焦点、最近路径等于可信回执路径、只清理自身副本；系统取消/覆盖取消结束UI且原文件不动，必要覆盖默认无勾选/备份保持；真实同长源篡改FAILED必须保留alert，Start/Status真实fetch丢应答仅原编号查询；切换后已发布原范围无新目标弹窗/抢焦点或改写。仅自建中文根/合成SSH/内存UART，finally实际恢复普通服务。TEXT共用控件按影响验证旧21日志场景（优先node scripts/Test-Desktop-QuickSsh.mjs --logging-only）与24，普通确认不因简洁而默认省略，完整40入口/实机另列。

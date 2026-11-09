@@ -2,6 +2,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {ssh,SshRequestError,type Receipt} from './ssh-api';
 import {serial,SerialRequestError,type SerialReceipt} from './serial-api';
 import type {BroadcastReceipt,BroadcastTarget} from './broadcast';
+import {checkedLease} from './agent-management';
 type Live={connection_id:string;generation:number;protocol:string;state:string};
 const reference=(t:Pick<BroadcastTarget,'connection_id'|'generation'>)=>({connection_id:t.connection_id,generation:t.generation});
 export async function inspectBroadcastTargets(owner:string,targets:readonly Pick<BroadcastTarget,'connection_id'|'generation'|'protocol'>[]):Promise<BroadcastTarget[]>{
@@ -16,6 +17,13 @@ export async function inspectBroadcastTargets(owner:string,targets:readonly Pick
  return result;
 }
 export async function broadcastTargetReady(owner:string,target:BroadcastTarget){const targets=await inspectBroadcastTargets(owner,[target]);return targets[0].encoding===target.encoding&&targets[0].label===target.label;}
+export async function inspectContinuousTargets(owner:string,targets:readonly Pick<BroadcastTarget,'connection_id'|'generation'|'protocol'>[]){
+ const result=await inspectBroadcastTargets(owner,targets);
+ for(const target of result){const lease=checkedLease(await invoke<unknown>('agent_management_request',{request:{op:'lease',connection:reference(target)}}),reference(target));if(lease)throw new Error('所选目标有Agent输入租约；请先停止或明确人工接管该目标，再重新预览。');}
+ if((await invoke<{service_id:string}>('service_status')).service_id!==owner)throw new Error('服务已变化，未启用或发送。');
+ return result;
+}
+export async function continuousTargetReady(owner:string,target:BroadcastTarget){const [current]=await inspectContinuousTargets(owner,[target]);return current.encoding===target.encoding&&current.label===target.label;}
 const unknown=(message='结果不明；未重试，只能查询原编号',bytes:number|null=null):BroadcastReceipt=>({state:'UNKNOWN',message,bytes});
 function project(target:BroadcastTarget,id:string,receipt:Receipt|SerialReceipt):BroadcastReceipt{
  if(receipt.request_id!==id)return unknown('回执编号不匹配；未重试');
