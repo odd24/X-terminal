@@ -18,6 +18,7 @@ pub mod screen;
 pub mod serial_input;
 pub mod session;
 pub mod task_output;
+pub mod trigger;
 
 /// Wire version reserved for the first session service contract.
 pub const PROTOCOL_VERSION: u32 = 1;

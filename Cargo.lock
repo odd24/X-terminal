@@ -3987,6 +3987,8 @@ version = "0.1.0"
 dependencies = [
  "encoding_rs",
  "rand",
+ "regex",
+ "regex-syntax",
  "schemars 1.2.3",
  "serde",
  "serde_json",

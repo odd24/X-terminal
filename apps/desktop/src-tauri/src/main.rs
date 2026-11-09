@@ -8,6 +8,7 @@ mod export_save;
 mod service;
 mod terminal_clipboard;
 mod terminal_logs;
+mod trigger_match;
 use session_core::session::{ConnectionInfo, ConnectionRef, OutputPage};
 use session_protocol::{Reply, Request};
 use std::{sync::Arc, time::Duration};
@@ -600,6 +601,7 @@ fn main() {
             let weak = Arc::downgrade(&shared);
             app.manage(export_save::Manager::new(directory.clone())?);
             app.manage(terminal_logs::Manager::new(directory.clone())?);
+            app.manage(trigger_match::Manager::default());
             app.manage(Desktop(shared, configuration, directory));
             // Renderer reload/suspension must not expire the native IPC client.
             // A failed heartbeat latches failure, never restarts or retries input.
@@ -628,6 +630,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             terminal_clipboard::terminal_clipboard_read,
             service_status,
+            trigger_match::trigger_match_request,
             service_list,
             service_read,
             service_read_text,

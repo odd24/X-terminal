@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P20按[ADR-078](decisions/ADR-078.md)分层验证有限跨度原生字符串/正则、跨块/缺口及资源上限、窗口四动作/独立发送许可/回显防循环；核心与原生通道单元通过不等GUI或完整P20。实际构建、合成SSH/内存UART与普通服务恢复结果集中[P20](records/P20.md)，不读真实日志或开COM。
+
 P18新增`test:desktop:continuous-input`（完整链第42入口，前置实际desktop:build，入口编译gui_ssh_fixture），仅shared-terminal-continuous-ui-中文-自建根/合成SSH/内存UART，finally必须实际恢复普通服务。验证默认关闭/固定范围和独立同意、真实MCP租约阻止预览、Chromium组合输入提交与两协议Unicode/CR/退格/Ctrl/方向精确字节、标签不扩大、Esc不群发、blur/粘贴/关闭停尾、租约核对失败、真实Start丢应答原编号只查不续发、GBK拒绝停模式、目标退休和reload不改投。模型补16项/4KiB有界合并、停止竞态、逐目标计数与旧查询隔离，实际结果见[P18](records/P18.md#独立键盘区连续同步2026-11-09)。不将Chromium合成组合输入当真实Windows IME或COM/现场SSH/完整R07验收。
 
 P19新增`test:desktop:compose-pacing`（完整链第41入口，前置实际desktop:build，入口编译gui_ssh_fixture），仅shared-terminal-compose-pacing-ui-中文-自建根/合成SSH/内存UART，finally必须实际恢复普通服务。覆盖默认整批/参数失效、行界与精确Unicode/换行、每片段独立编号/回执后间隔、双击单次、实际应答挂起后的停止/关闭/切目标/人工输入、串口原队列及取消、真实Start丢应答不重发/停尾部、重载不恢复。模型补预算/选区/Unicode、单FIFO占位/定时/取消/路由/未知失败封闭，结果见[P19](records/P19.md#有界逐行发送2026-11-09)。逐行保留原草稿、不记整份历史，实际COM/现场SSH、完整P19/R09/全局仍开放。
