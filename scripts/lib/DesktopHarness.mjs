@@ -69,7 +69,7 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
     // response instead; never replace service data with a fabricated success.
     // Assert interception counts in callers so an inactive hook cannot pass.
     const interceptIpc = async ({ op, mode = 'delay', delayMs = 200, command: interceptedCommand = 'logging_request', connectionId }) => {
-      assert.ok(['delay', 'error', 'hold'].includes(mode));
+      assert.ok(['delay', 'error', 'hold', 'hold_error'].includes(mode));
       await evaluate(`(() => {
         if(window.__desktopIpcResponseTest)throw new Error('IPC hook already installed');
         const original=window.fetch;
@@ -79,7 +79,8 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
           let operation,connection;try{const body=JSON.parse(init?.body);operation=body.request?.op;connection=(body.request?.connection??body.connection)?.connection_id;}catch{}
           if(new URL(String(input)).pathname===${JSON.stringify('/' + interceptedCommand)}&&operation===${JSON.stringify(op)}&&(${JSON.stringify(connectionId)}===undefined||connection===${JSON.stringify(connectionId)})){
             hook.count++;
-            if(${JSON.stringify(mode)}==='error'){
+            if(${JSON.stringify(mode)}==='hold_error')await new Promise(resolve=>hook.releases.push(resolve));
+            if(${JSON.stringify(mode)}==='error'||${JSON.stringify(mode)}==='hold_error'){
               const headers=new Headers(response.headers);headers.set('Tauri-Response','error');headers.set('content-type','application/json');headers.delete('content-length');
               return new Response(JSON.stringify('synthetic lost IPC reply after service response'),{status:response.status,headers});
             }

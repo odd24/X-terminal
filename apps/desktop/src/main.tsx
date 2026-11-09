@@ -14,6 +14,9 @@ import { AgentPanel } from './agent-panel';
 import { ComposePanel } from './compose-panel';
 import type { ComposePacing } from './compose-pacing';
 import {QuickCommandsPanel} from './quick-commands-panel';
+import {TriggerPanel} from './trigger-panel';
+import {Triggers} from './triggers';
+import {triggerDependencies} from './trigger-api';
 import {ContinuousInputPanel} from './continuous-input-panel';
 import {ContinuousInput} from './continuous-input';
 import {continuousTargetReady} from './broadcast-api';
@@ -64,6 +67,9 @@ function App() {
   const [quickCommandsOpen,setQuickCommandsOpen]=useState(false);
   const [broadcastOpen,setBroadcastOpen]=useState(false);
   const [continuousOpen,setContinuousOpen]=useState(false);
+  const [triggersOpen,setTriggersOpen]=useState(false);
+  const [triggerNotice,setTriggerNotice]=useState('');
+  useEffect(()=>{if(!triggerNotice)return;const timer=window.setTimeout(()=>setTriggerNotice(''),6000);return()=>window.clearTimeout(timer);},[triggerNotice]);
   const [broadcastSeed,setBroadcastSeed]=useState<BroadcastSeed>();
   const panes=useRef(new PaneLayout());
   const [,setPaneEpoch]=useState(0);
@@ -239,6 +245,7 @@ function App() {
   const serviceStopped=useRef(false);
   const broadcastRun=useRef(new BroadcastRun({alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,id:requestId,ready:broadcastTargetReady,send:sendBroadcastTarget,query:queryBroadcastTarget}));
   const continuousRun=useRef(new ContinuousInput({alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,id:requestId,ready:continuousTargetReady,send:sendBroadcastTarget,query:queryBroadcastTarget}));
+  const triggers=useRef(new Triggers({...triggerDependencies,alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,notify:setTriggerNotice}));
   function closeBroadcast(){broadcastRun.current.cancel();setBroadcastOpen(false);setBroadcastSeed(undefined);}
   const [splitSource,setSplitSource]=useState<{owner:string;first:PaneLive;nonce:string}>();
   const splitNonce=useRef('');
@@ -263,11 +270,11 @@ function App() {
   function registerPane(key:PaneKey,c?:TerminalController){if(c)controllers.current.set(key,c);else controllers.current.delete(key);if(panes.current.active===key){runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;}}
   useEffect(()=>{let disposed=false,timer=0;
     async function poll(){try{const epoch=panes.current.epoch;const native=await invoke<Status>('service_status');if(disposed)return;const sessions=await invoke<Connection[]>('service_list');if(disposed)return;
-      composeHistory.current.retain(native.service_id);serviceRef.current=native;setService(native);liveConnections.current=sessions;setConnections(sessions);
+      composeHistory.current.retain(native.service_id);serviceRef.current=native;setService(native);liveConnections.current=sessions;setConnections(sessions);triggers.current.validate(native.service_id,sessions);
       const beforeRetain=panes.current.epoch;if(panes.current.retain(native.service_id,sessions,epoch===panes.current.epoch)){if(panes.current.epoch!==beforeRetain)routeChanged();else syncRoute();}
       if(panes.current.direction==='single'&&!panes.current.current.requested){const first=sessions.find(c=>!tabClosures.current.isHidden(c));if(first){panes.current.select(first.connection_id);panes.current.retain(native.service_id,sessions);syncRoute();}}
       timer=window.setTimeout(()=>void poll(),100);
-    }catch{if(!disposed){serviceStopped.current=true;composeHistory.current.retain('');panes.current.epoch++;routeChanged();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
+    }catch{if(!disposed){serviceStopped.current=true;triggers.current.stop('服务不可用，已停用触发器');composeHistory.current.retain('');panes.current.epoch++;routeChanged();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
     void poll();return()=>{disposed=true;clearTimeout(timer);};
   },[]);
   useEffect(()=>{const key=(event:KeyboardEvent)=>{if(event.ctrlKey&&event.shiftKey&&!event.altKey&&!event.metaKey&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog:modal')){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)openQuickCommands();return;}if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length!==2)return;event.preventDefault();event.stopImmediatePropagation();focusPane(panes.current.slots.find(p=>p.key!==panes.current.active)!.key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
@@ -417,6 +424,7 @@ function App() {
       <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed(undefined);setBroadcastOpen(true);}}>多目标发送</button>
 
       <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setContinuousOpen(true);}}>连续同步键盘</button>
+      <button onClick={()=>setTriggersOpen(true)}>窗口触发器</button>
 
       <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
         <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
@@ -462,6 +470,8 @@ function App() {
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={captureCurrentWorkspace} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
+    {triggerNotice&&!triggersOpen&&<div className="terminal-log-feedback" role="status" aria-label="触发器窗口通知"><span>{visibleControls(triggerNotice)}</span><button onClick={()=>setTriggerNotice('')}>关闭触发通知</button></div>}
+    {triggersOpen&&<Dialog label="配置本窗口触发器" close={()=>{triggers.current.clear();setTriggersOpen(false);}}><TriggerPanel notice={triggerNotice} dismiss={()=>setTriggerNotice('')} owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={triggers.current} close={()=>setTriggersOpen(false)}/></Dialog>}
     {continuousOpen&&<Dialog label="明确启停连续同步键盘" close={()=>{continuousRun.current.stop();setContinuousOpen(false);}}><ContinuousInputPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={continuousRun.current} close={()=>setContinuousOpen(false)}/></Dialog>}
     {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} seed={broadcastSeed} close={closeBroadcast}/></Dialog>}
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}

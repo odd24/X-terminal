@@ -167,3 +167,6 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 /* Dedicated keyboard control uses the shared terminal palette; no local output echo. */
 .synchronized-keyboard { height:calc(4 * var(--text-sm) * var(--line-height) + 2 * var(--space-3)); border-color:var(--accent); margin-block:var(--space-2); }
 .synchronized-keyboard .xterm-helper-textarea { min-height:0; }
+
+/* Trigger excerpts are source-proven text, not synthetic terminal coordinates. */
+.config-panel mark { background:var(--terminal-selection-background); color:var(--text); }

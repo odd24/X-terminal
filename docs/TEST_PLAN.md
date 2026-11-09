@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P20新增`test:desktop:triggers`（完整链第43入口，前置实际desktop:build，入口编译gui_ssh_fixture），只shared-terminal-triggers-ui-中文-自建根/两个合成SSH服务与内存UART，finally实际恢复普通服务。覆盖默认无来源/动作/同意、启用后新文本水位、真实跨块字符串/有限正则、四动作与只读零发送、冷却/限次、非法正则拒绝、源自回显一次自动批次/混合独立回执、取消/真实丢应答原编号只查、编辑后迟到原生命中丢弃、实际文本环覆盖缺口撤激活、UART解码来源、来源退休/新代次不继承，以及关闭/reload清规则/记录。记录容量/字节与Unicode、动作独立/迟到/失败未知由模型补充；原生槽位/worker与核心严格预算另验，实际范围/失败见[P20](records/P20.md)。不把这些专项拼成全43或实机/全局/长期通过。
+
 P20按[ADR-078](decisions/ADR-078.md)分层验证有限跨度原生字符串/正则、跨块/缺口及资源上限、窗口四动作/独立发送许可/回显防循环；核心与原生通道单元通过不等GUI或完整P20。实际构建、合成SSH/内存UART与普通服务恢复结果集中[P20](records/P20.md)，不读真实日志或开COM。
 
 P18新增`test:desktop:continuous-input`（完整链第42入口，前置实际desktop:build，入口编译gui_ssh_fixture），仅shared-terminal-continuous-ui-中文-自建根/合成SSH/内存UART，finally必须实际恢复普通服务。验证默认关闭/固定范围和独立同意、真实MCP租约阻止预览、Chromium组合输入提交与两协议Unicode/CR/退格/Ctrl/方向精确字节、标签不扩大、Esc不群发、blur/粘贴/关闭停尾、租约核对失败、真实Start丢应答原编号只查不续发、GBK拒绝停模式、目标退休和reload不改投。模型补16项/4KiB有界合并、停止竞态、逐目标计数与旧查询隔离，实际结果见[P18](records/P18.md#独立键盘区连续同步2026-11-09)。不将Chromium合成组合输入当真实Windows IME或COM/现场SSH/完整R07验收。
