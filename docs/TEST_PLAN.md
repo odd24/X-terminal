@@ -316,3 +316,5 @@ P12偏好存储新增4项真实SQLite测试和1项严格协议/1项Windows IPC�
 P12新增test:desktop:preferences（前置desktop:build，第18入口）以中文临时根实际WebView验证明确保存前后、Page.reload新页面、真正服务退出/再启动、跨目录默认隔离、真实键盘Ctrl+C/Shift+C/V/Shift+V与右键的精确合成字节、偏好变化撤预览、过期revision拒绝及真实save_preferences fetch应答丢失/延迟命中不重试，延迟保存期间GUI恢复后迟到应答不能覆盖窗口。仅合成软件验证，实际完整回归/失败与补正见P12，不等于全局DPI/实机通过。
 
 P12终端配色新增schema 3迁移与只读旧备份原文件保持、旧偏好/版本备份、失败事务回滚、当前缺字段拒绝和配色摘要/安全副本恢复测试。协议必填枚举与真实Windows IPC以非默认配色保存/备份/重启；原生preferences/archives扩展三方案、应用主题独立、保存/重载/服务重启/目录隔离及来源屏幕保持。准确结果见P12，真实DPI/中文输入法矩阵仍开放。
+
+P08会话树管理新增test:desktop:tree-actions（前置实际desktop:build，完整桌面第35入口）：仅shared-terminal-tree-actions-ui-中文-自建根/合成SSH，空目录/root归属、嵌套缩进与折叠、搜索主动收起、叶子协议title保留、同名精确编辑/所属目录/凭据keep、删除取消/快速重复/真实fetch丢应答只读核对、活跃连接与保护记录保留、目标已不存在拒绝。普通服务不启用串口feature，不从专项推导实机/全局UI。原配置专项同步明确删除确认。

@@ -146,3 +146,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 .pane-heading .pane-focus { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .pane-status { overflow-wrap: anywhere; padding: var(--space-1); font-size: var(--text-xs); }
 .split-tools { padding-block: var(--space-1); }
+
+.tree-root-label, .tree-folder-hint { color: var(--text-muted); }
+.session-tree-list .tree-folder { border-color: transparent; background: transparent; }
+.tree-empty { padding-left: var(--space-3); color: var(--text-muted); }

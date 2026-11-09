@@ -34,7 +34,7 @@ try {
   assert.equal((await page()).profiles[0].credential_ref, original.credential_ref);
   await ui.click('复制配置'); await ui.click('保存配置'); await message('配置已保存');
   data = await page(); assert.equal(data.profiles.length, 2); assert.equal(data.profiles.find(p => p.id !== original.id).credential_ref, null);
-  await ui.click('删除配置'); await message('配置已删除'); assert.equal((await page()).profiles.length, 1);
+  await ui.click('删除配置'); await ui.click('确认删除此配置'); await message('所选保存配置已删除'); assert.equal((await page()).profiles.length, 1);
   await ui.click('新建配置'); await ui.fill('协议', 'serial'); await ui.fill('配置名称', '串口合成');
   await ui.fill('串口标识', 'COM89'); await ui.fill('流控', 'hardware');
   await ui.click('保存配置'); await message('配置已保存');
