@@ -26,9 +26,10 @@ export function LogSavePanel({ source, mode = 'NORMAL', autoStart = false, onCha
     busy.current = true; setPending(true); if (op !== 'status') setReviewed(false); focus.current = op !== 'status';
     try {
       const info = checkedSave(await invoke('export_save_request', { request: { op, scope: target.scope, save_id: target.save_id, ...(op === 'confirm' ? { confirmation: target.last!.confirmation } : {}) } }), target, target.last);
-      target.last = info; if(mounted.current)onChange?.(info);
+      target.last = info;
       if (!mounted.current) { await close(target); return; }
       if (current.current !== target) return;
+      onChange?.(info);
       if (info.phase !== 'AWAITING_CONFIRMATION' && (document.activeElement === check.current || document.activeElement === confirm.current)) focus.current = true;
       setTask({ ...target }); setUncertain(false); setMissing(false); setNow(Date.now());
       if (info.phase !== 'AWAITING_CONFIRMATION' || info.cancel_requested) setReviewed(false);
@@ -52,9 +53,11 @@ export function LogSavePanel({ source, mode = 'NORMAL', autoStart = false, onCha
   const automatic=useRef(false);
   useEffect(()=>{if((mode==='TEXT'||mode==='MENU')&&autoStart&&!automatic.current){automatic.current=true;if(!current.current)start();}},[autoStart,mode]);
   const info = !uncertain && !missing ? task?.last : undefined; const active = !!task && !missing && (!task.last || !terminalSave(task.last) || uncertain);
+  const settled=info&&(info.phase==='COMPLETED'||info.phase==='CANCELLED');
+  if((mode==='TEXT'||mode==='MENU')&&settled)return <div aria-label={label('保存回执')}><p role="status" aria-label={label('导出另存状态')}>{info.phase==='COMPLETED'?`日志已保存：${info.path}`:'另存已取消。'}</p><div className="config-actions">{mode==='TEXT'&&<button disabled={pending} onClick={start}>{info.phase==='COMPLETED'?'另存一份':'重新另存'}</button>}{info.phase==='COMPLETED'&&<button disabled={pending} onClick={()=>{if(current.current)void run(current.current,'open_directory');}}>打开保存目录</button>}</div></div>;
   if(mode==='TEXT'||mode==='MENU')return <fieldset aria-label={label('导出另存')}><legend>保存日志</legend>
-    <div className="config-actions"><button disabled={!source||pending||active||uncertain||missing} onClick={start}>保存日志</button>{(uncertain||missing)&&<button ref={query} disabled={!task||pending} onClick={()=>{if(current.current)void run(current.current,'status');}}>查询保存结果</button>}{active&&!uncertain&&!missing&&<button disabled={pending||info?.cancel_requested} onClick={()=>{if(current.current)void run(current.current,'cancel');}}>取消保存</button>}{info?.phase==='COMPLETED'&&<button disabled={pending} onClick={()=>{if(current.current)void run(current.current,'open_directory');}}>打开目录</button>}</div>
-    <p role="status" aria-label={label('导出另存状态')}>{message}</p>
+    <div className="config-actions">{!task&&!autoStart&&<button disabled={!source||pending||uncertain||missing} onClick={start}>选择保存位置</button>}{info&&(info.phase==='FAILED'||info.phase==='EXPIRED')&&<button disabled={pending||uncertain||missing} onClick={start}>重新选择保存位置</button>}{(uncertain||missing)&&<button ref={query} disabled={!task||pending} onClick={()=>{if(current.current)void run(current.current,'status');}}>查询保存结果</button>}{active&&!uncertain&&!missing&&<button disabled={pending||info?.cancel_requested} onClick={()=>{if(current.current)void run(current.current,'cancel');}}>取消保存</button>}{info?.phase==='COMPLETED'&&<button disabled={pending} onClick={()=>{if(current.current)void run(current.current,'open_directory');}}>打开目录</button>}</div>
+    <p role={info&&['FAILED','RECOVERY_REQUIRED','EXPIRED'].includes(info.phase)?'alert':'status'} aria-label={label('导出另存状态')}>{message}</p>
     {info?.path&&<label>保存位置<input aria-label={label('另存文件路径')} readOnly value={info.path}/></label>}
     {info?.phase==='AWAITING_CONFIRMATION'&&<><p>目标文件已存在（{info.existing_bytes} 字节）。确认替换后会在同目录保留原文件备份。</p><label className="check"><input ref={check} type="checkbox" aria-label={label('确认替换保存文件')} checked={reviewed} disabled={pending||uncertain||info.cancel_requested||now>=info.expires_at_ms!} onChange={event=>setReviewed(event.target.checked)}/>我已核对保存位置，确认替换并保留原文件备份</label><button ref={confirm} disabled={!reviewed||pending||uncertain||info.cancel_requested||now>=info.expires_at_ms!} onClick={()=>{if(current.current)void run(current.current,'confirm');}}>确认替换并保存</button></>}
     {info?.backup&&<label>原文件备份<input aria-label={label('另存原文件备份')} readOnly value={info.backup}/></label>}

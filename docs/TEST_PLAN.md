@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+CR-016扩第39`test:desktop:log-menu`，前置最终实际desktop:build：真实系统按钮必须为“保存”，一次Start和系统点击到落盘逐字节/SHA、无重复“保存日志”按钮/无残留操作面板、原完整目标textarea焦点、最近路径等于可信回执路径、只清理自身副本；系统取消/覆盖取消结束UI且原文件不动，必要覆盖默认无勾选/备份保持；真实同长源篡改FAILED必须保留alert，Start/Status真实fetch丢应答仅原编号查询；切换后已发布原范围无新目标弹窗/抢焦点或改写。仅自建中文根/合成SSH/内存UART，finally实际恢复普通服务。TEXT共用控件按影响验证旧21日志场景（优先node scripts/Test-Desktop-QuickSsh.mjs --logging-only）与24，普通确认不因简洁而默认省略，完整40入口/实机另列。
+
 P12.1新增`test:desktop:config-recheck`为完整第40入口，前置实际desktop:build；只shared-terminal-config-recheck-ui-中文-自建根/内存串口库存，不打开任何COM。两组自建owner/blocked桌面验证配置LOCKED≠串口占用、库存失败独立、当前持有仍拒、退出后普通读仍拒、原service_id显式重查/重复门/原窗口PID保持、错误旧服务ID拒、held/lost应答不自动连接/丢回复后不重开库或改revision、UART参数保持、偏好/树只读刷新，finally实际恢复普通服务。Windows IPC独立补正常退出/已确认测试服务强制退出/竞争者先取得、原库/错误schema或损坏字节不动。旧23/24仅受影响复验，不重复全套；高级审计/实机另列。
 
 P11.4新增`test:desktop:log-menu`为完整第39入口，前置实际desktop:build及入口编译gui_ssh_fixture；只shared-terminal-log-menu-ui-中文-/shared-terminal-save-ui-中文-自建根，实际CDP右键双窗格+被动内存UART。验证六菜单入口、旧右键偏好不读剪贴板/不直接发、首次及重开状态精确加载、超预览/多轮全文、真实滚动条上滚的物理行中文空白/尾空格逐字节、原生Explorer/实际Notepad文件正文原ID核对（无编辑区TextPattern时自建窗口正文头OCR，不读其他窗口/发按键）、系统另存/取消/独立覆盖备份/SHA，四种Start/Stop/Prepare/Save真实应答丢失只查、重载原ID显式恢复、旧DOM/焦点/重连/关闭迟到隔离。finally必须实际恢复普通服务，不接COM/真实日志；完整P11.4及全局/实机仍独立。

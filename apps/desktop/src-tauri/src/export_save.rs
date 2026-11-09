@@ -240,7 +240,7 @@ fn choose(owner: usize, id: Uuid, mode: SourceMode) -> windows::core::Result<Opt
                 & !FOS_OVERWRITEPROMPT,
         )?;
         dialog.SetTitle(w!("另存终端导出"))?;
-        dialog.SetOkButtonLabel(w!("选择保存位置"))?;
+        dialog.SetOkButtonLabel(w!("保存"))?;
         if matches!(mode, SourceMode::Text | SourceMode::Menu) {
             dialog.SetTitle(w!("保存文本日志"))?;
             dialog.SetFileTypes(&[COMDLG_FILTERSPEC {

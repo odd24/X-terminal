@@ -45,7 +45,7 @@ function Find-FileNameEditor($picker) {
 function Find-PickerButton($picker) {
     $buttons=$picker.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Button))
     foreach($candidate in $buttons) {
-        $pickerButtonMatches=if($Action -eq 'select') { $candidate.Current.Name -eq '选择保存位置' } else { $candidate.Current.Name -match '^(取消|Cancel)' }
+        $pickerButtonMatches=if($Action -eq 'select') { $candidate.Current.Name -eq '保存' } else { $candidate.Current.Name -match '^(取消|Cancel)' }
         $invokePattern=$null
         if($pickerButtonMatches -and $candidate.Current.IsEnabled -and $candidate.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern,[ref]$invokePattern)) { return $candidate }
     }

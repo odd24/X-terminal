@@ -52,7 +52,7 @@ try {
   await ui.waitFor(`!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='查看日志').disabled`);await click('查看日志');
   await ui.waitFor(`document.querySelector('[aria-label="本次日志文本"]')?.textContent.includes('Android启动 log')`);
   const output=path.join(saveDirectory,'UART日志','Android串口.log');await click('保存日志');console.log(await native('select',output));
-  await ui.waitFor(`document.querySelector('[aria-label="文本导出另存状态"]')?.textContent.includes('本次另存已完成')`);
+  await ui.waitFor(`document.querySelector('[aria-label="文本导出另存状态"]')?.textContent.includes('日志已保存')`);
   const scope=JSON.parse(await ui.evaluate(`sessionStorage.getItem('terminal-text-log-task-v1')`));
   const receipt=await logging({op:'text_export_status',...scope}),saved=await readFile(output),managed=await readFile(path.join(directory,'terminal-log-exports',scope.request_id,'export.jsonl'));
   assert.deepEqual(saved,managed);assert.equal(createHash('sha256').update(saved).digest('hex'),receipt.sha256);assert.ok(saved.toString('utf8').includes('Android启动 log'));

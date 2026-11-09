@@ -159,3 +159,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 
 .terminal-context-menu { width:min(var(--auxiliary-width),calc(100vw - 2 * var(--space-4))); max-height:calc(100dvh - 2 * var(--space-2)); overflow:auto; z-index:100; }
 .terminal-context-menu small { white-space:normal; }
+
+.terminal-log-feedback { position:fixed; right:var(--space-4); bottom:var(--space-4); z-index:70; max-width:min(var(--auxiliary-width),calc(100vw - 2 * var(--space-4))); display:flex; flex-wrap:wrap; gap:var(--space-2); align-items:center; padding:var(--space-3); border:var(--border-width) solid var(--border); border-radius:var(--radius-control); background:var(--surface-raised); color:var(--text); font-size:var(--text-sm); overflow-wrap:anywhere; }
+
+.terminal-log-feedback > span { min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
