@@ -1,4 +1,6 @@
 //! Structured configuration only. Credential material has no column or model field.
+mod batch;
+pub use batch::BatchPlan;
 mod host_keys;
 mod preferences;
 mod quick_commands;

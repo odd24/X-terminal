@@ -59,6 +59,82 @@
         ],
         "type": "string"
       },
+      "BatchFolder": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "keep",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "folder_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "const": "move",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "BatchPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "encoding": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Encoding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "folder": {
+            "$ref": "#/$defs/BatchFolder"
+          },
+          "serial_baud": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ssh_port": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "folder"
+        ],
+        "type": "object"
+      },
       "CleanupKind": {
         "enum": [
           "LOG",
@@ -77,6 +153,95 @@
       },
       "ConfigRequest": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "ids": {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "op": {
+                "const": "preview_batch",
+                "type": "string"
+              },
+              "patch": {
+                "$ref": "#/$defs/BatchPatch"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id",
+              "revision",
+              "ids",
+              "patch"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "apply_batch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "batch_status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "cancel_batch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -4583,6 +4748,77 @@
         ],
         "type": "string"
       },
+      "BatchDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/$defs/PortableProfile"
+          },
+          "before": {
+            "$ref": "#/$defs/PortableProfile"
+          }
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "type": "object"
+      },
+      "BatchReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "changed_count": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ConfigError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/$defs/BatchDiff"
+            },
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/$defs/BatchState"
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "state",
+          "changed_count",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "BatchState": {
+        "enum": [
+          "PREVIEW",
+          "APPLIED",
+          "CANCELLED",
+          "REJECTED",
+          "EXPIRED"
+        ],
+        "type": "string"
+      },
       "CatalogueState": {
         "enum": [
           "HEADER_CHECKED",
@@ -4793,6 +5029,23 @@
       },
       "ConfigReply": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "receipt": {
+                "$ref": "#/$defs/BatchReceipt"
+              },
+              "result": {
+                "const": "batch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "receipt"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -6764,6 +7017,35 @@
           "FAILED"
         ],
         "type": "string"
+      },
+      "PortableProfile": {
+        "additionalProperties": false,
+        "description": "Portable export intentionally has no credential_ref field.",
+        "properties": {
+          "folder_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/$defs/Settings"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "settings"
+        ],
+        "type": "object"
       },
       "Profile": {
         "additionalProperties": false,

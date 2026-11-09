@@ -7,6 +7,9 @@ mod quick_command_tests;
 #[path = "support/workspaces.rs"]
 mod workspace_tests;
 
+#[path = "support/batch.rs"]
+mod batch_tests;
+
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {

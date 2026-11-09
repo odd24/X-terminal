@@ -546,6 +546,17 @@ fn serial_descriptor(r: &serial::Request) -> Descriptor {
 fn config_descriptor(r: &config::ConfigRequest) -> Descriptor {
     use config::ConfigRequest as C;
     match r {
+        C::PreviewBatch { revision, .. } => resource(
+            Area::Configuration,
+            Verb::Inspect,
+            ResourceKind::ConfigurationRevision,
+            *revision,
+            None,
+        ),
+        C::ApplyBatch { .. } | C::CancelBatch { .. } => {
+            descriptor(Area::Configuration, Verb::Configure)
+        }
+        C::BatchStatus { .. } => descriptor(Area::Configuration, Verb::Status),
         C::Recheck { .. } => descriptor(Area::Configuration, Verb::Configure),
         C::Preferences {}
         | C::Workspaces {}

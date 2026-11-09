@@ -1,4 +1,5 @@
 //! One blocking actor owns configuration and protected credentials. No secret read RPC.
+mod batch;
 use config_store::{Auth, Profile, Settings, Store};
 use credential_vault::{Secret, Vault};
 use session_protocol::config::*;
@@ -12,6 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 struct PublicMessage {
+    owner: Uuid,
     request: ConfigRequest,
     reply: oneshot::Sender<ConfigReply>,
 }
@@ -155,7 +157,16 @@ impl ConfigWorker {
                         continue;
                     }
                     let result = match &owner {
-                        Ok(_) => archives.handle(message.request, &mut state),
+                        Ok(_) => match message.request {
+                            request @ (ConfigRequest::PreviewBatch { .. }
+                            | ConfigRequest::ApplyBatch { .. }
+                            | ConfigRequest::BatchStatus { .. }
+                            | ConfigRequest::CancelBatch { .. }) => match &mut state {
+                                Ok(state) => state.handle_batch(message.owner, request),
+                                Err(code) => Err(*code),
+                            },
+                            request => archives.handle(request, &mut state),
+                        },
                         Err(code) => Err(*code),
                     };
                     let _ = message
@@ -168,15 +179,27 @@ impl ConfigWorker {
             thread: Some(thread),
         })
     }
+    #[cfg(test)]
     pub async fn request(
         &self,
+        request: ConfigRequest,
+    ) -> Result<ConfigReply, session_core::session::ErrorCode> {
+        self.request_owned(Uuid::nil(), request).await
+    }
+    pub(crate) async fn request_owned(
+        &self,
+        owner: Uuid,
         request: ConfigRequest,
     ) -> Result<ConfigReply, session_core::session::ErrorCode> {
         use session_core::session::ErrorCode;
         let sender = self.sender.as_ref().ok_or(ErrorCode::Unsupported)?;
         let (reply, receiver) = oneshot::channel();
         sender
-            .try_send(Message::Public(PublicMessage { request, reply }))
+            .try_send(Message::Public(PublicMessage {
+                owner,
+                request,
+                reply,
+            }))
             .map_err(|e| match e {
                 mpsc::error::TrySendError::Full(_) => ErrorCode::CapacityExceeded,
                 _ => ErrorCode::InvalidState,
@@ -224,6 +247,7 @@ pub(super) struct State {
     pub(super) store: Store,
     pub(super) vault: Vault,
     pub(super) revision: Uuid,
+    batches: Vec<batch::Entry>,
 }
 impl State {
     fn internal(&mut self, request: Internal) -> Result<Value, ConfigError> {
@@ -307,6 +331,7 @@ impl State {
             store,
             vault,
             revision: Uuid::new_v4(),
+            batches: Vec::new(),
         })
     }
     pub(super) fn changed(&mut self) -> Uuid {
@@ -318,7 +343,11 @@ impl State {
             return Err(ConfigError::Invalid);
         }
         match request {
-            ConfigRequest::Recheck { .. } => Err(ConfigError::Invalid),
+            ConfigRequest::PreviewBatch { .. }
+            | ConfigRequest::ApplyBatch { .. }
+            | ConfigRequest::BatchStatus { .. }
+            | ConfigRequest::CancelBatch { .. }
+            | ConfigRequest::Recheck { .. } => Err(ConfigError::Invalid),
             ConfigRequest::QuickCommands {} => Ok(ConfigReply::QuickCommands {
                 commands: self.store.quick_commands().map_err(config_error)?,
                 revision: self.revision,

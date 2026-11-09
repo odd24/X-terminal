@@ -43,7 +43,7 @@ impl ConfigImage {
             .map(|byte| format!("{byte:02x}"))
             .collect())
     }
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         self.preferences.validate()?;
         crate::quick_commands::validate_list(&self.quick_commands)?;
         if self.workspaces.len() > 8 {
@@ -100,20 +100,24 @@ impl ConfigImage {
 impl Store {
     pub fn image(&self) -> Result<ConfigImage> {
         let tx = self.connection.unchecked_transaction()?;
-        check(&tx)?;
-        if !(2..=SCHEMA_VERSION).contains(&metadata(&tx)?.1) {
+        let image = self.image_in_transaction()?;
+        tx.commit()?;
+        Ok(image)
+    }
+    pub(crate) fn image_in_transaction(&self) -> Result<ConfigImage> {
+        check(&self.connection)?;
+        if !(2..=SCHEMA_VERSION).contains(&metadata(&self.connection)?.1) {
             return Err(Error::Schema);
         }
         let image = ConfigImage {
             folders: self.folders()?,
             profiles: self.profiles()?,
-            host_keys: host_keys::read(&tx)?,
-            preferences: crate::preferences::read(&tx)?,
-            workspaces: crate::workspaces::read(&tx)?,
-            quick_commands: crate::quick_commands::read(&tx)?,
+            host_keys: host_keys::read(&self.connection)?,
+            preferences: crate::preferences::read(&self.connection)?,
+            workspaces: crate::workspaces::read(&self.connection)?,
+            quick_commands: crate::quick_commands::read(&self.connection)?,
         };
         image.validate()?;
-        tx.commit()?;
         Ok(image)
     }
     pub fn read_backup(path: &Path) -> Result<ConfigImage> {

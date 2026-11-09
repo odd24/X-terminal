@@ -311,7 +311,10 @@ impl Runtime {
                 code: config::ConfigError::Conflict,
             }));
         }
-        self.config.request(request).await.map(Reply::Config)
+        self.config
+            .request_owned(identity.ticket_id(), request)
+            .await
+            .map(Reply::Config)
     }
     fn now(&self) -> u64 {
         self.started.elapsed().as_millis().min(u64::MAX as u128) as u64

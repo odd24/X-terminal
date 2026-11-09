@@ -3,6 +3,8 @@
 mod agent_cases;
 #[path = "support/audit_journal_cases.rs"]
 mod audit_journal_cases;
+#[path = "support/batch_config_cases.rs"]
+mod batch_config_cases;
 #[path = "support/cleanup_cases.rs"]
 mod cleanup_cases;
 #[path = "support/logging_cases.rs"]

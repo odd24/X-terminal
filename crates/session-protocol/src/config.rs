@@ -21,6 +21,21 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    PreviewBatch {
+        id: Uuid,
+        revision: Uuid,
+        ids: Vec<Uuid>,
+        patch: config_model::BatchPatch,
+    },
+    ApplyBatch {
+        id: Uuid,
+    },
+    BatchStatus {
+        id: Uuid,
+    },
+    CancelBatch {
+        id: Uuid,
+    },
     Recheck {
         service_id: Uuid,
     },
@@ -113,6 +128,20 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::PreviewBatch {
+                id,
+                revision,
+                ids,
+                patch,
+            } => {
+                !id.is_nil()
+                    && !revision.is_nil()
+                    && config_model::valid_batch_ids(ids)
+                    && patch.validate().is_ok()
+            }
+            Self::ApplyBatch { id } | Self::BatchStatus { id } | Self::CancelBatch { id } => {
+                !id.is_nil()
+            }
             Self::Recheck { service_id } => !service_id.is_nil(),
             Self::QuickCommands {} => true,
             Self::SaveQuickCommand { command, revision } => {
@@ -227,6 +256,9 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    Batch {
+        receipt: BatchReceipt,
+    },
     Rechecked {
         service_id: Uuid,
     },
@@ -303,6 +335,26 @@ pub enum ConfigReply {
     Error {
         code: ConfigError,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BatchState {
+    Preview,
+    Applied,
+    Cancelled,
+    Rejected,
+    Expired,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BatchReceipt {
+    pub id: Uuid,
+    pub revision: Uuid,
+    pub state: BatchState,
+    pub reason: Option<ConfigError>,
+    pub changed_count: u32,
+    pub rows: Vec<config_model::BatchDiff>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -510,5 +562,53 @@ mod quick_command_contract_tests {
         let mut value = serde_json::json!({"op":"save_quick_command","revision":Uuid::new_v4(),"command":command});
         value["command"]["values"] = serde_json::json!({"x":"must not persist"});
         assert!(serde_json::from_value::<ConfigRequest>(value).is_err());
+    }
+}
+
+#[cfg(test)]
+mod batch_contract_tests {
+    use super::*;
+    #[test]
+    fn batch_config_strict_selection_patch_and_redacted_audit() {
+        let value = serde_json::json!({"op":"preview_batch","id":Uuid::new_v4(),"revision":Uuid::new_v4(),"ids":[Uuid::new_v4(),Uuid::new_v4()],"patch":{"folder":{"kind":"keep"},"encoding":"gbk","ssh_port":2222,"serial_baud":null}});
+        let request: ConfigRequest = serde_json::from_value(value.clone()).unwrap();
+        assert!(request.validate());
+        assert!(!format!("{request:?}").contains("2222"));
+        let audit = crate::Request::Config { request }.audit_descriptor(1);
+        let audit = serde_json::to_string(&audit).unwrap();
+        assert!(!audit.contains("2222"));
+        assert!(!audit.contains("gbk"));
+        for path in ["owner", "credential_ref", "host"] {
+            let mut v = value.clone();
+            v["patch"][path] = serde_json::json!("synthetic");
+            assert!(serde_json::from_value::<ConfigRequest>(v).is_err());
+        }
+        let mut duplicate = value.clone();
+        duplicate["ids"][1] = duplicate["ids"][0].clone();
+        assert!(
+            !serde_json::from_value::<ConfigRequest>(duplicate)
+                .unwrap()
+                .validate()
+        );
+        let mut huge = value.clone();
+        huge["ids"] = serde_json::json!((0..65).map(|_| Uuid::new_v4()).collect::<Vec<_>>());
+        assert!(
+            !serde_json::from_value::<ConfigRequest>(huge)
+                .unwrap()
+                .validate()
+        );
+        let mut both = value;
+        both["patch"]["serial_baud"] = serde_json::json!(115200);
+        assert!(
+            !serde_json::from_value::<ConfigRequest>(both)
+                .unwrap()
+                .validate()
+        );
+        assert!(
+            serde_json::from_value::<ConfigRequest>(
+                serde_json::json!({"op":"apply_batch","id":Uuid::new_v4(),"patch":{}})
+            )
+            .is_err()
+        );
     }
 }
