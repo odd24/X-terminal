@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P11.4新增`test:desktop:log-menu`为完整第39入口，前置实际desktop:build及入口编译gui_ssh_fixture；只shared-terminal-log-menu-ui-中文-/shared-terminal-save-ui-中文-自建根，实际CDP右键双窗格+被动内存UART。验证六菜单入口、旧右键偏好不读剪贴板/不直接发、首次及重开状态精确加载、超预览/多轮全文、真实滚动条上滚的物理行中文空白/尾空格逐字节、原生Explorer/实际Notepad文件正文原ID核对（无编辑区TextPattern时自建窗口正文头OCR，不读其他窗口/发按键）、系统另存/取消/独立覆盖备份/SHA，四种Start/Stop/Prepare/Save真实应答丢失只查、重载原ID显式恢复、旧DOM/焦点/重连/关闭迟到隔离。finally必须实际恢复普通服务，不接COM/真实日志；完整P11.4及全局/实机仍独立。
+
 P11.4新增`test:desktop:log-files`为完整第38入口，前置实际desktop:build及入口编译gui_ssh_fixture；仅shared-terminal-log-files-ui-中文-/shared-terminal-save-ui-中文-自建根，两个合成SSH+被动内存UART、共同logs根/多轮平铺秒级命名/停止前实际文件增长和周期flush/sync、超128条/64KiB且内部轮转后的完整已刷新快照、固定水位后继续录制/原编号/精确源与MENU系统另存SHA/正确副本清理，finally必须实际恢复普通服务。不会接COM或使用真实日志；右键菜单/滚动viewport/六入口原生打开另有实际专项，不能从后端通过推导完成。
 
 2026-11-09 P11.4/CR-014须验证六个右键入口的实际范围，双协议/双窗格B目标/精确代次/迟到、起停导出另存丢应答只查询、超128记录/64KiB的所有已录保留范围、多份/轮转/源缺口、实际滚动viewport的空白/中文/ANSI文本逐字节、原生打开来源和系统另存指纹/覆盖保护/取消。合成根+内存UART，实际构建及finally普通恢复；真实日志禁止用作fixture。细节见[P11.4](records/P11.4.md#终端右键日志能力包2026-11-09)。

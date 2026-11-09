@@ -2,7 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ConnectionRef } from './ssh-api';
 import type { RecoveryRequest, RecoveryReply } from './log-recovery';
 import type { RecoveryExportRequest, RecoveryExportInfo } from './log-recovery-export';
-export type LogInfo = { log_id: string; connection: ConnectionRef; protocol: string; encoding: string; started_at_ms: number; source_cursor: number; text_cursor: number; limits: { segment_bytes: number; segments: number }; phase: 'OPENING' | 'RECORDING' | 'STOPPING' | 'STOPPED' | 'FAILED' | 'REMOVED' | 'RELEASED'; failure: string | null; active: boolean; accepted_records: number; written_records: number; accepted_raw_bytes: number; written_raw_bytes: number; rejected_records: number; rejected_raw_bytes: number; source_gap_bytes: number; first_retained_segment: number; last_segment: number; retired_segments: number; natural_end: boolean; durable: boolean; worker_finished: boolean };
+export type ReadableInfo = {filename:string;written_records:number;flushed_records:number;synced_records:number;written_bytes:number;flushed_bytes:number;synced_bytes:number;written_gap_bytes:number;flushed_gap_bytes:number;synced_gap_bytes:number;flushed_at_ms:number;synced_at_ms:number};
+export type LogInfo = { readable?:ReadableInfo|null; log_id: string; connection: ConnectionRef; protocol: string; encoding: string; started_at_ms: number; source_cursor: number; text_cursor: number; limits: { segment_bytes: number; segments: number }; phase: 'OPENING' | 'RECORDING' | 'STOPPING' | 'STOPPED' | 'FAILED' | 'REMOVED' | 'RELEASED'; failure: string | null; active: boolean; accepted_records: number; written_records: number; accepted_raw_bytes: number; written_raw_bytes: number; rejected_records: number; rejected_raw_bytes: number; source_gap_bytes: number; first_retained_segment: number; last_segment: number; retired_segments: number; natural_end: boolean; durable: boolean; worker_finished: boolean };
 export type ArchiveInfo = Pick<LogInfo, 'log_id' | 'connection' | 'protocol' | 'encoding' | 'started_at_ms' | 'source_cursor' | 'text_cursor' | 'limits' | 'first_retained_segment' | 'last_segment' | 'written_records' | 'written_raw_bytes' | 'natural_end'> & { available_from: number; source_available_from: number; source_gap_bytes: number | null };
 export type HistoryEntry = { log_id: string; state: 'HEADER_CHECKED' | 'UNFINISHED' | 'INVALID' | 'UNAVAILABLE'; info: ArchiveInfo | null };
 export type HistoryRecord = { raw: { seq: number; timestamp_ms: number; bytes: number[]; gap_bytes?: number } | null; text: { seq: number; source_seq: number | null; timestamp_ms: number; text: string; decode_error: boolean; gap_bytes: number | null } };
@@ -14,7 +15,7 @@ export type CleanupKind = 'LOG' | 'EXPORT';
 export type CleanupScope = { kind: CleanupKind; id: string; preview_id: string };
 export type CleanupInfo = CleanupScope & { phase: 'PREVIEW' | 'CANCELLED' | 'EXPIRED' | 'APPLIED'; expires_at_ms: number; confirmation: string | null; files: { name: string; bytes: number }[]; logical_bytes: number; report: { removed_files: number; removed_logical_bytes: number; directory_removed: boolean; failure: 'CHANGED' | 'STORAGE' | null; os_code: number | null } | null };
 type CleanupRequest = { op: 'cleanup_list'; kind: CleanupKind } | ({ op: 'cleanup_preview' | 'cleanup_status' | 'cleanup_cancel' } & CleanupScope) | ({ op: 'cleanup_commit'; confirmation: string } & CleanupScope);
-type Request = RecoveryRequest | { op: 'capture_list' } | { op: 'start'; connection: ConnectionRef; request_id: string; limits: LogInfo['limits'] } | { op: 'list'; connection: ConnectionRef } | { op: 'status' | 'stop' | 'release_failed'; connection: ConnectionRef; log_id: string } | { op: 'history_list' } | ({ op: 'history_open' | 'history_close' } & HistoryScope) | ({ op: 'history_read'; cursor: number; max_records: number; max_bytes: number } & HistoryScope) | ({ op: 'export_start' | 'export_status' | 'export_cancel' | 'text_export_start' | 'text_export_status' | 'text_export_cancel' } & ExportScope);
+type Request = RecoveryRequest | {op:'start_status';connection:ConnectionRef;request_id:string} | { op: 'capture_list' } | { op: 'start'; connection: ConnectionRef; request_id: string; limits: LogInfo['limits'] } | { op: 'list'; connection: ConnectionRef } | { op: 'status' | 'stop' | 'release_failed'; connection: ConnectionRef; log_id: string } | { op: 'history_list' } | ({ op: 'history_open' | 'history_close' } & HistoryScope) | ({ op: 'history_read'; cursor: number; max_records: number; max_bytes: number } & HistoryScope) | ({ op: 'export_start' | 'export_status' | 'export_cancel' | 'text_export_start' | 'text_export_status' | 'text_export_cancel' } & ExportScope);
 type Reply = RecoveryReply | ({ result: 'info' } & LogInfo) | { result: 'list'; logs: LogInfo[] } | { result: 'history_list'; logs: HistoryEntry[] } | { result: 'history_opened'; read_id: string; info: ArchiveInfo } | ({ result: 'history_page' } & HistoryPage) | { result: 'history_closed'; read_id: string } | ({ result: 'export' | 'text_export' } & ExportInfo);
 export class CleanupRequestError extends Error {
   readonly code: string;
@@ -24,6 +25,7 @@ export class ExportRequestError extends Error {
   readonly code: string;
   constructor(code: string, message: string) { super(message); this.code = code; }
 }
+export class LogRequestError extends Error {readonly code:string;readonly uncertain:boolean;constructor(code:string,message:string){super(message);this.code=code;this.uncertain=!['InvalidArgument','InvalidState','NotConnected','StaleGeneration','NotFound','CapacityExceeded','PermissionDenied','RequestExpired'].includes(code);}}
 export async function logging(request: Request | CleanupRequest | RecoveryExportRequest): Promise<Reply | ({ result: 'recovery_export' } & RecoveryExportInfo) | ({ result: 'cleanup' } & CleanupInfo) | { result: 'cleanup_list'; kind: CleanupKind; ids: string[] }> {
   try { return await invoke('logging_request', { request }); }
   catch (error) {
@@ -44,6 +46,6 @@ export async function logging(request: Request | CleanupRequest | RecoveryExport
       throw new Error(messages[String(error)] ?? '历史日志请求失败，未自动重新读取。');
     }
     const messages: Record<string, string> = { InvalidArgument: '日志参数无效或请求 ID 冲突，未启动新记录。', InvalidState: '连接已有日志，或配置/日志目录不可用；未自动恢复记录。', NotConnected: '当前连接尚未就绪，未开始记录。', StaleGeneration: '连接代次已变化，操作未转发到新连接。', NotFound: '该日志与目标连接不匹配或已不存在。', CapacityExceeded: '日志目录或服务记录已达上限；未删除历史，未开始新记录。', PermissionDenied: '当前客户端无日志管理权限。', LOG_CHANNEL_UNAVAILABLE: '日志通道不可用；结果可能未知，未自动重试。' };
-    throw new Error(messages[String(error)] ?? '日志请求失败，未自动重试或重放。');
+    throw new LogRequestError(String(error),messages[String(error)] ?? '日志请求失败，未自动重试或重放。');
   }
 }

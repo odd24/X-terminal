@@ -6,6 +6,8 @@ import { TerminalWriter } from './terminal-writer';
 import { OutputDecoder } from './output-decoder';
 import { terminalAppearance } from './appearance';
 import { InputQueue } from './input-queue';
+import {freezeDisplay} from './terminal-snapshot';
+import type {TerminalMenuCapture} from './log-menu';
 import { requestId } from './request-id';
 import { ssh, dimensions, type Receipt, type SshReply } from './ssh-api';
 import { serial, serialResult, type SerialStatus } from './serial-api';
@@ -17,7 +19,7 @@ type Page={connection:Ref;events:{seq:number;bytes:number[];gap_bytes?:number}[]
 export type PaneSelection={owner:string;connection?:PaneConnection;active:boolean;epoch:number;fixture:boolean;suspended?:boolean};
 export type TerminalView={status:string;inputFailure:string;failure:string;lastInput:string;decodeWarning:string;viewport:{cols:number;rows:number};renderedTarget?:ComposeTarget};
 export const initialTerminalView=():TerminalView=>({status:'正在连接会话服务',inputFailure:'',failure:'',lastInput:'尚无输入',decodeWarning:'',viewport:{cols:80,rows:24}});
-type Deps={selection():PaneSelection;preferences():DesktopPreferences;state(view:TerminalView):void;invalidateDrafts():void;input():void;search():void;proposal(p?:PasteProposal):void;message(text:string):void;reset():void};
+type Deps={activate():void;context(value:TerminalMenuCapture):void;selection():PaneSelection;preferences():DesktopPreferences;state(view:TerminalView):void;invalidateDrafts():void;input():void;search():void;proposal(p?:PasteProposal):void;message(text:string):void;reset():void};
 export function createTerminalController(element:HTMLDivElement,deps:Deps){
     let view=initialTerminalView(),owner='';
     const update=(patch:Partial<TerminalView>)=>{if(Object.entries(patch).every(([key,value])=>view[key as keyof TerminalView]===value))return;view={...view,...patch};deps.state(view);};
@@ -125,8 +127,14 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       else setClipboardMessage('剪贴板没有可读取文字；未发送');
     };
     const contextMenu = (event: MouseEvent) => {
-      if (!deps.preferences().right_click_paste) return;
-      event.preventDefault(); event.stopImmediatePropagation(); void clip.paste();
+      event.preventDefault();event.stopImmediatePropagation();deps.activate();
+      const selection=deps.selection();
+      if(!current.connection||!selection.connection||!bound(current.connection)||selection.suspended){setClipboardMessage('请先明确选择当前会话，再打开终端菜单。');return;}
+      let viewport,buffer,warning='';
+      try{viewport=freezeDisplay(term.buffer.active,term.cols,term.rows,true);}catch(error){warning=error instanceof Error?error.message:'可见屏幕无法冻结。';}
+      try{buffer=freezeDisplay(term.buffer.active,term.cols,term.rows,false);}catch(error){warning=error instanceof Error?error.message:'保留缓冲无法冻结。';}
+      const rect=element.getBoundingClientRect();
+      deps.context({target:{service_id:selection.owner,protocol:current.protocol,connection:{...current.connection}},epoch:selection.epoch,x:event.clientX||rect.left+12,y:event.clientY||rect.top+12,anchor:term.textarea??element,viewport,buffer,warning,selected:term.hasSelection(),writable:current.writable&&selection.connection.state==='CONNECTED'});
     };
     element.addEventListener('paste', paste, true);
     element.addEventListener('contextmenu', contextMenu, true);

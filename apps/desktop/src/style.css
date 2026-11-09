@@ -150,3 +150,12 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 .tree-root-label, .tree-folder-hint { color: var(--text-muted); }
 .session-tree-list .tree-folder { border-color: transparent; background: transparent; }
 .tree-empty { padding-left: var(--space-3); color: var(--text-muted); }
+
+/* Shared-panel feedback floats above the terminal; no peer PTY is resized. */
+.terminal-log-operation { position:fixed; right:var(--space-4); bottom:var(--space-4); z-index:80; width:min(var(--auxiliary-width),calc(100vw - 2 * var(--space-4))); max-height:55dvh; overflow:auto; box-shadow:0 var(--space-2) var(--space-6) var(--border-subtle); }
+.terminal-log-operation > .config-panel { margin:0; }
+.context-menu hr { width:100%; border:0; border-top:var(--border-width) solid var(--border-subtle); }
+.context-menu small { max-width:var(--auxiliary-width); overflow-wrap:anywhere; }
+
+.terminal-context-menu { width:min(var(--auxiliary-width),calc(100vw - 2 * var(--space-4))); max-height:calc(100dvh - 2 * var(--space-2)); overflow:auto; z-index:100; }
+.terminal-context-menu small { white-space:normal; }

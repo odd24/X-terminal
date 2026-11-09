@@ -22,7 +22,7 @@ export function AppearancePanel({ theme, font, setTheme, setFont, preferences, b
     </div>
     <label className="check"><input aria-label="Ctrl+C选区复制" type="checkbox" checked={preferences.ctrl_c_copy} onChange={event => update({ctrl_c_copy:event.target.checked})} />Ctrl+C有选区时复制；关闭后交给终端</label>
     <label className="check"><input aria-label="Ctrl+V粘贴" type="checkbox" checked={preferences.ctrl_v_paste} onChange={event => update({ctrl_v_paste:event.target.checked})} />Ctrl+V粘贴到当前终端</label>
-    <label className="check"><input aria-label="右键粘贴" type="checkbox" checked={preferences.right_click_paste} onChange={event => update({right_click_paste:event.target.checked})} />右键粘贴；关闭时保留系统菜单</label>
+    <p>右键打开终端日志菜单；粘贴请明确选择菜单项，或使用 Ctrl+Shift+V。</p>
     <div className="config-actions"><button disabled={!canSave} onClick={save}>保存桌面偏好</button><button onClick={read}>重新读取偏好</button></div>
     </fieldset>
     <div role="status" aria-label="桌面偏好状态">{message}</div>

@@ -12,16 +12,18 @@ const call = request => ui.invoke('config_request', { request });
 async function open(root=directory) { ui=await launchDesktop(root,{fixture:true}); await ui.click('外观'); await message('已读取'); }
 const focus = () => ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
 async function key(letter, shift=false) {
-  await focus(); const code=letter.toUpperCase().charCodeAt(0);
+  await ui.command('Page.bringToFront');await focus(); const code=letter.toUpperCase().charCodeAt(0);
   await ui.command('Input.dispatchKeyEvent',{type:'keyDown',modifiers:shift?10:2,key:letter,code:'Key'+letter.toUpperCase(),windowsVirtualKeyCode:code});
   await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:letter,code:'Key'+letter.toUpperCase(),windowsVirtualKeyCode:code});
 }
 async function toggle(label) { await ui.evaluate(`document.querySelector('[aria-label="${label}"]').click()`); }
 try {
   await open();
+  const seed=await call({op:'preferences'});await call({op:'save_preferences',revision:seed.revision,preferences:{...seed.preferences,right_click_paste:true}});await ui.click('重新读取偏好');await message('已读取');
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="右键粘贴"]')`),false);
   await ui.fill('终端配色','black_green');
   await ui.fill('应用主题','light'); await ui.fill('终端等宽字体','cascadia'); await ui.fill('字号',22);
-  await toggle('Ctrl+C选区复制'); await toggle('Ctrl+V粘贴'); await toggle('右键粘贴');
+  await toggle('Ctrl+C选区复制'); await toggle('Ctrl+V粘贴');
   const expected={theme:'light',terminal_font:'cascadia',terminal_palette:'black_green',font_size:22,ctrl_c_copy:false,ctrl_v_paste:true,right_click_paste:true};
   assert.notDeepEqual((await call({op:'preferences'})).preferences,expected,'editing does not silently persist');
   await ui.click('保存桌面偏好'); await message('已保存'); assert.deepEqual((await call({op:'preferences'})).preferences,expected);
@@ -32,14 +34,14 @@ try {
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'22');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端等宽字体"]').value`),'cascadia');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端配色"]').value`),'black_green');
-  for(const [label,value] of [['Ctrl+C选区复制',false],['Ctrl+V粘贴',true],['右键粘贴',true]]) assert.equal(await ui.evaluate(`document.querySelector('[aria-label="${label}"]').checked`),value);
-  await ui.click('新建合成会话'); await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
+  for(const [label,value] of [['Ctrl+C选区复制',false],['Ctrl+V粘贴',true]]) assert.equal(await ui.evaluate(`document.querySelector('[aria-label="${label}"]').checked`),value);
+  await ui.click('关闭外观');await ui.click('新建合成会话'); await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
   const [connection]=await ui.invoke('service_list'); const ref={connection_id:connection.connection_id,generation:connection.generation};
   const originalText=await ui.invoke('service_read_text',{connection:ref,cursor:1});
-  const colors = () => ui.evaluate(`(()=>{const s=getComputedStyle(document.documentElement);const probe=document.createElement('span');probe.style.color=s.getPropertyValue('--terminal-foreground');document.body.append(probe);const foreground=getComputedStyle(probe).color;probe.remove();return {background:getComputedStyle(document.querySelector('.terminal')).backgroundColor,foreground,ui:s.backgroundColor,viewport:getComputedStyle(document.querySelector('.xterm-viewport')).backgroundColor};})()`);
+  const colors = () => ui.evaluate(`(()=>{const s=getComputedStyle(document.documentElement);const probe=document.createElement('span');probe.style.color=s.getPropertyValue('--terminal-foreground');document.body.append(probe);const foreground=getComputedStyle(probe).color;probe.remove();return {background:getComputedStyle(document.querySelector('.terminal')).backgroundColor,foreground,ui:s.backgroundColor,viewport:getComputedStyle(document.querySelector('.xterm-scrollable-element')).backgroundColor};})()`);
   assert.deepEqual(await colors(),{background:'rgb(0, 0, 0)',foreground:'rgb(128, 255, 128)',ui:'rgb(243, 245, 248)',viewport:'rgb(0, 0, 0)'});
   const originalScreen=await ui.invoke('service_screen',{connection:ref});
-  await ui.fill('终端配色','black_white');
+  await ui.click('外观');await ui.fill('终端配色','black_white');
   assert.equal((await colors()).foreground,'rgb(238, 238, 238)');
   await ui.fill('应用主题','dark');
   assert.equal((await colors()).foreground,'rgb(238, 238, 238)');
@@ -58,7 +60,7 @@ try {
     for(let attempt=0;attempt<150;attempt++){result=await read(cursor);if(result.events.length)break;await delay(20);}
     assert.deepEqual(Buffer.from(result.events.flatMap(item=>item.bytes)),Buffer.from(expectedBytes)); cursor=result.next_cursor;
   }
-  await ui.click('查找终端'); await ui.fill('终端查找文字','中文宽字'); await ui.click('下一个匹配');
+  await ui.click('关闭外观');await ui.click('查找终端'); await ui.fill('终端查找文字','中文宽字'); await ui.click('下一个匹配');
   await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 1')`);
   await key('c'); await bytes([3]); // disabled selection-copy keeps terminal Ctrl+C
   await ui.click('下一个匹配'); await key('c',true); await ui.waitFor(`document.querySelector('[aria-label="剪贴板状态"]')?.textContent==='终端选区已复制'`);
@@ -69,15 +71,15 @@ try {
   const terminal=await ui.evaluate(`(()=>{const r=document.querySelector('.terminal').getBoundingClientRect();return{x:r.x+30,y:r.y+30};})()`);
   await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...terminal});
   await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...terminal});
-  await bytes(Buffer.from('中文宽字'));
+  await ui.waitFor(`!!document.querySelector('[aria-label="终端日志菜单"]')`);assert.equal((await read(cursor)).events.length,0);await ui.click('粘贴');await bytes(Buffer.from('中文宽字'));
   // A disabled Ctrl+V is the terminal's literal control key, while Shift+V stays explicit paste.
-  await toggle('Ctrl+V粘贴'); await key('v'); await bytes([22]); await key('v',true); await bytes(Buffer.from('中文宽字'));
-  await toggle('右键粘贴');
-  assert.equal(await ui.evaluate(`document.querySelector('.terminal').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}))`),true);
+  await ui.click('外观');await toggle('Ctrl+V粘贴');await ui.click('关闭外观'); await key('v'); await bytes([22]); await key('v',true); await bytes(Buffer.from('中文宽字'));
+
+  assert.equal(await ui.evaluate(`document.querySelector('.terminal').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}))`),false);await ui.waitFor(`!!document.querySelector('[aria-label="终端日志菜单"]')`);await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
   // Preference edits invalidate existing paste consent; no clipboard text is persisted.
   await ui.evaluate(`(()=>{const d=new DataTransfer();d.setData('text/plain',${JSON.stringify('PENDING\n')});document.querySelector('.xterm-helper-textarea').dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:d}));})()`);
   await ui.waitFor(`!!document.querySelector('[aria-label="粘贴确认"]')`);
-  await ui.fill('应用主题','dark'); await ui.waitFor(`!document.querySelector('[aria-label="粘贴确认"]')`);
+  await ui.click('外观');await ui.fill('应用主题','dark'); await ui.waitFor(`!document.querySelector('[aria-label="粘贴确认"]')`);
   assert.equal((await read(cursor)).events.length,0);
   await ui.click('重新读取偏好'); await message('已读取');
   assert.deepEqual((await call({op:'preferences'})).preferences,expected);
@@ -104,16 +106,17 @@ try {
     for(let attempt=0;attempt<100 && !(await lateSave.count());attempt++)await delay(10);
     assert.equal(await lateSave.count(),1);
     assert.equal(await ui.evaluate('window.__desktopIpcResponseTest.releases.length'),1,'real save response must be held');
-    await ui.click('连接配置');
+    await ui.click('关闭外观');await ui.click('连接配置');
     await ui.waitFor(`document.querySelector('[aria-label="配置状态"]')?.textContent.includes('已加载')`);
     await ui.waitFor(`document.querySelector('[aria-label="备份状态"]')?.textContent.includes('已加载')`);
     await ui.fill('已保存副本','backup:'+backup.id); await ui.click('预览选中备份');
     await ui.waitFor(`document.querySelector('[aria-label="备份状态"]').textContent.includes('备份验证完成')`);
     await toggle('确认恢复备份');
-    assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='保存桌面偏好').matches(':disabled')`),true,'save response must still be in flight when restore is confirmed');
+    assert.equal(await ui.evaluate('window.__desktopIpcResponseTest.releases.length'),1,'real save response must remain held at restore confirmation');
+    assert.equal(await ui.evaluate(`!document.querySelector('[aria-label="外观设置"]')`),true,'appearance dialog was explicitly closed before opening configuration');
     await ui.click('替换当前配置');
     await ui.waitFor(`document.querySelector('[aria-label="备份状态"]').textContent.includes('当前配置已恢复')`);
-    await message('已读取'); await lateSave.release(); await delay(300);
+    await ui.click('关闭配置');await ui.click('外观');await message('已读取'); await lateSave.release(); await delay(300);
     assert.equal(await lateSave.count(),1);
     assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'24','late old save reply cannot undo explicitly restored preferences');
     assert.equal((await call({op:'preferences'})).preferences.font_size,24);
@@ -127,7 +130,8 @@ try {
   const oldPreferences=JSON.parse(legacy.prepare('SELECT value FROM desktop_preferences WHERE id=1').get().value);
   delete oldPreferences.terminal_palette;
   legacy.prepare('UPDATE desktop_preferences SET value=? WHERE id=1').run(JSON.stringify(oldPreferences));
-  legacy.exec('DELETE FROM schema_migrations WHERE version=4; PRAGMA user_version=3'); legacy.close();
+  assert.equal(legacy.prepare('SELECT COUNT(*) AS n FROM workspaces').get().n,0);assert.equal(legacy.prepare('SELECT COUNT(*) AS n FROM quick_commands').get().n,0);
+  legacy.exec('DROP TABLE quick_commands; DROP TABLE workspaces; DELETE FROM schema_migrations WHERE version>3; PRAGMA user_version=3'); legacy.close();
   await open(); assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'24');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端配色"]').value`),'follow_theme','old database defaults only the new palette');
   assert.deepEqual((await call({op:'preferences'})).preferences,{...oldPreferences,terminal_palette:'follow_theme'});
