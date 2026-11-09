@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P21原生导入按[ADR-080](decisions/ADR-080.md)分层验证严格版本/字段/重复/引用环与容量、三冲突策略映射/凭据保持/完整CAS与中途回滚、owner/原编号/权限/重启，以及实际系统选择器/取消/冻结字节/不明只查与活跃合成连接保持；前置实际build，fixture finally普通恢复。具体执行范围随[P21](records/P21.md)记录，未执行不推导通过。
+
 P21新增`test:desktop:batch-config`，完整链第44入口，前置实际desktop:build/入口编译gui_ssh_fixture；只shared-terminal-batch-config-ui-中文-自建根、合成SSH与内存UART，finally普通服务实际恢复。精确同名ID/逐字段差异/默认无同意/取消、外部SQL整库CAS、预览及应用真实丢应答原ID查询、关闭/重载只读恢复、串口波特率/目录与初始线保留，以及活跃原代次/输入和凭据库字节核对；结果集中[P21](records/P21.md)，不把首批编辑当完整迁移、实机或全44通过。
 
 P21首包按[ADR-079](decisions/ADR-079.md)验证精确批量选择/有序前后差异、取消/独立同意、revision及全库摘要CAS、一次事务与回读/中途失败回滚、owner/原编号恢复和已连接Actor不变。S3仅有界证据盘点、不重跑旧套，不据此宣布S3/G3通过；完整导入/版本/外部冲突/Xshell合成与真实兼容仍分别规划，结果集中[P21](records/P21.md)。
