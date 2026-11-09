@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P22按ADR-082完成同盘同句柄固定2×2组B实验：独立checkpoint期间append仍最长739/743ms，live/raw/JSONL时间线分别阻塞；冻结8/最终136水位及全raw/text检查符合实验约束，诊断PASS不当吞吐通过。按预定条件停止B、不落生产架构，T19该环境形态FAIL/正式未运行，细节[P22](records/P22.md)。仅Windows测试hook/实验，不增队列或降持久语义，后续由统筹另包协调。Step-ID: P22。
+
 2026-11-10 P22可控Journal/实际E盘对照已归档：人工append/flush/sync门证明32容量和无状态锁持有；有限8源内部全接纳、加实时7/8队列满、加审计8/8，sync最大1.34/1.53秒超约0.985秒吸收窗，审计最终585全同步/0拒绝。目标测试/严格clippy与计数核对PASS只是收集有效，T19该形态FAIL，详[P22](records/P22.md)。下一按统筹仅ADR+同盘独立checkpoint可行性实验，未产品改构/正式长跑，不增容量/弱化持久语义。Step-ID: P22。
 
 2026-11-09 P22仪表修正/唯一第4轮短校准：1worker慢采样模拟PASS，真实8worker/生成迟到28.8ms，但两日志QUEUE_FULL，ACK1081344=written1052672+明确rejected28672，audit健康/普通恢复PASS；正式仍未启动。首故障与EOF次错、代码优先级修正及未复验边界集中[P22](records/P22.md)。接续只可控Journal诊断/有证据最小修复，不直接换形态长跑或改队列/阈值。Step-ID: P22。

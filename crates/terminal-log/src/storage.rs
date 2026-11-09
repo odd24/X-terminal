@@ -6,6 +6,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
+#[cfg(all(test, windows))]
+mod checkpoint_probe;
 
 pub(crate) struct FileJournal {
     live: Option<crate::live_text::LiveText>,

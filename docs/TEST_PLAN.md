@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P22同句柄checkpoint显式有限实验按ADR-082固定2轮串行/独立各8源，Frozen8与最终136及raw/text校验PASS，但独立时append仍739/743ms长停顿，B不落产品。没有服务/设备负载、1800秒或异步错误/换段协调验证，不能把ignored测试PASS当T19或架构通过，详[P22](records/P22.md)。
+
 P22新增确定性I/O门和显式ignored有限磁盘阶段对照，分别验证append/flush/sync阻塞时32队列/状态锁及真实FileJournal的阶段停顿；诊断收集PASS不等于T19通过。2026-11-10 E盘实时/实时+审计组明确QUEUE_FULL，正式1800秒未运行；下一只做ADR约束下同盘有限独立checkpoint可行性实验，详[P22](records/P22.md)，不从同步调用总耗时猜单个文件/OS根因。
 
 P22/T19第四轮只证明仪表可维持节奏及队列失败显式守恒：2源QUEUE_FULL、7条/28672字节拒绝，总ACK=accepted+rejected；未通过32秒，更未正式1800秒。1worker慢探测独立检查PASS，原始EOF保留并以stopped-counters首错核对；下一须可控Journal控制组量化write/flush/sync/锁/调度后修复，保持原限额，不凭假说重复长跑，详[P22](records/P22.md)。

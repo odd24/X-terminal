@@ -14,6 +14,7 @@ mod export;
 mod live;
 mod recovery;
 mod recovery_export;
+#[cfg(windows)]
 mod throughput;
 
 struct Temp(PathBuf);

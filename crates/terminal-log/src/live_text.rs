@@ -140,6 +140,11 @@ pub(crate) struct LiveText {
     max: u64,
 }
 impl LiveText {
+    #[cfg(all(test, windows))]
+    pub(crate) fn probe_flushed_handle(&mut self) -> io::Result<(File, ReadableStatus)> {
+        self.checkpoint(false)?;
+        Ok((self.output.get_ref().try_clone()?, self.status.clone()))
+    }
     pub fn open(
         data: &Path,
         name: &str,
