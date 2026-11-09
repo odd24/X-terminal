@@ -24,6 +24,7 @@ struct Server {
     sizes: Arc<Mutex<Vec<(u32, u32)>>>,
     stall: Arc<AtomicBool>,
     keyboard_echo: Arc<AtomicBool>,
+    silent_input: Arc<AtomicBool>,
     received_at: Arc<Mutex<Vec<u128>>>,
     unblock: Arc<tokio::sync::Notify>,
     client_key: russh::keys::PublicKey,
@@ -155,6 +156,9 @@ impl server::Handler for Server {
             .push(Observation::Data(bytes.to_vec()));
         if self.stall.swap(false, Ordering::SeqCst) {
             self.unblock.notified().await;
+        }
+        if self.silent_input.load(Ordering::SeqCst) {
+            return Ok(());
         }
         if self.keyboard_echo.load(Ordering::SeqCst) {
             let mut echo = Vec::with_capacity(bytes.len());
@@ -315,6 +319,7 @@ impl server::Handler for Server {
 }
 pub struct Fixture {
     pub keyboard_echo: Arc<AtomicBool>,
+    pub silent_input: Arc<AtomicBool>,
     pub received_at: Arc<Mutex<Vec<u128>>>,
     pub unblock: Arc<tokio::sync::Notify>,
     pub exec_calls: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -359,6 +364,7 @@ impl Fixture {
         let shell = Arc::new(Mutex::new(None));
         let received = Arc::new(Mutex::new(Vec::new()));
         let keyboard_echo = Arc::new(AtomicBool::new(false));
+        let silent_input = Arc::new(AtomicBool::new(false));
         let received_at = Arc::new(Mutex::new(Vec::new()));
         let sizes = Arc::new(Mutex::new(Vec::new()));
         let observations = Arc::new(Mutex::new(Vec::new()));
@@ -373,6 +379,7 @@ impl Fixture {
             sizes: sizes.clone(),
             stall: Arc::new(AtomicBool::new(stall)),
             keyboard_echo: keyboard_echo.clone(),
+            silent_input: silent_input.clone(),
             received_at: received_at.clone(),
             unblock: unblock.clone(),
             client_key: client_key.public_key().clone(),
@@ -406,6 +413,7 @@ impl Fixture {
         let shutdown = rx.await.unwrap();
         Self {
             keyboard_echo,
+            silent_input,
             received_at,
             unblock,
             exec_calls,
