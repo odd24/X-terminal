@@ -320,3 +320,5 @@ P12终端配色新增schema 3迁移与只读旧备份原文件保持、旧偏好
 P08会话树管理新增test:desktop:tree-actions（前置实际desktop:build，完整桌面第35入口）：仅shared-terminal-tree-actions-ui-中文-自建根/合成SSH，空目录/root归属、嵌套缩进与折叠、搜索主动收起、叶子协议title保留、同名精确编辑/所属目录/凭据keep、删除取消/快速重复/真实fetch丢应答只读核对、活跃连接与保护记录保留、目标已不存在拒绝。普通服务不启用串口feature，不从专项推导实机/全局UI。原配置专项同步明确删除确认。
 
 P12.1快速键盘专项test:desktop:input-latency（前置实际desktop:build，第36入口），只中文自建根/合成SSH，无真实业务输入：重复字符/Backspace/Delete精确字节、真实事件→RPC/管线→远端时间戳→read/DOM分段、空闲主线程样本/read频率/不并发、7连接/双窗格混合与隔离、焦点往返丢未派发合并尾项、真实write丢应答只一次/原窗格停止且另一窗格可用；--baseline只用于旧构建诊断，不把复现丢输入算产品通过。队列模型追加合并边界/容量/活跃冻结/未知关闭，受影响split/compose/clipboard/output回归；split内存串口finally必须实际恢复普通服务。
+
+P12.1共享弹窗新增test:desktop:dialog-drag（前置实际desktop:build，第37入口）：仅shared-terminal-dialog-drag-ui-中文-自建根/内存串口库存、不建连，以真实CDP鼠标按下/多步移动/松开验证波特率、SSH密码、配置名称、正文及溢出滚动条拖出不关闭/值保留，反向拖动和背景点击不关闭；显式关闭/Esc/焦点恢复/Tab约束及显式重开不恢复秘密/未保存正文，零transport/保存操作。--baseline仅旧产物诊断，finally实际编译恢复普通服务。受影响SSH弹窗快速专项/原串口/配置故障按步骤证据复验，不从此推导真实COM/全局矩阵。
