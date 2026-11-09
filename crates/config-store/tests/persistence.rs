@@ -10,6 +10,9 @@ mod workspace_tests;
 #[path = "support/batch.rs"]
 mod batch_tests;
 
+#[path = "support/import.rs"]
+mod import_tests;
+
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {

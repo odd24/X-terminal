@@ -7,6 +7,8 @@ mod audit_journal_cases;
 mod batch_config_cases;
 #[path = "support/cleanup_cases.rs"]
 mod cleanup_cases;
+#[path = "support/import_config_cases.rs"]
+mod import_config_cases;
 #[path = "support/logging_cases.rs"]
 mod logging_cases;
 #[path = "support/presentation_cases.rs"]

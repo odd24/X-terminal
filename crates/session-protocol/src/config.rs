@@ -21,6 +21,21 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    PreviewImport {
+        id: Uuid,
+        revision: Uuid,
+        policy: config_model::ImportPolicy,
+        document: Sensitive,
+    },
+    ApplyImport {
+        id: Uuid,
+    },
+    ImportStatus {
+        id: Uuid,
+    },
+    CancelImport {
+        id: Uuid,
+    },
     PreviewBatch {
         id: Uuid,
         revision: Uuid,
@@ -128,6 +143,15 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::PreviewImport {
+                id,
+                revision,
+                document,
+                ..
+            } => !id.is_nil() && !revision.is_nil() && document.expose().len() <= 65536,
+            Self::ApplyImport { id } | Self::ImportStatus { id } | Self::CancelImport { id } => {
+                !id.is_nil()
+            }
             Self::PreviewBatch {
                 id,
                 revision,
@@ -256,6 +280,9 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    Import {
+        receipt: ImportReceipt,
+    },
     Batch {
         receipt: BatchReceipt,
     },
@@ -337,6 +364,17 @@ pub enum ConfigReply {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImportReceipt {
+    pub id: Uuid,
+    pub revision: Uuid,
+    pub state: BatchState,
+    pub policy: config_model::ImportPolicy,
+    pub problem: Option<config_model::ImportProblem>,
+    pub reason: Option<ConfigError>,
+    pub diff: config_model::ImportDiff,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BatchState {
@@ -635,6 +673,95 @@ mod batch_contract_tests {
         assert!(
             serde_json::from_value::<ConfigRequest>(
                 serde_json::json!({"op":"apply_batch","id":Uuid::new_v4(),"patch":{}})
+            )
+            .is_err()
+        );
+    }
+}
+
+#[cfg(test)]
+mod import_contract_tests {
+    use super::*;
+    #[test]
+    fn import_contract_redacts_document_and_bounds_actual_worst_frame() {
+        let make = |document: String| ConfigRequest::PreviewImport {
+            id: Uuid::new_v4(),
+            revision: Uuid::new_v4(),
+            policy: config_model::ImportPolicy::Reject,
+            document: Sensitive::new(document),
+        };
+        let request = make("synthetic-secret-document".into());
+        assert!(!format!("{request:?}").contains("synthetic-secret"));
+        let audit = crate::Request::Config { request }.audit_descriptor(1);
+        assert!(
+            !serde_json::to_string(&audit)
+                .unwrap()
+                .contains("synthetic-secret")
+        );
+        let request = make("\0".repeat(65536));
+        assert!(request.validate());
+        let envelope = crate::RequestEnvelope {
+            id: 1,
+            request: crate::Request::Config { request },
+        };
+        let request_bytes = serde_json::to_vec(&envelope).unwrap().len();
+        assert!(request_bytes < crate::MAX_FRAME);
+        assert!(!make("x".repeat(65537)).validate());
+        let profile = PortableProfile {
+            id: Uuid::new_v4(),
+            folder_id: Some(Uuid::new_v4()),
+            name: "\\".repeat(256),
+            settings: config_model::Settings::Ssh2 {
+                host: "\\".repeat(253),
+                port: 65535,
+                username: "\\".repeat(128),
+                auth: config_model::Auth::Password,
+                encoding: config_model::Encoding::Gb18030,
+            },
+        };
+        let folder = Folder {
+            id: Uuid::new_v4(),
+            parent_id: Some(Uuid::new_v4()),
+            name: "\\".repeat(256),
+        };
+        let diff = config_model::ImportDiff {
+            folders: (0..32)
+                .map(|_| config_model::ImportFolderDiff {
+                    source_id: Uuid::new_v4(),
+                    before: Some(folder.clone()),
+                    after: folder.clone(),
+                })
+                .collect(),
+            profiles: (0..64)
+                .map(|_| config_model::ImportProfileDiff {
+                    source_id: Uuid::new_v4(),
+                    before: Some(profile.clone()),
+                    after: profile.clone(),
+                    credential_preserved: true,
+                })
+                .collect(),
+        };
+        let receipt = ImportReceipt {
+            id: Uuid::new_v4(),
+            revision: Uuid::new_v4(),
+            state: BatchState::Preview,
+            policy: config_model::ImportPolicy::Replace,
+            problem: None,
+            reason: None,
+            diff,
+        };
+        let response = crate::Response::Ok {
+            id: 1,
+            reply: crate::Reply::Config(ConfigReply::Import { receipt }),
+        };
+        let response_bytes = serde_json::to_vec(&response).unwrap().len();
+        assert!(response_bytes < crate::MAX_FRAME);
+        println!("import worst request bytes={request_bytes}; response bytes={response_bytes}");
+
+        assert!(serde_json::from_value::<ConfigRequest>(serde_json::json!({"op":"preview_import","id":Uuid::new_v4(),"revision":Uuid::new_v4(),"policy":"reject","document":"{}","path":"untrusted"})).is_err());
+        assert!(
+            serde_json::from_value::<ConfigRequest>(
+                serde_json::json!({"op":"apply_import","id":Uuid::new_v4(),"policy":"replace"})
             )
             .is_err()
         );

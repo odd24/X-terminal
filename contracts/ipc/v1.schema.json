@@ -157,6 +157,91 @@
           {
             "additionalProperties": false,
             "properties": {
+              "document": {
+                "$ref": "#/$defs/Sensitive"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "preview_import",
+                "type": "string"
+              },
+              "policy": {
+                "$ref": "#/$defs/ImportPolicy"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id",
+              "revision",
+              "policy",
+              "document"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "apply_import",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "import_status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "cancel_import",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "id": {
                 "format": "uuid",
                 "type": "string"
@@ -1022,6 +1107,14 @@
         "enum": [
           "ssh1",
           "ssh2"
+        ],
+        "type": "string"
+      },
+      "ImportPolicy": {
+        "enum": [
+          "reject",
+          "new_ids",
+          "replace"
         ],
         "type": "string"
       },
@@ -5034,6 +5127,23 @@
             "additionalProperties": false,
             "properties": {
               "receipt": {
+                "$ref": "#/$defs/ImportReceipt"
+              },
+              "result": {
+                "const": "import",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "receipt"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "receipt": {
                 "$ref": "#/$defs/BatchReceipt"
               },
               "result": {
@@ -6122,6 +6232,187 @@
           "ssh2"
         ],
         "type": "string"
+      },
+      "ImportDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "folders": {
+            "items": {
+              "$ref": "#/$defs/ImportFolderDiff"
+            },
+            "type": "array"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/$defs/ImportProfileDiff"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "folders",
+          "profiles"
+        ],
+        "type": "object"
+      },
+      "ImportFolderDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/$defs/Folder"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Folder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "after"
+        ],
+        "type": "object"
+      },
+      "ImportPolicy": {
+        "enum": [
+          "reject",
+          "new_ids",
+          "replace"
+        ],
+        "type": "string"
+      },
+      "ImportProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/ImportProblemCode"
+          },
+          "row": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "ImportProblemCode": {
+        "enum": [
+          "ENCODING",
+          "MALFORMED_JSON",
+          "MISSING_VERSION",
+          "UNSUPPORTED_VERSION",
+          "UNSUPPORTED_FIELD",
+          "DUPLICATE_FIELD",
+          "INVALID_SHAPE",
+          "CAPACITY",
+          "DUPLICATE_ID",
+          "INVALID_PROFILE",
+          "FOLDER_REFERENCE",
+          "FOLDER_CYCLE",
+          "DEPTH",
+          "CONFLICT",
+          "FOLDER_CONFLICT",
+          "CREDENTIAL_ENDPOINT",
+          "PROTOCOL_CONFLICT"
+        ],
+        "type": "string"
+      },
+      "ImportProfileDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/$defs/PortableProfile"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PortableProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential_preserved": {
+            "type": "boolean"
+          },
+          "source_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "after",
+          "credential_preserved"
+        ],
+        "type": "object"
+      },
+      "ImportReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "diff": {
+            "$ref": "#/$defs/ImportDiff"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/$defs/ImportPolicy"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ImportProblem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ConfigError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/$defs/BatchState"
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "state",
+          "policy",
+          "diff"
+        ],
+        "type": "object"
       },
       "Info": {
         "additionalProperties": false,

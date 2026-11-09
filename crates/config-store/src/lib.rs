@@ -1,4 +1,6 @@
 //! Structured configuration only. Credential material has no column or model field.
+mod import;
+pub use import::{ImportPlan, ImportPreview, import_fingerprint, parse_import};
 mod batch;
 pub use batch::BatchPlan;
 mod host_keys;

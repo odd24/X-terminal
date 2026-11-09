@@ -1,5 +1,6 @@
 //! One blocking actor owns configuration and protected credentials. No secret read RPC.
 mod batch;
+mod import;
 use config_store::{Auth, Profile, Settings, Store};
 use credential_vault::{Secret, Vault};
 use session_protocol::config::*;
@@ -165,6 +166,13 @@ impl ConfigWorker {
                                 Ok(state) => state.handle_batch(message.owner, request),
                                 Err(code) => Err(*code),
                             },
+                            request @ (ConfigRequest::PreviewImport { .. }
+                            | ConfigRequest::ApplyImport { .. }
+                            | ConfigRequest::ImportStatus { .. }
+                            | ConfigRequest::CancelImport { .. }) => match &mut state {
+                                Ok(state) => state.handle_import(message.owner, request),
+                                Err(code) => Err(*code),
+                            },
                             request => archives.handle(request, &mut state),
                         },
                         Err(code) => Err(*code),
@@ -248,6 +256,7 @@ pub(super) struct State {
     pub(super) vault: Vault,
     pub(super) revision: Uuid,
     batches: Vec<batch::Entry>,
+    imports: Vec<import::Entry>,
 }
 impl State {
     fn internal(&mut self, request: Internal) -> Result<Value, ConfigError> {
@@ -332,6 +341,7 @@ impl State {
             vault,
             revision: Uuid::new_v4(),
             batches: Vec::new(),
+            imports: Vec::new(),
         })
     }
     pub(super) fn changed(&mut self) -> Uuid {
@@ -343,7 +353,11 @@ impl State {
             return Err(ConfigError::Invalid);
         }
         match request {
-            ConfigRequest::PreviewBatch { .. }
+            ConfigRequest::PreviewImport { .. }
+            | ConfigRequest::ApplyImport { .. }
+            | ConfigRequest::ImportStatus { .. }
+            | ConfigRequest::CancelImport { .. }
+            | ConfigRequest::PreviewBatch { .. }
             | ConfigRequest::ApplyBatch { .. }
             | ConfigRequest::BatchStatus { .. }
             | ConfigRequest::CancelBatch { .. }
