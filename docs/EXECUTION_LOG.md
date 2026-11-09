@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-09 P21原生Reader改根到叶祖先核对：junction不存在子项新增反例先红，避免拒父重解析前查询后代，原生单项/native严格clippy PASS。此前实际build第45/第44/archives和普通恢复已PASS；末Reader仅再建/复验第45，准确分层见[P21](records/P21.md)。Step-ID: P21。
+
 2026-11-09 P21导入目的库满额报告已修正：新增真实1024目录/10000配置自建夹具先红，改为明确ImportProblem::Capacity并保持全前像，导入4项/定向clippy/fmt与类型检查PASS。未改上限/旧通道，最终GUI构建专项接续，见[P21](records/P21.md)。Step-ID: P21。
 
 2026-11-09 P21原生文件边界子产物已验证：专用系统单文件选择、稳定只读/最终句柄/64KiB/UTF8和原服务守卫，通用renderer inline拒绝。实际build/原生读取单项/native严格clippy及第45工作树完整功能轮PASS；选择器UIA片段/编号冲突和测试错误层级诊断、各次普通恢复如实见[P21](records/P21.md)。GUI/末次目的库容量报告与展示核验仍在途，不冒称可试用包已交付。Step-ID: P21。

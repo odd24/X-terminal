@@ -89,6 +89,13 @@ mod tests {
                     result.status.success(),
                     "self-owned junction fixture must be created"
                 );
+                if suffix.is_some() {
+                    assert_eq!(
+                        read_selected(&link.join("absent.json")).unwrap_err(),
+                        "IMPORT_PATH_REJECTED",
+                        "reject the parent junction before descendant metadata is probed"
+                    );
+                }
                 let selected = suffix.map_or(link.clone(), |name| link.join(name));
                 assert_eq!(
                     read_selected(&selected).unwrap_err(),
@@ -255,7 +262,8 @@ fn read_selected(path: &Path) -> Result<String, String> {
             return Err("IMPORT_PATH_REJECTED".into());
         }
     }
-    for ancestor in path.ancestors() {
+    // Reject an ancestor reparse point before querying any descendant through it.
+    for ancestor in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
         let metadata =
             std::fs::symlink_metadata(ancestor).map_err(|_| "IMPORT_FILE_UNAVAILABLE")?;
         if metadata.file_attributes() & 0x400 != 0 {
