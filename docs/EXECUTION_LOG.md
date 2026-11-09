@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-09 P21原生导入软件包已验证：系统明确选择format1/三策略/完整ID映射与差异/独立同意/CAS及原编号恢复，凭据/活跃Actor保持。末实际build/第45及普通恢复PASS，旧第44/archives影响回归与3构建7调用准确分层、两兼容限制/修正/截图见[P21](records/P21.md)。GUI独立提交后本机复制品再交付；完整迁移/Xshell/G3/实机仍开放。Step-ID: P21。
+
 2026-11-09 P21原生Reader改根到叶祖先核对：junction不存在子项新增反例先红，避免拒父重解析前查询后代，原生单项/native严格clippy PASS。此前实际build第45/第44/archives和普通恢复已PASS；末Reader仅再建/复验第45，准确分层见[P21](records/P21.md)。Step-ID: P21。
 
 2026-11-09 P21导入目的库满额报告已修正：新增真实1024目录/10000配置自建夹具先红，改为明确ImportProblem::Capacity并保持全前像，导入4项/定向clippy/fmt与类型检查PASS。未改上限/旧通道，最终GUI构建专项接续，见[P21](records/P21.md)。Step-ID: P21。
