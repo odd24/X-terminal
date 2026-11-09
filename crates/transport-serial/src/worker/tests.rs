@@ -105,6 +105,220 @@ fn until(mut test: impl FnMut() -> bool) {
         thread::sleep(Duration::from_millis(1));
     }
 }
+
+// A driver may return many tiny reads within one service polling period.
+// Do not need a device, sleeps, or real logs to reproduce that burst.
+struct Fragmented {
+    remaining: usize,
+    offset: usize,
+}
+impl Port for Fragmented {
+    fn bytes_to_read(&self) -> io::Result<u32> {
+        Ok(self.remaining as u32)
+    }
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<ReadOutcome> {
+        if self.remaining == 0 {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        buffer[0] = (self.offset % 251) as u8;
+        self.offset += 1;
+        self.remaining -= 1;
+        Ok(ReadOutcome::Data(1))
+    }
+    fn write_once(&mut self, _: &[u8]) -> io::Result<usize> {
+        panic!("receive-only test must not write")
+    }
+    fn control(&mut self, _: &Command) -> io::Result<()> {
+        panic!("receive-only test must not change lines")
+    }
+}
+
+#[test]
+fn byte_bound_partial_overflow_and_recovery_never_merge_across_a_gap() {
+    let mut state = ReceiveState::default();
+    let capacity = OUTPUT_CHUNKS * READ_BYTES;
+    for _ in 0..capacity - 2 {
+        state.receive(&[1]).unwrap();
+    }
+    state.receive(&[2, 3, 4, 5, 6]).unwrap();
+    assert_eq!(state.status.read_bytes, (capacity + 3) as u64);
+    assert_eq!(state.status.dropped_bytes, 3);
+    assert_eq!(state.output.len(), OUTPUT_CHUNKS);
+    assert_eq!(
+        state.output.iter().map(|c| c.bytes.len()).sum::<usize>(),
+        capacity
+    );
+    assert!(
+        state
+            .output
+            .iter()
+            .all(|c| c.bytes.capacity() == READ_BYTES)
+    );
+    assert_eq!(
+        &state.output.back().unwrap().bytes[READ_BYTES - 2..],
+        &[2, 3]
+    );
+    state.output.pop_front();
+    state.receive(&[7, 8]).unwrap();
+    let tail = state.output.back().unwrap();
+    assert_eq!(tail.offset, (capacity + 3) as u64);
+    assert_eq!(tail.bytes, [7, 8]);
+    // A counter failure must not partially append or wrap a gap count.
+    state.status.read_bytes = u64::MAX;
+    assert!(state.receive(&[9]).is_err());
+    assert_eq!(state.status.dropped_bytes, 3);
+    assert_eq!(state.output.back().unwrap().bytes, [7, 8]);
+}
+
+#[test]
+fn paced_write_receive_pump_uses_the_same_bounded_fragment_queue() {
+    let state = Mutex::new(ReceiveState::default());
+    let mut port = Fragmented {
+        remaining: 100,
+        offset: 0,
+    };
+    while port.remaining > 0 {
+        pump_available(&mut port, &state).unwrap();
+    }
+    let state = state.lock().unwrap();
+    assert_eq!(state.status.read_bytes, 100);
+    assert_eq!(state.status.dropped_bytes, 0);
+    assert_eq!(state.output.len(), 1);
+    assert_eq!(state.output[0].bytes, (0..100).collect::<Vec<u8>>());
+}
+
+#[test]
+fn ten_ms_consumer_preserves_exact_data_or_explicit_gap_for_fragmented_overload() {
+    let length = OUTPUT_CHUNKS * READ_BYTES * 4 + 103;
+    let mut worker = Worker::start(
+        move || {
+            Ok(Fragmented {
+                remaining: length,
+                offset: 0,
+            })
+        },
+        None,
+    )
+    .unwrap();
+    let mut cursor = 0;
+    let mut gaps = 0;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "fragmented worker did not settle"
+        );
+        thread::sleep(Duration::from_millis(10));
+        loop {
+            match worker.read_output() {
+                Output::Data { offset, bytes } => {
+                    assert_eq!(offset, cursor);
+                    for (index, byte) in bytes.iter().enumerate() {
+                        assert_eq!(*byte, ((offset as usize + index) % 251) as u8);
+                    }
+                    cursor += bytes.len() as u64;
+                }
+                Output::Gap { from, to } => {
+                    assert_eq!(from, cursor);
+                    assert!(to > from);
+                    gaps += to - from;
+                    cursor = to;
+                }
+                Output::Idle => break,
+                Output::Closed(End::ReadFailed(io::ErrorKind::BrokenPipe)) => {
+                    let status = worker.join().unwrap();
+                    assert_eq!(cursor, length as u64);
+                    assert_eq!(status.read_bytes, cursor);
+                    assert_eq!(status.dropped_bytes, gaps);
+                    return;
+                }
+                _ => panic!("unexpected terminal state"),
+            }
+        }
+    }
+}
+
+#[test]
+fn cancellation_and_join_keep_the_unfilled_receive_tail() {
+    struct Tail {
+        burst: Fragmented,
+        idle: Arc<AtomicBool>,
+    }
+    impl Port for Tail {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<ReadOutcome> {
+            if self.burst.remaining > 0 {
+                return self.burst.read(buffer);
+            }
+            self.idle.store(true, Ordering::Release);
+            thread::sleep(Duration::from_millis(1));
+            Ok(ReadOutcome::Idle)
+        }
+        fn write_once(&mut self, _: &[u8]) -> io::Result<usize> {
+            panic!()
+        }
+        fn control(&mut self, _: &Command) -> io::Result<()> {
+            panic!()
+        }
+    }
+    let idle = Arc::new(AtomicBool::new(false));
+    let signal = idle.clone();
+    let mut worker = Worker::start(
+        move || {
+            Ok(Tail {
+                burst: Fragmented {
+                    remaining: 137,
+                    offset: 0,
+                },
+                idle: signal,
+            })
+        },
+        None,
+    )
+    .unwrap();
+    until(|| idle.load(Ordering::Acquire));
+    assert_eq!(worker.join().unwrap().phase, Phase::Ended(End::Cancelled));
+    assert!(
+        matches!(worker.read_output(), Output::Data { offset: 0, bytes } if bytes == (0..137).collect::<Vec<u8>>())
+    );
+    assert!(matches!(
+        worker.read_output(),
+        Output::Closed(End::Cancelled)
+    ));
+}
+
+#[test]
+fn small_read_burst_retains_bytes_until_consumer_polls_and_after_join() {
+    let length = READ_BYTES * 2 + 137;
+    let mut worker = Worker::start(
+        move || {
+            Ok(Fragmented {
+                remaining: length,
+                offset: 0,
+            })
+        },
+        None,
+    )
+    .unwrap();
+    until(|| worker.is_finished());
+    let status = worker.join().unwrap();
+    assert_eq!(status.read_bytes, length as u64);
+    assert_eq!(status.dropped_bytes, 0);
+    let mut actual = Vec::new();
+    loop {
+        match worker.read_output() {
+            Output::Data { offset, bytes } => {
+                assert_eq!(offset, actual.len() as u64);
+                actual.extend(bytes);
+            }
+            Output::Closed(End::ReadFailed(io::ErrorKind::BrokenPipe)) => break,
+            _ => panic!("burst lost data or terminal state"),
+        }
+    }
+    assert_eq!(
+        actual,
+        (0..length).map(|i| (i % 251) as u8).collect::<Vec<_>>()
+    );
+}
 fn outcome(ticket: &Ticket) -> Outcome {
     let mut result = None;
     until(|| {

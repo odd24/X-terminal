@@ -3,6 +3,7 @@
 //! the owner must join before retiring/replacing a connection generation.
 use super::{Config, ReadOutcome, SerialConnection, device::Device, invalid};
 use std::{
+    collections::VecDeque,
     io,
     sync::{
         Arc, Mutex,
@@ -128,6 +129,40 @@ struct Chunk {
     offset: u64,
     bytes: Vec<u8>,
 }
+#[derive(Default)]
+struct ReceiveState {
+    status: Status,
+    // At most 16 payload allocations, each 4096 bytes. Tiny driver reads share
+    // the contiguous tail; a full queue never waits for the service consumer.
+    output: VecDeque<Chunk>,
+}
+impl ReceiveState {
+    fn receive(&mut self, mut bytes: &[u8]) -> io::Result<()> {
+        let mut offset = self.status.read_bytes;
+        self.status.read_bytes = offset
+            .checked_add(bytes.len() as u64)
+            .ok_or_else(|| io::Error::other("serial receive counter exhausted"))?;
+        if let Some(tail) = self.output.back_mut()
+            && tail.offset + tail.bytes.len() as u64 == offset
+        {
+            let count = bytes.len().min(READ_BYTES - tail.bytes.len());
+            tail.bytes.extend_from_slice(&bytes[..count]);
+            bytes = &bytes[count..];
+            offset += count as u64;
+        }
+        if !bytes.is_empty() && self.output.len() < OUTPUT_CHUNKS {
+            let mut retained = Vec::with_capacity(READ_BYTES);
+            retained.extend_from_slice(bytes);
+            self.output.push_back(Chunk {
+                offset,
+                bytes: retained,
+            });
+        } else {
+            self.status.dropped_bytes += bytes.len() as u64;
+        }
+        Ok(())
+    }
+}
 pub enum Output {
     Data { offset: u64, bytes: Vec<u8> },
     Gap { from: u64, to: u64 },
@@ -136,10 +171,9 @@ pub enum Output {
 }
 pub struct Worker {
     commands: mpsc::SyncSender<Work>,
-    output: mpsc::Receiver<Chunk>,
     pending: Option<Chunk>,
     cursor: u64,
-    state: Arc<Mutex<Status>>,
+    state: Arc<Mutex<ReceiveState>>,
     stop: Arc<AtomicBool>,
     task: Option<JoinHandle<()>>,
 }
@@ -206,8 +240,7 @@ impl Worker {
     ) -> io::Result<Self> {
         let permit = Permit::acquire()?;
         let (commands, receiver) = mpsc::sync_channel(QUEUED_COMMANDS);
-        let (sender, output) = mpsc::sync_channel(OUTPUT_CHUNKS);
-        let state = Arc::new(Mutex::new(Status::default()));
+        let state = Arc::new(Mutex::new(ReceiveState::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let thread_state = state.clone();
         let thread_stop = stop.clone();
@@ -224,8 +257,8 @@ impl Worker {
                 } else {
                     match open() {
                         Ok(mut port) => {
-                            thread_state.lock().unwrap().phase = Phase::Ready;
-                            run(&mut port, &receiver, &sender, &thread_state, &thread_stop)
+                            thread_state.lock().unwrap().status.phase = Phase::Ready;
+                            run(&mut port, &receiver, &thread_state, &thread_stop)
                         }
                         Err(error) => End::OpenFailed(error.kind()),
                     }
@@ -234,11 +267,10 @@ impl Worker {
                 for work in receiver.try_iter() {
                     let _ = work.reply.try_send(Outcome::CancelledBeforeDispatch);
                 }
-                end_guard.0.lock().unwrap().phase = Phase::Ended(end);
+                end_guard.0.lock().unwrap().status.phase = Phase::Ended(end);
             })?;
         Ok(Self {
             commands,
-            output,
             pending: None,
             cursor: 0,
             state,
@@ -247,7 +279,7 @@ impl Worker {
         })
     }
     pub fn status(&self) -> Status {
-        *self.state.lock().unwrap()
+        self.state.lock().unwrap().status
     }
     pub fn submit(&self, command: Command) -> Result<Ticket, SubmitError> {
         self.submit_guarded(command, None)
@@ -312,9 +344,9 @@ impl Worker {
         }
         // Producers publish a chunk/counters under this same lock. Empty+counter
         // observation is atomic, so a concurrent send cannot manufacture a false gap.
-        let state = self.state.lock().unwrap();
-        match self.output.try_recv() {
-            Ok(chunk) if chunk.offset > self.cursor => {
+        let mut state = self.state.lock().unwrap();
+        match state.output.pop_front() {
+            Some(chunk) if chunk.offset > self.cursor => {
                 let from = self.cursor;
                 self.cursor = chunk.offset;
                 self.pending = Some(chunk);
@@ -323,22 +355,22 @@ impl Worker {
                     to: self.cursor,
                 }
             }
-            Ok(chunk) => {
+            Some(chunk) => {
                 self.cursor = chunk.offset + chunk.bytes.len() as u64;
                 Output::Data {
                     offset: chunk.offset,
                     bytes: chunk.bytes,
                 }
             }
-            Err(_) if state.read_bytes > self.cursor => {
+            None if state.status.read_bytes > self.cursor => {
                 let from = self.cursor;
-                self.cursor = state.read_bytes;
+                self.cursor = state.status.read_bytes;
                 Output::Gap {
                     from,
                     to: self.cursor,
                 }
             }
-            Err(_) => match state.phase {
+            None => match state.status.phase {
                 Phase::Ended(end) => Output::Closed(end),
                 _ => Output::Idle,
             },
@@ -379,12 +411,12 @@ impl Drop for Worker {
         self.cancel();
     }
 }
-struct EndGuard(Arc<Mutex<Status>>);
+struct EndGuard(Arc<Mutex<ReceiveState>>);
 impl Drop for EndGuard {
     fn drop(&mut self) {
         let mut state = self.0.lock().unwrap();
-        if !matches!(state.phase, Phase::Ended(_)) {
-            state.phase = Phase::Ended(End::WorkerFailed);
+        if !matches!(state.status.phase, Phase::Ended(_)) {
+            state.status.phase = Phase::Ended(End::WorkerFailed);
         }
     }
 }
@@ -510,8 +542,7 @@ fn write_paced<P: Port>(
 fn run<P: Port>(
     port: &mut P,
     commands: &mpsc::Receiver<Work>,
-    output: &mpsc::SyncSender<Chunk>,
-    state: &Mutex<Status>,
+    state: &Mutex<ReceiveState>,
     stop: &AtomicBool,
 ) -> End {
     let mut buffer = [0u8; READ_BYTES];
@@ -532,7 +563,7 @@ fn run<P: Port>(
                         1024,
                         std::time::Duration::ZERO,
                         work.dispatch.as_ref(),
-                        |port| pump_available(port, output, state),
+                        |port| pump_available(port, state),
                     ),
                     Command::PacedWrite {
                         bytes,
@@ -545,7 +576,7 @@ fn run<P: Port>(
                         *chunk_bytes,
                         *interval,
                         work.dispatch.as_ref(),
-                        |port| pump_available(port, output, state),
+                        |port| pump_available(port, state),
                     ),
                     command => {
                         if work.dispatch.as_ref().is_some_and(|allow| !allow()) {
@@ -586,17 +617,8 @@ fn run<P: Port>(
         match port.read(&mut buffer) {
             Ok(ReadOutcome::Idle) => {}
             Ok(ReadOutcome::Data(count)) if count > 0 && count <= buffer.len() => {
-                let mut state = state.lock().unwrap();
-                let Some(next) = state.read_bytes.checked_add(count as u64) else {
+                if state.lock().unwrap().receive(&buffer[..count]).is_err() {
                     break End::CounterExhausted;
-                };
-                let chunk = Chunk {
-                    offset: state.read_bytes,
-                    bytes: buffer[..count].to_vec(),
-                };
-                state.read_bytes = next;
-                if output.try_send(chunk).is_err() {
-                    state.dropped_bytes += count as u64;
                 }
             }
             Ok(_) => break End::ReadFailed(io::ErrorKind::InvalidData),
@@ -610,16 +632,12 @@ fn run<P: Port>(
         }
     };
     if break_asserted && let Err(error) = port.control(&Command::Break(false)) {
-        state.lock().unwrap().break_cleanup_error = Some(error.kind());
+        state.lock().unwrap().status.break_cleanup_error = Some(error.kind());
     }
     end
 }
 
-fn pump_available<P: Port>(
-    port: &mut P,
-    output: &mpsc::SyncSender<Chunk>,
-    state: &Mutex<Status>,
-) -> io::Result<()> {
+fn pump_available<P: Port>(port: &mut P, state: &Mutex<ReceiveState>) -> io::Result<()> {
     let mut buffer = [0u8; READ_BYTES];
     for _ in 0..OUTPUT_CHUNKS {
         let available = (port.bytes_to_read()? as usize).min(buffer.len());
@@ -629,19 +647,7 @@ fn pump_available<P: Port>(
         match port.read(&mut buffer[..available])? {
             ReadOutcome::Idle => break,
             ReadOutcome::Data(count) if count > 0 && count <= available => {
-                let mut state = state.lock().unwrap();
-                let next = state
-                    .read_bytes
-                    .checked_add(count as u64)
-                    .ok_or_else(|| io::Error::other("serial receive counter exhausted"))?;
-                let chunk = Chunk {
-                    offset: state.read_bytes,
-                    bytes: buffer[..count].to_vec(),
-                };
-                state.read_bytes = next;
-                if output.try_send(chunk).is_err() {
-                    state.dropped_bytes += count as u64;
-                }
+                state.lock().unwrap().receive(&buffer[..count])?;
             }
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
