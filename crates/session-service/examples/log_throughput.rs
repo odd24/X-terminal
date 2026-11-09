@@ -1,0 +1,704 @@
+//! Opt-in synthetic Named Pipe -> production capture measurement. Never opens a device.
+use serde_json::{Value, json};
+use session_core::{PROTOCOL_VERSION, pairing::SecretToken, session::ConnectionRef};
+use session_protocol::{Hello, Reply, Request, Response, Sensitive, logging as log, write_frame};
+use session_service::client::Client;
+use sha2::{Digest, Sha256};
+use std::{
+    fs::{self, File},
+    io::{self, BufReader, BufWriter, Read, Write},
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
+};
+use tokio::{
+    process::Command,
+    time::{sleep, timeout},
+};
+use uuid::Uuid;
+
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+const STREAMS: usize = 8;
+const BLOCK: usize = 4096;
+const HZ: u64 = 260;
+const BATCH: u64 = 4;
+const GIB: u64 = 1024 * 1024 * 1024;
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+fn require(ok: bool, reason: &str) -> Result<()> {
+    if ok {
+        Ok(())
+    } else {
+        Err(io::Error::other(reason).into())
+    }
+}
+fn digest(bytes: impl AsRef<[u8]>) -> String {
+    hex(Sha256::digest(bytes.as_ref()).as_slice())
+}
+fn payload(stream: usize, seq: u64) -> Vec<u8> {
+    let mut b = vec![b'A'; BLOCK];
+    for (i, c) in b.iter_mut().enumerate() {
+        *c = b'a' + ((i as u64 + seq * 7 + stream as u64 * 11) % 26) as u8;
+    }
+    let header = format!("P22|stream={stream}|seq={seq:016}|bytes={BLOCK}| ");
+    b[..header.len()].copy_from_slice(header.as_bytes());
+    let checksum = digest(&b[..BLOCK - 66]);
+    b[BLOCK - 66] = b'|';
+    b[BLOCK - 65..BLOCK - 1].copy_from_slice(checksum.as_bytes());
+    b[BLOCK - 1] = b'\n';
+    b
+}
+fn free(path: &Path) -> Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    let w: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut n = 0;
+    require(
+        unsafe {
+            windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+                w.as_ptr(),
+                &mut n,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        } != 0,
+        "disk free query failed",
+    )?;
+    Ok(n)
+}
+#[repr(C)]
+#[derive(Default)]
+struct Memory {
+    cb: u32,
+    faults: u32,
+    peak_working: usize,
+    working: usize,
+    peak_paged: usize,
+    paged: usize,
+    peak_nonpaged: usize,
+    nonpaged: usize,
+    pagefile: usize,
+    peak_pagefile: usize,
+    private: usize,
+}
+#[link(name = "psapi")]
+unsafe extern "system" {
+    fn GetProcessMemoryInfo(
+        process: *mut std::ffi::c_void,
+        counters: *mut Memory,
+        size: u32,
+    ) -> i32;
+}
+fn memory(pid: u32) -> Result<Value> {
+    use windows_sys::Win32::{
+        Foundation::CloseHandle,
+        System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
+    };
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid) };
+    require(!handle.is_null(), "cannot inspect own process memory")?;
+    let mut m = Memory {
+        cb: std::mem::size_of::<Memory>() as u32,
+        ..Default::default()
+    };
+    let ok = unsafe { GetProcessMemoryInfo(handle, &mut m, std::mem::size_of::<Memory>() as u32) };
+    unsafe {
+        CloseHandle(handle);
+    }
+    require(ok != 0, "memory query failed")?;
+    Ok(
+        json!({"working":m.working,"private":m.private,"peak_working":m.peak_working,"peak_private":m.peak_pagefile}),
+    )
+}
+fn disk_bytes(path: &Path) -> Result<u64> {
+    let mut n = 0;
+    for e in fs::read_dir(path)? {
+        let e = e?;
+        let m = e.file_type()?;
+        require(
+            !m.is_symlink(),
+            "unexpected link in self-owned measurement root",
+        )?;
+        n += if m.is_dir() {
+            disk_bytes(&e.path())?
+        } else {
+            e.metadata()?.len()
+        };
+    }
+    Ok(n)
+}
+fn reply(response: Response) -> Result<Reply> {
+    match response {
+        Response::Ok { reply, .. } => Ok(reply),
+        Response::Error { code, .. } => {
+            Err(io::Error::other(format!("service rejected: {code:?}")).into())
+        }
+    }
+}
+async fn request(client: &mut Client, r: Request) -> Result<Reply> {
+    reply(client.request(r).await?)
+}
+async fn info(client: &mut Client, c: ConnectionRef, id: Uuid) -> Result<log::Info> {
+    match request(
+        client,
+        Request::Logging {
+            request: log::Request::Status {
+                connection: c,
+                log_id: id,
+            },
+        },
+    )
+    .await?
+    {
+        Reply::Logging(log::Reply::Info(i)) => Ok(*i),
+        _ => Err(io::Error::other("unexpected log status").into()),
+    }
+}
+struct Verify {
+    last: AtomicU64,
+    done: AtomicBool,
+    abort: AtomicBool,
+    stats: Mutex<Value>,
+}
+fn verify_journals(root: PathBuf, id: Uuid, stream: usize, v: Arc<Verify>) -> Result<Value> {
+    let mut next = 1;
+    let mut count = 0u64;
+    let mut hash = Sha256::new();
+    let mut bytes = 0u64;
+    loop {
+        if v.abort.load(Ordering::SeqCst) {
+            return Err(io::Error::other("verification aborted").into());
+        }
+        let last = v.last.load(Ordering::SeqCst);
+        let done = v.done.load(Ordering::SeqCst);
+        if next < last || (done && next <= last) {
+            let d = root.join("terminal-logs").join(id.to_string());
+            // Ordinary File::open permits delete sharing; no production archive reader pins live retirement.
+            let raw = File::open(d.join(format!("{next:016}.rawlog")))?;
+            let text = File::open(d.join(format!("{next:016}.text.jsonl")))?;
+            let mut pair =
+                terminal_log::PairReader::new(BufReader::new(raw), BufReader::new(text))?;
+            require(
+                pair.header().segment == next && pair.header().source_cursor == count + 1,
+                "cross-segment source discontinuity",
+            )?;
+            while let Some(r) = pair.next_record()? {
+                let raw = r
+                    .raw
+                    .ok_or_else(|| io::Error::other("unexpected non-source record"))?;
+                require(
+                    raw.seq == count + 1 && raw.gap_bytes.is_none(),
+                    "journal source gap/sequence mismatch",
+                )?;
+                let expected = payload(stream, count);
+                require(raw.bytes == expected, "journal bytes/checksum mismatch")?;
+                require(
+                    r.text.text.as_bytes() == expected
+                        && r.text.gap_bytes.is_none()
+                        && !r.text.decode_error,
+                    "JSONL text mismatch",
+                )?;
+                hash.update(&raw.bytes);
+                bytes += raw.bytes.len() as u64;
+                count += 1;
+            }
+            *v.stats.lock().unwrap() = json!({"segments":next,"records":count,"bytes":bytes});
+            next += 1;
+        } else if done {
+            break;
+        } else {
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+    Ok(
+        json!({"segments":next-1,"records":count,"bytes":bytes,"sha256":hex(hash.finalize().as_slice())}),
+    )
+}
+struct Stream {
+    connection: ConnectionRef,
+    id: Uuid,
+    verify: Arc<Verify>,
+    join: Option<thread::JoinHandle<Result<Value>>>,
+    expected: Sha256,
+    count: u64,
+}
+impl Drop for Stream {
+    fn drop(&mut self) {
+        self.verify.abort.store(true, Ordering::SeqCst);
+        if let Some(j) = self.join.take() {
+            let _ = j.join();
+        }
+    }
+}
+struct Target {
+    connection: ConnectionRef,
+    id: Uuid,
+    verify: Arc<Verify>,
+}
+fn targets(streams: &[Stream]) -> Vec<Target> {
+    streams
+        .iter()
+        .map(|s| Target {
+            connection: s.connection,
+            id: s.id,
+            verify: s.verify.clone(),
+        })
+        .collect()
+}
+async fn sample(client: &mut Client, streams: &[Target], root: &Path, pid: u32) -> Result<Value> {
+    let mut logs = vec![];
+    for s in streams {
+        require(
+            s.verify.stats.lock().unwrap()["error"].is_null(),
+            "live verifier stopped; no tail-only fallback",
+        )?;
+        let i = info(client, s.connection, s.id).await?;
+        require(
+            i.failure.is_none()
+                && i.rejected_records == 0
+                && i.rejected_raw_bytes == 0
+                && i.source_gap_bytes == 0,
+            "explicit capture failure/rejection/gap",
+        )?;
+        s.verify.last.store(i.last_segment, Ordering::SeqCst);
+        let verified = s.verify.stats.lock().unwrap().clone();
+        // Before a segment disappears, its full prefix must already have been independently checked.
+        require(
+            verified["segments"].as_u64().unwrap_or(0) >= i.retired_segments,
+            "retired segment was not verified in time",
+        )?;
+        logs.push(json!({"status":i,"verified_prefix":verified}));
+    }
+    let audit = request(
+        client,
+        Request::RpcAudit {
+            view: session_protocol::rpc_audit::View::JournalInfo {},
+        },
+    )
+    .await?;
+    let service = memory(pid)?;
+    let harness = memory(std::process::id())?;
+    let available = free(root)?;
+    let disk = disk_bytes(root)?;
+    require(
+        available >= 16 * GIB + 16 * 1024 * 1024 && disk <= 8 * GIB - 16 * 1024 * 1024,
+        "disk low-water/budget stop (16MiB drain reserve)",
+    )?;
+    require(
+        service["private"].as_u64().unwrap() <= GIB && service["working"].as_u64().unwrap() <= GIB,
+        "service memory budget stop",
+    )?;
+    require(
+        harness["private"].as_u64().unwrap() <= GIB / 2
+            && harness["working"].as_u64().unwrap() <= GIB / 2,
+        "harness memory budget stop",
+    )?;
+    Ok(
+        json!({"logs":logs,"audit":audit,"service_memory":service,"harness_memory":harness,"disk_bytes":disk,"disk_available":available}),
+    )
+}
+async fn measured(
+    client: &mut Client,
+    mut monitor_client: Client,
+    streams: &mut [Stream],
+    root: &Path,
+    pid: u32,
+    seconds: u64,
+) -> Result<Value> {
+    let total = seconds * HZ / BATCH;
+    let mut buckets = vec![0u64; seconds as usize + 1];
+    let mut generated = 0u64;
+    let mut acked = 0u64;
+    let mut max_late = 0f64;
+    let mut max_rpc = 0f64;
+    let mut first_ack = None;
+    let mut last_ack = 0f64;
+    let start = Instant::now();
+    let clock = tokio::time::Instant::now();
+    let stop = Arc::new(AtomicBool::new(false));
+    let monitor_error = Arc::new(Mutex::new(None::<String>));
+    let generated_counter = Arc::new(AtomicU64::new(0));
+    let acked_counter = Arc::new(AtomicU64::new(0));
+    let observe = {
+        let stop = stop.clone();
+        let error = monitor_error.clone();
+        let gen_count = generated_counter.clone();
+        let ack_count = acked_counter.clone();
+        let root = root.to_owned();
+        let ts = targets(streams);
+        tokio::spawn(async move {
+            let result:Result<()>=async {
+                let mut progress=BufWriter::new(File::create(root.join("progress.jsonl"))?);
+                let mut tick=tokio::time::interval(Duration::from_secs(1));tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);let mut last_print=0;
+                loop {
+                    tick.tick().await;if stop.load(Ordering::SeqCst){break;}
+                    let sample_started=Instant::now();let snapshot=sample(&mut monitor_client,&ts,&root,pid).await?;
+                    let elapsed=start.elapsed().as_secs_f64();let g=gen_count.load(Ordering::SeqCst);let a=ack_count.load(Ordering::SeqCst);
+                    serde_json::to_writer(&mut progress,&json!({"elapsed":elapsed,"generated_bytes":g,"ipc_ack_bytes":a,"sample_wall_s":sample_started.elapsed().as_secs_f64(),"sample":snapshot}))?;writeln!(progress)?;progress.flush()?;
+                    if elapsed as u64>=last_print {
+                        println!("PROGRESS {}",json!({"elapsed":elapsed,"generated":g,"acked":a,"disk":snapshot["disk_bytes"],"service_private":snapshot["service_memory"]["private"]}));io::stdout().flush()?;last_print=elapsed as u64+30;
+                    }
+                }Ok(())
+            }.await;
+            if let Err(e) = result {
+                *error.lock().unwrap() = Some(e.to_string());
+            }
+        })
+    };
+    let outcome: Result<()> = async {
+        for n in 0..total {
+            let due = Duration::from_nanos(n * BATCH * 1_000_000_000 / HZ);
+            tokio::time::sleep_until(clock + due).await;
+            if let Some(e) = monitor_error.lock().unwrap().clone() {
+                return Err(io::Error::other(e).into());
+            }
+            let elapsed = start.elapsed();
+            let late = elapsed.saturating_sub(due).as_secs_f64();
+            max_late = max_late.max(late);
+            require(
+                elapsed < Duration::from_secs(seconds) && late <= 0.250,
+                "offering missed deadline; no end catch-up allowed",
+            )?;
+            let s = &mut streams[n as usize % STREAMS];
+            let mut b = Vec::with_capacity(BLOCK * BATCH as usize);
+            for seq in s.count..s.count + BATCH {
+                b.extend(payload(n as usize % STREAMS, seq));
+            }
+            generated += BLOCK as u64 * BATCH;
+            generated_counter.store(generated, Ordering::SeqCst);
+            s.expected.update(&b);
+            s.count += BATCH;
+            let rpc = Instant::now();
+            request(
+                client,
+                Request::AppendFixture {
+                    connection: s.connection,
+                    bytes: b,
+                },
+            )
+            .await?;
+            max_rpc = max_rpc.max(rpc.elapsed().as_secs_f64());
+            acked += BLOCK as u64 * BATCH;
+            acked_counter.store(acked, Ordering::SeqCst);
+            last_ack = start.elapsed().as_secs_f64();
+            if first_ack.is_none() {
+                first_ack = Some(last_ack);
+            }
+            buckets[start.elapsed().as_secs().min(seconds) as usize] += BLOCK as u64 * BATCH;
+        }
+        tokio::time::sleep_until(clock + Duration::from_secs(seconds)).await;
+        Ok(())
+    }
+    .await;
+    let elapsed = start.elapsed().as_secs_f64();
+    stop.store(true, Ordering::SeqCst);
+    observe.await?;
+    let error = outcome
+        .err()
+        .map(|e| e.to_string())
+        .or(monitor_error.lock().unwrap().clone());
+    Ok(
+        json!({"error":error,"generated_bytes":generated,"ipc_ack_bytes":acked,"elapsed_s":elapsed,"generated_bytes_per_wall_second":generated as f64/elapsed,"ipc_bytes_per_wall_second":acked as f64/elapsed,"first_ack_s":first_ack,"last_ack_s":last_ack,"second_buckets_bytes":buckets,"max_schedule_late_s":max_late,"max_rpc_s":max_rpc}),
+    )
+}
+async fn run(
+    client: &mut Client,
+    monitor_client: Client,
+    root: &Path,
+    pid: u32,
+    seconds: u64,
+    segment: u64,
+) -> Result<Value> {
+    let mut streams = vec![];
+    for index in 0..STREAMS {
+        let Reply::Connection(c) = request(client, Request::CreateFixture {}).await? else {
+            return Err(io::Error::other("expected fixture connection").into());
+        };
+        let connection = c.reference();
+        let Reply::Logging(log::Reply::Info(i)) = request(
+            client,
+            Request::Logging {
+                request: log::Request::Start {
+                    connection,
+                    request_id: Uuid::new_v4(),
+                    limits: log::Limits {
+                        segment_bytes: segment,
+                        segments: 2,
+                    },
+                },
+            },
+        )
+        .await?
+        else {
+            return Err(io::Error::other("expected log start").into());
+        };
+        let id = i.log_id;
+        let v = Arc::new(Verify {
+            last: AtomicU64::new(1),
+            done: AtomicBool::new(false),
+            abort: AtomicBool::new(false),
+            stats: Mutex::new(json!({"segments":0,"bytes":0,"records":0})),
+        });
+        let vr = v.clone();
+        let path = root.to_path_buf();
+        let join = thread::spawn(move || {
+            let result = verify_journals(path, id, index, vr.clone());
+            if let Err(e) = &result {
+                vr.stats.lock().unwrap()["error"] = json!(e.to_string());
+            }
+            result
+        });
+        streams.push(Stream {
+            connection,
+            id,
+            verify: v,
+            join: Some(join),
+            expected: Sha256::new(),
+            count: 0,
+        });
+    }
+    // Opening must settle before timing begins.
+    for s in &streams {
+        timeout(Duration::from_secs(10), async {
+            loop {
+                let i = info(client, s.connection, s.id).await?;
+                if matches!(i.phase, log::Phase::Recording) {
+                    return Ok::<(), Box<dyn std::error::Error + Send + Sync>>(());
+                }
+                require(i.failure.is_none(), "log open failed")?;
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+    }
+    let load = measured(client, monitor_client, &mut streams, root, pid, seconds).await;
+    let mut final_status = vec![];
+    let mut stop_error = None;
+    for s in &streams {
+        let result = async {
+            request(
+                client,
+                Request::Logging {
+                    request: log::Request::Stop {
+                        connection: s.connection,
+                        log_id: s.id,
+                    },
+                },
+            )
+            .await?;
+            timeout(Duration::from_secs(15), async {
+                loop {
+                    let i = info(client, s.connection, s.id).await?;
+                    if i.worker_finished {
+                        return Ok::<_, Box<dyn std::error::Error + Send + Sync>>(i);
+                    }
+                    sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await?
+        }
+        .await;
+        match result {
+            Ok(i) => {
+                s.verify.last.store(i.last_segment, Ordering::SeqCst);
+                final_status.push(i);
+            }
+            Err(e) => {
+                stop_error = Some(e.to_string());
+                s.verify.abort.store(true, Ordering::SeqCst);
+            }
+        }
+        s.verify.done.store(true, Ordering::SeqCst);
+    }
+    let mut verified = vec![];
+    let mut verification_error = None;
+    serde_json::to_writer_pretty(
+        File::create(root.join("stopped-counters.json"))?,
+        &json!({"load":load.as_ref().ok(),"final_status":final_status,"stop_error":stop_error,"source_blocks":streams.iter().map(|s|s.count).collect::<Vec<_>>(),"audit":request(client,Request::RpcAudit{view:session_protocol::rpc_audit::View::JournalInfo{}}).await.ok()}),
+    )?;
+    for (index, s) in streams.iter_mut().enumerate() {
+        match s.join.take().unwrap().join() {
+            Ok(Ok(v)) => verified.push(v),
+            Ok(Err(e)) => {
+                verification_error = Some(e.to_string());
+                continue;
+            }
+            Err(_) => {
+                verification_error = Some("verifier panicked".into());
+                continue;
+            }
+        }
+        let expected = hex(s.expected.clone().finalize().as_slice());
+        let v = verified.last().unwrap();
+        if v["records"] != s.count || v["sha256"] != expected {
+            verification_error = Some("full journal digest/count mismatch".into());
+        }
+        if let Some(status) = final_status.get(index) {
+            let readable = status
+                .readable
+                .as_ref()
+                .ok_or_else(|| io::Error::other("missing live text status"))?;
+            let mut input = BufReader::new(File::open(root.join("logs").join(&readable.filename))?);
+            let header = format!(
+                "# 终端通信日志 UTF-8\r\n# 日志 {}；连接 {} / {}\r\n# 仅起录后的接收输出/终端回显；不含认证表单，未独立记录发送；起录前内容未记录。\r\n",
+                s.id, s.connection.connection_id.0, s.connection.generation
+            );
+            let mut actual_header = vec![0; header.len()];
+            input.read_exact(&mut actual_header)?;
+            require(actual_header == header.as_bytes(), "live header mismatch")?;
+            let mut hash = Sha256::new();
+            for seq in 0..s.count {
+                let mut block = vec![0; BLOCK];
+                input.read_exact(&mut block)?;
+                require(
+                    block == payload(index, seq),
+                    "live file byte/sequence mismatch",
+                )?;
+                hash.update(&block);
+            }
+            let mut tail = [0];
+            require(input.read(&mut tail)? == 0, "unexpected live suffix")?;
+            require(
+                hex(hash.finalize().as_slice()) == expected,
+                "independent live digest mismatch",
+            )?;
+            require(
+                status.accepted_records == s.count
+                    && status.written_records == s.count
+                    && status.accepted_raw_bytes == s.count * BLOCK as u64
+                    && status.written_raw_bytes == s.count * BLOCK as u64
+                    && status.rejected_records == 0
+                    && status.source_gap_bytes == 0
+                    && status.durable
+                    && status.failure.is_none(),
+                "final capture conservation/durability failed",
+            )?;
+            require(
+                readable.written_bytes == header.len() as u64 + s.count * BLOCK as u64
+                    && readable.flushed_bytes == readable.written_bytes
+                    && readable.synced_bytes == readable.written_bytes,
+                "written/flush/sync counters differ",
+            )?;
+        }
+    }
+    let error = load
+        .as_ref()
+        .err()
+        .map(|e| e.to_string())
+        .or_else(|| {
+            load.as_ref()
+                .ok()
+                .and_then(|v| v["error"].as_str())
+                .map(str::to_owned)
+        })
+        .or(stop_error)
+        .or(verification_error);
+    let min = load
+        .as_ref()
+        .ok()
+        .and_then(|v| v["second_buckets_bytes"].as_array())
+        .map(|a| {
+            a[..seconds as usize]
+                .iter()
+                .map(|x| x.as_u64().unwrap())
+                .min()
+                .unwrap_or(0)
+        });
+    let pass = error.is_none()
+        && min.is_some_and(|n| n >= 1024 * 1024)
+        && load.as_ref().is_ok_and(|v| {
+            v["generated_bytes"] == seconds * HZ * BLOCK as u64
+                && v["ipc_ack_bytes"] == v["generated_bytes"]
+        });
+    Ok(
+        json!({"passed":pass,"error":error,"duration_seconds":seconds,"streams":STREAMS,"block_bytes":BLOCK,"offered_bytes_per_second":HZ*BLOCK as u64,"minimum_complete_second_ipc_bytes":min,"load":load.ok(),"final_status":final_status,"full_journal_verification":verified,"final_sample":sample(client,&targets(&streams),root,pid).await?,"scope":"Named Pipe synthetic append -> production parser/capture/raw+JSONL+live text; not SSH/UART or GUI"}),
+    )
+}
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args: Vec<_> = std::env::args_os().collect();
+    require(
+        args.len() == 4,
+        "usage: log_throughput SELF_CREATED_ROOT SECONDS SEGMENT_MIB",
+    )?;
+    let root = fs::canonicalize(PathBuf::from(&args[1]))?;
+    let workspace = fs::canonicalize(std::env::current_dir()?.join("artifacts"))?;
+    require(
+        root.parent() == Some(workspace.as_path())
+            && root
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("P22-throughput-中文-"),
+        "only fresh own workspace artifact roots",
+    )?;
+    require(
+        fs::read_dir(&root)?.next().is_none(),
+        "measurement root must be empty",
+    )?;
+    let seconds = args[2].to_str().unwrap().parse::<u64>()?;
+    let segment = args[3].to_str().unwrap().parse::<u64>()? * 1024 * 1024;
+    require(
+        matches!(seconds, 20..=60 | 1800) && matches!(segment, 1048576 | 104857600),
+        "bounded calibration or formal parameters only",
+    )?;
+    require(
+        free(&root)? >= 24 * GIB,
+        "requires 8GiB budget plus 16GiB reserve",
+    )?;
+    let instance = Uuid::new_v4().to_string();
+    let token = SecretToken::generate();
+    let mut command =
+        Command::new(std::env::current_dir()?.join("target/debug/session-service.exe"));
+    let mut child = command
+        .args(["--instance", &instance, "--test-fixture", "--data-dir"])
+        .arg(&root)
+        .creation_flags(0x08000000)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(File::create(root.join("service-stderr.txt"))?))
+        .kill_on_drop(true)
+        .spawn()?;
+    let pid = child.id().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    write_frame(
+        &mut stdin,
+        &Hello {
+            protocol_version: PROTOCOL_VERSION,
+            client_name: "p22-synthetic-measurement".into(),
+            token: Sensitive::new(token.expose().to_string()),
+        },
+    )
+    .await?;
+    drop(stdin);
+    let mut client = Client::connect(&instance, token.expose(), pid).await?.0;
+    let monitor_client = Client::connect(&instance, token.expose(), pid).await?.0;
+    let result = run(&mut client, monitor_client, &root, pid, seconds, segment).await;
+    let shutdown = request(&mut client, Request::Shutdown {}).await;
+    let exited = timeout(Duration::from_secs(15), child.wait()).await;
+    let clean = shutdown.is_ok() && matches!(exited,Ok(Ok(s)) if s.success());
+    if !clean {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+    let report = match result {
+        Ok(mut v) => {
+            v["owned_service_clean_exit"] = json!(clean);
+            v
+        }
+        Err(e) => json!({"passed":false,"error":e.to_string(),"owned_service_clean_exit":clean}),
+    };
+    serde_json::to_writer_pretty(File::create(root.join("result.json"))?, &report)?;
+    println!(
+        "RESULT {}",
+        json!({"passed":report["passed"],"error":report["error"],"clean_exit":clean,"root":root})
+    );
+    require(
+        clean && report["passed"] == true,
+        "measurement failed; preserve actual evidence",
+    )
+}

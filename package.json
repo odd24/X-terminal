@@ -45,6 +45,8 @@
     "preview:local": "node scripts/Prepare-Local-Preview.mjs",
     "desktop": "cargo build -p session-service -p mcp-bridge --locked && npm run tauri --workspace apps/desktop -- dev",
     "desktop:build": "cargo build -p session-service -p mcp-bridge --locked && npm run tauri --workspace apps/desktop -- build --debug --no-bundle",
+    "test:logs:calibrate": "node scripts/Test-Log-Throughput.mjs --calibrate",
+    "test:logs:throughput": "node scripts/Test-Log-Throughput.mjs",
     "test:desktop:security": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-Security.mjs",
     "test:desktop:mcp": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-Mcp.mjs && node scripts/Test-Desktop-Mcp.mjs --serial",
     "test:desktop:appearance": "node scripts/Test-Desktop-Appearance.mjs",
