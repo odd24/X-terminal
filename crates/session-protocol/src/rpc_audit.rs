@@ -546,6 +546,7 @@ fn serial_descriptor(r: &serial::Request) -> Descriptor {
 fn config_descriptor(r: &config::ConfigRequest) -> Descriptor {
     use config::ConfigRequest as C;
     match r {
+        C::Recheck { .. } => descriptor(Area::Configuration, Verb::Configure),
         C::Preferences {}
         | C::Workspaces {}
         | C::QuickCommands {}

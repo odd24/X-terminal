@@ -100,7 +100,7 @@ impl ConfigWorker {
         let thread = std::thread::Builder::new()
             .name("configuration-store".into())
             .spawn(move || {
-                let owner = lock_directory(&directory);
+                let mut owner = lock_directory(&directory);
                 let mut state = match &owner {
                     Ok(_) => State::open(directory.clone()),
                     Err(error) => Err(*error),
@@ -133,6 +133,25 @@ impl ConfigWorker {
                     // Skip work if its server response future was already cancelled.
                     // Network loss alone is not proof of cancellation; running writes may commit.
                     if message.reply.is_closed() {
+                        continue;
+                    }
+                    if let ConfigRequest::Recheck { service_id } = &message.request {
+                        // Explicit Desktop request only. Normal reads never reacquire,
+                        // and a successful owner/state is never dropped or reopened.
+                        if matches!(owner, Err(ConfigError::Locked)) {
+                            owner = lock_directory(&directory);
+                            state = match &owner {
+                                Ok(_) => State::open(directory.clone()),
+                                Err(error) => Err(*error),
+                            };
+                        }
+                        let result = match (&owner, &state) {
+                            (Ok(_), Ok(_)) => ConfigReply::Rechecked {
+                                service_id: *service_id,
+                            },
+                            (Err(code), _) | (_, Err(code)) => ConfigReply::Error { code: *code },
+                        };
+                        let _ = message.reply.send(result);
                         continue;
                     }
                     let result = match &owner {
@@ -299,6 +318,7 @@ impl State {
             return Err(ConfigError::Invalid);
         }
         match request {
+            ConfigRequest::Recheck { .. } => Err(ConfigError::Invalid),
             ConfigRequest::QuickCommands {} => Ok(ConfigReply::QuickCommands {
                 commands: self.store.quick_commands().map_err(config_error)?,
                 revision: self.revision,

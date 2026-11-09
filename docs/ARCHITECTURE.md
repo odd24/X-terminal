@@ -1,5 +1,7 @@
 # 架构与关键设计
 
+ADR-075：Desktop配置Recheck绑定本运行service_id，actor仅原Locked显式重试固定根独占锁；就绪状态仅观察、不重开库/改revision，普通读取不接管，其他错误原样保留。原配置通道和认证Desktop权限保持，端口库存读取不等于打开；恢复不重放用户动作，也不重启启动失败的独立审计。详见[决策](decisions/ADR-075.md)。
+
 2026-11-09 P11.4/CR-014按[ADR-074](decisions/ADR-074.md)追加同worker、共同logs根的平铺实时文本与受管理完整已刷新快照/显示快照，旧内部证据容器保留不迁移；accepted/written/flushed/synced分列，原生仅可信来源与精确身份，系统另存沿指纹/覆盖保护，菜单与真实UI验证按记录独立交付。
 
 2026-11-09串口原始输出按[ADR-073](decisions/ADR-073.md)在原短锁内有界合并offset连续的未消费尾块；16块/每块4096字节和消费者额外1块边界保持，普通read与发送期间receive pump共用。队列满不等待消费者，不跨Gap合并，终态不隐藏已保留尾块；真实硬件证据与有限修复见[P10.1](records/P10.1.md)。

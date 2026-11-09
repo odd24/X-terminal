@@ -21,6 +21,9 @@ pub enum CredentialEdit {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigRequest {
+    Recheck {
+        service_id: Uuid,
+    },
     QuickCommands {},
     SaveQuickCommand {
         command: config_model::QuickCommand,
@@ -110,6 +113,7 @@ pub enum ConfigRequest {
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
         match self {
+            Self::Recheck { service_id } => !service_id.is_nil(),
             Self::QuickCommands {} => true,
             Self::SaveQuickCommand { command, revision } => {
                 !revision.is_nil() && command.validate().is_ok()
@@ -223,6 +227,9 @@ pub enum ConfigError {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ConfigReply {
+    Rechecked {
+        service_id: Uuid,
+    },
     QuickCommands {
         commands: Vec<config_model::QuickCommand>,
         revision: Uuid,
@@ -327,6 +334,28 @@ pub struct ArchiveInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn configuration_recheck_is_strict_and_bound_to_a_service() {
+        let id = Uuid::new_v4();
+        assert!(ConfigRequest::Recheck { service_id: id }.validate());
+        assert!(
+            !ConfigRequest::Recheck {
+                service_id: Uuid::nil()
+            }
+            .validate()
+        );
+        assert!(
+            serde_json::from_value::<ConfigRequest>(serde_json::json!({
+                "op":"recheck", "service_id":id, "directory":"untrusted"
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ConfigRequest>(serde_json::json!({"op":"recheck"})).is_err()
+        );
+        let reply = serde_json::to_value(ConfigReply::Rechecked { service_id: id }).unwrap();
+        assert_eq!(reply["service_id"], id.to_string());
+    }
     #[test]
     fn strict_configuration_contract_rejects_secret_reference_injection_and_unknown_ops() {
         let profile = PortableProfile {

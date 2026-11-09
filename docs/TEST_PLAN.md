@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P12.1新增`test:desktop:config-recheck`为完整第40入口，前置实际desktop:build；只shared-terminal-config-recheck-ui-中文-自建根/内存串口库存，不打开任何COM。两组自建owner/blocked桌面验证配置LOCKED≠串口占用、库存失败独立、当前持有仍拒、退出后普通读仍拒、原service_id显式重查/重复门/原窗口PID保持、错误旧服务ID拒、held/lost应答不自动连接/丢回复后不重开库或改revision、UART参数保持、偏好/树只读刷新，finally实际恢复普通服务。Windows IPC独立补正常退出/已确认测试服务强制退出/竞争者先取得、原库/错误schema或损坏字节不动。旧23/24仅受影响复验，不重复全套；高级审计/实机另列。
+
 P11.4新增`test:desktop:log-menu`为完整第39入口，前置实际desktop:build及入口编译gui_ssh_fixture；只shared-terminal-log-menu-ui-中文-/shared-terminal-save-ui-中文-自建根，实际CDP右键双窗格+被动内存UART。验证六菜单入口、旧右键偏好不读剪贴板/不直接发、首次及重开状态精确加载、超预览/多轮全文、真实滚动条上滚的物理行中文空白/尾空格逐字节、原生Explorer/实际Notepad文件正文原ID核对（无编辑区TextPattern时自建窗口正文头OCR，不读其他窗口/发按键）、系统另存/取消/独立覆盖备份/SHA，四种Start/Stop/Prepare/Save真实应答丢失只查、重载原ID显式恢复、旧DOM/焦点/重连/关闭迟到隔离。finally必须实际恢复普通服务，不接COM/真实日志；完整P11.4及全局/实机仍独立。
 
 P11.4新增`test:desktop:log-files`为完整第38入口，前置实际desktop:build及入口编译gui_ssh_fixture；仅shared-terminal-log-files-ui-中文-/shared-terminal-save-ui-中文-自建根，两个合成SSH+被动内存UART、共同logs根/多轮平铺秒级命名/停止前实际文件增长和周期flush/sync、超128条/64KiB且内部轮转后的完整已刷新快照、固定水位后继续录制/原编号/精确源与MENU系统另存SHA/正确副本清理，finally必须实际恢复普通服务。不会接COM或使用真实日志；右键菜单/滚动viewport/六入口原生打开另有实际专项，不能从后端通过推导完成。

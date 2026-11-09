@@ -4,6 +4,7 @@ import { config, readConfiguration, ConfigRequestError, type Profile, type Setti
 import { serial, SerialRequestError, reference, type Inventory, type SerialReply } from './serial-api';
 import { requestId } from './request-id';
 import type { ConnectionRef } from './ssh-api';
+import {ConfigurationRecheck} from './configuration-recheck';
 
 type SerialSettings = Extract<Settings,{protocol:'serial'}>;
 type Attempt = { id:string; connection?:ConnectionRef; cancelled:boolean; connected:boolean };
@@ -16,17 +17,24 @@ export function QuickSerial({requestedProfile,select,close,focus}:{requestedProf
   const [settings,setSettings]=useState<SerialSettings>(defaults),[inventory,setInventory]=useState<Inventory>(),[deviceId,setDeviceId]=useState('');
   const [profiles,setProfiles]=useState<Profile[]>([]),[profileId,setProfileId]=useState(''),[save,setSave]=useState(false);
   const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[message,setMessage]=useState('选择端口即可连接。只接收抓取UART日志无需发送命令。');
+  const [configurationReady,setConfigurationReady]=useState(false),[configurationError,setConfigurationError]=useState(''),[configurationCode,setConfigurationCode]=useState(''),[inventoryError,setInventoryError]=useState('');
   const [unknown,setUnknown]=useState(()=>!!savedAttempt()),[saveUnknown,setSaveUnknown]=useState(false);
   const attempt=useRef<Attempt|undefined>(savedAttempt()),mounted=useRef(true),flight=useRef(false);
   const device=inventory?.devices.find(d=>d.device_id===deviceId);
   const patch=(value:Partial<SerialSettings>)=>{setProfileId('');setSettings(previous=>({...previous,...value}));};
   const forget=()=>{try{sessionStorage.removeItem(slot);}catch{/* unavailable */}};
-  async function load(){if(flight.current)return;flight.current=true;setLoading(true);setError('');try{
-    const [c,i]=await Promise.all([readConfiguration(),serial({op:'inventory'})]);if(i.result!=='inventory')throw new Error();
-    if(!mounted.current)return;setProfiles(c.profiles.filter(p=>p.settings.protocol==='serial'));setInventory(i);setDeviceId('');setSaveUnknown(false);
-    const p=c.profiles.find(p=>p.id===requestedProfile);if(p?.settings.protocol==='serial'){setSettings(p.settings);setProfileId(p.id);}
-  }catch(e){if(mounted.current){setInventory(undefined);setError(`读取端口或配置失败：${safe(e)}`);}}finally{flight.current=false;if(mounted.current)setLoading(false);}}
-  useEffect(()=>{mounted.current=true;void load();return()=>{mounted.current=false;const a=attempt.current;if(a&&!a.connected){a.cancelled=true;if(a.connection)void serial({op:'close',connection:a.connection}).catch(()=>{});}};},[]);
+  async function load(initial=false){if(flight.current)return;flight.current=true;setLoading(true);setError('');
+    const [c,i]=await Promise.allSettled([readConfiguration(),serial({op:'inventory'})]);
+    try{if(!mounted.current)return;
+      if(c.status==='fulfilled'){
+        setProfiles(c.value.profiles.filter(p=>p.settings.protocol==='serial'));setConfigurationReady(true);setConfigurationError('');setConfigurationCode('');setSaveUnknown(false);
+        if(initial){const p=c.value.profiles.find(p=>p.id===requestedProfile);if(p?.settings.protocol==='serial'){setSettings(p.settings);setProfileId(p.id);}}
+      }else{setConfigurationReady(false);setConfigurationCode(c.reason instanceof ConfigRequestError?c.reason.code:'UNKNOWN');setConfigurationError(`读取连接配置失败：${safe(c.reason)}`);}
+      if(i.status==='fulfilled'&&i.value.result==='inventory'){setInventory(i.value);setDeviceId(previous=>i.value.result==='inventory'&&i.value.devices.some(d=>d.device_id===previous&&d.port===settings.port)?previous:'');setInventoryError('');}
+      else{setInventory(undefined);setDeviceId('');setInventoryError(`读取端口清单失败：${i.status==='rejected'?safe(i.reason):'端口清单回复无效，请重新读取。'}`);}
+    }finally{flight.current=false;if(mounted.current)setLoading(false);}
+  }
+  useEffect(()=>{mounted.current=true;void load(true);return()=>{mounted.current=false;const a=attempt.current;if(a&&!a.connected){a.cancelled=true;if(a.connection)void serial({op:'close',connection:a.connection}).catch(()=>{});}};},[]);
   async function accept(reply:SerialReply,a:Attempt){if(reply.result!=='started')throw new Error();a.connection=reference(reply.connection);
     if(!mounted.current||a.cancelled){await serial({op:'close',connection:a.connection});forget();return;}
     setUnknown(false);setMessage('正在打开串口…');
@@ -39,7 +47,7 @@ export function QuickSerial({requestedProfile,select,close,focus}:{requestedProf
     }
     throw new Error();
   }
-  async function connect(event:FormEvent){event.preventDefault();if(flight.current||unknown||saveUnknown||loading||!inventory||!device)return;flight.current=true;setBusy(true);setError('');
+  async function connect(event:FormEvent){event.preventDefault();if(flight.current||unknown||saveUnknown||loading||!configurationReady||!inventory||!device)return;flight.current=true;setBusy(true);setError('');
     const a:Attempt={id:requestId(),cancelled:false,connected:false};attempt.current=a;
     try{
       let id=profileId;
@@ -56,6 +64,8 @@ export function QuickSerial({requestedProfile,select,close,focus}:{requestedProf
   async function query(){const a=attempt.current;if(!a||flight.current)return;flight.current=true;setBusy(true);setError('');try{await accept(await serial({op:'start_status',request_id:a.id}),a);}catch(e){if(mounted.current)setError(`${safe(e)} 仍只查询原编号，没有重新打开。`);}finally{flight.current=false;if(mounted.current)setBusy(false);}}
   const blocked=busy||loading||unknown||saveUnknown;
   return <Panel title="串口连接" label="串口快速连接" close={close} closeLabel="取消连接窗口">
+    {configurationError&&<ErrorNotice title="配置尚未就绪">{configurationError}</ErrorNotice>}{configurationCode==='LOCKED'&&<ConfigurationRecheck disabled={busy||loading} ready={()=>load()}/>}
+    {inventoryError&&<ErrorNotice title="端口清单尚未就绪">{inventoryError}</ErrorNotice>}
     {error&&<ErrorNotice>{error}</ErrorNotice>}<p role="status">{loading?'正在读取端口与配置…':message}</p>
     <form onSubmit={e=>void connect(e)}>
       {profiles.length>0&&<Field label="已保存的连接（可选）"><select aria-label="串口已保存连接" disabled={blocked} value={profileId} onChange={e=>{setProfileId(e.target.value);const p=profiles.find(p=>p.id===e.target.value);if(p?.settings.protocol==='serial')setSettings(p.settings);setDeviceId('');}}><option value="">直接填写新连接</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>}
@@ -74,7 +84,7 @@ export function QuickSerial({requestedProfile,select,close,focus}:{requestedProf
         <Field label="初始RTS"><select aria-label="UART初始RTS" disabled={blocked||settings.flow==='hardware'} value={settings.rts_on_open===null?'managed':String(settings.rts_on_open)} onChange={e=>patch({rts_on_open:e.target.value==='true'})}><option value="false">低电平</option><option value="true">高电平</option>{settings.flow==='hardware'&&<option value="managed">由硬件流控管理</option>}</select></Field>
       </div></details>
       {!profileId&&<label className="check"><input type="checkbox" aria-label="保存UART连接" disabled={blocked} checked={save} onChange={e=>setSave(e.target.checked)}/>保存连接（可选）</label>}
-      <div className="config-actions"><button type="submit" disabled={blocked||!device||!inventory}>连接串口</button>{unknown&&<button type="button" disabled={busy} onClick={()=>void query()}>查询串口连接结果</button>}</div>
+      <div className="config-actions"><button type="submit" disabled={blocked||!configurationReady||!device||!inventory}>连接串口</button>{unknown&&<button type="button" disabled={busy} onClick={()=>void query()}>查询串口连接结果</button>}</div>
     </form>
   </Panel>;
 }

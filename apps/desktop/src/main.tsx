@@ -204,6 +204,8 @@ function App() {
   },[workspaceEpoch,connectionIdentities,connectionStates,service?.service_id]);
   useEffect(()=>{const focus=restoredFocus.current;if(!focus)return;if(focus.epoch!==panes.current.epoch||focus.key!==panes.current.active){restoredFocus.current=undefined;return;}const rendered=paneViews[focus.key]?.renderedTarget;if(rendered?.connection_id===focus.connection.connection_id&&rendered.generation===focus.connection.generation){restoredFocus.current=undefined;controllers.current.get(focus.key)?.runtime.term.focus();}},[paneViews,workspaceEpoch]);
 
+  useEffect(()=>{const rechecked=(event:Event)=>{const id=(event as CustomEvent<{service_id:string}>).detail?.service_id;if(serviceStopped.current||!id||id!==serviceRef.current?.service_id)return;void preferenceOperation(false);setTreeRevision(value=>value+1);};window.addEventListener('configuration-rechecked',rechecked);return()=>window.removeEventListener('configuration-rechecked',rechecked);},[]);
+
   useEffect(() => {
     if (!service?.service_id) return;
     preferenceFlight.current = false;

@@ -66,8 +66,151 @@
         ],
         "type": "string"
       },
+      "CommandEnding": {
+        "enum": [
+          "none",
+          "cr",
+          "lf",
+          "crlf"
+        ],
+        "type": "string"
+      },
       "ConfigRequest": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "recheck",
+                "type": "string"
+              },
+              "service_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "service_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "quick_commands",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "$ref": "#/$defs/QuickCommand"
+              },
+              "op": {
+                "const": "save_quick_command",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "command",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "delete_quick_command",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "workspaces",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "save_workspace",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "workspace": {
+                "$ref": "#/$defs/Workspace"
+              }
+            },
+            "required": [
+              "op",
+              "workspace",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "delete_workspace",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id",
+              "revision"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -895,6 +1038,35 @@
           }
         ]
       },
+      "QuickCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "ending": {
+            "$ref": "#/$defs/CommandEnding"
+          },
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "group",
+          "template",
+          "ending"
+        ],
+        "type": "object"
+      },
       "Redaction": {
         "additionalProperties": false,
         "properties": {
@@ -1632,6 +1804,94 @@
           {
             "additionalProperties": false,
             "properties": {
+              "op": {
+                "const": "start_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cols": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "op": {
+                "const": "quick_start",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "rows": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "settings": {
+                "$ref": "#/$defs/Settings"
+              }
+            },
+            "required": [
+              "op",
+              "settings",
+              "request_id",
+              "cols",
+              "rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "challenge_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "key_path": {
+                "type": "string"
+              },
+              "op": {
+                "const": "authenticate_key",
+                "type": "string"
+              },
+              "passphrase": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Sensitive"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "challenge_id",
+              "key_path"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
@@ -2185,6 +2445,56 @@
           {
             "additionalProperties": false,
             "properties": {
+              "device_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "quick_start",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "settings": {
+                "$ref": "#/$defs/Settings"
+              }
+            },
+            "required": [
+              "op",
+              "settings",
+              "request_id",
+              "revision",
+              "device_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "start_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
@@ -2487,6 +2797,109 @@
       },
       "Request5": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "text_export_start",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "text_export_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "op": {
+                "const": "text_export_cancel",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "log_id",
+              "request_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "start_status",
+                "type": "string"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "request_id"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -3722,6 +4135,131 @@
             "type": "object"
           }
         ]
+      },
+      "Workspace": {
+        "additionalProperties": false,
+        "description": "Layout metadata only. Slot IDs cannot be used as connection or input request IDs.",
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/$defs/WorkspaceGroup"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "navigation_open": {
+            "type": "boolean"
+          },
+          "selected_tab": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "split": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/WorkspaceSplit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tabs": {
+            "items": {
+              "$ref": "#/$defs/WorkspaceTab"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "groups",
+          "tabs",
+          "navigation_open",
+          "split"
+        ],
+        "type": "object"
+      },
+      "WorkspaceGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "WorkspaceSplit": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "$ref": "#/$defs/WorkspaceSplitDirection"
+          },
+          "tabs": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          }
+        },
+        "required": [
+          "direction",
+          "tabs"
+        ],
+        "type": "object"
+      },
+      "WorkspaceSplitDirection": {
+        "enum": [
+          "horizontal",
+          "vertical"
+        ],
+        "type": "string"
+      },
+      "WorkspaceTab": {
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "profile_id"
+        ],
+        "type": "object"
       }
     },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4229,6 +4767,15 @@
         ],
         "type": "string"
       },
+      "CommandEnding": {
+        "enum": [
+          "none",
+          "cr",
+          "lf",
+          "crlf"
+        ],
+        "type": "string"
+      },
       "ConfigError": {
         "enum": [
           "IN_USE",
@@ -4246,6 +4793,74 @@
       },
       "ConfigReply": {
         "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "result": {
+                "const": "rechecked",
+                "type": "string"
+              },
+              "service_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "service_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "commands": {
+                "items": {
+                  "$ref": "#/$defs/QuickCommand"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "quick_commands",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "commands",
+              "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "result": {
+                "const": "workspaces",
+                "type": "string"
+              },
+              "revision": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "workspaces": {
+                "items": {
+                  "$ref": "#/$defs/Workspace"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "result",
+              "workspaces",
+              "revision"
+            ],
+            "type": "object"
+          },
           {
             "additionalProperties": false,
             "properties": {
@@ -4413,6 +5028,11 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "quick_commands": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
               "result": {
                 "const": "backup_preview",
                 "type": "string"
@@ -4422,10 +5042,17 @@
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "workspaces": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
               "result",
+              "quick_commands",
+              "workspaces",
               "id",
               "digest",
               "folders",
@@ -4983,6 +5610,7 @@
       },
       "Failure": {
         "enum": [
+          "CAPACITY",
           "QUEUE_FULL",
           "INVALID_RECORD",
           "COUNTER_EXHAUSTED",
@@ -5324,6 +5952,17 @@
           },
           "protocol": {
             "$ref": "#/$defs/Protocol"
+          },
+          "readable": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ReadableInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "rejected_raw_bytes": {
             "format": "uint64",
@@ -6186,6 +6825,113 @@
         ],
         "type": "string"
       },
+      "QuickCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "ending": {
+            "$ref": "#/$defs/CommandEnding"
+          },
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "group",
+          "template",
+          "ending"
+        ],
+        "type": "object"
+      },
+      "ReadableInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "flushed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "flushed_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "flushed_gap_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "flushed_records": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "synced_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "synced_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "synced_gap_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "synced_records": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "written_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "written_gap_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "written_records": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "filename",
+          "written_records",
+          "flushed_records",
+          "synced_records",
+          "written_bytes",
+          "flushed_bytes",
+          "synced_bytes",
+          "written_gap_bytes",
+          "flushed_gap_bytes",
+          "synced_gap_bytes",
+          "flushed_at_ms",
+          "synced_at_ms"
+        ],
+        "type": "object"
+      },
       "Record": {
         "additionalProperties": false,
         "properties": {
@@ -6956,6 +7702,93 @@
           {
             "additionalProperties": false,
             "properties": {
+              "bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "failure": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ExportFailure"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "log_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "next_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "phase": {
+                "$ref": "#/$defs/ExportPhase"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "text_export",
+                "type": "string"
+              },
+              "retained_gap_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "retained_raw_bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "retained_records": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "connection",
+              "log_id",
+              "request_id",
+              "phase"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "ids": {
                 "items": {
                   "format": "uuid",
@@ -7262,6 +8095,17 @@
               },
               "protocol": {
                 "$ref": "#/$defs/Protocol"
+              },
+              "readable": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReadableInfo"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "rejected_raw_bytes": {
                 "format": "uint64",
@@ -8091,6 +8935,9 @@
                 "const": "status",
                 "type": "string"
               },
+              "server_host": {
+                "type": "string"
+              },
               "shell_exit_signal": {
                 "type": [
                   "string",
@@ -8104,10 +8951,21 @@
                   "integer",
                   "null"
                 ]
+              },
+              "temporary_settings": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Settings"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
               "result",
+              "server_host",
               "connection",
               "profile_id",
               "encoding"
@@ -9161,6 +10019,131 @@
           "service_id",
           "client_id",
           "kind"
+        ],
+        "type": "object"
+      },
+      "Workspace": {
+        "additionalProperties": false,
+        "description": "Layout metadata only. Slot IDs cannot be used as connection or input request IDs.",
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/$defs/WorkspaceGroup"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "navigation_open": {
+            "type": "boolean"
+          },
+          "selected_tab": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "split": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/WorkspaceSplit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tabs": {
+            "items": {
+              "$ref": "#/$defs/WorkspaceTab"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "groups",
+          "tabs",
+          "navigation_open",
+          "split"
+        ],
+        "type": "object"
+      },
+      "WorkspaceGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "WorkspaceSplit": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "$ref": "#/$defs/WorkspaceSplitDirection"
+          },
+          "tabs": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          }
+        },
+        "required": [
+          "direction",
+          "tabs"
+        ],
+        "type": "object"
+      },
+      "WorkspaceSplitDirection": {
+        "enum": [
+          "horizontal",
+          "vertical"
+        ],
+        "type": "string"
+      },
+      "WorkspaceTab": {
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "profile_id"
         ],
         "type": "object"
       }

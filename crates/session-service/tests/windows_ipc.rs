@@ -921,9 +921,15 @@ async fn configuration_owner_lock_and_unknown_schema_are_diagnosed_without_overw
             code: ConfigError::UnsupportedSchema
         }
     ));
+    let service_id = match ok(client.request(Request::Ping {}).await.unwrap()) {
+        Reply::Pong { service_id, .. } => service_id,
+        _ => panic!("expected service identity"),
+    };
     assert!(matches!(
-        ok(client.request(Request::Ping {}).await.unwrap()),
-        Reply::Pong { .. }
+        config_call(&mut client, Q::Recheck { service_id }).await,
+        C::Error {
+            code: ConfigError::UnsupportedSchema
+        }
     ));
     service.stop(&mut client).await;
     assert_eq!(std::fs::read(&path).unwrap(), before);
@@ -941,6 +947,16 @@ async fn configuration_owner_lock_and_unknown_schema_are_diagnosed_without_overw
             }
         )
         .await,
+        C::Error {
+            code: ConfigError::Corrupt
+        }
+    ));
+    let service_id = match ok(client.request(Request::Ping {}).await.unwrap()) {
+        Reply::Pong { service_id, .. } => service_id,
+        _ => panic!("expected service identity"),
+    };
+    assert!(matches!(
+        config_call(&mut client, Q::Recheck { service_id }).await,
         C::Error {
             code: ConfigError::Corrupt
         }
@@ -3329,4 +3345,133 @@ async fn desktop_preferences_are_revision_guarded_isolated_backed_up_and_survive
     assert_eq!(preferences, config_store::DesktopPreferences::default());
     isolated.stop(&mut second).await;
     restarted.stop(&mut client).await;
+}
+#[tokio::test]
+async fn explicit_configuration_recheck_preserves_store_and_service_ownership_after_release() {
+    use config::{ConfigError as E, ConfigReply as C, ConfigRequest as Q};
+    async fn owner(client: &mut Client) -> Uuid {
+        match ok(client.request(Request::Ping {}).await.unwrap()) {
+            Reply::Pong { service_id, .. } => service_id,
+            _ => panic!("expected owner"),
+        }
+    }
+    async fn page(client: &mut Client) -> C {
+        config_call(
+            client,
+            Q::Page {
+                revision: None,
+                offset: 0,
+                folders: true,
+            },
+        )
+        .await
+    }
+    let temp = ConfigTemp::new();
+    let mut first = temp.start().await;
+    let mut a = first.connect().await;
+    assert!(matches!(page(&mut a).await, C::Page { .. }));
+    let folder = config_store::Folder {
+        id: Uuid::new_v4(),
+        parent_id: None,
+        name: "保留的自建配置".into(),
+    };
+    assert!(matches!(
+        config_call(
+            &mut a,
+            Q::SaveFolder {
+                folder: folder.clone()
+            }
+        )
+        .await,
+        C::Updated { .. }
+    ));
+    let mut second = temp.start().await;
+    let mut b = second.connect().await;
+    let second_id = owner(&mut b).await;
+    assert!(matches!(page(&mut b).await, C::Error { code: E::Locked }));
+    assert!(matches!(
+        config_call(
+            &mut b,
+            Q::Recheck {
+                service_id: second_id
+            }
+        )
+        .await,
+        C::Error { code: E::Locked }
+    ));
+    first.stop(&mut a).await;
+    // A stale owner identity never opens the directory, even after its owner left.
+    assert!(matches!(
+        config_call(
+            &mut b,
+            Q::Recheck {
+                service_id: Uuid::new_v4()
+            }
+        )
+        .await,
+        C::Error { code: E::Conflict }
+    ));
+    assert!(matches!(page(&mut b).await, C::Error { code: E::Locked }));
+    // Another legitimate service may win first; explicit retry must still refuse.
+    let mut competitor = temp.start().await;
+    let mut c = competitor.connect().await;
+    assert!(matches!(page(&mut c).await, C::Page { .. }));
+    assert!(matches!(
+        config_call(
+            &mut b,
+            Q::Recheck {
+                service_id: second_id
+            }
+        )
+        .await,
+        C::Error { code: E::Locked }
+    ));
+    competitor.child.kill().await.unwrap();
+    competitor.child.wait().await.unwrap();
+    assert!(matches!(page(&mut b).await, C::Error { code: E::Locked }));
+    assert!(
+        matches!(config_call(&mut b,Q::Recheck {service_id:second_id}).await,C::Rechecked {service_id} if service_id==second_id)
+    );
+    let revision = match page(&mut b).await {
+        C::Page {
+            folders, revision, ..
+        } => {
+            assert_eq!(folders, vec![folder.clone()]);
+            revision
+        }
+        _ => panic!("recheck did not recover original store"),
+    };
+    // A lost reply can only re-observe the same state: no reopen or revision change.
+    assert!(matches!(
+        config_call(
+            &mut b,
+            Q::Recheck {
+                service_id: second_id
+            }
+        )
+        .await,
+        C::Rechecked { .. }
+    ));
+    assert!(matches!(page(&mut b).await,C::Page {revision:next,..} if next==revision));
+    assert!(
+        matches!(ok(b.request(Request::List {}).await.unwrap()),Reply::Sessions(items) if items.is_empty())
+    );
+    let mut last = temp.start().await;
+    let mut d = last.connect().await;
+    let last_id = owner(&mut d).await;
+    assert!(matches!(page(&mut d).await, C::Error { code: E::Locked }));
+    second.child.kill().await.unwrap();
+    second.child.wait().await.unwrap();
+    assert!(matches!(
+        config_call(
+            &mut d,
+            Q::Recheck {
+                service_id: last_id
+            }
+        )
+        .await,
+        C::Rechecked { .. }
+    ));
+    assert!(matches!(page(&mut d).await,C::Page {folders,..} if folders==vec![folder]));
+    last.stop(&mut d).await;
 }

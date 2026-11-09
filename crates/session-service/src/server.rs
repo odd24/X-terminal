@@ -305,6 +305,12 @@ impl Runtime {
             store.pairing.require_active(identity, self.now())?;
             store.pairing.require_desktop(identity, self.now())?;
         }
+        if matches!(&request, config::ConfigRequest::Recheck { service_id } if *service_id != self.service_id)
+        {
+            return Ok(Reply::Config(config::ConfigReply::Error {
+                code: config::ConfigError::Conflict,
+            }));
+        }
         self.config.request(request).await.map(Reply::Config)
     }
     fn now(&self) -> u64 {

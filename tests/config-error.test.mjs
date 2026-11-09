@@ -4,7 +4,7 @@ import { ConfigRequestError } from '../apps/desktop/src/config-error.ts';
 
 test('business rejection retains a safe typed cause distinct from ambiguous delivery',()=>{
  const locked=new ConfigRequestError('LOCKED');
- assert.equal(locked.code,'LOCKED');assert.equal(locked.uncertain,false);assert.match(locked.message,/另一服务.*保存旧窗口.*重新启动/);
+ assert.equal(locked.code,'LOCKED');assert.equal(locked.uncertain,false);assert.match(locked.message,/启动时.*配置目录.*重新检查/);assert.doesNotMatch(locked.message,/正常退出旧版|保存旧窗口/);assert.match(locked.message,/不是串口占用/);
  const invalid=new ConfigRequestError('INVALID');assert.equal(invalid.uncertain,false);
  for(const code of ['STORAGE','CONFIG_CHANNEL_UNAVAILABLE','INVALID_CONFIGURATION_REPLY'])assert.equal(new ConfigRequestError(code).uncertain,true);
  assert.equal(new ConfigRequestError('INVALID',true).uncertain,true,'a lost response cannot be downgraded to rejection');
