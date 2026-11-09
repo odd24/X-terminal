@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P19新增`test:desktop:compose-history`（完整链第33入口，前置实际desktop:build、入口编译gui_ssh_fixture），仅shared-terminal-compose-history-ui-中文-自建根/合成SSH/内存UART，finally实际普通服务恢复。验证默认不记录/主动启用窗口留存、只记已交桌面队列的实际全文或选区/取消不记/未选源不记、查看不输入、当前目标默认不勾替换/准备不发及原确认、重复发送独立记录、UART末尾、清空停止保留草稿/连接、真实丢应答仍仅入队结论不重放、reload清记录和开关且schema7无history表。模型补owner/32条/256KiB/单条过大与Unicode字段边界；实际失败/诊断/最终结果见[P19](records/P19.md)。不推导服务接受、执行成功或持久命令历史/完整R09/实机通过。
+
 P19新增`test:desktop:command-targets`（完整链第32入口，前置实际desktop:build、入口编译gui_ssh_fixture），仅shared-terminal-command-targets-ui-中文-自建根/合成SSH/内存UART，finally实际普通服务恢复。验证真零会话可填变量和准备、模板revision变化拒绝/重读、seed只带文本/末尾/来源、当前标签及上次目标同意不继承、原多目标独立空范围/预览/确认与两个精确字节/独立编号、未选目标保持、变量缺失拒绝、关闭/普通重开/重载不复活及SQLite无变量/目标。模型补owner白名单/预算边界，实际结果见[P19](records/P19.md)。完整R08/R09/历史节奏及实机仍开放。
 
 P19新增`test:desktop:compose-selection`（完整链第31入口，前置实际desktop:build、入口编译gui_ssh_fixture），仅shared-terminal-compose-selection-ui-中文-自建根/合成SSH/内存UART，finally实际恢复普通服务。验证原正文选区的字面Unicode/CRLF/CR、预览取消不发/源保留、原队列一次确认/双击单次、只移除入队片段/未选草稿保留、改选区与切目标撤同意、真实write_text丢应答命中1次后不回填/重放、重载清空。模型补范围/代理对/预算/源revision和晚finish不覆盖，实际结果见[P19](records/P19.md)；历史/节奏/选定连接和完整R09/实机仍开放。

@@ -231,3 +231,6 @@ P19选区发送按ADR-068复用原ComposePanel与统一队列，冻结完整源/
 
 
 P19常用命令选定连接按ADR-069只准备owner/text/ending/origin到原多目标窗口，64KiB共同预算/同源revision和服务复核；不带目标/代次/同意，不动单目标草稿。接收方owner白名单、默认无目标/独立原预览确认，关闭清seed、普通重开和reload不复活。新增test:desktop:command-targets第32入口，前置实际desktop:build，仅shared-terminal-command-targets-ui-中文-自建根/合成SSH/内存UART，finally实际普通恢复。无schema/权限变化，完整历史/节奏/实机等仍开放，不扩连续键盘或触发器。
+
+
+P19本窗口撰写入队历史按ADR-070默认不记录，主动开启只在窗口内保留手动Compose实际入队片段；32条/256KiB预算、满退最早、单条过大不影响发送。无源目标/授权/完整未选源，不采集认证/键盘/输出/广播；选择只看、明确准备当前草稿后仍原预览确认，已有草稿替换默认不勾。取消勾选/服务变化或失效/reload清空并停止，关闭面板保留本窗口记录，入队不当服务/远端接受。新增test:desktop:compose-history第33入口，前置实际desktop:build，仅shared-terminal-compose-history-ui-中文-自建根/合成SSH/内存UART，finally实际普通恢复。切目标测试须核对data-rendered-id/完整代次及就绪，不以泛化“输入可用”当精确绑定；schema7不变，节奏/持久历史/完整验收仍开放。

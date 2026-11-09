@@ -18,6 +18,7 @@ import {BroadcastRun,type BroadcastSeed} from './broadcast';
 import {broadcastTargetReady,sendBroadcastTarget,queryBroadcastTarget} from './broadcast-api';
 import {sameQuickContext,type QuickContext} from './quick-commands';
 import { ComposeDrafts, type ComposeTarget, type Ending } from './compose-drafts';
+import {ComposeHistory} from './compose-history';
 import { SessionTree } from './session-tree';
 import { ConnectionCatalog } from './connection-catalog';
 import { config, type DesktopPreferences, type Profile, type Workspace } from './config-api';
@@ -65,6 +66,7 @@ function App() {
   const {renderedTarget,viewport,status,lastInput,inputFailure,decodeWarning}=terminalView;
   const setInputFailure=(inputFailure:string)=>setPaneViews(v=>({...v,[panes.current.active]:{...(v[panes.current.active]??initialTerminalView()),inputFailure}}));
   const drafts = useRef(new ComposeDrafts());
+  const composeHistory=useRef(new ComposeHistory());
   const composeSend = useRef<((target: ComposeTarget, text: string) => boolean) | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [navigationWidth, setNavigationWidth] = useState(260);
@@ -249,11 +251,11 @@ function App() {
   function registerPane(key:PaneKey,c?:TerminalController){if(c)controllers.current.set(key,c);else controllers.current.delete(key);if(panes.current.active===key){runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;}}
   useEffect(()=>{let disposed=false,timer=0;
     async function poll(){try{const epoch=panes.current.epoch;const native=await invoke<Status>('service_status');if(disposed)return;const sessions=await invoke<Connection[]>('service_list');if(disposed)return;
-      serviceRef.current=native;setService(native);liveConnections.current=sessions;setConnections(sessions);
+      composeHistory.current.retain(native.service_id);serviceRef.current=native;setService(native);liveConnections.current=sessions;setConnections(sessions);
       const beforeRetain=panes.current.epoch;if(panes.current.retain(native.service_id,sessions,epoch===panes.current.epoch)){if(panes.current.epoch!==beforeRetain)routeChanged();else syncRoute();}
       if(panes.current.direction==='single'&&!panes.current.current.requested){const first=sessions.find(c=>!tabClosures.current.isHidden(c));if(first){panes.current.select(first.connection_id);panes.current.retain(native.service_id,sessions);syncRoute();}}
       timer=window.setTimeout(()=>void poll(),100);
-    }catch{if(!disposed){serviceStopped.current=true;panes.current.epoch++;routeChanged();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
+    }catch{if(!disposed){serviceStopped.current=true;composeHistory.current.retain('');panes.current.epoch++;routeChanged();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
     void poll();return()=>{disposed=true;clearTimeout(timer);};
   },[]);
   useEffect(()=>{const key=(event:KeyboardEvent)=>{if(event.ctrlKey&&event.shiftKey&&!event.altKey&&!event.metaKey&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog:modal')){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)openQuickCommands();return;}if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length!==2)return;event.preventDefault();event.stopImmediatePropagation();focusPane(panes.current.slots.find(p=>p.key!==panes.current.active)!.key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
@@ -447,7 +449,7 @@ function App() {
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} seed={broadcastSeed} close={closeBroadcast}/></Dialog>}
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
-    {composeOpen && <ComposePanel initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
+    {composeOpen && <ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text) => composeSend.current?.(target, text) ?? false} close={() => setComposeOpen(false)} />}
     {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
     {sshOpen && <SshPanel connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
