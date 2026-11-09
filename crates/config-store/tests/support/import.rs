@@ -1,4 +1,44 @@
 use super::*;
+#[test]
+fn import_destination_limits_have_capacity_reports_without_writes() {
+    for folders in [true, false] {
+        let temp = Temp::new();
+        let path = temp.path("capacity.sqlite");
+        let store = Store::open(&path).unwrap();
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch("BEGIN IMMEDIATE").unwrap();
+        if folders {
+            for _ in 0..1024 {
+                db.execute(
+                    "INSERT INTO folders VALUES(?1,NULL,'existing')",
+                    [Uuid::new_v4().to_string()],
+                )
+                .unwrap();
+            }
+        } else {
+            let settings = serde_json::to_string(&profile().settings).unwrap();
+            for _ in 0..10000 {
+                db.execute(
+                    "INSERT INTO profiles VALUES(?1,NULL,'existing',NULL,?2)",
+                    rusqlite::params![Uuid::new_v4().to_string(), settings],
+                )
+                .unwrap();
+            }
+        }
+        db.execute_batch("COMMIT").unwrap();
+        let before = store.image().unwrap().digest().unwrap();
+        assert!(matches!(
+            store
+                .preview_import(&source(), ImportPolicy::Reject)
+                .unwrap(),
+            ImportPreview::Rejected(ImportProblem {
+                code: ImportProblemCode::Capacity,
+                ..
+            })
+        ));
+        assert_eq!(store.image().unwrap().digest().unwrap(), before);
+    }
+}
 fn source() -> Snapshot {
     let root = Folder {
         id: Uuid::new_v4(),

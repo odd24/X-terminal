@@ -298,6 +298,12 @@ impl Store {
             image.profiles.push(after.clone());
             profiles.push((after, old.is_some()));
         }
+        if image.folders.len() > 1024 || image.profiles.len() > 10000 {
+            return Ok(ImportPreview::Rejected(problem(
+                ImportProblemCode::Capacity,
+                None,
+            )));
+        }
         image
             .folders
             .sort_by(|a, b| (&a.name, a.id).cmp(&(&b.name, b.id)));
