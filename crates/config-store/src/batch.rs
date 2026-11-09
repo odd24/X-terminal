@@ -30,6 +30,13 @@ impl Store {
         let tx = self.connection.unchecked_transaction()?;
         require_current(&tx)?;
         let mut image = self.image_in_transaction()?;
+        if let config_model::BatchFolder::Move {
+            folder_id: Some(id),
+        } = patch.folder
+            && !image.folders.iter().any(|folder| folder.id == id)
+        {
+            return Err(Error::NotFound);
+        }
         let before_digest = image.digest()?;
         let mut rows = Vec::new();
         let mut profiles = Vec::new();

@@ -18,6 +18,17 @@ fn batch_exact_selection_private_refs_and_external_conflict() {
     }
     let ids = vec![profiles[1].id, profiles[0].id];
     let before = store.image().unwrap().digest().unwrap();
+    let stale_folder = BatchPatch {
+        folder: BatchFolder::Move {
+            folder_id: Some(Uuid::new_v4()),
+        },
+        ..patch()
+    };
+    assert!(matches!(
+        store.preview_batch(&ids, &stale_folder),
+        Err(Error::NotFound)
+    ));
+
     let plan = store.preview_batch(&ids, &patch()).unwrap();
     assert_eq!(store.image().unwrap().digest().unwrap(), before);
     assert_eq!(

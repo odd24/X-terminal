@@ -5,9 +5,33 @@ use uuid::Uuid;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[schemars(transform = required_folder_schema)]
 pub enum BatchFolder {
     Keep {},
-    Move { folder_id: Option<Uuid> },
+    Move {
+        #[serde(deserialize_with = "required_folder")]
+        folder_id: Option<Uuid>,
+    },
+}
+fn required_folder<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<Uuid>, D::Error> {
+    Option::<Uuid>::deserialize(d)
+}
+fn required_folder_schema(schema: &mut schemars::Schema) {
+    if let Some(variants) = schema.get_mut("oneOf").and_then(|v| v.as_array_mut()) {
+        for variant in variants {
+            if variant
+                .get("properties")
+                .and_then(|v| v.get("folder_id"))
+                .is_some()
+                && let Some(required) = variant.get_mut("required").and_then(|v| v.as_array_mut())
+                && !required.iter().any(|v| v.as_str() == Some("folder_id"))
+            {
+                required.push("folder_id".into());
+            }
+        }
+    }
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

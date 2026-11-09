@@ -90,7 +90,8 @@
               }
             },
             "required": [
-              "kind"
+              "kind",
+              "folder_id"
             ],
             "type": "object"
           }

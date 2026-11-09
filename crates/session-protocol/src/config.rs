@@ -570,6 +570,34 @@ mod batch_contract_tests {
     use super::*;
     #[test]
     fn batch_config_strict_selection_patch_and_redacted_audit() {
+        assert!(
+            serde_json::from_value::<config_model::BatchFolder>(serde_json::json!({"kind":"move"}))
+                .is_err(),
+            "moving to root must explicitly supply null"
+        );
+        assert!(
+            serde_json::from_value::<config_model::BatchFolder>(
+                serde_json::json!({"kind":"move","folder_id":null})
+            )
+            .is_ok()
+        );
+
+        let schema = schemars::schema_for!(config_model::BatchFolder);
+        assert!(
+            schema
+                .get("oneOf")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|variant| {
+                    variant["required"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|field| field == "folder_id")
+                })
+        );
         let value = serde_json::json!({"op":"preview_batch","id":Uuid::new_v4(),"revision":Uuid::new_v4(),"ids":[Uuid::new_v4(),Uuid::new_v4()],"patch":{"folder":{"kind":"keep"},"encoding":"gbk","ssh_port":2222,"serial_baud":null}});
         let request: ConfigRequest = serde_json::from_value(value.clone()).unwrap();
         assert!(request.validate());
