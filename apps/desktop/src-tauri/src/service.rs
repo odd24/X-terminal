@@ -29,7 +29,7 @@ pub struct Service {
 
 #[derive(Serialize)]
 pub struct Status {
-    service_id: Uuid,
+    pub(crate) service_id: Uuid,
     pid: u32,
     fixture: bool,
     exit_policy: &'static str,

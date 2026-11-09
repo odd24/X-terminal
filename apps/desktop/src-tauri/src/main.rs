@@ -4,6 +4,7 @@
 mod agent_management;
 mod audit_history;
 mod bridge_manager;
+mod config_import;
 mod export_save;
 mod service;
 mod terminal_clipboard;
@@ -247,11 +248,23 @@ async fn config_request(
     if !request.validate() {
         return Err("INVALID_CONFIGURATION".into());
     }
+    if matches!(
+        request,
+        session_protocol::config::ConfigRequest::PreviewImport { .. }
+    ) {
+        return Err("INVALID_CONFIGURATION".into());
+    }
     // The renderer supplies a key path, never raw private-key material.
     if matches!(&request,session_protocol::config::ConfigRequest::SaveProfile {credential:session_protocol::config::CredentialEdit::Replace {value},..} if value.private_key.is_some())
     {
         return Err("INVALID_CONFIGURATION".into());
     }
+    forward_config(state.inner(), request).await
+}
+async fn forward_config(
+    state: &Desktop,
+    request: session_protocol::config::ConfigRequest,
+) -> Result<session_protocol::config::ConfigReply, String> {
     let mut channel = state.1.lock().await;
     let client = channel.as_mut().ok_or("CONFIG_CHANNEL_UNAVAILABLE")?;
     match client.request(Request::Config { request }).await {
@@ -602,6 +615,7 @@ fn main() {
             app.manage(export_save::Manager::new(directory.clone())?);
             app.manage(terminal_logs::Manager::new(directory.clone())?);
             app.manage(trigger_match::Manager::default());
+            app.manage(config_import::Manager::default());
             app.manage(Desktop(shared, configuration, directory));
             // Renderer reload/suspension must not expire the native IPC client.
             // A failed heartbeat latches failure, never restarts or retries input.
@@ -641,6 +655,7 @@ fn main() {
             fixture_append,
             fixture_lifecycle,
             config_request,
+            config_import::select_config_import,
             logging_request,
             agent_management_request,
             audit_history_request,
