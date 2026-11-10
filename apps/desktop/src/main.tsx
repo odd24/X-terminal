@@ -164,14 +164,17 @@ function App() {
     }
   }
   const [configurationOpen, setConfigurationOpen] = useState(false);
-  const toolsReturnDialog = useRef<'configuration' | 'appearance' | undefined>(undefined);
+  const toolsReturnDialog = useRef<'configuration' | 'appearance' | 'closeInfo' | 'saveRecovery' | 'workspace' | 'batchConfig' | undefined>(undefined);
   const toolsSummary = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const dialog = toolsReturnDialog.current;
-    if (!dialog || (dialog === 'configuration' ? configurationOpen : appearanceOpen)) return;
+    if (!dialog) return;
+    const open = { configuration: configurationOpen, appearance: appearanceOpen, closeInfo: closeInfoOpen,
+      saveRecovery: saveRecoveryOpen, workspace: workspaceOpen, batchConfig: batchConfigOpen };
+    if (open[dialog]) return;
     toolsReturnDialog.current = undefined;
     toolsSummary.current?.focus();
-  }, [configurationOpen, appearanceOpen]);
+  }, [configurationOpen, appearanceOpen, closeInfoOpen, saveRecoveryOpen, workspaceOpen, batchConfigOpen]);
   const [configurationTarget,setConfigurationTarget]=useState<{id:string;action:'edit'|'delete'}>();
   const [sshOpen, setSshOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -444,10 +447,10 @@ function App() {
       <details className="tools-menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.open = false; }}><summary ref={toolsSummary}>更多工具</summary><div className="tools-menu-content">
 
       <button onClick={() => {toolsReturnDialog.current='configuration';setConfigurationTarget(undefined);setConfigurationOpen(true);}}>连接配置</button>
-      <button onClick={()=>setBatchConfigOpen(true)}>批量修改配置</button>
+      <button onClick={()=>{toolsReturnDialog.current='batchConfig';setBatchConfigOpen(true);}}>批量修改配置</button>
       <button onClick={()=>setImportConfigOpen(true)}>导入原生配置</button>
-      <button onClick={()=>setCloseInfoOpen(true)}>上次关闭信息</button>
-      <button onClick={()=>setSaveRecoveryOpen(true)}>另存保全信息</button>
+      <button onClick={()=>{toolsReturnDialog.current='closeInfo';setCloseInfoOpen(true);}}>上次关闭信息</button>
+      <button onClick={()=>{toolsReturnDialog.current='saveRecovery';setSaveRecoveryOpen(true);}}>另存保全信息</button>
       <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
       <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
 
@@ -469,7 +472,7 @@ function App() {
       <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
       <button onClick={() => {toolsReturnDialog.current='appearance';setAppearanceOpen(true);}}>外观</button>
       <button onClick={()=>setGroupsOpen(true)}>标签分组</button>
-      <button disabled={!service} onClick={()=>setWorkspaceOpen(true)}>工作区</button>
+      <button disabled={!service} onClick={()=>{toolsReturnDialog.current='workspace';setWorkspaceOpen(true);}}>工作区</button>
       <button disabled={!active||active.state!=='CONNECTED'||!['SSH2','SERIAL'].includes(active.protocol)} onClick={()=>{if(active){const nonce=crypto.randomUUID();splitNonce.current=nonce;setSplitSource({owner:serviceRef.current!.service_id,first:{...active},nonce});}}}>分屏</button>
       <button onClick={() => setSerialOpen(open=>!open)}>串口高级工具</button>
       <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
