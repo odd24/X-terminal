@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P24/ADR-096 独立入口 `npm run test:desktop:save-recovery` 验证实际 Desktop 的覆盖另存写前记录和重启只读诊断。显式夹具分别停在意图同步、备份改名和发布后，外部终止后以同一自建应用根重启。普通构建验证写前失败、新文件另存、已记录终态及原有另存回归，详见[P24](records/P24.md)。
+
 P16 官方客户端兼容复验使用 `node scripts/Test-Desktop-Codex.mjs --preview-v11`。前置已交付 v11 普通预览、现有 SSH 夹具及安装的 Codex CLI。测试区分 29 项发现与 4 项显式调用，覆盖 Desktop 范围批准和配对、保护读取、字面等待及退出，详见[P16](records/P16.md)。
 
 P15/ADR-095 第56入口 `npm run test:desktop:protected-export` 前置实际普通构建。合成 SSH 和内存 UART 覆盖独立保护导出批准、精确范围、丢答后原编号、跨票据隔离、落盘保护、实际另存和撤销覆盖。UART finally 实际重建普通服务，详见[P15](records/P15.md)。

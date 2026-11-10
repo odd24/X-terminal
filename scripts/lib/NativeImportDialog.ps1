@@ -1,11 +1,11 @@
-param([Parameter(Mandatory)][int]$TargetProcessId, [Parameter(Mandatory)][string]$Root, [ValidateSet('select','cancel')][string]$Action, [string]$TargetPath, [ValidateSet('Import','ProtectedExport')][string]$Purpose='Import')
+param([Parameter(Mandatory)][int]$TargetProcessId, [Parameter(Mandatory)][string]$Root, [ValidateSet('select','cancel')][string]$Action, [string]$TargetPath, [ValidateSet('Import','ProtectedExport','SaveRecovery')][string]$Purpose='Import')
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 $testRoot=[IO.Path]::GetFullPath($Root)
-$protected=$Purpose -eq 'ProtectedExport'
-$rootPrefix=if($protected){'shared-terminal-save-ui-中文-protected-'}else{'shared-terminal-import-config-ui-中文-'}
-$pickerTitle=if($protected){'另存受保护文本'}else{'选择原生连接配置 JSON'}
+$protected=$Purpose -ne 'Import'
+$rootPrefix=switch($Purpose){'ProtectedExport'{'shared-terminal-save-ui-中文-protected-'} 'SaveRecovery'{'shared-terminal-save-ui-中文-recovery-'} default{'shared-terminal-import-config-ui-中文-'}}
+$pickerTitle=switch($Purpose){'ProtectedExport'{'另存受保护文本'} 'SaveRecovery'{'另存终端导出'} default{'选择原生连接配置 JSON'}}
 if (![IO.Path]::GetFileName($testRoot).StartsWith($rootPrefix) -or ($protected -and [IO.Path]::GetDirectoryName($testRoot) -ne [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar))) { throw 'Only the explicitly owned test root is allowed.' }
 if ($Action -eq 'select') {
  $resolved=[IO.Path]::GetFullPath($TargetPath)

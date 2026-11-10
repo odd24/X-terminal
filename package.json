@@ -48,6 +48,7 @@
     "test:desktop:history": "node scripts/Test-Desktop-History.mjs",
     "test:desktop:export": "node scripts/Test-Desktop-Export.mjs",
     "test:desktop:save": "node scripts/Test-Desktop-Save.mjs",
+    "test:desktop:save-recovery": "pwsh -NoProfile -File scripts/Test-Desktop-SaveRecovery.ps1",
     "test:desktop:cleanup": "node scripts/Test-Desktop-Cleanup.mjs",
     "test:desktop:config": "node scripts/Test-Desktop-Config.mjs",
     "test:mcp": "node scripts/Test-Mcp.mjs",

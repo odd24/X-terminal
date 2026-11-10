@@ -4,8 +4,9 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 import {processRpc} from './jsonrpc-client.mjs';
-const preview=JSON.parse(await readFile('artifacts/P16-local-preview.json','utf8'));
-const catalogVersion=process.argv.includes('--mcp-v11')?11:process.argv.includes('--mcp-v10')?10:process.argv.includes('--mcp-v9')?9:process.argv.includes('--mcp-v8')?8:process.argv.includes('--mcp-v7')?7:process.argv.includes('--mcp-v6')?6:process.argv.includes('--mcp-v5')?5:process.argv.includes('--mcp-v4')?4:process.argv.includes('--mcp-v3')?3:process.argv.includes('--mcp-v2')?2:null;
+const saveRecovery=process.argv.includes('--save-recovery');
+const preview=JSON.parse(await readFile(saveRecovery?'artifacts/P24-save-recovery-preview.json':'artifacts/P16-local-preview.json','utf8'));
+const catalogVersion=saveRecovery||process.argv.includes('--mcp-v11')?11:process.argv.includes('--mcp-v10')?10:process.argv.includes('--mcp-v9')?9:process.argv.includes('--mcp-v8')?8:process.argv.includes('--mcp-v7')?7:process.argv.includes('--mcp-v6')?6:process.argv.includes('--mcp-v5')?5:process.argv.includes('--mcp-v4')?4:process.argv.includes('--mcp-v3')?3:process.argv.includes('--mcp-v2')?2:null;
 assert.equal(preview.result,'PASS');
 const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-preview-close-中文-'));
 let ui,rpc,result;
@@ -14,6 +15,7 @@ try{
   const status=await ui.invoke('service_status');assert.equal(status.fixture,false);assert.deepEqual(await ui.invoke('service_list'),[]);
   assert.deepEqual((await ui.invoke('agent_management_request',{request:{op:'grant_list'}})).data,[]);
   assert.equal(await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('fixture_create').then(()=>false,e=>e==='FIXTURE_DISABLED')`),true);
+  if(saveRecovery)assert.deepEqual(await ui.invoke('save_recovery_status'),{availability:'MISSING',items:[]});
   let toolCount;
   if(catalogVersion){
     const info=await ui.invoke('bridge_management_request',{request:{op:'info'}});
@@ -35,5 +37,5 @@ try{
   await rpc?.close();await ui?.close();assert.equal(path.dirname(path.resolve(root)),path.resolve(tmpdir()));assert.ok(path.basename(root).startsWith('shared-terminal-preview-close-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }
-await writeFile(catalogVersion===11?'artifacts/P15-protected-export-v11-preview-result.json':catalogVersion===10?'artifacts/P15-terminal-wait-v10-preview-result.json':catalogVersion===9?'artifacts/P15-ssh-resize-v9-preview-result.json':catalogVersion===8?'artifacts/P15-serial-connect-v8-preview-result.json':catalogVersion===7?'artifacts/P15-connect-v7-preview-result.json':catalogVersion===6?'artifacts/P15-reconnect-v6-preview-result.json':catalogVersion===5?'artifacts/P15-forget-v5-preview-result.json':catalogVersion===4?'artifacts/P15-disconnect-v4-preview-result.json':catalogVersion===3?'artifacts/P15-serial-v3-preview-result.json':catalogVersion===2?'artifacts/P15-exec-preview-result.json':'artifacts/P22-close-preview-result.json',JSON.stringify(result,null,2)+'\n');
+await writeFile(saveRecovery?'artifacts/P24-save-recovery-preview-result.json':catalogVersion===11?'artifacts/P15-protected-export-v11-preview-result.json':catalogVersion===10?'artifacts/P15-terminal-wait-v10-preview-result.json':catalogVersion===9?'artifacts/P15-ssh-resize-v9-preview-result.json':catalogVersion===8?'artifacts/P15-serial-connect-v8-preview-result.json':catalogVersion===7?'artifacts/P15-connect-v7-preview-result.json':catalogVersion===6?'artifacts/P15-reconnect-v6-preview-result.json':catalogVersion===5?'artifacts/P15-forget-v5-preview-result.json':catalogVersion===4?'artifacts/P15-disconnect-v4-preview-result.json':catalogVersion===3?'artifacts/P15-serial-v3-preview-result.json':catalogVersion===2?'artifacts/P15-exec-preview-result.json':'artifacts/P22-close-preview-result.json',JSON.stringify(result,null,2)+'\n');
 console.log('PASS copied ordinary preview actual native close, persisted receipt, healthy audit and owned process release.');
