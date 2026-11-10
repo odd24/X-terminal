@@ -6,7 +6,9 @@ import path from 'node:path';
 import { launchDesktop } from './lib/DesktopHarness.mjs';
 import { activeText, desktopKeyboard } from './lib/DesktopKeyboard.mjs';
 
-const manifest = process.argv[2] ?? 'artifacts/P12-standard-workspace-dpi-preview.json';
+const matrix = process.argv.includes('--tools-matrix');
+const manifest = process.argv.slice(2).find(argument => argument !== '--tools-matrix')
+  ?? (matrix ? 'artifacts/P12-appearance-return-focus-preview.json' : 'artifacts/P12-standard-workspace-dpi-preview.json');
 const preview = JSON.parse(await readFile(manifest, 'utf8'));
 assert.equal(preview.result, 'PASS');
 assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
@@ -18,8 +20,9 @@ for (const file of preview.files) {
   assert.equal(createHash('sha256').update(bytes).digest('hex'), file.sha256);
 }
 
-const prefix = 'shared-terminal-appearance-return-focus-中文-';
-const artifact = 'P12-appearance-return-focus';
+const scenario = matrix ? 'tools-modal-return-focus' : 'appearance-return-focus';
+const prefix = `shared-terminal-${scenario}-中文-`;
+const artifact = `P12-${scenario}`;
 const root = await mkdtemp(path.join(tmpdir(), prefix));
 const focusTrace = [];
 const cases = [];
@@ -30,7 +33,15 @@ try {
   await ui.command('Page.bringToFront');
   assert.equal((await ui.invoke('service_status')).fixture, false);
   const prefs = () => ui.invoke('config_request', { request: { op: 'preferences' } });
+  const profiles = () => ui.invoke('config_request', { request: { op: 'page', revision: null, offset: 0, folders: false } });
+  const workspaces = () => ui.invoke('config_request', { request: { op: 'workspaces' } });
   const before = await prefs();
+  const emptyProfiles = matrix ? await profiles() : undefined;
+  const emptyWorkspaces = matrix ? await workspaces() : undefined;
+  if (matrix) {
+    assert.deepEqual(emptyProfiles.profiles, []);
+    assert.deepEqual(emptyWorkspaces.workspaces, []);
+  }
   assert.equal(before.result, 'preferences');
   const viewport = await ui.evaluate('({width:innerWidth,height:innerHeight,theme:document.documentElement.dataset.theme})');
   assert.deepEqual(await ui.invoke('service_list'), []);
@@ -38,7 +49,7 @@ try {
   const observe = () => ui.evaluate(`(() => {
     const node=document.activeElement, css=getComputedStyle(node), box=node.getBoundingClientRect();
     return {tag:node.tagName,label:node.getAttribute('aria-label')??(node.matches('button,summary')?node.textContent.trim():null),
-      insideAppearance:!!node.closest('dialog:modal[aria-label="外观设置"]'),
+      dialog:node.closest('dialog:modal')?.getAttribute('aria-label')??null,
       toolsSummary:node===document.querySelector('.tools-menu > summary'),
       toolsOpen:document.querySelector('.tools-menu').open,
       visibleFocus:node!==document.body && node.matches(':focus-visible') && css.outlineStyle==='solid'
@@ -53,11 +64,17 @@ try {
     await enter();
   }
 
-  for (const method of ['Escape', '关闭外观']) {
-    await openFromTools('外观');
-    await ui.waitFor(`!!document.querySelector('dialog:modal[aria-label="外观设置"]')`);
+  const entries = matrix ? [
+    ['上次关闭信息', '上次关闭信息', 'Escape'],
+    ['另存保全信息', '另存保全信息', 'Escape'],
+    ['工作区', '保存与打开工作区', 'Escape'],
+    ['批量修改配置', '批量修改连接配置', 'Escape'],
+  ] : [['外观', '外观设置', 'Escape'], ['外观', '外观设置', '关闭外观']];
+  for (const [entry, dialog, method] of entries) {
+    await openFromTools(entry);
+    await ui.waitFor(`document.querySelector('dialog:modal')?.getAttribute('aria-label')===${JSON.stringify(dialog)}`);
     const opened = await observe();
-    assert.ok(opened.insideAppearance && opened.visibleFocus && !opened.toolsOpen);
+    const modalFocus = opened.dialog === dialog && opened.visibleFocus && !opened.toolsOpen;
     if (method === 'Escape') await key('Escape', 'Escape', 27);
     else {
       await tabTo(activeText('关闭外观'), '关闭外观按钮');
@@ -70,11 +87,11 @@ try {
     if (returnedToSummary && cases.length === 0) await ui.screenshot(`${artifact}-summary.png`);
     await key('Tab', 'Tab', 9);
     const next = await observe();
-    cases.push({ method, opened, returned, next, passed: returnedToSummary && next.label === '新建SSH连接' && next.visibleFocus });
+    cases.push({ entry, method, opened, returned, next, passed: modalFocus && returnedToSummary && next.label === '新建SSH连接' && next.visibleFocus });
   }
 
   const regressions = [];
-  if (cases.every(item => item.passed)) {
+  if (!matrix && cases.every(item => item.passed)) {
     const configDialog = `!!document.querySelector('dialog:modal[aria-label="连接配置"]')`;
     await openFromTools('连接配置');
     await ui.waitFor(configDialog);
@@ -95,10 +112,14 @@ try {
   }
 
   assert.deepEqual(await prefs(), before);
+  if (matrix) {
+    assert.deepEqual(await profiles(), emptyProfiles);
+    assert.deepEqual(await workspaces(), emptyWorkspaces);
+  }
   assert.deepEqual(await ui.invoke('service_list'), []);
   const result = cases.every(item => item.passed) && regressions.every(item => item.passed) ? 'PASS' : 'FAIL';
   await writeFile(`artifacts/${artifact}.json`, JSON.stringify({ result, preview: preview.directory, viewport, cases, regressions, focusTrace }, null, 2) + '\n');
-  assert.equal(result, 'PASS', 'Appearance close must return visible focus to 更多工具 before continuing with Tab');
+  assert.equal(result, 'PASS', 'Modal close must return visible focus to 更多工具 before continuing with Tab');
 } finally {
   await ui?.close();
   const resolved = await realpath(root);
