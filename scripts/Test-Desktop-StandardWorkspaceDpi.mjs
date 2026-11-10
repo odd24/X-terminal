@@ -7,9 +7,10 @@ import path from 'node:path';
 import { launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, activeText, desktopKeyboard } from './lib/DesktopKeyboard.mjs';
 
-const preview = JSON.parse(await readFile('artifacts/P12-compact-config-dpi-preview.json', 'utf8'));
+const manifest = process.argv[2] ?? 'artifacts/P12-standard-workspace-dpi-preview.json';
+const preview = JSON.parse(await readFile(manifest, 'utf8'));
 assert.equal(preview.result, 'PASS');
-assert.equal(path.resolve(preview.directory), path.resolve('artifacts/shared-terminal-preview-fc4b9b3d-b8ab-4620-8765-0bf25b92caa1'));
+assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
 assert.deepEqual(preview.files.map(file => file.name).sort(),
   ['session-service.exe', 'shared-terminal-desktop.exe', 'terminal-mcp.exe']);
 for (const file of preview.files) {
@@ -77,6 +78,11 @@ try {
       })()`);
     }
 
+    function fullFocusOutline({ boxes: { row }, clip, rowHit, rowFocus, outline, margin }) {
+      return rowHit && rowFocus && outline === 'solid' && margin === 4 && row.left - margin >= clip.left - 1
+        && row.right + margin <= clip.right + 1 && row.top - margin >= clip.top - 1 && row.bottom + margin <= clip.bottom + 1;
+    }
+
     for (const item of evidence.sizes) {
       if (item.result !== 'READY') continue;
       const { width, height } = item;
@@ -111,12 +117,25 @@ try {
       }
       if (Object.values(result.scroll).some(([scroll, client]) => scroll > client)) problems.push('Horizontal overflow');
       if (result.lines.length < 2 || result.lines.some(r => r.left < clip.left || r.right > clip.right)) problems.push('Long name does not wrap within the tree');
-      if (!result.rowHit || !result.rowFocus || result.outline !== 'solid' || boxes.row.left - result.margin < clip.left - 1
-        || boxes.row.right + result.margin > clip.right + 1 || boxes.row.top - result.margin < clip.top - 1
-        || boxes.row.bottom + result.margin > clip.bottom + 1) problems.push('Session tree focus outline is clipped or obscured');
+      if (!fullFocusOutline(result)) problems.push('Session tree focus outline is clipped or obscured');
       item.result = problems.length ? 'FAIL' : 'PASS';
       await ui.screenshot(`${artifact}-${width}x${height}.png`);
       if (problems.length) break;
+      await enter();
+      await ui.waitFor(active(`${row}[aria-pressed="true"]`));
+      assert.equal(await ui.evaluate(`document.querySelector('.profile-summary strong').textContent`), profile.name);
+      const selected = await geometry();
+      assert.ok(selected.rowFocus, 'Keyboard selection must retain focus on the original tree item');
+      assert.ok(Object.values(selected.scroll).every(([scroll, client]) => scroll <= client), 'Selection must not create horizontal overflow');
+      assert.deepEqual(await list(), [], 'Keyboard selection must not start a connection');
+      item.selection = { selected: true, focused: selected.rowFocus, outlineVisible: fullFocusOutline(selected),
+        row: selected.boxes.row, clip: selected.clip, scroll: selected.scroll };
+      if (width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-selected.png`);
+      if (!item.selection.outlineVisible) {
+        problems.push('Selection details reduce the tree viewport and clip the focused row');
+        item.result = 'FAIL';
+        break;
+      }
     }
     const after = await page();
     assert.equal(after.revision, before.revision);
