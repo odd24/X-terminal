@@ -35,7 +35,7 @@ try{
   const broker=await ui.invoke('bridge_management_request',{request:{op:'info'}});
   assert.equal(path.resolve(broker.executable).toLowerCase(),path.join(destination,'terminal-mcp.exe').toLowerCase(),'native bridge resolves the packaged sibling');
   assert.equal(broker.peer,null);
-  await ui.screenshot(process.argv.includes('--mcp-v8') ? 'P15-serial-connect-v8-preview.png' : process.argv.includes('--mcp-v7') ? 'P15-connect-v7-preview.png' : process.argv.includes('--mcp-v6') ? 'P15-reconnect-v6-preview.png' : process.argv.includes('--mcp-v5') ? 'P15-forget-v5-preview.png' : process.argv.includes('--mcp-v4') ? 'P15-disconnect-v4-preview.png' : 'P16-local-preview.png');
+  await ui.screenshot(process.argv.includes('--mcp-v9') ? 'P15-ssh-resize-v9-preview.png' : process.argv.includes('--mcp-v8') ? 'P15-serial-connect-v8-preview.png' : process.argv.includes('--mcp-v7') ? 'P15-connect-v7-preview.png' : process.argv.includes('--mcp-v6') ? 'P15-reconnect-v6-preview.png' : process.argv.includes('--mcp-v5') ? 'P15-forget-v5-preview.png' : process.argv.includes('--mcp-v4') ? 'P15-disconnect-v4-preview.png' : 'P16-local-preview.png');
 }finally{
   await ui?.close();if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-preview-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 }

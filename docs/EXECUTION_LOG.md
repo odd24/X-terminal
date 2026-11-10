@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P15 v9 实现 8332ec4 已交付普通本机预览 a3efbba6-38f9-4b9e-90dc-357ebc774c90。复制品真实 stdio 二十五项、退出 ACK、exit 0、无强退、审计 44/44、回执落盘及自有资源释放通过，见[P15](records/P15.md)。Step-ID: P15。
+
 2026-11-10 P15 [ADR-093](decisions/ADR-093.md) SSH2 显式尺寸控制 v9 软件子包完成。原二十四项保持。Control/lease/Single、丢首答原编号查询与对端一次实收、撤销/接管队列取消分别验证。10 协议/2 IPC、两协议各 54 拒绝及普通恢复见[P15](records/P15.md)。完整 P15/MCP/实机/长稳仍开放。Step-ID: P15。
 
 2026-11-10 P15 v8 实现 e83f937 已交付普通本机预览 24d167eb-e7f1-40e9-bf32-ebe62186f5c1。复制品真实 stdio 二十四项、退出 ACK、exit 0、无强退、审计 44/44、回执落盘及自有资源释放通过，见[P15](records/P15.md)。Step-ID: P15。
