@@ -7,9 +7,10 @@ import path from 'node:path';
 import { launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, activeText, desktopKeyboard } from './lib/DesktopKeyboard.mjs';
 
-const preview = JSON.parse(await readFile('artifacts/P12.1-compact-ssh-dpi-preview.json', 'utf8'));
+const manifest = process.argv[2] ?? 'artifacts/P12-compact-config-dpi-preview.json';
+const preview = JSON.parse(await readFile(manifest, 'utf8'));
 assert.equal(preview.result, 'PASS');
-assert.equal(path.resolve(preview.directory), path.resolve('artifacts/shared-terminal-preview-ae70e899-f4af-4bd8-8b4c-ff6659bfbb90'));
+assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
 assert.deepEqual(preview.files.map(file => file.name).sort(),
   ['session-service.exe', 'shared-terminal-desktop.exe', 'terminal-mcp.exe']);
 for (const file of preview.files) {
@@ -53,17 +54,47 @@ try {
   const config = request => ui.invoke('config_request', { request });
   const page = () => config({ op: 'page', revision: null, offset: 0, folders: false });
   assert.deepEqual((await page()).profiles, []);
+
+  const { key, enter, tabTo, recordFocus } = desktopKeyboard(ui, focusTrace);
+  async function checkReturn(step, expected) {
+    await ui.waitFor('!document.querySelector("dialog:modal")');
+    await recordFocus(step);
+    measurements[step] = focusTrace.at(-1);
+    if (!await ui.evaluate(`(${activeText(expected)}) && document.activeElement.matches(':focus-visible')`)) {
+      findings.push(`${step}: focus did not return to ${expected}`);
+      await ui.screenshot(`${artifact}-return-failure.png`);
+    }
+  }
+
+  // The empty session tree has its own visible, persistent configuration opener.
+  await tabTo(activeText('会话导航'), '会话导航');
+  await enter();
+  await tabTo(activeText('新建连接配置'), '空会话树的配置入口');
+  await enter();
+  await ui.waitFor(activeText('关闭配置'));
+  await ui.waitFor(`document.querySelector('[aria-label="配置状态"]')?.textContent==='配置已加载'`);
+  await key('Tab', 'Tab', 9, { modifiers: 8 });
+  assert.ok(await ui.evaluate(active('[aria-label="已保存副本"]')), 'Shift+Tab wraps within the shared dialog');
+  await key('Tab', 'Tab', 9);
+  assert.ok(await ui.evaluate(activeText('关闭配置')), 'Tab wraps back to the first control');
+  await key('Escape', 'Escape', 27);
+  await checkReturn('treeEscape', '新建连接配置');
+  await tabTo(activeText('会话导航'), '收起会话导航', { backward: true });
+  await enter();
+
   const saved = await config({ op: 'save_profile', profile, credential: { action: 'clear' } });
   assert.equal(saved.result, 'saved_profile');
   assert.equal(saved.profile.credential_ref, null);
   const before = await page();
 
-  const { key, enter, tabTo, recordFocus } = desktopKeyboard(ui, focusTrace);
-  await tabTo(activeText('更多工具'), '更多工具');
-  await enter();
-  await tabTo(activeText('连接配置'), '连接配置入口');
-  await enter();
-  await ui.waitFor(`!!document.querySelector(${JSON.stringify(row)})`);
+  async function openFromTools() {
+    await tabTo(activeText('更多工具'), '更多工具');
+    await enter();
+    await tabTo(activeText('连接配置'), '连接配置入口');
+    await enter();
+    await ui.waitFor(`!!document.querySelector(${JSON.stringify(row)})`);
+  }
+  await openFromTools();
   const panel = () => ui.evaluate(`(() => {const d=document.querySelector(${JSON.stringify(dialog)});
     return {box:d.getBoundingClientRect().toJSON(),clientWidth:d.clientWidth,clientHeight:d.clientHeight,
       scrollWidth:d.scrollWidth,scrollHeight:d.scrollHeight,scrollTop:d.scrollTop};})()`);
@@ -122,13 +153,13 @@ try {
   await ui.screenshot(`${artifact}-actions.png`);
 
   await key('Escape', 'Escape', 27);
-  await ui.waitFor('!document.querySelector("dialog:modal")');
-  await recordFocus('Escape 关闭后');
-  measurements.returnedFocus = focusTrace.at(-1);
-  if (!await ui.evaluate(`(${activeText('连接配置')}) || (${activeText('更多工具')})`)) {
-    findings.push('Escape: focus did not return to the opener or its visible tools summary');
-    await ui.screenshot(`${artifact}-return.png`);
-  }
+  await checkReturn('toolsEscape', '更多工具');
+  await openFromTools();
+  await tabTo(activeText('关闭配置'), '关闭配置按钮');
+  await enter();
+  await checkReturn('toolsCloseButton', '更多工具');
+  await checkFocus('toolsSummary');
+  await ui.screenshot(`${artifact}-return.png`);
   const after = await page();
   assert.equal(after.revision, before.revision);
   assert.deepEqual(after.profiles, before.profiles);
