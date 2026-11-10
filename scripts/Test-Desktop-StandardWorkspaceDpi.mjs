@@ -8,7 +8,10 @@ import { launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, activeText, desktopKeyboard } from './lib/DesktopKeyboard.mjs';
 
 const narrow = process.argv.includes('--narrow');
-const manifest = process.argv.slice(2).find(argument => argument !== '--narrow') ?? 'artifacts/P12-standard-workspace-dpi-preview.json';
+const maximized = process.argv.includes('--maximized');
+assert.ok(!(narrow && maximized), 'Choose one workspace mode');
+const manifest = process.argv.slice(2).find(argument => !['--narrow', '--maximized'].includes(argument))
+  ?? 'artifacts/P12-standard-workspace-dpi-preview.json';
 const preview = JSON.parse(await readFile(manifest, 'utf8'));
 assert.equal(preview.result, 'PASS');
 assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
@@ -20,13 +23,14 @@ for (const file of preview.files) {
   assert.equal(createHash('sha256').update(bytes).digest('hex'), file.sha256);
 }
 
-const prefix = narrow ? 'shared-terminal-narrow-workspace-dpi-中文-' : 'shared-terminal-standard-workspace-dpi-中文-';
+const mode = narrow ? 'narrow' : maximized ? 'maximized' : 'standard';
+const prefix = `shared-terminal-${mode}-workspace-dpi-中文-`;
 const root = await mkdtemp(path.join(tmpdir(), prefix));
 const executable = path.join(preview.directory, 'shared-terminal-desktop.exe');
-const artifact = narrow ? 'P12-narrow-workspace-dpi' : 'P12-standard-workspace-dpi';
-const sizes = narrow ? [[760, 540]] : [[1280, 720], [1920, 1080]];
+const artifact = `P12-${mode}-workspace-dpi`;
+const sizes = narrow ? [[760, 540]] : maximized ? [[1920, 1080]] : [[1280, 720], [1920, 1080]];
 const viewport = '({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,theme:document.documentElement.dataset.theme})';
-const evidence = { preview: preview.directory, sizes: [], focusTrace: [] };
+const evidence = { preview: preview.directory, mode, sizes: [], focusTrace: [] };
 let ui;
 
 try {
@@ -35,20 +39,23 @@ try {
   assert.equal((await ui.invoke('service_status')).fixture, false);
   const windowGeometry = (width, height, measureOnly = false) => JSON.parse(execFileSync('pwsh', ['-NoProfile', '-File',
     'scripts/lib/Resize-TestWindow.ps1', '-TargetProcessId', String(ui.app.pid), '-ExpectedExecutable', executable,
-    '-Width', String(width), '-Height', String(height), '-PhysicalSize', ...(measureOnly ? ['-MeasureOnly'] : [])],
+    '-Width', String(width), '-Height', String(height), '-PhysicalSize', ...(measureOnly ? ['-MeasureOnly'] : []),
+    ...(maximized && !measureOnly ? ['-Maximize'] : [])],
   { encoding: 'utf8', windowsHide: true }));
   const initial = windowGeometry(...sizes[0], true);
   evidence.initial = initial;
   evidence.initialViewport = await ui.evaluate(viewport);
   assert.equal(initial.pid, ui.app.pid);
   const fits = ([width, height]) => width <= initial.availableWidth && height <= initial.availableHeight;
-  evidence.sizes = sizes.map(([width, height]) => ({ width, height,
-    result: fits([width, height]) ? 'READY' : 'NOT_RUN_NO_FIT' }));
+  const expectedEnvironment = initial.displayWidth === 1920 && initial.displayHeight === 1080 && initial.dpi === 96
+    && evidence.initialViewport.dpr === 1 && evidence.initialViewport.theme === 'dark';
+  evidence.sizes = sizes.map(([width, height]) => ({ width, height, kind: maximized ? 'display' : 'window',
+    result: maximized ? (expectedEnvironment ? 'READY' : 'NOT_RUN_ENVIRONMENT') : (fits([width, height]) ? 'READY' : 'NOT_RUN_NO_FIT') }));
   await writeFile(`artifacts/${artifact}-preflight.json`, JSON.stringify(evidence, null, 2) + '\n');
 
   const list = () => ui.invoke('service_list');
   assert.deepEqual(await list(), []);
-  if (sizes.some(fits)) {
+  if (evidence.sizes.some(item => item.result === 'READY')) {
     const config = request => ui.invoke('config_request', { request });
     const page = () => config({ op: 'page', revision: null, offset: 0, folders: false });
     assert.deepEqual((await page()).profiles, []);
@@ -122,8 +129,13 @@ try {
       const { width, height } = item;
       const physical = windowGeometry(width, height);
       item.physical = physical;
-      assert.deepEqual([physical.pid, physical.hwnd, physical.width, physical.height, physical.dpi],
-        [initial.pid, initial.hwnd, width, height, initial.dpi]);
+      assert.deepEqual([physical.pid, physical.hwnd, physical.dpi], [initial.pid, initial.hwnd, initial.dpi]);
+      if (maximized) {
+        assert.equal(physical.maximized, true);
+        assert.deepEqual([physical.displayWidth, physical.displayHeight, physical.workWidth, physical.workHeight],
+          [width, height, initial.workWidth, initial.workHeight]);
+        assert.equal(physical.visibleMatchesWorkArea, true);
+      } else assert.deepEqual([physical.width, physical.height], [width, height]);
       await ui.waitFor(`Math.abs(innerWidth*devicePixelRatio-${physical.clientWidth})<=devicePixelRatio
         && Math.abs(innerHeight*devicePixelRatio-${physical.clientHeight})<=devicePixelRatio`);
       item.viewport = await ui.evaluate(viewport);
@@ -159,7 +171,7 @@ try {
       if (result.lines.length < 2 || result.lines.some(r => r.left < clip.left || r.right > clip.right)) problems.push('Long name does not wrap within the tree');
       if (!visibleTreeFocus(result)) problems.push('Focused tree row is not visibly reachable');
       item.result = problems.length ? 'FAIL' : 'PASS';
-      if (!narrow || problems.length) await ui.screenshot(`${artifact}-${width}x${height}.png`);
+      if ((!narrow && !maximized) || problems.length) await ui.screenshot(`${artifact}-${width}x${height}.png`);
       if (problems.length) break;
       await enter();
       await ui.waitFor(active(`${row}[aria-pressed="true"]`));
@@ -171,7 +183,7 @@ try {
       item.selection = { selected: true, focused: selected.rowFocus, outlineVisible: fullFocusOutline(selected),
         row: selected.boxes.row, clip: selected.clip, scroll: selected.scroll,
         oversized: exceedsTreeHeight(selected), visibleHeight: selected.visibleHeight };
-      if (narrow || width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-selected.png`);
+      if (narrow || maximized || width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-selected.png`);
       if (!visibleTreeFocus(selected)) {
         problems.push('Selection details reduce the tree viewport and clip the focused row');
         item.result = 'FAIL';
@@ -210,7 +222,7 @@ try {
       const bottom = await detailGeometry();
       assert.ok(fullFocusOutline(bottom), 'Keyboard scrolling returns to the complete connect control');
       item.details = { focused, top, bottom };
-      if (narrow || width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-details.png`);
+      if (narrow || maximized || width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-details.png`);
       assert.deepEqual(await list(), [], 'Detail navigation must not start a connection');
       await tabTo(active(row), '返回原配置项', { backward: true });
     }
@@ -221,7 +233,7 @@ try {
   }
   for (const item of evidence.sizes) if (item.result === 'READY') item.result = 'NOT_RUN_AFTER_FAILURE';
   evidence.result = evidence.sizes.some(item => item.result === 'FAIL') ? 'FAIL'
-    : evidence.sizes.some(item => item.result === 'PASS') ? 'PASS' : 'NOT_RUN_NO_FIT';
+    : evidence.sizes.some(item => item.result === 'PASS') ? 'PASS' : evidence.sizes[0].result;
   await writeFile(`artifacts/${artifact}.json`, JSON.stringify(evidence, null, 2) + '\n');
   assert.notEqual(evidence.result, 'FAIL', 'See native geometry evidence for the workspace defect');
 } catch (error) {
@@ -236,4 +248,4 @@ try {
   assert.ok(path.basename(resolved).startsWith(prefix));
   await rm(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
-console.log(`${evidence.result} native ${narrow ? 'narrow' : 'standard'} workspace at current DPI`);
+console.log(`${evidence.result} native ${mode} workspace at current DPI`);

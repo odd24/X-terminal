@@ -1,6 +1,6 @@
-param([Parameter(Mandatory=$true)][int]$TargetProcessId,[Parameter(Mandatory=$true)][ValidateRange(640,2000)][int]$Width,[Parameter(Mandatory=$true)][ValidateRange(480,1400)][int]$Height,[string]$ExpectedExecutable,[switch]$MeasureOnly,[switch]$PhysicalSize)
+param([Parameter(Mandatory=$true)][int]$TargetProcessId,[Parameter(Mandatory=$true)][ValidateRange(640,2000)][int]$Width,[Parameter(Mandatory=$true)][ValidateRange(480,1400)][int]$Height,[string]$ExpectedExecutable,[switch]$MeasureOnly,[switch]$PhysicalSize,[switch]$Maximize)
 $ErrorActionPreference='Stop'
-if (($MeasureOnly -or $PhysicalSize) -and !$ExpectedExecutable) { throw 'Physical test measurements require an expected executable' }
+if (($MeasureOnly -or $PhysicalSize -or $Maximize) -and !$ExpectedExecutable) { throw 'Physical test measurements require an expected executable' }
 $targetProcess=Get-Process -Id $TargetProcessId
 if ([System.IO.Path]::GetFileName($targetProcess.Path) -ne 'shared-terminal-desktop.exe') { throw 'Unexpected test window process' }
 $targetHandle=$targetProcess.MainWindowHandle
@@ -19,6 +19,9 @@ public static class TerminalTestWindow {
  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h,uint flags);
  [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor,ref MonitorInfo info);
+ [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h,int command);
+ [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
+ [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h,int attribute,out Rect r,int size);
 }
 "@
 if ($ExpectedExecutable) {
@@ -41,7 +44,11 @@ if ($ExpectedExecutable) {
   $originInWorkArea=$rect.Left -ge $info.Work.Left -and $rect.Top -ge $info.Work.Top -and $rect.Left -lt $info.Work.Right -and $rect.Top -lt $info.Work.Bottom
   $availableWidth=if ($originInWorkArea) { $info.Work.Right-$rect.Left } else { 0 }
   $availableHeight=if ($originInWorkArea) { $info.Work.Bottom-$rect.Top } else { 0 }
-  if (!$MeasureOnly) {
+  if ($Maximize -and !$MeasureOnly) {
+   if (-not [TerminalTestWindow]::ShowWindowAsync($targetHandle,3)) { throw 'Normal test window maximization failed' }
+   for ($attempt=0; $attempt -lt 100 -and ![TerminalTestWindow]::IsZoomed($targetHandle); $attempt++) { Start-Sleep -Milliseconds 20 }
+   if (-not [TerminalTestWindow]::IsZoomed($targetHandle)) { throw 'Test window did not enter the normal maximized state' }
+  } elseif (!$MeasureOnly) {
    if ($physicalWidth -gt $availableWidth -or $physicalHeight -gt $availableHeight) { throw 'Requested test window would not fit at its current position' }
    if (-not [TerminalTestWindow]::SetWindowPos($targetHandle,[IntPtr]::Zero,0,0,$physicalWidth,$physicalHeight,22)) { throw 'Self-test resize failed' }
   }
@@ -49,7 +56,7 @@ if ($ExpectedExecutable) {
   $targetProcess.Refresh()
   if ($targetProcess.MainWindowHandle -ne $targetHandle -or -not [TerminalTestWindow]::GetWindowThreadProcessId($targetHandle,[ref]$owner) -or $owner -ne $TargetProcessId -or [TerminalTestWindow]::GetDpiForWindow($targetHandle) -ne $dpi) { throw 'Test window identity or DPI changed during resize' }
   if (-not [TerminalTestWindow]::GetWindowRect($targetHandle,[ref]$rect) -or -not [TerminalTestWindow]::GetClientRect($targetHandle,[ref]$client)) { throw 'Resized test window geometry query failed' }
-  @{
+  $measurement=@{
    pid=$owner; hwnd=('0x{0:X}' -f $targetHandle.ToInt64()); dpi=$dpi
    width=$rect.Right-$rect.Left; height=$rect.Bottom-$rect.Top
    requestedWidth=$physicalWidth; requestedHeight=$physicalHeight
@@ -57,7 +64,19 @@ if ($ExpectedExecutable) {
    displayWidth=$info.Monitor.Right-$info.Monitor.Left; displayHeight=$info.Monitor.Bottom-$info.Monitor.Top
    workWidth=$info.Work.Right-$info.Work.Left; workHeight=$info.Work.Bottom-$info.Work.Top
    availableWidth=$availableWidth; availableHeight=$availableHeight
-  } | ConvertTo-Json -Compress
+  }
+  if ($Maximize -and !$MeasureOnly) {
+   if ([TerminalTestWindow]::MonitorFromWindow($targetHandle,2) -ne $monitor) { throw 'Maximized test window changed monitors' }
+   $visible=New-Object TerminalTestWindow+Rect
+   if ([TerminalTestWindow]::DwmGetWindowAttribute($targetHandle,9,[ref]$visible,[Runtime.InteropServices.Marshal]::SizeOf($visible)) -ne 0) { throw 'DWM visible bounds query failed' }
+   $measurement.Remove('requestedWidth')
+   $measurement.Remove('requestedHeight')
+   $measurement.maximized=$true
+   $measurement.visibleWidth=$visible.Right-$visible.Left
+   $measurement.visibleHeight=$visible.Bottom-$visible.Top
+   $measurement.visibleMatchesWorkArea=$visible.Left -eq $info.Work.Left -and $visible.Top -eq $info.Work.Top -and $visible.Right -eq $info.Work.Right -and $visible.Bottom -eq $info.Work.Bottom
+  }
+  $measurement | ConvertTo-Json -Compress
  } finally { [void][TerminalTestWindow]::SetThreadDpiAwarenessContext($previous) }
  return
 }
