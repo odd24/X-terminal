@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P24 配置快照回退专项 `node scripts/Test-Desktop-SchemaRollback.mjs` 复用 schema 6、7 普通预览，验证旧程序实际生成配置、新程序成功迁移、旧程序拒绝新库及独立备份副本恢复，详见[P24](records/P24.md)。
+
 P24/T20 内存 UART 读失败专项 `pwsh -NoProfile -File scripts/Test-SerialReadFailure.ps1` 复用显式内存串口夹具和真实 Windows IPC，覆盖接收前缀、非超时读失败、旧权限分列和显式重开，详见[P24](records/P24.md)。
 
 P24/T20 日志写入故障专项 `pwsh -NoProfile -File scripts/Test-LogDiskFull.ps1` 使用受限服务构建和单一回环 SSH，验证真实 IPC 的 DiskFull、前缀保全与明确新录制，最后恢复普通服务并验证故障开关拒绝，详见[P24](records/P24.md)。
