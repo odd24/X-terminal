@@ -4102,6 +4102,7 @@ dependencies = [
  "session-core",
  "session-protocol",
  "session-service",
+ "sha2 0.11.1",
  "tauri",
  "tauri-build",
  "terminal-log",

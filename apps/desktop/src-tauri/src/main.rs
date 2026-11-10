@@ -6,6 +6,8 @@ mod audit_history;
 mod bridge_manager;
 mod config_import;
 mod export_save;
+#[cfg(feature = "load-observer-test")]
+mod load_observer_test;
 mod service;
 mod terminal_clipboard;
 mod terminal_logs;
@@ -579,6 +581,11 @@ async fn fixture_lifecycle(
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let fixture = args.iter().any(|arg| arg == "--test-fixture");
+    let load_observer = args.iter().any(|arg| arg == "--load-observer-test");
+    assert!(
+        !load_observer || cfg!(feature = "load-observer-test"),
+        "LOAD_OBSERVER_TEST_DISABLED"
+    );
     let directory = args
         .iter()
         .position(|arg| arg == "--data-dir")
@@ -611,6 +618,11 @@ fn main() {
                 })?);
             }
             let shared = Arc::new(Mutex::new(service));
+            #[cfg(feature = "load-observer-test")]
+            if load_observer {
+                assert!(!fixture, "observer requires ordinary service");
+                load_observer_test::start(shared.clone(), directory.clone())?;
+            }
             let weak = Arc::downgrade(&shared);
             app.manage(export_save::Manager::new(directory.clone())?);
             app.manage(terminal_logs::Manager::new(directory.clone())?);

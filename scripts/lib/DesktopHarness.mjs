@@ -5,13 +5,13 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
-export async function launchDesktop(directory, {fixture = false, executable = path.resolve('target/debug/shared-terminal-desktop.exe'), webviewDirectory = path.join(directory,'webview-ui'), windowsHide = true} = {}) {
+export async function launchDesktop(directory, {fixture = false, executable = path.resolve('target/debug/shared-terminal-desktop.exe'), webviewDirectory = path.join(directory,'webview-ui'), windowsHide = true, extraArgs = []} = {}) {
   assert.ok(path.isAbsolute(directory));
   const reservation = createServer();
   await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve));
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
-  const app = spawn(executable, ['--data-dir', directory, ...(fixture ? ['--test-fixture'] : [])], {
+  const app = spawn(executable, ['--data-dir', directory, ...(fixture ? ['--test-fixture'] : []), ...extraArgs], {
     windowsHide, stdio: ['ignore','ignore','pipe'], env: { ...process.env, WEBVIEW2_USER_DATA_FOLDER: webviewDirectory, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1` },
   });
   let nativeErrors='';app.stderr.on('data',chunk=>{nativeErrors=(nativeErrors+chunk.toString()).slice(-8192);});

@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10用户恢复持续执行后，P22/ADR-083仅测试构建原生Observer设施已完成：默认关闭/显式参数/精确20自有ref，无新renderer能力。首无负载预检因误用Agent Welcome ID约定失败，按真实Observer pipe_id修正后6次权限拒绝/实际到期/撤销、线程join及普通构建拒绝和服务恢复PASS；最终4单测/严格clippy、3对实际测试/普通构建的分层见[P22](records/P22.md)。旧FAIL保持，未执行8秒校准或120秒正式，不称T18/P22通过；下一按原授权一次短校准。Step-ID: P22。
+
 2026-11-10 P22/CR-020二十源短时设施与两轮校准失败归档：原20源/2秒与获准交替10源/秒均错过观测截止，正式120秒未启动，不判产品输入P95失败或T18通过。已修首错/在途白名单元数据/有界settle/终态审计取得标记与清理次错；补正未再运行负载。静态确认共用primary锁与WebView/CDP值传递、现有外部Observer签发能力缺口，仅提出测试集成建议，详[P22](records/P22.md)。必要目标检查/原SSH MCP默认行为检查及两轮普通服务实际恢复已验；当前一步提交后按用户要求暂停，等待用户新指令。Step-ID: P22。
 
 2026-11-10 P22按ADR-082完成同盘同句柄固定2×2组B实验：独立checkpoint期间append仍最长739/743ms，live/raw/JSONL时间线分别阻塞；冻结8/最终136水位及全raw/text检查符合实验约束，诊断PASS不当吞吐通过。按预定条件停止B、不落生产架构，T19该环境形态FAIL/正式未运行，细节[P22](records/P22.md)。仅Windows测试hook/实验，不增队列或降持久语义，后续由统筹另包协调。Step-ID: P22。
@@ -361,7 +363,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P19 | 快速命令/完整撰写窗格 | IN_PROGRESS | [记录](records/P19.md) | 命令/选区/可选窗口历史及逐行节奏软件；完整验收仍开放 |
 | P20 | 触发器 | IN_PROGRESS | [记录](records/P20.md) | Step-ID: P20 |
 | P21 | 批量管理与迁移 | IN_PROGRESS | [记录](records/P21.md) | Step-ID: P21 |
-| P22 | 压力与权限边界 | IN_PROGRESS | T17独立软件已验；T19队列满；T18两轮观测deadline失败/正式未运行，当前一步后用户要求暂停 | [记录](records/P22.md) |
+| P22 | 压力与权限边界 | IN_PROGRESS | T17独立软件已验；T19队列满；T18旧观测FAIL保留，测试原生Observer权限预检PASS/负载测量待执行 | [记录](records/P22.md) |
 | P23 | 兼容与真实试用 | TODO | 待创建 | — |
 | P24 | 故障恢复与升级 | TODO | 待创建 | — |
 | P25 | 安装与发布验收 | TODO | 待创建 | — |
