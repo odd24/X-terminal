@@ -78,6 +78,11 @@ pub enum Form {
 }
 impl Form {
     pub fn valid_for(&self, scopes: &[Scope]) -> bool {
+        if scopes.iter().any(|scope| scope.action == Action::Export) {
+            return scopes.len() == 1
+                && matches!(self, Self::SingleOperation { operation }
+                    if crate::input::ordered_timestamp(operation.request_id).is_some());
+        }
         match self {
             Self::Scoped => true,
             Self::TimedTask { task_id, label } => {

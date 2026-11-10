@@ -228,9 +228,10 @@ impl Request {
                 lifetime_ms,
                 operation,
             } => {
-                if !operation
-                    .descriptor()
-                    .is_some_and(|d| d.matches_scopes(scopes))
+                if matches!(**operation, crate::operation::Operation::Export(_))
+                    || !operation
+                        .descriptor()
+                        .is_some_and(|d| d.matches_scopes(scopes))
                 {
                     return Err(ErrorCode::InvalidArgument);
                 }
@@ -254,7 +255,7 @@ impl Request {
                 if !redaction.valid()
                     || !scopes
                         .iter()
-                        .any(|s| matches!(s.action, Action::Read | Action::Exec))
+                        .any(|s| matches!(s.action, Action::Read | Action::Exec | Action::Export))
                 {
                     return Err(ErrorCode::InvalidArgument);
                 }

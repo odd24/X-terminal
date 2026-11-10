@@ -348,6 +348,9 @@ impl Pairing {
         now: u64,
     ) -> Result<access::Permit, ErrorCode> {
         self.require_agent(identity, now)?;
+        if scope.action == Action::Export {
+            return Err(ErrorCode::InvalidArgument);
+        }
         let lease = match scope.target {
             Target::Connection { connection } => self
                 .policy
@@ -364,6 +367,32 @@ impl Pairing {
                 lease,
                 request_id,
                 identity.operation.as_deref().copied(),
+                now,
+            )
+            .map_err(policy_error)
+    }
+    pub fn admit_export(
+        &mut self,
+        identity: &Identity,
+        connection: ConnectionRef,
+        operation: crate::authorization::OperationKey,
+        now: u64,
+    ) -> Result<access::Permit, ErrorCode> {
+        self.require_agent(identity, now)?;
+        if self.output_protection(identity, now)?.is_none() {
+            return Err(ErrorCode::PermissionDenied);
+        }
+        let bound = self.bind_operation(identity, operation, now)?;
+        self.policy
+            .admit_bound(
+                identity.ticket_id,
+                Scope {
+                    target: Target::Connection { connection },
+                    action: Action::Export,
+                },
+                None,
+                operation.request_id,
+                bound.operation.as_deref().copied(),
                 now,
             )
             .map_err(policy_error)

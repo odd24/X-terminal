@@ -25,6 +25,12 @@ pub enum Action {
     Reconnect,
     Forget,
     Broadcast,
+    Export,
+}
+impl Action {
+    fn requires_input_lease(self) -> bool {
+        !matches!(self, Self::Read | Self::Connect | Self::Export)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -365,7 +371,7 @@ impl Policy {
         self.prune(now);
         let grant = self.grants.get(&client).ok_or(Denial::PermissionDenied)?;
         if !grant.scopes.iter().any(|s| {
-            s.target == Target::Connection { connection } && !matches!(s.action, Action::Read)
+            s.target == Target::Connection { connection } && s.action.requires_input_lease()
         }) {
             return Err(Denial::PermissionDenied);
         }
@@ -557,7 +563,7 @@ impl Policy {
         {
             return Err(Denial::PermissionDenied);
         }
-        if !matches!(permit.scope.action, Action::Read | Action::Connect) {
+        if permit.scope.action.requires_input_lease() {
             let Target::Connection { connection } = permit.scope.target else {
                 return Err(Denial::InvalidArgument);
             };

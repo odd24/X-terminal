@@ -1,5 +1,5 @@
 //! Exact, typed mutations eligible for a single-operation grant.
-use crate::{serial, ssh};
+use crate::{export, serial, ssh};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use session_core::{
@@ -20,6 +20,7 @@ use zeroize::Zeroizing;
 pub enum Operation {
     Ssh2(ssh::Request),
     Serial(serial::Request),
+    Export(export::Start),
 }
 #[derive(Serialize)]
 #[serde(
@@ -30,6 +31,7 @@ pub enum Operation {
 enum Borrowed<'a> {
     Ssh2(&'a ssh::Request),
     Serial(&'a serial::Request),
+    Export(&'a export::Start),
 }
 #[derive(Clone, Copy)]
 pub struct Descriptor {
@@ -241,6 +243,13 @@ impl Operation {
             Self::Serial(serial::Request::StartFixed { .. }) => None,
             Self::Ssh2(r) => ssh_descriptor(r),
             Self::Serial(r) => serial_descriptor(r),
+            Self::Export(request) => Some(Descriptor {
+                request_id: request.request_id,
+                action: Action::Export,
+                connection: Some(request.retained_ended_output.connection),
+                profile_id: None,
+                protocol: request.retained_ended_output.protocol,
+            }),
         }
     }
     pub fn key(&self) -> Result<OperationKey, ErrorCode> {
@@ -249,6 +258,16 @@ impl Operation {
             Self::Serial(serial::Request::StartFixed { .. }) => Err(ErrorCode::InvalidArgument),
             Self::Ssh2(r) => ssh_key(r),
             Self::Serial(r) => serial_key(r),
+            Self::Export(request) => {
+                if !request.validate() {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                key(
+                    Borrowed::Export(request),
+                    self.descriptor().ok_or(ErrorCode::InvalidArgument)?,
+                )
+                .map(Some)
+            }
         }?
         .ok_or(ErrorCode::InvalidArgument)
     }

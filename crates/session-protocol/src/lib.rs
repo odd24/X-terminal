@@ -2,6 +2,7 @@
 pub mod agent;
 pub mod bridge;
 pub mod config;
+pub mod export;
 pub mod logging;
 pub mod operation;
 pub mod rpc_audit;

@@ -99,6 +99,18 @@ pub struct OutputPage {
     pub disconnected: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EndedOutput {
+    pub connection: ConnectionRef,
+    pub protocol: Protocol,
+    pub from_cursor: u64,
+    pub through_cursor: u64,
+    pub encoding: String,
+    pub rows: u16,
+    pub cols: u16,
+}
+
 pub struct OutputBuffer {
     events: VecDeque<OutputEvent>,
     bytes: usize,
@@ -224,6 +236,34 @@ pub struct Sessions {
     connections: HashMap<ConnectionId, Connection>,
 }
 impl Sessions {
+    pub fn ended_output(&self, reference: ConnectionRef) -> Result<EndedOutput, ErrorCode> {
+        let connection = self.get(reference)?;
+        if !matches!(connection.info.protocol, Protocol::Ssh2 | Protocol::Serial)
+            || !matches!(connection.info.state, State::Disconnected | State::Failed)
+        {
+            return Err(ErrorCode::InvalidState);
+        }
+        let events = &connection.output.events;
+        let from_cursor = events.front().ok_or(ErrorCode::InvalidState)?.seq;
+        let through_cursor = connection.output.next_seq;
+        if events.iter().enumerate().any(|(index, event)| {
+            event.seq != from_cursor + index as u64 || event.gap_bytes.is_some()
+        }) || through_cursor.checked_sub(from_cursor) != Some(events.len() as u64)
+        {
+            return Err(ErrorCode::InvalidState);
+        }
+        let (encoding, rows, cols) = connection.presentation.format();
+        Ok(EndedOutput {
+            connection: reference,
+            protocol: connection.info.protocol,
+            from_cursor,
+            through_cursor,
+            encoding: encoding.to_owned(),
+            rows,
+            cols,
+        })
+    }
+
     pub fn protected_context(
         &self,
         reference: ConnectionRef,

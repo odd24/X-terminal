@@ -372,6 +372,16 @@ impl Runtime {
                                 }
                             }
                         }
+                        if let Some(operation::Operation::Export(start)) = request.operation() {
+                            if start.service_id != self.service_id
+                                || store
+                                    .sessions
+                                    .ended_output(start.retained_ended_output.connection)?
+                                    != start.retained_ended_output
+                            {
+                                return Err(ErrorCode::InvalidArgument);
+                            }
+                        }
                         Self::grant_reply(store.pairing.issue_managed_agent_definition(
                             identity,
                             request_id,

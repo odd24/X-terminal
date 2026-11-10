@@ -67,11 +67,19 @@ impl Pairing {
         now: u64,
     ) -> Result<(Identity, SecretToken, u64), ErrorCode> {
         self.require_desktop(desktop, now)?;
+        if definition
+            .scopes
+            .iter()
+            .any(|scope| scope.action == Action::Export)
+            && definition.redaction.is_none()
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
         if definition.redaction.is_some()
             && !definition
                 .scopes
                 .iter()
-                .any(|s| matches!(s.action, Action::Read | Action::Exec))
+                .any(|s| matches!(s.action, Action::Read | Action::Exec | Action::Export))
         {
             return Err(ErrorCode::InvalidArgument);
         }
@@ -145,6 +153,57 @@ mod tests {
                 redaction::Policy::new(vec![secret.into()], fields).unwrap(),
             )),
         }
+    }
+    #[test]
+    fn export_requires_protected_single_binding_without_read_or_input_lease() {
+        use crate::authorization::{OperationFingerprint, OperationKey};
+        let (mut pairing, desktop, mut scope) = setup();
+        scope.action = Action::Export;
+        let connection = scope.target.connection().unwrap();
+        let operation = OperationKey {
+            request_id: Uuid::from_u128(0x0195_0203_0405_7000_8000_0000_0000_0001),
+            fingerprint: OperationFingerprint::of_canonical(b"fixed export"),
+        };
+        let mut definition = protected_definition(scope, "synthetic-secret", true);
+        assert!(
+            pairing
+                .issue_agent_definition(&desktop, definition.clone(), 100, 0)
+                .is_err()
+        );
+        definition.form = Form::SingleOperation { operation };
+        let mut unprotected = definition.clone();
+        unprotected.redaction = None;
+        assert!(
+            pairing
+                .issue_agent_definition(&desktop, unprotected, 100, 0)
+                .is_err()
+        );
+        let (identity, _, _) = pairing
+            .issue_agent_definition(&desktop, definition, 100, 0)
+            .unwrap();
+        assert_eq!(
+            pairing.can_read(&identity, connection, 1),
+            Err(ErrorCode::PermissionDenied)
+        );
+        assert!(pairing.acquire_lease(&identity, connection, 50, 1).is_err());
+        let changed = OperationKey {
+            fingerprint: OperationFingerprint::of_canonical(b"changed export"),
+            ..operation
+        };
+        assert!(
+            pairing
+                .admit_export(&identity, connection, changed, 1)
+                .is_err()
+        );
+        let permit = pairing
+            .admit_export(&identity, connection, operation, 1)
+            .unwrap();
+        assert!(pairing.check_input(&identity, &permit, 2).is_ok());
+        pairing.retire_connection(connection, 3);
+        assert_eq!(
+            pairing.check_input(&identity, &permit, 3),
+            Err(ErrorCode::PermissionDenied)
+        );
     }
     #[test]
     fn protected_receipt_replay_binds_private_rules_without_retaining_their_values_after_revocation()
