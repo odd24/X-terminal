@@ -333,7 +333,8 @@ impl Receipt {
             && self.recorded_at_ms <= 253402300799999
             && (self.exited || self.exit_code.is_none())
             && (self.kill_requested || self.kill_request_ok.is_none())
-            && (self.shutdown_attempted || self.shutdown_ack == Ack::NotAttempted)
+            && (self.shutdown_attempted == (self.shutdown_ack != Ack::NotAttempted))
+            && (self.shutdown_ack != Ack::Acknowledged || self.request_error.is_none())
             && self
                 .reader
                 .diagnostic
@@ -378,7 +379,7 @@ fn parse(bytes: &[u8], id: Uuid) -> Result<Receipt, terminal_log::close_store::U
     if value["version"].as_u64().is_some_and(|v| v != 1) {
         return Err(U::Unsupported);
     }
-    let receipt: Receipt = serde_json::from_value(value).map_err(|_| U::Untrusted)?;
+    let receipt: Receipt = serde_json::from_slice(bytes).map_err(|_| U::Untrusted)?;
     if !receipt.validate(id) {
         return Err(U::Untrusted);
     }
@@ -463,6 +464,13 @@ pub enum Publication {
     Unknown,
 }
 pub async fn publish(root: PathBuf, receipt: Receipt) -> Publication {
+    publish_with(root, receipt, || {}).await
+}
+async fn publish_with(
+    root: PathBuf,
+    receipt: Receipt,
+    before: impl FnOnce() + Send + 'static,
+) -> Publication {
     if !receipt.validate(receipt.service_id) {
         return Publication::Failed(Availability::Untrusted);
     }
@@ -473,6 +481,7 @@ pub async fn publish(root: PathBuf, receipt: Receipt) -> Publication {
     let _ = std::thread::Builder::new()
         .name("close-receipt-publish".into())
         .spawn(move || {
+            before();
             let result =
                 terminal_log::close_store::publish(&root, receipt.service_id, &bytes, trust);
             let _ = tx.send(result);
@@ -488,6 +497,21 @@ pub async fn publish(root: PathBuf, receipt: Receipt) -> Publication {
 pub struct StopOutcome {
     pub receipt: Receipt,
     pub publication: Publication,
+}
+pub fn report(outcome: &StopOutcome) {
+    #[derive(Serialize)]
+    struct Report<'a> {
+        version: u8,
+        service_id: Uuid,
+        publication: &'a Publication,
+    }
+    if let Ok(json) = serde_json::to_string(&Report {
+        version: 1,
+        service_id: outcome.receipt.service_id,
+        publication: &outcome.publication,
+    }) {
+        eprintln!("desktop_close_receipt_result {json}");
+    }
 }
 
 #[cfg(test)]
@@ -550,6 +574,57 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn reader_io_failure_and_failed_join_have_only_safe_unknown_summaries() {
+        struct Broken;
+        impl AsyncRead for Broken {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _: &mut std::task::Context<'_>,
+                _: &mut tokio::io::ReadBuf<'_>,
+            ) -> std::task::Poll<std::io::Result<()>> {
+                std::task::Poll::Ready(Err(std::io::Error::other("SYNTHETIC_PRIVATE_IO_TEXT")))
+            }
+        }
+        let mut reader = Collector::start(Broken);
+        let result = reader.finish().await;
+        assert!(result.io_failed);
+        assert!(!result.eof);
+        assert!(result.diagnostic.is_none());
+        assert!(
+            !serde_json::to_string(&result)
+                .unwrap()
+                .contains("SYNTHETIC_PRIVATE")
+        );
+        let (_writer, stream) = tokio::io::duplex(64);
+        let mut reader = Collector::start(stream);
+        reader.task.as_ref().unwrap().abort();
+        let result = reader.finish().await;
+        assert_eq!(result.join, ReaderJoin::Failed);
+        assert!(result.diagnostic.is_none());
+    }
+    #[tokio::test]
+    async fn cancelled_finish_keeps_ownership_and_repeated_finish_is_immutable() {
+        use tokio::io::AsyncWriteExt;
+        let (mut writer, reader) = tokio::io::duplex(512);
+        let mut collector = Collector::start(reader);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), collector.finish())
+                .await
+                .is_err()
+        );
+        assert!(collector.task.is_some());
+        writer.write_all(&line(1)).await.unwrap();
+        drop(writer);
+        let first = collector.finish().await;
+        assert_eq!(first.join, ReaderJoin::Complete);
+        assert!(first.diagnostic.is_some());
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&collector.finish().await).unwrap()
+        );
+        assert!(collector.task.is_none());
+    }
+    #[tokio::test]
     async fn sustained_drain_and_abort_join_have_no_late_state_delivery() {
         use tokio::io::AsyncWriteExt;
         let (mut writer, reader) = tokio::io::duplex(64);
@@ -576,6 +651,62 @@ mod tests {
         assert_eq!(before, serde_json::to_vec(&*state.lock().unwrap()).unwrap());
     }
     #[tokio::test]
+    async fn late_publication_after_timeout_or_cancellation_is_bound_to_original_id() {
+        let root = std::env::temp_dir().join(format!(
+            "shared-terminal-close-model-中文-{}",
+            Uuid::new_v4()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        for cancelled in [false, true] {
+            let id = Uuid::new_v4();
+            let (release, gate) = std::sync::mpsc::channel();
+            let operation = publish_with(root.clone(), receipt(id), move || {
+                gate.recv_timeout(Duration::from_secs(3)).unwrap();
+            });
+            if cancelled {
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(10), operation)
+                        .await
+                        .is_err()
+                );
+            } else {
+                assert!(matches!(operation.await, Publication::UnknownTimeout));
+            }
+            assert!(
+                !root
+                    .join(terminal_log::close_store::DIRECTORY)
+                    .join(format!("{id}.json"))
+                    .exists()
+            );
+            release.send(()).unwrap();
+            for _ in 0..200 {
+                if root
+                    .join(terminal_log::close_store::DIRECTORY)
+                    .join(format!("{id}.json"))
+                    .exists()
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            let file = root
+                .join(terminal_log::close_store::DIRECTORY)
+                .join(format!("{id}.json"));
+            assert_eq!(
+                parse(&std::fs::read(file).unwrap(), id).unwrap().service_id,
+                id
+            );
+            assert!(
+                load(root.clone(), id, 3000)
+                    .await
+                    .receipt
+                    .is_none_or(|r| r.service_id != id)
+            );
+        }
+        assert_eq!(root.parent(), Some(std::env::temp_dir().as_path()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
     async fn previous_binding_bad_version_and_current_service_separation_preserve_files() {
         let root = std::env::temp_dir().join(format!(
             "shared-terminal-close-model-中文-{}",
@@ -584,6 +715,15 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let id = Uuid::new_v4();
         let normal = receipt(id);
+        let encoded = serde_json::to_string(&normal).unwrap();
+        let duplicate = encoded.replacen("{", "{\"version\":1,", 1);
+        assert!(parse(duplicate.as_bytes(), id).is_err());
+        let mut inconsistent = normal.clone();
+        inconsistent.shutdown_attempted = false;
+        assert!(!inconsistent.validate(id));
+        inconsistent = normal.clone();
+        inconsistent.request_error = Some(RequestError::UnknownDelivery);
+        assert!(!inconsistent.validate(id));
         assert!(!normal.attention());
         assert!(normal.validate(id));
         assert!(!normal.validate(Uuid::new_v4()));

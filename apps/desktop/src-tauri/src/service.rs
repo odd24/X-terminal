@@ -34,6 +34,9 @@ pub struct Service {
     shutdown_ack: crate::close_receipt::Ack,
     shutdown_error: Option<crate::close_receipt::RequestError>,
     stop_outcome: Option<crate::close_receipt::StopOutcome>,
+    stop_wait_error: Option<crate::close_receipt::WaitError>,
+    kill_requested: bool,
+    kill_request_ok: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -68,10 +71,20 @@ impl Service {
         }
         let instance = format!("desktop-{}", Uuid::new_v4().simple());
         let executable = std::env::current_exe()?.with_file_name("session-service.exe");
+        #[cfg(all(test, feature = "close-receipt-fixture"))]
+        let executable = {
+            let _ = executable;
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../target/desktop-close-receipt-fixture/session-service.exe")
+        };
         let mut command = Command::new(executable);
         command.args(["--instance", &instance]);
         if fixture {
             command.arg("--test-fixture");
+        }
+        #[cfg(feature = "close-receipt-fixture")]
+        if let Some(mode) = crate::close_fixture::mode(&directory) {
+            command.args(["--audit-diagnostic-fixture", mode]);
         }
         command.arg("--data-dir").arg(&directory);
         let mut child = command
@@ -162,6 +175,9 @@ impl Service {
             shutdown_ack: crate::close_receipt::Ack::NotAttempted,
             shutdown_error: None,
             stop_outcome: None,
+            stop_wait_error: None,
+            kill_requested: false,
+            kill_request_ok: None,
         })
     }
 
@@ -231,19 +247,18 @@ impl Service {
             }
         }
         let waited = timeout(Duration::from_secs(2), self.child.wait()).await;
-        let mut wait_error = None;
-        let mut kill_requested = false;
-        let mut kill_request_ok = None;
         let exit = match waited {
             Ok(Ok(s)) => Some(s),
             other => {
-                wait_error = Some(if other.is_err() {
+                self.stop_wait_error.get_or_insert(if other.is_err() {
                     WaitError::Timeout
                 } else {
                     WaitError::Io
                 });
-                kill_requested = true;
-                kill_request_ok = Some(self.child.start_kill().is_ok());
+                if !self.kill_requested {
+                    self.kill_requested = true;
+                    self.kill_request_ok = Some(self.child.start_kill().is_ok());
+                }
                 timeout(Duration::from_secs(2), self.child.wait())
                     .await
                     .ok()
@@ -263,9 +278,9 @@ impl Service {
             request_error: self.shutdown_error,
             exited: exit.is_some(),
             exit_code: exit.and_then(|s| s.code()),
-            wait_error,
-            kill_requested,
-            kill_request_ok,
+            wait_error: self.stop_wait_error,
+            kill_requested: self.kill_requested,
+            kill_request_ok: self.kill_request_ok,
             reader,
         };
         self.stop_outcome = Some(StopOutcome {
@@ -280,5 +295,101 @@ impl Service {
         };
         self.stop_outcome = Some(outcome.clone());
         outcome
+    }
+}
+
+#[cfg(all(test, feature = "close-receipt-fixture"))]
+mod stop_tests {
+    use super::*;
+    #[tokio::test]
+    async fn cancelled_shutdown_wait_keeps_ack_and_never_replays_dispatch() {
+        let root = std::env::temp_dir().join(format!(
+            "shared-terminal-audit-diagnostic-中文-{}",
+            Uuid::new_v4()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        crate::close_fixture::configure(&root, "inflight", true).unwrap();
+        std::fs::write(root.join("audit-diagnostic-arm"), b"arm").unwrap();
+        let mut service = Service::start(true, root.clone()).await.unwrap();
+        for _ in 0..200 {
+            if root.join("audit-diagnostic-entered").exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(root.join("audit-diagnostic-entered").exists());
+        assert!(
+            timeout(Duration::from_millis(100), service.stop())
+                .await
+                .is_err()
+        );
+        assert!(service.shutdown_once);
+        assert_eq!(
+            service.shutdown_ack,
+            crate::close_receipt::Ack::Acknowledged
+        );
+        assert!(root.join("audit-diagnostic-closing").exists());
+        std::fs::write(root.join("audit-diagnostic-release"), b"release").unwrap();
+        let first = service.stop().await;
+        assert_eq!(first.receipt.exit_code, Some(0));
+        assert!(!first.receipt.kill_requested);
+        assert!(matches!(
+            first.publication,
+            crate::close_receipt::Publication::Published
+        ));
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&service.stop().await).unwrap()
+        );
+        let mut received = 0;
+        for entry in std::fs::read_dir(root.join("terminal-audit")).unwrap() {
+            let file = entry.unwrap().path();
+            if file.extension().is_some_and(|s| s == "jsonl") {
+                for line in std::fs::read_to_string(file).unwrap().lines() {
+                    let v: serde_json::Value = serde_json::from_str(line).unwrap();
+                    let e = &v["payload"]["event"];
+                    if e["attempt"]["request"]["area"] == "SESSION"
+                        && e["attempt"]["request"]["verb"] == "MAINTAIN"
+                        && e["phase"]["kind"] == "received"
+                    {
+                        received += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            received, 1,
+            "one real Shutdown dispatch despite cancellation"
+        );
+        drop(service);
+        // Positive force-request evidence is separate from the normal/cancel case.
+        for name in [
+            "audit-diagnostic-entered",
+            "audit-diagnostic-closing",
+            "audit-diagnostic-release",
+        ] {
+            std::fs::remove_file(root.join(name)).unwrap();
+        }
+        let mut blocked = Service::start(true, root.clone()).await.unwrap();
+        for _ in 0..200 {
+            if root.join("audit-diagnostic-entered").exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(root.join("audit-diagnostic-entered").exists());
+        let forced = blocked.stop().await;
+        assert!(forced.receipt.kill_requested);
+        assert_eq!(forced.receipt.kill_request_ok, Some(true));
+        assert!(forced.receipt.exited);
+        assert!(forced.receipt.reader.diagnostic.is_none());
+        assert!(forced.receipt.attention());
+        assert_eq!(
+            serde_json::to_vec(&forced).unwrap(),
+            serde_json::to_vec(&blocked.stop().await).unwrap()
+        );
+        drop(blocked);
+        assert_eq!(root.parent(), Some(std::env::temp_dir().as_path()));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

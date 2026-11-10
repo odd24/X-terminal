@@ -704,6 +704,10 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
         let guard = runtime
             .request_audit
             .begin(origin, request.request.audit_descriptor(request.id))?;
+        #[cfg(feature = "audit-diagnostics-fixture")]
+        let drop_shutdown = matches!(request.request, Request::Shutdown {})
+            && matches!(kind, ClientKind::Desktop)
+            && terminal_log::audit::diagnostic_drop_shutdown_reply();
         let result = match request.request {
             Request::Agent { request } => runtime.handle_agent(&identity, request).await,
             Request::Logging { request } => runtime.handle_logging(&identity, request).await,
@@ -713,6 +717,11 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
             request => runtime.handle(&identity, request),
         };
         guard.returned(result.as_ref().map(|_| ()).map_err(|code| *code))?;
+        #[cfg(feature = "audit-diagnostics-fixture")]
+        if drop_shutdown && matches!(result, Ok(Reply::Ok)) {
+            // The real dispatch already happened; deliberately close only its reply pipe.
+            return Ok(());
+        }
         let response = match result {
             Ok(reply) => Response::Ok {
                 id: request.id,

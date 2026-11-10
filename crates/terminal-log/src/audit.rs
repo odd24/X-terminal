@@ -30,6 +30,8 @@ const MAGIC: &str = "shared-terminal-audit-v1";
 mod fixture;
 #[cfg(feature = "audit-diagnostics-fixture")]
 pub use fixture::configure as configure_diagnostic_fixture;
+#[cfg(feature = "audit-diagnostics-fixture")]
+pub use fixture::drop_shutdown_reply as diagnostic_drop_shutdown_reply;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub enum FailureKind {

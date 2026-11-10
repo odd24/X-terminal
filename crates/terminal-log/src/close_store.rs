@@ -341,6 +341,40 @@ mod tests {
         );
     }
     #[test]
+    fn junction_namespace_and_ancestor_are_rejected_without_touching_target() {
+        use std::os::windows::process::CommandExt;
+        let root = Temp::new();
+        let outside = Temp::new();
+        fs::write(outside.0.join("sentinel"), b"foreign-preserved").unwrap();
+        for leaf_name in [DIRECTORY, "ancestor"] {
+            let alias = root.0.join(leaf_name);
+            let output = std::process::Command::new("cmd.exe")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(&alias)
+                .arg(&outside.0)
+                .creation_flags(0x08000000)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let selected = if leaf_name == DIRECTORY {
+                root.0.clone()
+            } else {
+                alias.join("missing")
+            };
+            let id = Uuid::new_v4();
+            assert!(matches!(
+                publish(&selected, id, &data(id, 1), valid),
+                Err(Unavailable::Untrusted)
+            ));
+            assert_eq!(
+                fs::read(outside.0.join("sentinel")).unwrap(),
+                b"foreign-preserved"
+            );
+            assert_eq!(fs::read_dir(&outside.0).unwrap().count(), 1);
+            fs::remove_dir(alias).unwrap();
+        }
+    }
+    #[test]
     fn hard_links_and_incomplete_new_files_are_untrusted_and_preserved() {
         let root = Temp::new();
         let id = Uuid::new_v4();

@@ -4,6 +4,8 @@
 mod agent_management;
 mod audit_history;
 mod bridge_manager;
+#[cfg(feature = "close-receipt-fixture")]
+mod close_fixture;
 mod close_receipt;
 mod config_import;
 mod export_save;
@@ -582,6 +584,11 @@ async fn fixture_lifecycle(
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let fixture = args.iter().any(|arg| arg == "--test-fixture");
+    let close_fixture_index = args.iter().position(|arg| arg == "--close-receipt-fixture");
+    assert!(
+        close_fixture_index.is_none() || cfg!(feature = "close-receipt-fixture"),
+        "CLOSE_RECEIPT_FIXTURE_DISABLED"
+    );
     let load_observer = args.iter().any(|arg| arg == "--load-observer-test");
     assert!(
         !load_observer || cfg!(feature = "load-observer-test"),
@@ -596,6 +603,15 @@ fn main() {
             assert!(path.is_absolute(), "data directory must be absolute");
             path
         });
+    #[cfg(feature = "close-receipt-fixture")]
+    if let Some(index) = close_fixture_index {
+        close_fixture::configure(
+            directory.as_deref().expect("missing own test root"),
+            args.get(index + 1).expect("missing close test mode"),
+            fixture,
+        )
+        .expect("CLOSE_RECEIPT_TEST_REJECTED");
+    }
     let app = tauri::Builder::default()
         .setup(move |app| {
             let directory = match &directory {
@@ -688,7 +704,8 @@ fn main() {
                     broker.close().await;
                 }
                 if let Ok(service) = state.0.lock().await.as_mut() {
-                    service.stop().await;
+                    let outcome = service.stop().await;
+                    close_receipt::report(&outcome);
                 }
             });
         }

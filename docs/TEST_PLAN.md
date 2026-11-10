@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P22/ADR-085显式`npm run test:desktop:close-receipts`只编译隔离fixture再finally实际普通desktop:build，不纳入日常46链。只自建中文Temp根验证真实正常/故障/在途/丢ACK/无诊断关闭及重启、坏/未来/未知文件保持；普通参数拒绝与普通关闭必须实测。独立存储5项、原生decoder/模型6项、真实取消Shutdown等待1项及前端事实分列1项单测；目录junction/硬链接/满额/锁与目标竞争、部分EOF/长行/多候选/IO/reader join、晚发布/取消分别核对。退出/配置/导航及审计IPC只按影响运行，不重跑全46/T18/T19/八小时，实际结果见[P22](records/P22.md)。
+
 P22/ADR-084新增显式`Test-AuditDiagnostics.ps1`（不纳入日常46链），仅受控自建根：首错/整数精度/严格白名单、队列与写/同步/flush/close故障、真实正常/调用方Err/在途/错误关闭及权限拒绝。7场景测试PASS不把故障服务exit1当成功，默认参数拒绝和实际普通恢复必核；不是旧uTHyo2根因复现或T18/T19/8小时验收，详[P22](records/P22.md)。
 
 P22旧uTHyo2离线复核只证明1659条持久前缀连续且无坏尾，不能从末received/缺Shutdown记录推断业务未执行或从incomplete错误追认QUEUE_FULL。当时audit状态/退出分解未保存，禁止由后轮健康结果补造；后续诊断补证须独立定向验证，未准入新负载，详[P22](records/P22.md)。

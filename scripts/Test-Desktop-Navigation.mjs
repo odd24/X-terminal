@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { requestId } from '../apps/desktop/src/request-id.ts';
@@ -51,6 +51,12 @@ try{
  await ui.evaluate(`(${tab(keyed)}).click()`);const beforeCancelIds=(await list()).map(c=>c.connection_id),beforeCancel=beforeCancelIds.length,cancelAuth=(await control({op:'metrics'})).attempts;const late=await ui.interceptIpc({command:'ssh_request',op:'start',mode:'hold'});await double(a);await wait(async()=>await late.count()===1,'late Start held');await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await ui.waitFor(`!document.querySelector('dialog:modal')`);await late.restore();await wait(async()=>{const all=await list();const added=all.find(c=>!beforeCancelIds.includes(c.connection_id)&&all.length===beforeCancel+1);return added&&['DISCONNECTED','FAILED'].includes(added.state);},'late cancelled Start closes');assert.equal((await list()).find(c=>c.connection_id===keyed.connection_id).state,'CONNECTED');assert.equal((await control({op:'metrics'})).attempts,cancelAuth);
  await ui.invoke('plugin:window|close',{label:'main'});await ui.waitFor(`!!document.querySelector('[aria-label="退出桌面确认"]')`);await ui.click('取消退出');assert.equal(ui.app.exitCode,null,'session close policy must not remove application exit confirmation');
  await ui.screenshot('P12.1-saved-session-final.png');
+ const exitOwner=await ui.invoke('service_status');
+ await ui.invoke('plugin:window|close',{label:'main'});await ui.waitFor(`!!document.querySelector('[aria-label="退出桌面确认"]')`);
+ await ui.evaluate(`setTimeout(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认退出并停止服务').click(),50);true`);
+ await wait(()=>ui.app.exitCode!==null,'confirmed active-session native exit');assert.equal(ui.app.exitCode,0);
+ const exitReceipt=JSON.parse(await readFile(path.join(directory,'desktop-close-receipts-v1',`${exitOwner.service_id}.json`),'utf8'));
+ assert.equal(exitReceipt.shutdown_ack,'ACKNOWLEDGED');assert.equal(exitReceipt.exited,true);assert.equal(exitReceipt.exit_code,0);assert.equal(exitReceipt.kill_requested,false);
  await writeFile('artifacts/P12.1-saved-session-result.json',JSON.stringify({result:'PASS',singleClickSelects:true,rapidStartOnce:true,doubleClickSavedPassword:true,rightClickActualTarget:true,knownHostNoExtraClick:true,missingCredentialPrompt:true,rejectedStoredCredentialOnce:true,savedEncryptedKey:true,noCloseConfirmation:true,closeDispatchOnce:true,lateClosePreservesNewGeneration:true,unknownCloseNotReplayed:true,unknownStartOriginalQuery:true,lateCancelledStartPreservesOldSession:true,applicationExitConfirmationRetained:true,scope:'owned synthetic SSH; no user connections'},null,2)+'\n');console.log('PASS saved sessions/navigation: double/right-click stored password/key, correct context target, missing/rejected auth fallback, no-confirm exact-ref close/dedup/late-generation/unknown, cancelled late Start, application exit confirmation retained; synthetic only');
 }catch(error){console.error('navigation failure:',error.message);if(ui){await ui.screenshot('P12.1-saved-session-failure.png').catch(()=>{});await writeFile('artifacts/P12.1-saved-session-failure.txt',await ui.evaluate(`document.body.innerText`).catch(String));}throw error;}
 finally{await ui?.close();fixture?.kill();if(fixture&&fixture.exitCode===null&&fixture.signalCode===null)await new Promise(resolve=>fixture.once('exit',resolve));if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-navigation-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}

@@ -8,6 +8,7 @@ license.workspace = true
 [features]
 default = []
 load-observer-test = ["dep:sha2"]
+close-receipt-fixture = []
 
 [build-dependencies]
 tauri-build = { version = "=2.7.4", features = [] }

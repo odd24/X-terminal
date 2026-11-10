@@ -9,6 +9,8 @@ use std::{
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Mode {
     Normal,
+    #[cfg(feature = "audit-diagnostics-fixture")]
+    DropAck,
     Queue,
     Write,
     Sync,
@@ -22,6 +24,7 @@ impl Mode {
     fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "normal" => Self::Normal,
+            "drop-ack" => Self::DropAck,
             "queue" => Self::Queue,
             "write" => Self::Write,
             "sync" => Self::Sync,
@@ -47,6 +50,8 @@ impl Control {
     pub(super) fn before(&self, stage: FailureStage) -> io::Result<()> {
         let target = match self.mode {
             Mode::Normal => return Ok(()),
+            #[cfg(feature = "audit-diagnostics-fixture")]
+            Mode::DropAck => return Ok(()),
             Mode::Queue | Mode::Write | Mode::Inflight => FailureStage::Append,
             Mode::Sync => FailureStage::Checkpoint,
             #[cfg(test)]
@@ -117,4 +122,8 @@ pub(super) fn mark_closing() {
     if let Some((root, _)) = CONFIG.get() {
         let _ = std::fs::write(root.join("audit-diagnostic-closing"), b"closing");
     }
+}
+#[cfg(feature = "audit-diagnostics-fixture")]
+pub fn drop_shutdown_reply() -> bool {
+    CONFIG.get().is_some_and(|(_, mode)| *mode == Mode::DropAck)
 }
