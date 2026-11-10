@@ -1,0 +1,1483 @@
+{
+  "version": 8,
+  "tools": [
+    {
+      "name": "serial_connect",
+      "description": "Create one SERIAL connection using the exact profile revision, inventory revision, device ID and request ID provided after Desktop Single approval. Opening applies the approved profile's initial line states. The creation snapshot does not prove the port opened. If delivery is unknown only query serial_connect_status.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inventory_revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "profile_revision",
+          "inventory_revision",
+          "device_id",
+          "request_id"
+        ],
+        "title": "ConnectTarget",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "serial_connect_status",
+      "description": "Read only the original SERIAL Connect creation snapshot using the same valid ticket and exact approved arguments. A missing receipt leaves the outcome unknown. Do not replay Connect.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inventory_revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "profile_revision",
+          "inventory_revision",
+          "device_id",
+          "request_id"
+        ],
+        "title": "ConnectTarget",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "ssh_connect",
+      "description": "Create an SSH2 connection from a saved profile with its exact approved revision. Fix the request_id and dimensions first. Requires ProfileRevision Connect approval. Desktop handles host trust and authentication. Creation does not confirm online status or grant session access. If delivery is unknown only query ssh_connect_status.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cols": {
+            "format": "uint32",
+            "maximum": 500,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rows": {
+            "format": "uint32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "profile_id",
+          "revision",
+          "request_id",
+          "cols",
+          "rows"
+        ],
+        "title": "ConnectArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "ssh_connect_status",
+      "description": "Read only the original fixed-profile SSH2 Connect creation snapshot with the same valid ticket, profile_id, revision and request_id. A missing receipt leaves the outcome unknown. Do not replay Connect.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "revision",
+          "request_id"
+        ],
+        "title": "ConnectStatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "ssh_reconnect",
+      "description": "Start SSH2 on the next generation of an ended saved-profile connection. Fix request_id and dimensions first. Requires independent Reconnect approval and current lease for the old generation, plus fixed Profile/revision Connect in the same ticket. Desktop retains host trust and authentication. The creation snapshot does not confirm online status. On unknown delivery only query ssh_reconnect_status.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cols": {
+            "format": "uint32",
+            "maximum": 500,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rows": {
+            "format": "uint32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "cols",
+          "rows"
+        ],
+        "title": "ReconnectArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "ssh_reconnect_status",
+      "description": "Read the retained SSH2 creation snapshot with the original valid ticket, previous connection generation and request_id. This only looks up the original Reconnect receipt, including after old scope retirement. A missing receipt leaves the outcome unknown; do not replay Reconnect.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id"
+        ],
+        "title": "ReconnectStatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "sessions_forget",
+      "description": "Remove the record for an ended SSH2 or SERIAL connection after verified local cleanup. Requires independent Forget approval and current lease for the exact connection generation and caller-fixed request_id. REMOVED covers only the session record; saved profiles, logs and files are retained. After a known INVALID_STATE, the caller may explicitly retry the same number once cleanup and authority are confirmed. On unknown delivery only query sessions_forget_status.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "sessions_forget_status",
+      "description": "Query only the original Forget receipt using the same valid ticket, transport, connection generation and request_id, including after retirement. A missing reply or receipt leaves the outcome unknown; do not replay Start.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "sessions_disconnect",
+      "description": "Request cancellation of an existing SSH2 or SERIAL connection by exact generation and caller-fixed request_id. Requires independent Disconnect approval and input lease. REQUESTED means cancellation was dispatched; TRANSPORT_ENDED means the service observed local transport cleanup. On unknown delivery query sessions_disconnect_status with the original ticket and arguments.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "sessions_disconnect_status",
+      "description": "Query the original Disconnect receipt with the same valid ticket, transport, connection generation and request_id. Can recover after scope and lease retirement. A missing reply or receipt leaves the outcome unknown; do not replay Start.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "serial_write",
+      "description": "Send 1..16384 exact integer bytes (0..255) on an existing approved SERIAL connection; no encoding or newline. Requires independent Write and input lease. Native-request-bound connection plus checked request_id receipt; not proof of device execution. Unknown delivery: query terminal_input_status(SERIAL) with the original connection/generation/request_id, never replay or change action under that ID.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 16384,
+            "minItems": 1,
+            "type": "array"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "bytes"
+        ],
+        "title": "SerialWriteArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "serial_control",
+      "description": "Apply one explicit DTR/RTS/BREAK asserted boolean on an existing approved SERIAL connection; no default or pulse. Independent Control and input lease; Write is not Control. Native-request-bound connection plus checked request_id receipt. Unknown delivery only queries terminal_input_status(SERIAL), never replays a control pulse. No inventory, configuration, open/close or physical completion claim.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Line": {
+            "enum": [
+              "DTR",
+              "RTS",
+              "BREAK"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "asserted": {
+            "type": "boolean"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "line": {
+            "$ref": "#/$defs/Line"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "line",
+          "asserted"
+        ],
+        "title": "SerialControlArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "ssh_exec",
+      "description": "Start one SSH2 exec with independent Exec scope and lease; command <=16KiB, timeout 1..120000ms, output budget 1..1048576 bytes. Fix a caller RFC9562 UUIDv7 request_id first: task_id is the same ID. Unknown delivery never means not executed: only query that task on the same owner/connection/generation, never automatically retry Start or create a new grant to inherit it.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Sensitive": {
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "$ref": "#/$defs/Sensitive"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "max_output_bytes": {
+            "format": "uint",
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "request_id": {
+            "description": "Caller-fixed RFC9562 UUIDv7. The task ID is this same ID even if the first reply is lost.",
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "timeout_ms": {
+            "format": "uint64",
+            "maximum": 120000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "command",
+          "timeout_ms",
+          "max_output_bytes"
+        ],
+        "title": "ExecArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "tasks_get",
+      "description": "Inspect only this ticket's task with explicit connection/generation/task_id. view status or bounded output (cursor>=1,max_bytes 16384..65536). Unprotected output requires through_cursor=null. Protected output with null first returns protected metadata, then pass its fixed through_cursor for text. No raw fallback. NotFound/REQUEST_EXPIRED/restart is not proof of non-execution; a failed bridge must be explicitly recovered with the original valid ticket before querying.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "TaskView": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "status",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "format": "uint64",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "const": "output",
+                    "type": "string"
+                  },
+                  "max_bytes": {
+                    "format": "uint",
+                    "maximum": 65536,
+                    "minimum": 16384,
+                    "type": "integer"
+                  },
+                  "through_cursor": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "cursor",
+                  "max_bytes"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "task_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "view": {
+            "$ref": "#/$defs/TaskView"
+          }
+        },
+        "required": [
+          "connection",
+          "task_id",
+          "view"
+        ],
+        "title": "TaskGetArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "tasks_cancel",
+      "description": "Request cancellation of only this ticket's existing task. Already executed actions cannot be undone; cancelling is not proof of remote termination. Keep the exact task/connection/generation. Never retry Start.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "task_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "task_id"
+        ],
+        "title": "TaskArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "agent_status",
+      "description": "Native pairing status. No token; approval snapshot is not current permission.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "title": "ListArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "sessions_list",
+      "description": "List only sessions visible to this Agent. No implicit current tab.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "title": "ListArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "terminal_read",
+      "description": "Read approved retained output. Use view info first, then text with its fixed through_cursor, cursor>=1, max_bytes 4096..65536. Window grants need their approved time window. Protected grants always use protected output.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "TimeWindow": {
+            "additionalProperties": false,
+            "properties": {
+              "from_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "until_ms": {
+                "description": "Exclusive Unix millisecond bound; separate from monotonic grant expiry.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "from_ms",
+              "until_ms"
+            ],
+            "type": "object"
+          },
+          "View": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "info",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "const": "text",
+                    "type": "string"
+                  },
+                  "max_bytes": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "through_cursor": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "through_cursor",
+                  "cursor",
+                  "max_bytes"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "screen",
+                    "type": "string"
+                  },
+                  "through_cursor": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "through_cursor"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "view": {
+            "$ref": "#/$defs/View"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TimeWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "connection",
+          "view"
+        ],
+        "title": "OutputArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "terminal_screen",
+      "description": "Reconstruct an approved screen at the fixed output watermark. Not a promise of complete VT compatibility.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "TimeWindow": {
+            "additionalProperties": false,
+            "properties": {
+              "from_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "until_ms": {
+                "description": "Exclusive Unix millisecond bound; separate from monotonic grant expiry.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "from_ms",
+              "until_ms"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "through_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TimeWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "connection",
+          "through_cursor"
+        ],
+        "title": "ScreenArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "terminal_send",
+      "description": "Send exact text to the explicit SSH2/SERIAL connection, no implicit newline (max 16KiB UTF-8). Requires independent Write and an existing input lease. Keep the original request_id after uncertain delivery.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Sensitive": {
+            "type": "string"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "text": {
+            "$ref": "#/$defs/Sensitive"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id",
+          "text"
+        ],
+        "title": "SendArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "terminal_input_status",
+      "description": "Query this Agent's original send receipt, without retransmission. Not a remote command exit code.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "input_lease",
+      "description": "Inspect only this Agent's current input lease.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "title": "ConnectionArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "input_acquire",
+      "description": "Acquire a bounded input lease within the separately approved scope and expiry. Never renew implicitly.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "lifetime_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection",
+          "lifetime_ms"
+        ],
+        "title": "AcquireArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "input_release",
+      "description": "Release only this Agent's exact lease; cannot undo already sent remote actions.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "lease_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "lease_id"
+        ],
+        "title": "ReleaseArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    }
+  ]
+}

@@ -376,11 +376,14 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                             let expected_reconnect=request.reconnect_target();
                             let expected_connect=request.connect_target();
                             let expected_serial_connect=request.serial_connect_target();
+                            let expected_ssh_resize=request.ssh_resize_request_id();
                             let protected=pair.view.protection.is_some();
                             match request.into_service(protected) {
                                 Ok(request) => {
                                     let response = pair.client.request(request).await?;
-                                    if let Some(target) = expected_serial_connect {
+                                    if let Some(id) = expected_ssh_resize {
+                                        wire::ResultMessage::from_ssh_resize_service(response, id)?
+                                    } else if let Some(target) = expected_serial_connect {
                                         wire::ResultMessage::from_serial_connect_service(response, target)?
                                     } else if let Some((profile_id, revision, id)) = expected_connect {
                                         wire::ResultMessage::from_connect_service(response, profile_id, revision, id)?

@@ -16,6 +16,6 @@ try{
    assert.deepEqual(await readdir(root),[],'guard must reject before any data-root mutation');count++;
   }
  }
- passed=true;await writeFile(`artifacts/P15-serial-v8-guards-${ordinary?'ordinary':'fixture'}.json`,JSON.stringify({result:'PASS',cases:count,no_data_root_mutation:true},null,2)+'\n');
+ passed=true;await writeFile(`artifacts/P15-serial-v9-guards-${ordinary?'ordinary':'fixture'}.json`,JSON.stringify({result:'PASS',cases:count,no_data_root_mutation:true},null,2)+'\n');
  console.log('PASS serial MCP explicit build/CLI/root/fixture guards.');
 }finally{if(passed)for(const root of roots){assert.equal(path.dirname(root),path.resolve(tmpdir()));assert.ok(path.basename(root).startsWith('shared-terminal-mcp-'));await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});}else console.error('Owned guard failure roots retained:',roots);}

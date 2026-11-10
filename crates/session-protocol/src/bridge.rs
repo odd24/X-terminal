@@ -13,6 +13,12 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    SshResize {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+    },
     SerialConnect {
         target: serial::ConnectTarget,
     },
@@ -118,6 +124,13 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn ssh_resize_request_id(&self) -> Option<Uuid> {
+        match self {
+            Self::SshResize { request_id, .. } => Some(*request_id),
+            _ => None,
+        }
+    }
+
     pub fn serial_connect_target(&self) -> Option<serial::ConnectTarget> {
         match self {
             Self::SerialConnect { target } | Self::SerialConnectStatus { target } => Some(*target),
@@ -239,6 +252,19 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::SshResize {
+                connection,
+                request_id,
+                cols,
+                rows,
+            } => Request::Ssh {
+                request: ssh::Request::Resize {
+                    connection,
+                    request_id,
+                    cols,
+                    rows,
+                },
+            },
             Self::SerialConnect { target } => Request::Serial {
                 request: serial::Request::StartFixed { target },
             },
@@ -673,6 +699,20 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_ssh_resize_service(response: Response, request_id: Uuid) -> std::io::Result<Self> {
+        match response {
+            Response::Error { code, .. } => Ok(Self::Error(code)),
+            Response::Ok {
+                reply: Reply::Ssh(ssh::Reply::Input(receipt)),
+                ..
+            } if receipt.request_id == request_id => Ok(Self::SshInput(receipt)),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unmatched SSH Resize response",
+            )),
+        }
+    }
+
     pub fn from_serial_connect_service(
         response: Response,
         target: serial::ConnectTarget,
@@ -921,6 +961,51 @@ impl ResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ssh_resize_requires_bounded_dimensions_and_original_ssh_receipt() {
+        use session_core::input::{InputState, Receipt};
+        let connection = target();
+        let request_id = Uuid::new_v4();
+        let resize = |cols, rows| Operation::SshResize {
+            connection,
+            request_id,
+            cols,
+            rows,
+        };
+        assert!(matches!(
+            resize(500, 200).into_service(false),
+            Ok(Request::Ssh { request: ssh::Request::Resize { connection: c, request_id: r, cols: 500, rows: 200 } })
+                if c == connection && r == request_id
+        ));
+        assert!(resize(1, 200).into_service(false).is_err());
+        assert!(resize(2, 201).into_service(false).is_err());
+        let receipt = Receipt {
+            request_id,
+            state: InputState::PipelineQueued,
+            pipeline_bytes: None,
+            failure: None,
+        };
+        let response = |receipt| Response::Ok {
+            id: 1,
+            reply: Reply::Ssh(ssh::Reply::Input(receipt)),
+        };
+        assert!(matches!(
+            ResultMessage::from_ssh_resize_service(response(receipt.clone()), request_id),
+            Ok(ResultMessage::SshInput(v)) if v == receipt
+        ));
+        assert!(ResultMessage::from_ssh_resize_service(response(receipt), Uuid::new_v4()).is_err());
+        assert!(
+            ResultMessage::from_ssh_resize_service(
+                Response::Ok {
+                    id: 1,
+                    reply: Reply::Ssh(ssh::Reply::Accepted)
+                },
+                request_id,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn serial_connect_requires_typed_receipt_and_exact_inventory_binding() {

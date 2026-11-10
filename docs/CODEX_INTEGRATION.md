@@ -1,6 +1,10 @@
 # Codex 首版接入方案
 
-当前 [ADR-092](decisions/ADR-092.md) 固定 v8 二十四项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v7](../contracts/mcp/v7-tools.json) 的二十二项。
+当前 [ADR-093](decisions/ADR-093.md) 固定 v9 二十五项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v8](../contracts/mcp/v8-tools.json) 的二十四项。
+
+`ssh_resize` 接收精确 SSH2 `connection`、固定 `request_id`、`cols`（2–500）和 `rows`（1–200）。须有独立 Control 及当前租约，Single 固定全部参数。PIPELINE_QUEUED 表示管线接纳，远端尺寸是否应用另行观察。应答不明只用原连接和原编号调用 `terminal_input_status`（SSH2）。
+
+此前 [ADR-092](decisions/ADR-092.md) 固定 v8 二十四项工具。[v8 契约](../contracts/mcp/v8-tools.json) 保留 [v7](../contracts/mcp/v7-tools.json) 的二十二项。
 
 `serial_connect` 与 `serial_connect_status` 都接收 `profile_id`、`profile_revision`、`inventory_revision`、`device_id` 和 `request_id`。在 Desktop 的单次完整操作中选择已保存串口配置，显式读取库存、选择匹配设备，核对端口和初始 DTR/RTS 后批准。确认成功后面板显示本次参数，手动交给调用者，并单独绑定同一授权。
 
@@ -128,6 +132,7 @@ enabled = true
 | 工具 | 主要输入 | 输出/限制 |
 |---|---|---|
 | sessions_list | scope | 仅可见配置/连接，秘密字段不存在 |
+| ssh_resize | connection、request_id、cols、rows | 独立 Control 和租约，原编号输入回执 |
 | serial_connect / serial_connect_status | profile_id、profile_revision、inventory_revision、device_id、request_id | 固定设备 Single Connect 与原票据创建回执 |
 | ssh_connect / ssh_connect_status | profile_id、revision、request_id，发起另带 cols、rows | 保存的固定版本 SSH2 配置与原票据创建快照 |
 | ssh_reconnect / ssh_reconnect_status | connection、request_id，发起另带 cols、rows | SSH2 原代次双范围及原票据创建快照 |

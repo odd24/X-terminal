@@ -29,12 +29,12 @@ try {
   assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-security-ordinary-中文-'));
   await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }
-const reports=await Promise.all(['ssh','serial'].map(async kind=>JSON.parse(await readFile(`artifacts/P22-security-v8-${kind}.json`,'utf8'))));
+const reports=await Promise.all(['ssh','serial'].map(async kind=>JSON.parse(await readFile(`artifacts/P22-security-v9-${kind}.json`,'utf8'))));
 assert.ok(reports.every(report=>report.checks.model_run===false&&report.stdio_exit===0&&report.service_loss==='UNKNOWN_DELIVERY'));
 const after=await hashes();
 assert.equal(after['shared-terminal-desktop.exe'],before['shared-terminal-desktop.exe']);
 assert.equal(after['terminal-mcp.exe'],before['terminal-mcp.exe']);
-await writeFile('artifacts/P22-security-v8-result.json',JSON.stringify({source,startedAt,finishedAt:new Date().toISOString(),before,after,
+await writeFile('artifacts/P22-security-v9-result.json',JSON.stringify({source,startedAt,finishedAt:new Date().toISOString(),before,after,
   results:reports.map(r=>({transport:r.transport,tools:r.tools.length,denials:r.denials.length,checks:r.checks})),
   ordinary_service_build_restored:true,ordinary_runtime_fixture_denied:true,owned_processes_closed:true,model_run:false},null,2)+'\n');
 console.log('PASS P22/T17 bounded deterministic SSH2+memory UART stdio isolation; ordinary service restored and normal runtime rejects fixtures; no model run or real-device claim');

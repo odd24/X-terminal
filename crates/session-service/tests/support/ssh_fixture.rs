@@ -332,6 +332,7 @@ impl server::Handler for Server {
     }
 }
 pub struct Fixture {
+    stall: Arc<AtomicBool>,
     pub keyboard_echo: Arc<AtomicBool>,
     pub silent_input: Arc<AtomicBool>,
     pub received_at: Arc<Mutex<Vec<u128>>>,
@@ -379,6 +380,7 @@ impl Fixture {
         let accepted = Arc::new(AtomicUsize::new(0));
         let shell = Arc::new(Mutex::new(None));
         let received = Arc::new(Mutex::new(Vec::new()));
+        let stall = Arc::new(AtomicBool::new(stall));
         let keyboard_echo = Arc::new(AtomicBool::new(false));
         let silent_input = Arc::new(AtomicBool::new(false));
         let received_at = Arc::new(Mutex::new(Vec::new()));
@@ -393,7 +395,7 @@ impl Fixture {
             observations: observations.clone(),
             received: received.clone(),
             sizes: sizes.clone(),
-            stall: Arc::new(AtomicBool::new(stall)),
+            stall: stall.clone(),
             keyboard_echo: keyboard_echo.clone(),
             silent_input: silent_input.clone(),
             received_at: received_at.clone(),
@@ -429,6 +431,7 @@ impl Fixture {
         });
         let shutdown = rx.await.unwrap();
         Self {
+            stall,
             keyboard_echo,
             silent_input,
             received_at,
@@ -448,6 +451,9 @@ impl Fixture {
             task,
             shutdown,
         }
+    }
+    pub fn stall_next_data(&self) {
+        self.stall.store(true, Ordering::SeqCst);
     }
     pub fn accepted_connections(&self) -> usize {
         self.accepted.load(Ordering::SeqCst)

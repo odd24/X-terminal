@@ -1,6 +1,73 @@
 {
-  "version": 8,
+  "version": 9,
   "tools": [
+    {
+      "name": "ssh_resize",
+      "description": "Request explicit SSH2 terminal dimensions (2–500 columns, 1–200 rows) for an exact generation and caller-fixed request ID. Requires independent Control approval and current input lease. PIPELINE_QUEUED means pipeline acceptance. On unknown delivery query terminal_input_status with SSH2 and the original connection and request ID.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cols": {
+            "format": "uint32",
+            "maximum": 500,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rows": {
+            "format": "uint32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "cols",
+          "rows"
+        ],
+        "title": "SshResizeArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
     {
       "name": "serial_connect",
       "description": "Create one SERIAL connection using the exact profile revision, inventory revision, device ID and request ID provided after Desktop Single approval. Opening applies the approved profile's initial line states. The creation snapshot does not prove the port opened. If delivery is unknown only query serial_connect_status.",
