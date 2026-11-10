@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 
-const preview = JSON.parse(await readFile('artifacts/P24-save-recovery-preview.json', 'utf8'));
+const feedback = process.argv.includes('--grant-feedback');
+const baseline = process.argv.includes('--grant-feedback-baseline');
+const auditReadFailure = feedback && process.argv.includes('--audit-read-failure');
+const previewPath = feedback ? 'artifacts/P22-audit-grant-feedback-preview.json' : 'artifacts/P24-save-recovery-preview.json';
+const preview = JSON.parse(await readFile(previewPath, 'utf8'));
 assert.equal(preview.result, 'PASS');
 assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
 assert.deepEqual(preview.files.map(file => file.name).sort(),
@@ -26,6 +30,9 @@ const agentError = (ui, request) => ui.evaluate(
   `window.__TAURI_INTERNALS__.invoke('agent_management_request',${JSON.stringify({ request })}).then(()=>null,e=>String(e))`);
 const audit = ui => ui.invoke('audit_history_request', { request: { op: 'info' } });
 const owner = ui => ui.invoke('service_status');
+const feedbackText = '当前服务的持久审计不可用，新 Agent 授权已阻止';
+const genericText = '操作未确认：CapacityExceeded';
+const managementStatus = text => `document.querySelector('[aria-label="Agent管理状态"]')?.textContent.includes(${JSON.stringify(text)})`;
 let first, second, reopened, result;
 
 function boot(label) {
@@ -55,6 +62,18 @@ async function expectAudit(ui, status, state) {
   assert.equal(observed.service_id, status.service_id);
   assert.equal(observed.status.state, state);
   return observed;
+}
+async function approveProfile(ui, profileId) {
+  await ui.click('Agent 授权');
+  await ui.waitFor(`!!document.querySelector('[aria-label="Agent授权类型"]')`);
+  await ui.fill('Agent授权类型', 'profile');
+  await ui.click('读取Agent建连配置');
+  await ui.waitFor(`Array.from(document.querySelector('[aria-label="Agent建连配置"]')?.options??[]).some(o=>o.value===${JSON.stringify(profileId)})`);
+  await ui.fill('Agent建连配置', profileId);
+  await ui.click('预览Agent建连授权');
+  await ui.waitFor(`!!document.querySelector('[aria-label="同意Agent固定配置建连"]')`);
+  await ui.evaluate(`document.querySelector('[aria-label="同意Agent固定配置建连"]').click()`);
+  await ui.click('确认批准Agent建连');
 }
 
 try {
@@ -100,12 +119,32 @@ try {
   assert.equal(rechecked.pid, lockedOwner.pid);
   assert.deepEqual((await page(second)).profiles, [saved.profile]);
   assert.deepEqual(await expectAudit(second, lockedOwner, 'STORAGE_FAILURE'), initialAudit);
-  const deniedId = randomUUID();
-  assert.equal(await agentError(second, grant(deniedId)), 'CapacityExceeded');
+  await second.click('收起连接窗口');
+  let deniedId, visibleFeedback, auditInfoReads;
+  if (feedback || baseline) {
+    const auditInfo = await second.interceptIpc({
+      command: 'audit_history_request', op: 'info', mode: auditReadFailure ? 'error' : 'delay', delayMs: 0,
+    });
+    const explained = feedback && !auditReadFailure;
+    await approveProfile(second, profile.id);
+    await second.waitFor(managementStatus(explained ? feedbackText : genericText));
+    visibleFeedback = await second.evaluate(`document.querySelector('[aria-label="Agent管理状态"]').textContent`);
+    assert.equal(visibleFeedback.includes(feedbackText), explained);
+    deniedId = await second.evaluate(`document.querySelector('[aria-label="Agent签发编号"]').value`);
+    await second.click('查询原Agent编号');
+    await second.waitFor(managementStatus('NotFound'));
+    assert.equal(await second.evaluate(`document.querySelector('[aria-label="Agent签发编号"]').value`), deniedId);
+    auditInfoReads = await auditInfo.count();
+    assert.equal(auditInfoReads, feedback ? 1 : 0);
+    await auditInfo.restore();
+    await second.click('关闭Agent授权');
+  } else {
+    deniedId = randomUUID();
+    assert.equal(await agentError(second, grant(deniedId)), 'CapacityExceeded');
+  }
   assert.equal(await agentError(second, { op: 'grant_status', request_id: deniedId }), 'NotFound');
   assert.deepEqual((await agent(second, { op: 'grant_list' })).data, []);
   assert.deepEqual(await second.invoke('service_list'), []);
-  await second.click('收起连接窗口');
   assert.equal(await close(second, lockedOwner), null);
   second = undefined;
 
@@ -119,9 +158,19 @@ try {
   assert.deepEqual((await agent(reopened, { op: 'grant_list' })).data, []);
   assert.equal(await agentError(reopened, { op: 'grant_status', request_id: originalId }), 'NotFound');
   assert.equal(await agentError(reopened, { op: 'grant_status', request_id: deniedId }), 'NotFound');
-  const freshId = randomUUID();
-  const fresh = await agent(reopened, grant(freshId));
-  assert.deepEqual(fresh.data.effective_scopes, grant(freshId).scopes);
+  if (feedback) {
+    const auditInfo = await reopened.interceptIpc({ command: 'audit_history_request', op: 'info', mode: 'delay', delayMs: 0 });
+    await approveProfile(reopened, profile.id);
+    await reopened.waitFor(managementStatus('已签发限时授权'));
+    assert.equal(await auditInfo.count(), 0);
+    assert.equal((await agent(reopened, { op: 'grant_list' })).data.length, 1);
+    await auditInfo.restore();
+    await reopened.click('关闭Agent授权');
+  } else {
+    const freshId = randomUUID();
+    const fresh = await agent(reopened, grant(freshId));
+    assert.deepEqual(fresh.data.effective_scopes, grant(freshId).scopes);
+  }
   assert.deepEqual(await reopened.invoke('service_list'), []);
   assert.equal((await close(reopened, restarted)).outcome, 'CLOSED');
   reopened = undefined;
@@ -130,6 +179,7 @@ try {
     auditOnLockedStartup: initialAudit.status, auditAfterRecheck: initialAudit.status,
     newGrantAfterRecheck: 'CapacityExceeded', recheckedCloseDiagnostic: null,
     auditAfterRestart: recoveredAudit.status, freshGrantAfterRestart: true, oldGrantRestored: false,
+    ...(visibleFeedback ? { visibleFeedback, guiOriginalNumberQuery: 'NotFound', auditReadFailure, auditInfoReads } : {}),
   };
 } catch (error) {
   console.error('P22/P24 owned audit-recheck root retained:', root);
@@ -141,5 +191,7 @@ const resolved = await realpath(root);
 assert.equal(path.dirname(resolved), await realpath(tmpdir()));
 assert.ok(path.basename(resolved).startsWith(prefix));
 await rm(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-await writeFile('artifacts/P22-audit-after-config-recheck.json', JSON.stringify(result, null, 2) + '\n');
+const evidence = auditReadFailure ? 'P22-audit-grant-feedback-fallback'
+  : feedback ? 'P22-audit-grant-feedback' : baseline ? 'P22-audit-grant-feedback-baseline' : 'P22-audit-after-config-recheck';
+await writeFile(`artifacts/${evidence}.json`, JSON.stringify(result, null, 2) + '\n');
 console.log('PASS ordinary Desktop configuration recheck leaves audit fail-closed until a normal restart');

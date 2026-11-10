@@ -11,6 +11,7 @@ import { checkedOperationReply, operationFingerprint } from './operation-grant';
 import type { Redaction } from './output-protection';
 import { OutputProtectionEditor, OutputProtectionPreview } from './output-protection-editor';
 import { AuditHistoryPanel } from './audit-history-panel';
+import { checkedHistory } from './audit-history';
 import { BridgePanel } from './bridge-panel';
 import { ProtectedExportGrantPanel, ProtectedExportHandoff, type ExportProposal } from './protected-export-panel';
 import { checkedProtectionReply } from './output-protection';
@@ -19,6 +20,12 @@ import { sameConnection } from './agent-management';
 const call = (request: Record<string, unknown>) => invoke<unknown>('agent_management_request', { request });
 const readSlot = () => { try { return restoreSlot(sessionStorage.getItem(slotKey)); } catch { return undefined; } };
 const targetText = (connection: ConnectionRef) => `${connection.connection_id} / 代次 ${connection.generation}`;
+
+class AuditGrantRefused extends Error {
+  constructor() {
+    super('本次签发已拒绝（CapacityExceeded）。当前服务的持久审计不可用，新 Agent 授权已阻止。可在“持久审计历史与记录状态”查看。保存工作后正常退出并重新启动桌面；如需核对，只查询原签发编号。');
+  }
+}
 
 export function AgentPanel({ serviceId, target, profileId, encoding, close }: { serviceId: string; target?: Connection; profileId?: string; encoding?: string; close(): void }) {
   const approval = useRef(new GrantApproval());
@@ -55,8 +62,23 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
     if (flight.current) return;
     flight.current = true; setBusy(true); setMessage('正在核对原服务；请等待结果。');
     try { await operation(); }
-    catch (error) { if (alive.current) setMessage(`操作未确认：${String(error)}。不自动重试；签发或撤销结果不明时，只查询原服务/原编号。`); }
+    catch (error) { if (alive.current) setMessage(error instanceof AuditGrantRefused ? error.message : `操作未确认：${String(error)}。不自动重试；签发或撤销结果不明时，只查询原服务/原编号。`); }
     finally { flight.current = false; if (alive.current) setBusy(false); }
+  }
+  async function issue(request: Record<string, unknown>) {
+    try {
+      return await call(request);
+    } catch (error) {
+      if (error !== 'CapacityExceeded' || !alive.current) throw error;
+      let state;
+      try {
+        state = checkedHistory(await invoke('audit_history_request', { request: { op: 'info' } }), serviceId).status.state;
+      } catch {
+        throw error;
+      }
+      if (state === 'STORAGE_FAILURE' || state === 'QUEUE_FULL') throw new AuditGrantRefused();
+      throw error;
+    }
   }
   async function query(id: string) {
     if (!uuid(id)) throw new Error('请输入完整签发编号');
@@ -81,7 +103,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
       if (!alive.current || !current()) return;
       const id = requestId();
       remember(id); setView(undefined); setProtectedExport(undefined);
-      const result = checkedProtectionReply(checkedGrant(await call({
+      const result = checkedProtectionReply(checkedGrant(await issue({
         op: 'grant_protected', request_id: id, scopes: approved.scopes, lifetime_ms: approved.lifetime_ms,
         form: { kind: 'single_operation', operation: approved.operation }, redaction: approved.redaction,
       }), id), approved.redaction);
@@ -110,7 +132,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
         const id = requestId(); remember(id); setView(undefined);
         const body = { request_id: id, scopes: approved.scopes, lifetime_ms: approved.lifetime_ms };
         const request = approved.redaction ? { ...body, op: 'grant_protected', form: { kind: 'single_operation', operation: approved.operation }, redaction: approved.redaction } : { ...body, op: 'grant_operation', operation: approved.operation };
-        const result = checkedOperationReply(checkedGrant(await call(request), id), approved, fingerprint);
+        const result = checkedOperationReply(checkedGrant(await issue(request), id), approved, fingerprint);
         if (!alive.current || !current()) return;
         setView(result); setMessage('已批准一次固定操作，尚未执行或交给真实桥。原操作编号和全部参数不可变，结果不明只查询原签发编号。');
         const operation = approved.operation;
@@ -131,7 +153,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
         if (!alive.current || !current()) return;
         if (snapshot.revision !== approved.revision || !snapshot.profiles.some(item => item.id === approved.profile_id && item.settings.protocol.toUpperCase() === approved.protocol)) throw new Error('配置版本已变化或目标已删除；请重新读取并预览');
         const id = requestId(); remember(id); setView(undefined);
-        const result = checkedTaskReply(checkedGrant(await call(grantRequest(id, approved)), id), approved.task, approved.scopes);
+        const result = checkedTaskReply(checkedGrant(await issue(grantRequest(id, approved)), id), approved.task, approved.scopes);
         if (!alive.current) return;
         setView(result); setMessage(mode === 'reconnect' ? '已签发限时双范围授权；尚未执行重连，旧代次能力不会迁移，真实桥尚未交付。' : '已签发限时授权：仅固定配置版本的Connect，尚未建连或向真实桥交付。');
       });
@@ -170,7 +192,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
         catch (error) { invalidate(); setMessage(String(error)); return; }
         void run(async () => {
           const id = requestId(); remember(id); setView(undefined);
-          const result = checkedTaskReply(checkedGrant(await call(grantRequest(id, approved)), id), approved.task, approved.scopes, approved.redaction);
+          const result = checkedTaskReply(checkedGrant(await issue(grantRequest(id, approved)), id), approved.task, approved.scopes, approved.redaction);
           if (!alive.current) return;
           setView(result); setMessage('已签发限时授权，尚未向真实桥交付；查询不续期，重连新代次不继承。');
         });
