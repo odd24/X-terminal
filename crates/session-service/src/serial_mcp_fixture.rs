@@ -14,6 +14,7 @@ struct Controller {
     state: Snapshot,
     root: std::path::PathBuf,
     gate_used: bool,
+    read_fault_used: bool,
 }
 #[derive(Default, Serialize)]
 struct Snapshot {
@@ -55,6 +56,7 @@ pub fn configure(root: &Path) -> io::Result<()> {
         file,
         root,
         gate_used: false,
+        read_fault_used: false,
         state: Snapshot {
             version: 1,
             ..Snapshot::default()
@@ -66,6 +68,18 @@ pub fn configure(root: &Path) -> io::Result<()> {
         .map_err(|_| io::Error::other("SERIAL_MCP_ALREADY_CONFIGURED"))
 }
 impl Trace {
+    pub(crate) fn fail_read_once(&self) -> io::Result<()> {
+        let mut controller = self
+            .0
+            .lock()
+            .map_err(|_| io::Error::other("SERIAL_MCP_COUNTER_FAILED"))?;
+        if !controller.read_fault_used && controller.root.join("serial-mcp-fail-read").is_file() {
+            controller.read_fault_used = true;
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn observe_close(&self) -> io::Result<()> {
         let root = self
             .0

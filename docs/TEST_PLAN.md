@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P24/T20 内存 UART 读失败专项 `pwsh -NoProfile -File scripts/Test-SerialReadFailure.ps1` 复用显式内存串口夹具和真实 Windows IPC，覆盖接收前缀、非超时读失败、旧权限分列和显式重开，详见[P24](records/P24.md)。
+
 P24/T20 日志写入故障专项 `pwsh -NoProfile -File scripts/Test-LogDiskFull.ps1` 使用受限服务构建和单一回环 SSH，验证真实 IPC 的 DiskFull、前缀保全与明确新录制，最后恢复普通服务并验证故障开关拒绝，详见[P24](records/P24.md)。
 
 P24/T20 外壳退出专项 `node scripts/Test-Desktop-PreviewSwitch.mjs --owner-crash` 复用已交付普通预览和回环 SSH，独立观察外壳意外退出后的所属服务回收，并验证人工重开与原输入及授权隔离，详见[P24](records/P24.md)。

@@ -29,6 +29,273 @@ async fn receipt(client: &mut Client, c: ConnectionRef, id: Uuid) -> serial::Inp
     .await
     .unwrap()
 }
+
+#[cfg(feature = "serial-mcp-fixture")]
+#[tokio::test]
+async fn serial_driver_read_error_retires_agent_but_preserves_observer_prefix() {
+    async fn start(desktop: &mut Client, profile_id: Uuid) -> ConnectionRef {
+        let R::Inventory {
+            revision, devices, ..
+        } = call(desktop, Q::Inventory {}).await
+        else {
+            panic!("inventory expected")
+        };
+        assert_eq!(devices.len(), 1);
+        let R::Started { connection } = call(
+            desktop,
+            Q::Start {
+                profile_id,
+                request_id: Uuid::new_v4(),
+                revision,
+                device_id: devices[0].device_id,
+            },
+        )
+        .await
+        else {
+            panic!("serial start expected")
+        };
+        let c = connection.reference();
+        terminal_state(desktop, c, State::Connected).await;
+        c
+    }
+
+    async fn terminal_state(
+        desktop: &mut Client,
+        c: ConnectionRef,
+        state: State,
+    ) -> serial::Status {
+        timeout(Duration::from_secs(4), async {
+            loop {
+                if let R::Status(status) = call(desktop, Q::Status { connection: c }).await
+                    && status.connection.state == state
+                    && !status.cleanup_pending
+                {
+                    return status;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap()
+    }
+
+    let directory = std::env::temp_dir().join(format!(
+        "shared-terminal-mcp-serial-control-中文-read-failure-{}",
+        Uuid::new_v4()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    let temp = ConfigTemp(directory);
+    let mut service = Fixture::on_instance_with_args(
+        Uuid::new_v4().to_string(),
+        true,
+        Some(&temp.0),
+        &["--serial-mcp-fixture"],
+    )
+    .await;
+    let mut desktop = service.connect().await;
+    let mut profile = portable();
+    profile.settings = config_store::Settings::Serial {
+        port: "COM7".into(),
+        baud_rate: 115200,
+        data_bits: 8,
+        stop_bits: 1,
+        parity: config_store::Parity::None,
+        flow: config_store::Flow::None,
+        dtr_on_open: false,
+        rts_on_open: Some(false),
+        encoding: config_store::Encoding::Utf8,
+    };
+    assert!(matches!(
+        config_call(
+            &mut desktop,
+            config::ConfigRequest::SaveProfile {
+                profile: profile.clone(),
+                credential: config::CredentialEdit::Keep {},
+            }
+        )
+        .await,
+        config::ConfigReply::SavedProfile { .. }
+    ));
+    let original = start(&mut desktop, profile.id).await;
+    let (_, token) = issue(
+        &mut desktop,
+        vec![
+            scope(original, Action::Read),
+            scope(original, Action::Write),
+        ],
+        30000,
+    )
+    .await;
+    let (mut writer, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+    lease(&mut writer, original, 10000).await;
+    let Reply::ReadTicket { token, .. } = ok(desktop
+        .request(Request::IssueRead {
+            scopes: vec![original],
+            lifetime_ms: 30000,
+        })
+        .await
+        .unwrap())
+    else {
+        panic!("observer ticket expected")
+    };
+    let (mut observer, _) = Client::connect(&service.instance, token.expose(), service.pid)
+        .await
+        .unwrap();
+
+    let prefix = b"P24 UART RX\r\n";
+    let write_id = Uuid::new_v4();
+    let write = |connection, request_id, bytes: &[u8]| Request::Serial {
+        request: Q::Write {
+            connection,
+            request_id,
+            bytes: SensitiveBytes::new(bytes.to_vec()),
+        },
+    };
+    ok(writer
+        .request(write(original, write_id, prefix))
+        .await
+        .unwrap());
+    let accepted = receipt(&mut writer, original, write_id).await;
+    assert_eq!(accepted.state, serial::InputState::DriverAccepted);
+    assert_eq!(accepted.driver_accepted, Some(prefix.len()));
+    let read = |connection| Request::Read {
+        connection,
+        cursor: 1,
+        max_bytes: 4096,
+    };
+    let captured = timeout(Duration::from_secs(4), async {
+        loop {
+            let Reply::Output(page) = ok(observer.request(read(original)).await.unwrap()) else {
+                panic!("observer output expected")
+            };
+            if !page.events.is_empty() {
+                break page;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        captured
+            .events
+            .iter()
+            .flat_map(|event| event.bytes.iter().copied())
+            .collect::<Vec<_>>(),
+        prefix
+    );
+    assert!(!captured.disconnected && !captured.truncated);
+    assert!(
+        captured
+            .events
+            .iter()
+            .all(|event| event.gap_bytes.is_none())
+    );
+    assert!(
+        matches!(ok(writer.request(read(original)).await.unwrap()), Reply::Output(page) if page == captured)
+    );
+
+    let counters = || -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(temp.0.join("serial-mcp-controller.json")).unwrap())
+            .unwrap()
+    };
+    let before = counters();
+    assert_eq!(before["opened"], 1);
+    assert_eq!(before["write_calls"], 1);
+    assert_eq!(before["write_bytes"], prefix.len());
+    assert_eq!(before["control_calls"], 0);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(temp.0.join("serial-mcp-fail-read"))
+        .unwrap();
+    let failed = terminal_state(&mut desktop, original, State::Failed).await;
+    assert_eq!(failed.connection.reference(), original);
+    assert_eq!(failed.failure, Some(serial::Failure::Io));
+    assert_eq!(failed.read_bytes, prefix.len() as u64);
+    assert_eq!(failed.dropped_bytes, 0);
+    assert_eq!(receipt(&mut writer, original, write_id).await, accepted);
+    assert!(matches!(
+        ok(writer
+            .request(agent(A::Lease {
+                connection: original
+            }))
+            .await
+            .unwrap()),
+        Reply::Agent(AR::Lease(None))
+    ));
+    assert_eq!(
+        error(writer.request(read(original)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(
+            writer
+                .request(write(original, Uuid::new_v4(), b"denied old write"))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(
+            observer
+                .request(write(original, Uuid::new_v4(), b"observer cannot write"))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    let Reply::Output(ended) = ok(observer.request(read(original)).await.unwrap()) else {
+        panic!("retained observer output expected")
+    };
+    assert!(ended.disconnected);
+    assert_eq!(
+        ended,
+        OutputPage {
+            disconnected: true,
+            ..captured
+        }
+    );
+    assert!(
+        matches!(ok(desktop.request(read(original)).await.unwrap()), Reply::Output(page) if page == ended)
+    );
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert_eq!(counters(), before);
+    assert!(
+        matches!(ok(desktop.request(Request::List {}).await.unwrap()), Reply::Sessions(list) if list.len() == 1 && list[0].reference() == original)
+    );
+
+    let fresh = start(&mut desktop, profile.id).await;
+    assert_ne!(fresh.connection_id, original.connection_id);
+    assert_eq!(
+        error(
+            writer
+                .request(write(fresh, Uuid::new_v4(), b"denied new write"))
+                .await
+                .unwrap()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(observer.request(read(fresh)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    assert!(
+        matches!(ok(desktop.request(read(fresh)).await.unwrap()), Reply::Output(page) if page.events.is_empty() && !page.disconnected)
+    );
+    let mut expected = before;
+    expected["opened"] = 2.into();
+    assert_eq!(counters(), expected);
+    service.stop(&mut desktop).await;
+    println!(
+        "Serial read fault IPC: FAILED/IO, prefix {} bytes, observer retained, Agent lease retired, explicit fresh identity, two memory opens and one write",
+        prefix.len()
+    );
+}
+
 #[tokio::test]
 async fn single_serial_start_input_control_disconnect_forget_use_exact_body_and_original_owner() {
     let temp = ConfigTemp::new();

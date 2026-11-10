@@ -68,6 +68,10 @@ impl worker::Port for Echo {
         Ok(self.bytes.len() as u32)
     }
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<transport_serial::ReadOutcome> {
+        #[cfg(feature = "serial-mcp-fixture")]
+        if let Some(trace) = &self.trace {
+            trace.fail_read_once()?;
+        }
         if self.passive && self.next.elapsed() >= Duration::from_millis(80) {
             self.sequence += 1;
             self.bytes
