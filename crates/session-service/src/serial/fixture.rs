@@ -50,6 +50,14 @@ struct Echo {
     #[cfg(feature = "serial-mcp-fixture")]
     trace: Option<crate::serial_mcp_fixture::Trace>,
 }
+#[cfg(feature = "serial-mcp-fixture")]
+impl Drop for Echo {
+    fn drop(&mut self) {
+        if let Some(trace) = &self.trace {
+            let _ = trace.observe_close();
+        }
+    }
+}
 impl worker::Port for Echo {
     fn bytes_to_read(&self) -> io::Result<u32> {
         Ok(self.bytes.len() as u32)

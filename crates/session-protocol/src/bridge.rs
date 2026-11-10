@@ -13,6 +13,16 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    Disconnect {
+        transport: Transport,
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
+    DisconnectStatus {
+        transport: Transport,
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     SerialWrite {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -70,6 +80,22 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn disconnect_target(&self) -> Option<(Transport, ConnectionRef, Uuid)> {
+        match self {
+            Self::Disconnect {
+                transport,
+                connection,
+                request_id,
+            }
+            | Self::DisconnectStatus {
+                transport,
+                connection,
+                request_id,
+            } => Some((*transport, *connection, *request_id)),
+            _ => None,
+        }
+    }
+
     pub fn serial_target(&self) -> Option<(ConnectionRef, Uuid, bool)> {
         match self {
             Self::SerialWrite {
@@ -120,6 +146,46 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::Disconnect {
+                transport: Transport::Ssh2,
+                connection,
+                request_id,
+            } => Request::Ssh {
+                request: ssh::Request::Disconnect {
+                    connection,
+                    request_id,
+                },
+            },
+            Self::Disconnect {
+                transport: Transport::Serial,
+                connection,
+                request_id,
+            } => Request::Serial {
+                request: serial::Request::Disconnect {
+                    connection,
+                    request_id,
+                },
+            },
+            Self::DisconnectStatus {
+                transport: Transport::Ssh2,
+                connection,
+                request_id,
+            } => Request::Ssh {
+                request: ssh::Request::DisconnectStatus {
+                    connection,
+                    request_id,
+                },
+            },
+            Self::DisconnectStatus {
+                transport: Transport::Serial,
+                connection,
+                request_id,
+            } => Request::Serial {
+                request: serial::Request::DisconnectStatus {
+                    connection,
+                    request_id,
+                },
+            },
             Self::SerialWrite {
                 connection,
                 request_id,
@@ -389,6 +455,7 @@ pub struct Status {
     deny_unknown_fields
 )]
 pub enum ResultMessage {
+    Disconnect(session_core::disconnect::Receipt),
     SerialOperation {
         connection: ConnectionRef,
         receipt: serial::InputReceipt,
@@ -415,6 +482,35 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_disconnect_service(
+        response: Response,
+        transport: Transport,
+        connection: ConnectionRef,
+        request_id: Uuid,
+    ) -> Self {
+        use session_core::session::ErrorCode;
+        match (transport, response) {
+            (_, Response::Error { code, .. }) => Self::Error(code),
+            (
+                Transport::Ssh2,
+                Response::Ok {
+                    reply: Reply::Ssh(ssh::Reply::Disconnect(receipt)),
+                    ..
+                },
+            )
+            | (
+                Transport::Serial,
+                Response::Ok {
+                    reply: Reply::Serial(serial::Reply::Disconnect(receipt)),
+                    ..
+                },
+            ) if receipt.connection == connection && receipt.request_id == request_id => {
+                Self::Disconnect(receipt)
+            }
+            _ => Self::Error(ErrorCode::InvalidState),
+        }
+    }
+
     /// `connection` is the native-frozen request binding, not a service-reported field.
     pub fn from_serial_service(
         response: Response,
@@ -506,6 +602,55 @@ impl ResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disconnect_projection_requires_exact_service_receipt() {
+        use session_core::{disconnect, session::ErrorCode};
+        let connection = target();
+        let id = Uuid::new_v4();
+        let receipt = disconnect::Receipt {
+            request_id: id,
+            connection,
+            state: disconnect::State::Requested,
+        };
+        let response = |reply| Response::Ok { id: 1, reply };
+        for (transport, reply) in [
+            (
+                Transport::Ssh2,
+                Reply::Ssh(ssh::Reply::Disconnect(receipt.clone())),
+            ),
+            (
+                Transport::Serial,
+                Reply::Serial(serial::Reply::Disconnect(receipt.clone())),
+            ),
+        ] {
+            assert!(matches!(
+                ResultMessage::from_disconnect_service(response(reply), transport, connection, id),
+                ResultMessage::Disconnect(v) if v == receipt
+            ));
+        }
+        let wrong_generation = ConnectionRef {
+            generation: connection.generation + 1,
+            ..connection
+        };
+        for (transport, expected_connection, expected_id) in [
+            (Transport::Serial, connection, id),
+            (Transport::Ssh2, wrong_generation, id),
+            (Transport::Ssh2, connection, Uuid::new_v4()),
+        ] {
+            let reply = Reply::Ssh(ssh::Reply::Disconnect(receipt.clone()));
+            assert!(matches!(
+                ResultMessage::from_disconnect_service(
+                    response(reply),
+                    transport,
+                    expected_connection,
+                    expected_id
+                ),
+                ResultMessage::Error(ErrorCode::InvalidState)
+            ));
+        }
+    }
+
     #[test]
     fn serial_bytes_controls_and_request_bound_projection_are_strict() {
         let c = target();

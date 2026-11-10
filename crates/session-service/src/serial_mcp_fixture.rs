@@ -66,6 +66,20 @@ pub fn configure(root: &Path) -> io::Result<()> {
         .map_err(|_| io::Error::other("SERIAL_MCP_ALREADY_CONFIGURED"))
 }
 impl Trace {
+    pub(crate) fn observe_close(&self) -> io::Result<()> {
+        let root = self
+            .0
+            .lock()
+            .map_err(|_| io::Error::other("SERIAL_MCP_COUNTER_FAILED"))?
+            .root
+            .clone();
+        if root.join("serial-mcp-close-hold").exists() {
+            Self::wait_for_release(&root, "serial-mcp-closing", "serial-mcp-close-release")?;
+            std::fs::write(root.join("serial-mcp-closed"), b"closed")?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn gate_before_write(&self) -> io::Result<()> {
         let root = {
             let mut c = self
@@ -78,9 +92,13 @@ impl Trace {
             c.gate_used = true;
             c.root.clone()
         };
-        std::fs::write(root.join("serial-mcp-entered"), b"entered")?;
+        Self::wait_for_release(&root, "serial-mcp-entered", "serial-mcp-release")
+    }
+
+    fn wait_for_release(root: &Path, entered: &str, release: &str) -> io::Result<()> {
+        std::fs::write(root.join(entered), b"entered")?;
         let start = std::time::Instant::now();
-        while !root.join("serial-mcp-release").exists() {
+        while !root.join(release).exists() {
             if start.elapsed() > std::time::Duration::from_secs(5) {
                 return Err(io::Error::other("SERIAL_MCP_GATE_TIMEOUT"));
             }

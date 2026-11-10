@@ -9,20 +9,24 @@ import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
 import { prepareSecuritySentinels, checkMcpSecurity } from './lib/McpSecurityChecks.mjs';
 import {checkMcpExec} from './lib/McpExecChecks.mjs';
+import {checkMcpDisconnect} from './lib/McpDisconnectChecks.mjs';
 import {checkMcpSerial} from './lib/McpSerialChecks.mjs';
 
 const serialControl=process.argv.includes('--serial-control');
+const disconnect=process.argv.includes('--disconnect');
 const serial=process.argv.includes('--serial')||serialControl;
+const countedSerial=serialControl||(disconnect&&serial);
+const evidence=disconnect?'P15-disconnect-v4':serialControl?'P15-disconnect-impact-serial-v4':process.argv.includes('--security')?'P22-security-v4':process.argv.includes('--exec')?'P15-disconnect-impact-exec-v4':'P15-mcp-v4';
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
 assert.ok(!exec||!serial,'exec fixture is SSH2 only');
-const rootPrefix=serialControl?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
+const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
 const build=fixture=>{const result=spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});assert.equal(result.status,0,'memory fixture/ordinary restore must actually succeed');};
 let directory,ui,fixture,rpc,failed=false;
 try {
-  if (serial&&!serialControl) build(true);
+  if (serial&&!countedSerial) build(true);
   directory=await mkdtemp(path.join(tmpdir(),rootPrefix));
-  ui=await launchDesktop(directory,{fixture:true,...(serialControl?{executable:path.resolve('target/serial-mcp-fixture/shared-terminal-desktop.exe'),extraArgs:['--serial-mcp-fixture']}: {})});
+  ui=await launchDesktop(directory,{fixture:true,...(countedSerial?{executable:path.resolve('target/serial-mcp-fixture/shared-terminal-desktop.exe'),extraArgs:['--serial-mcp-fixture']}: {})});
   let connection,metrics,control;
   if (serial) {
     const profile={id:randomUUID(),folder_id:null,name:'MCP合成串口',settings:{protocol:'serial',port:'COM7',baud_rate:115200,data_bits:8,stop_bits:1,parity:'none',flow:'none',dtr_on_open:false,rts_on_open:false,encoding:'utf8'}};
@@ -62,9 +66,9 @@ try {
   rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
   const initialized=await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'p15-real-stdio',version:'0.1.0'}});assert.ok(initialized.result.capabilities.tools);rpc.notify('notifications/initialized',{});
   const catalog=(await rpc.request('tools/list',{})).result.tools;
-  assert.deepEqual({version:3,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v3 fourteen-tool contract');
-  await writeFile(`artifacts/${serialControl?'P15-serial-v3':security?'P22-security-v3':exec?'P15-serial-impact-exec-v3':'P15-mcp-v3'}-tools-${serial?'serial':'ssh'}.json`,JSON.stringify({tools:catalog},null,2)+'\n');
-  assert.equal(catalog.length,14);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
+  assert.deepEqual({version:4,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v4 sixteen-tool contract');
+  await writeFile(`artifacts/${evidence}-tools-${serial?'serial':'ssh'}.json`,JSON.stringify({tools:catalog},null,2)+'\n');
+  assert.equal(catalog.length,16);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
   const call=async(name,args={})=>(await rpc.request('tools/call',{name,arguments:args})).result;
   const success=async(name,args={})=>{const result=await call(name,args);assert.equal(result.isError,false,JSON.stringify(result));assert.equal(result.structuredContent.mock,false);return result.structuredContent.reply;};
   const pending=await success('agent_status');assert.equal(pending.data.paired_ticket,null);assert.equal(pending.data.peer_pid,rpc.child.pid);
@@ -104,30 +108,37 @@ try {
     await ui.click('刷新MCP连接状态');await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='预览MCP绑定原授权'&&!b.disabled)&&document.body.textContent.includes(${JSON.stringify('实际进程 PID '+rpc.child.pid)})`);await ui.click('预览MCP绑定原授权');await ui.waitFor(`!!document.querySelector('[aria-label="MCP固定配对预览"]')`);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="同意MCP绑定原授权"]').checked`),false);await ui.evaluate(`document.querySelector('[aria-label="同意MCP绑定原授权"]').click()`);await ui.click('确认MCP绑定');
     for(let i=0;i<100;i++){if((await success('agent_status')).data.paired_ticket)return;await delay(20);}throw new Error('rebind did not complete');
   };
-  const execChecks=exec?await checkMcpExec({ui,call,success,ref,other:otherRef,management,grantId,signed,lease,metrics,rebind,getRpc:()=>rpc,evidencePrefix:'P15-serial-impact-exec-v3'}):null;
-  const serialChecks=serialControl?await checkMcpSerial({directory,ui,call,success,ref,other:otherRef,management,grantId,signed,lease,rebind,getRpc:()=>rpc}):null;
-  await management({op:'takeover',connection:ref});assert.equal((await call('terminal_send',{...send,request_id:randomUUID(),text:'MUST_NOT_SEND'})).isError,true);
-  await securityChecks?.afterTakeover();
-  await execChecks?.afterTakeover();
-  await serialChecks?.afterTakeover();
-  await success('terminal_input_status',{transport,connection:ref,request_id});
-  await management({op:'grant_revoke',request_id:grantId});assert.equal((await call('terminal_read',{connection:ref,window:null,view:{kind:'info'}})).isError,true);
-  const securityReport=await securityChecks?.afterRevoke();
-  await execChecks?.afterRevoke();
-  await serialChecks?.afterRevoke();
-  const audit=await management({op:'audit',cursor:0,limit:128});assert.ok(audit.data.events.some(e=>e.kind==='DISPATCHED'&&e.client_id===signed.data.summary.ticket_id&&e.request_id===request_id));
-  const ownedService=(await ui.invoke('service_status')).pid;process.kill(ownedService);
-  assert.equal((await call('terminal_input_status',{transport,connection:ref,request_id})).structuredContent.error_code,'UNKNOWN_DELIVERY','actual service loss invalidates the bridge stream, without replay or a fabricated known result');
-  await execChecks?.afterServiceLoss();
-  await serialChecks?.afterServiceLoss();
-  assert.ok(!rpc.stderr.includes('P15_PRIVATE'));assert.equal((await rpc.close()).code,0);rpc=undefined;
-  if(security)await writeFile(`artifacts/P22-security-v3-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
-  console.log(`PASS real MCP ${transport}: native fixed-process/original-grant GUI approval, default-none, no unpaired access/bearer, same shared connection exact send/receipt/protected read/screen, lease and dedup, unrelated session denied, takeover/revoke rejected, Agent source audit and stdio EOF cleanup; synthetic only`);
+  const execChecks=exec?await checkMcpExec({ui,call,success,ref,other:otherRef,management,grantId,signed,lease,metrics,rebind,getRpc:()=>rpc,evidencePrefix:evidence}):null;
+  const serialChecks=serialControl?await checkMcpSerial({directory,ui,call,success,ref,other:otherRef,management,grantId,signed,lease,rebind,getRpc:()=>rpc,evidence}):null;
+  if(disconnect){
+    const report=await checkMcpDisconnect({directory,ui,call,success,ref,other:otherRef,transport,management,grantId,lease,control,rebind,getRpc:()=>rpc});
+    assert.equal((await rpc.close()).code,0);rpc=undefined;
+    await writeFile(`artifacts/P15-disconnect-v4-${serial?'serial':'ssh'}.json`,JSON.stringify({...report,stdio_exit:0},null,2)+'\n');
+    console.log(`PASS real MCP ${transport} Disconnect, original receipt, permission boundaries and transport cleanup`);
+  }else{
+    await management({op:'takeover',connection:ref});assert.equal((await call('terminal_send',{...send,request_id:randomUUID(),text:'MUST_NOT_SEND'})).isError,true);
+    await securityChecks?.afterTakeover();
+    await execChecks?.afterTakeover();
+    await serialChecks?.afterTakeover();
+    await success('terminal_input_status',{transport,connection:ref,request_id});
+    await management({op:'grant_revoke',request_id:grantId});assert.equal((await call('terminal_read',{connection:ref,window:null,view:{kind:'info'}})).isError,true);
+    const securityReport=await securityChecks?.afterRevoke();
+    await execChecks?.afterRevoke();
+    await serialChecks?.afterRevoke();
+    const audit=await management({op:'audit',cursor:0,limit:128});assert.ok(audit.data.events.some(e=>e.kind==='DISPATCHED'&&e.client_id===signed.data.summary.ticket_id&&e.request_id===request_id));
+    const ownedService=(await ui.invoke('service_status')).pid;process.kill(ownedService);
+    assert.equal((await call('terminal_input_status',{transport,connection:ref,request_id})).structuredContent.error_code,'UNKNOWN_DELIVERY','actual service loss invalidates the bridge stream, without replay or a fabricated known result');
+    await execChecks?.afterServiceLoss();
+    await serialChecks?.afterServiceLoss();
+    assert.ok(!rpc.stderr.includes('P15_PRIVATE'));assert.equal((await rpc.close()).code,0);rpc=undefined;
+    if(security)await writeFile(`artifacts/P22-security-v4-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
+    console.log(`PASS real MCP ${transport}: native fixed-process/original-grant GUI approval, default-none, no unpaired access/bearer, same shared connection exact send/receipt/protected read/screen, lease and dedup, unrelated session denied, takeover/revoke rejected, Agent source audit and stdio EOF cleanup; synthetic only`);
+  }
 } catch(error) {
   failed=true;console.error('MCP deterministic test failed before cleanup:',error);
-  if((exec||serialControl)&&ui)await ui.screenshot(serialControl?'P15-serial-failure.png':'P15-exec-failure.png').catch(()=>{});
+  if((exec||countedSerial||disconnect)&&ui)await ui.screenshot(`${evidence}-${serial?'serial':'ssh'}-failure.png`).catch(()=>{});
   if(directory)console.error('Owned failed MCP root retained:',directory);throw error;
 } finally {
   try {if(rpc)await rpc.close();await ui?.close();fixture?.kill();if(fixture)await new Promise(resolve=>{if(fixture.exitCode!==null||fixture.signalCode!==null)resolve();else fixture.once('exit',resolve);});if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(rootPrefix));if(!failed)await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}
-  finally {if(serial&&!serialControl)build(false);}
+  finally {if(serial&&!countedSerial)build(false);}
 }

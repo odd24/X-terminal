@@ -1,6 +1,12 @@
 # Codex 首版接入方案
 
-2026-11-10当前按[ADR-087](decisions/ADR-087.md)为v3固定十四工具，仅在v2基础增serial_write/serial_control，前十二schema/公开结果不变；[当前契约](../contracts/mcp/initial-tools.json)与[历史v2](../contracts/mcp/v2-tools.json)分开保存。只使用用户已打开且已批准的SERIAL精确connection/generation，模型不能枚举/配置/打开关闭端口或自行签发授权。
+当前[ADR-088](decisions/ADR-088.md)固定 v4 十六项工具。[当前契约](../contracts/mcp/initial-tools.json)保留[历史 v3](../contracts/mcp/v3-tools.json)的十四项。
+
+`sessions_disconnect` 和 `sessions_disconnect_status` 都接收 `transport`（SSH2 或 SERIAL）、`connection`（含精确代次）及调用者固定的 `request_id`。发起需要独立 Disconnect 范围和租约，Single 按完整原参数核对。回执包含服务回传的编号、连接代次及状态。REQUESTED 表示已请求取消，TRANSPORT_ENDED 表示服务观察到本地传输清理完成。
+
+首答或查询应答不明时，只用原有效票据及原参数查询。范围和租约退休后原票据仍可取原回执，撤销、到期或服务重启后无法借新授权恢复。
+
+2026-11-10此前按[ADR-087](decisions/ADR-087.md)为v3固定十四工具，仅在v2基础增serial_write/serial_control，前十二schema/公开结果不变；[v3契约](../contracts/mcp/v3-tools.json)与[历史v2](../contracts/mcp/v2-tools.json)分开保存。只使用用户已打开且已批准的SERIAL精确connection/generation，该版本未开放枚举、配置、开关端口或自行签发授权。
 
 `serial_write`字段为connection、request_id、bytes（1..16384个整数0..255）；不收文本/HEX/base64，不做编码或附加换行。`serial_control`字段为connection、request_id、line（DTR/RTS/BREAK）及必须显式提供的asserted布尔；没有脉冲/持续时间或默认动作，true不是定时脉冲，需解除时须另有明确的新意图/新编号。两者分别要求WRITE或CONTROL和原输入租约，不能互授；Single批准须匹配完整原参数。
 
@@ -99,7 +105,7 @@ enabled = true
 |---|---|---|
 | sessions_list | scope | 仅可见配置/连接，秘密字段不存在 |
 | sessions_connect | profile_id、request_id | connection_id、generation、state；需要 connect 权限 |
-| sessions_disconnect | connection_id、generation、request_id | 明确关闭结果；需要连接管理权限 |
+| sessions_disconnect / sessions_disconnect_status | transport、connection、request_id | 编号断开与原票据查询，发起需独立 Disconnect 与租约 |
 | terminal_read | connection_id、generation、cursor、max_bytes | events、next_cursor、truncated、available_from；建议最大 64 KiB |
 | terminal_screen | connection_id、generation | 行列、文本、光标、seq；来自服务端状态模型 |
 | terminal_send | connection_id、generation、request_id、text 或 key | 接收/发送状态；write 权限与输入租约 |

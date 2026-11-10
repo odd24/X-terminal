@@ -1,6 +1,134 @@
 {
-  "version": 3,
+  "version": 4,
   "tools": [
+    {
+      "name": "sessions_disconnect",
+      "description": "Request cancellation of an existing SSH2 or SERIAL connection by exact generation and caller-fixed request_id. Requires independent Disconnect approval and input lease. REQUESTED means cancellation was dispatched; TRANSPORT_ENDED means the service observed local transport cleanup. On unknown delivery query sessions_disconnect_status with the original ticket and arguments.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "sessions_disconnect_status",
+      "description": "Query the original Disconnect receipt with the same valid ticket, transport, connection generation and request_id. Can recover after scope and lease retirement. A missing reply or receipt leaves the outcome unknown; do not replay Start.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
     {
       "name": "serial_write",
       "description": "Send 1..16384 exact integer bytes (0..255) on an existing approved SERIAL connection; no encoding or newline. Requires independent Write and input lease. Native-request-bound connection plus checked request_id receipt; not proof of device execution. Unknown delivery: query terminal_input_status(SERIAL) with the original connection/generation/request_id, never replay or change action under that ID.",

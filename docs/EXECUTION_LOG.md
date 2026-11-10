@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 用户明确“继续持续的推进方案”并由监督转达，覆盖 v3 后暂停。本轮按 [ADR-088](decisions/ADR-088.md) 完成 P15 v4 两协议编号断开与原票据查询的独立软件包，原十四项工具保持。合成 SSH 对端释放与内存 UART worker join 分别验证，原编号只查，5 协议/5 IPC/3 worker、两协议各 45 拒绝及普通恢复通过。分层见[P15](records/P15.md)，完整 P15/MCP/实机/长稳仍开放。Step-ID: P15。
+
 2026-11-10 B包已97d98c6实现/b8b21f7普通v3预览交付且资源释放后，监督转达用户本次新的明确自由文本“完成当前任务后，先暂停下任务执行，等待我的指令”。当前包已完成，本次立即生效；仅记录交付终态并做本地文档/Git收尾后暂停，普通监督回执/审查不恢复授权。不是旧AGENTS注入误判，不启动下一包/盘点/负载/监控/chat；准确终态/未验见[P15](records/P15.md)。Step-ID: P15。
 
 2026-11-10 P15/v3实现97d98c6已本机普通预览交付ced2fb24-3719-409b-9c49-74e657d90199：复制品PE2/普通拒fixture/同目录MCP固定14工具精确发现、stdio exit0及真实关闭回执/审计CLOSED水位一致/自有进程释放均PASS，三SHA和独立结果文件见[P15](records/P15.md)。旧预览/证据保持，没有用户根/真实COM控制或模型执行，完整P15/MCP/实机与长稳仍开放。Step-ID: P15。
@@ -378,7 +380,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P12.1 | S1软件阶段完成，实机兼容/全局长稳边界保留，顺序进入S2 | DONE | [P12.1](records/P12.1.md) | Step-ID: P12.1 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
-| P15 | 初版9工具真实stdio桥已完成/验证；完整v1工具后续，本版P16前置已满足 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |
+| P15 | v4 固定 16 项真实 stdio 工具的软件子包已验；完整 P15 待继续 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |
 | P16 | 初版客户端直调共享闭环/本机预览已交付；模型写入需正常交互批准，完整验收后续 | IN_PROGRESS | [P16](records/P16.md) | Step-ID: P16 |
 | P17 | 分组、双窗格及受管理布局显式恢复软件完成，完整R06/全局证据后续 | IN_PROGRESS | [P17](records/P17.md) | Step-ID: P17 |
 | P18 | 同步输入 | IN_PROGRESS | [记录](records/P18.md) | 显式文本批次及专用连续键盘软件贯通；完整R07仍开放 |

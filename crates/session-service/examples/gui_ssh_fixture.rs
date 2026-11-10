@@ -41,6 +41,7 @@ async fn main() {
             "metrics" => {}
             "keyboard_echo" => fixture.keyboard_echo.store(true, Ordering::SeqCst),
             "disconnect" => fixture.disconnect().await,
+            "wait_disconnected" => fixture.wait_disconnected().await,
             "end" => fixture.end(7).await,
             "push" => {
                 fixture

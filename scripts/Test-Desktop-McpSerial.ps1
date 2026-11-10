@@ -1,3 +1,4 @@
+param([switch]$Disconnect)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/Enter-Toolchain.ps1"
 $serialRepoRoot=Split-Path -Parent $PSScriptRoot
@@ -13,8 +14,13 @@ try {
     Copy-Item -LiteralPath (Join-Path $serialRepoRoot 'target/debug/shared-terminal-desktop.exe') -Destination $serialFixtureDirectory -Force
     & node (Join-Path $PSScriptRoot 'Test-SerialMcpFixtureGuards.mjs')
     if ($LASTEXITCODE -ne 0) {throw 'explicit serial fixture guards failed'}
-    & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial-control
-    if ($LASTEXITCODE -ne 0) {throw 'real serial byte/control MCP checks failed'}
+    $serialTestArgs = if ($Disconnect) { @('--serial', '--disconnect') } else { @('--serial-control') }
+    & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') @serialTestArgs
+    if ($LASTEXITCODE -ne 0) {throw 'real serial MCP checks failed'}
+    if ($Disconnect) {
+        & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial-control
+        if ($LASTEXITCODE -ne 0) {throw 'serial byte/control regression failed'}
+    }
 } finally {
     & npm run desktop:build
     if ($LASTEXITCODE -ne 0) {throw 'ordinary Desktop/service actual restoration failed'}

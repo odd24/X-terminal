@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -54,7 +54,8 @@ try {
     assert.ok((await rpc.request('initialize',{clientInfo:{name:'p16_real_shared_client',version:'0.1.0'},capabilities:{experimentalApi:true}})).result);rpc.notify('initialized',{});
     const thread=await rpc.request('thread/start',{cwd:directory,ephemeral:true,sandbox:'read-only'},30000);assert.ok(thread.result?.thread?.id,JSON.stringify(thread.error));threadId=thread.result.thread.id;
     const inventory=await rpc.request('mcpServerStatus/list',{threadId,serverName:'windows_terminal'},30000);
-    assert.equal(Object.keys(inventory.result.data.find(s=>s.name==='windows_terminal').tools).length,9);
+    const catalog = JSON.parse(await readFile('contracts/mcp/initial-tools.json', 'utf8'));
+    assert.equal(Object.keys(inventory.result.data.find(s=>s.name==='windows_terminal').tools).length, catalog.tools.length);
   }
   let pending;
   for(let i=0;i<200;i++){pending=await broker({op:'info'});if(pending.peer?.pid)break;if(codex.exitCode!==null||codex.signalCode!==null)throw new Error(`Codex exited before pairing: ${JSON.stringify(await completion)} ${stderr}`);await delay(100);}

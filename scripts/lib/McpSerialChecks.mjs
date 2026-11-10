@@ -4,7 +4,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {requestId} from '../../apps/desktop/src/request-id.ts';
 import {delay} from './DesktopHarness.mjs';
-export async function checkMcpSerial({directory,ui,call,success,ref,other,management,grantId,signed,lease,rebind,getRpc}){
+export async function checkMcpSerial({directory,ui,call,success,ref,other,management,grantId,signed,lease,rebind,getRpc,evidence}){
  const checks={};
  const snapshot=async()=>{for(let i=0;i<100;i++){try{const v=JSON.parse(await readFile(path.join(directory,'serial-mcp-controller.json'),'utf8'));assert.equal(v.version,1);assert.ok(Number.isInteger(v.write_calls)&&v.write_calls<=128);assert.ok(Number.isInteger(v.control_calls)&&v.control_calls<=128);assert.ok(v.controls.length<=64);assert.deepEqual(Object.keys(v).sort(),['version','opened','write_calls','write_bytes','control_calls','controls','dtr','rts','break_asserted'].sort());return v;}catch(e){if(!(e instanceof SyntaxError)&&e.code!=='ENOENT')throw e;await delay(5);}}throw new Error('bounded controller snapshot observation failed');};
  const raw=async()=>{const p=await ui.invoke('service_read',{connection:ref,cursor:1});assert.equal(p.truncated,false);assert.ok(p.events.every(e=>e.gap_bytes==null));return Buffer.from(p.events.flatMap(e=>e.bytes));};
@@ -57,6 +57,6 @@ export async function checkMcpSerial({directory,ui,call,success,ref,other,manage
  return {
   async afterTakeover(){await writeFile(path.join(directory,'serial-mcp-release'),'release');await done(heldWrite.request_id,'DRIVER_ACCEPTED');await done(heldControl.request_id,'CANCELLED_BEFORE_DISPATCH');const now=await snapshot();assert.equal(now.control_calls,beforeGate.control_calls);assert.deepEqual(now.controls,beforeGate.controls);assert.equal(now.rts,true);await deny('serial_write',wr(),'PERMISSION_DENIED');await deny('serial_control',ctl(),'PERMISSION_DENIED');checks.takeover_keeps_entered_write_cancels_late_control=true;},
   async afterRevoke(){await deny('terminal_input_status',{transport:'SERIAL',connection:ref,request_id:firstControl.request_id},'PERMISSION_DENIED');checks.revoked_receipt_denied=true;},
-  async afterServiceLoss(){const before=await snapshot();await deny('serial_control',ctl(),'UNKNOWN_DELIVERY');await deny('serial_write',wr(),'UNKNOWN_DELIVERY');assert.deepEqual(await snapshot(),before);checks.service_loss_no_write_or_control_replay=true;assert.equal(before.control_calls,6);assert.equal(before.write_calls,baseline.write_calls+4);await writeFile('artifacts/P15-serial-v3-result.json',JSON.stringify({result:'PASS',checks,controller:before,baseline,model_run:false,scope:'Port-call/state counters and echo on explicit owned memory fixture only'},null,2)+'\n');}
+  async afterServiceLoss(){const before=await snapshot();await deny('serial_control',ctl(),'UNKNOWN_DELIVERY');await deny('serial_write',wr(),'UNKNOWN_DELIVERY');assert.deepEqual(await snapshot(),before);checks.service_loss_no_write_or_control_replay=true;assert.equal(before.control_calls,6);assert.equal(before.write_calls,baseline.write_calls+4);await writeFile(`artifacts/${evidence}-result.json`,JSON.stringify({result:'PASS',checks,controller:before,baseline,model_run:false,scope:'Port-call/state counters and echo on explicit owned memory fixture only'},null,2)+'\n');}
  };
 }
