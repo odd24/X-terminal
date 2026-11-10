@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+2026-11-10本次真实新暂停指令：监督在B包交付b8b21f7后转达用户新自由文本“完成当前任务后，先暂停下任务执行，等待我的指令”。不是历史AGENTS重注入。当前P15/v3串口字节/显式控制B包已由97d98c6实现、b8b21f7普通14工具预览交付并完成必要验证/普通恢复/资源释放；本次仅终态归档后立即暂停，等待用户后续新的明确开始指令。普通监督回执/审查不恢复授权，不盘点或启动下一包、不负载/校准/监控/新chat，不触用户窗口/真实COM/私有日志；完整P15/MCP/模型自治/实机和T18/T19长稳仍开放，详P15最新终态。
+
 2026-11-10当前P15按ADR-087完成v3固定14工具串口软件子包：只增serial_write(1..16384个u8、不编码/加换行)/serial_control(DTR/RTS/BREAK+显式bool、无脉冲默认动作)，原12 schema/公开结果保持；新结果connection为native原请求绑定，不能当服务独立回传证明，request_id/wire id和原服务owner/代次仍必核。WRITE/CONTROL/lease/FIFO/Single指纹不旁路，未知只原编号查、不重放。仅显式默认关闭feature/自建中文根/内存COM7计数实证，5 Port写/40字节/6控制及队列接管边界、48入口主体/14工具安全影响与finally普通恢复分层见P15；普通构建拒测试开关。无真实COM89/控制线、模型或T18/T19长稳，完整P15/MCP/实机保持开放。
 
 2026-11-10当前P15按ADR-086完成v2固定12工具的软件包：原9 schema保持，新增ssh_exec/tasks_get/tasks_cancel；start固定合法RFC9562 UUIDv7、task_id同原编号，首答不明/NotFound/失联不重发或新grant继承原owner。独立Exec/lease/Single全参数/TimedTask及原ticket精确代次保持，保护输出强制ExecReadProtected与typed回复ID/类型校验，信号同策略，无raw回退/模型自签/通用RPC。第47入口、实际构建/原生stdio合成SSH与12工具两协议安全影响、finally普通恢复分层见P15。仅软件子包，不收完整P15/MCP/模型自治/实机；B串口字节/控制未准入，不扩export，不碰用户连接/COM89/私有日志或T18/T19长稳。
