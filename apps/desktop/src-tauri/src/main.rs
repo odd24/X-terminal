@@ -734,6 +734,11 @@ fn main() {
         "CLOSE_RECEIPT_FIXTURE_DISABLED"
     );
     let load_observer = args.iter().any(|arg| arg == "--load-observer-test");
+    let log_disk_full_fixture = args.iter().any(|arg| arg == "--log-disk-full-fixture");
+    assert!(
+        !log_disk_full_fixture || cfg!(feature = "log-disk-full-fixture"),
+        "LOG_DISK_FULL_FIXTURE_DISABLED"
+    );
     let save_recovery_fixture = args.iter().position(|arg| arg == "--save-recovery-fixture");
     assert!(
         save_recovery_fixture.is_none() || cfg!(feature = "save-recovery-fixture"),
@@ -752,6 +757,16 @@ fn main() {
             assert!(path.is_absolute(), "data directory must be absolute");
             path
         });
+    #[cfg(feature = "log-disk-full-fixture")]
+    if log_disk_full_fixture {
+        assert!(!fixture, "LOG_DISK_FULL_TEST_REQUIRES_ORDINARY_SESSION");
+        service::configure_log_disk_full_fixture(
+            directory
+                .as_deref()
+                .expect("LOG_DISK_FULL_TEST_ROOT_REQUIRED"),
+        )
+        .expect("LOG_DISK_FULL_TEST_ROOT_REJECTED");
+    }
     #[cfg(feature = "close-receipt-fixture")]
     if let Some(index) = close_fixture_index {
         close_fixture::configure(

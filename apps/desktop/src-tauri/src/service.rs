@@ -16,6 +16,16 @@ use tokio::{
 use uuid::Uuid;
 use windows_sys::Win32::System::JobObjects::*;
 
+#[cfg(feature = "log-disk-full-fixture")]
+static LOG_DISK_FULL_ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+#[cfg(feature = "log-disk-full-fixture")]
+pub(crate) fn configure_log_disk_full_fixture(root: &std::path::Path) -> io::Result<()> {
+    LOG_DISK_FULL_ROOT
+        .set(terminal_log::disk_full_fixture::validated_root(root)?)
+        .map_err(|_| io::Error::other("disk-full test already configured"))
+}
+
 pub struct Service {
     instance: String,
     pub config_client: Option<Client>,
@@ -89,6 +99,13 @@ impl Service {
         #[cfg(feature = "close-receipt-fixture")]
         if let Some(mode) = crate::close_fixture::mode(&directory) {
             command.args(["--audit-diagnostic-fixture", mode]);
+        }
+        #[cfg(feature = "log-disk-full-fixture")]
+        if let Some(root) = LOG_DISK_FULL_ROOT.get() {
+            if fixture || directory.canonicalize()? != *root {
+                return Err(io::Error::other("disk-full test owner mismatch"));
+            }
+            command.arg("--log-disk-full-fixture");
         }
         command.arg("--data-dir").arg(&directory);
         let mut child = command

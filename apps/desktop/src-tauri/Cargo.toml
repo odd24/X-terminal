@@ -11,6 +11,7 @@ load-observer-test = ["dep:sha2"]
 close-receipt-fixture = []
 save-recovery-fixture = ["terminal-log/save-recovery-fixture"]
 serial-mcp-fixture = []
+log-disk-full-fixture = ["terminal-log/log-disk-full-fixture"]
 
 [build-dependencies]
 tauri-build = { version = "=2.7.4", features = [] }

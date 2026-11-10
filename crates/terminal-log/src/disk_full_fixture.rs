@@ -12,7 +12,7 @@ use uuid::Uuid;
 static ROOT: OnceLock<PathBuf> = OnceLock::new();
 static FIRED: AtomicBool = AtomicBool::new(false);
 
-pub fn configure(root: &Path) -> io::Result<()> {
+pub fn validated_root(root: &Path) -> io::Result<PathBuf> {
     let root = root.canonicalize()?;
     let temp = std::env::temp_dir().canonicalize()?;
     let id = root
@@ -23,7 +23,11 @@ pub fn configure(root: &Path) -> io::Result<()> {
     if root.parent() != Some(temp.as_path()) || id.is_none() {
         return Err(io::Error::other("invalid disk-full test root"));
     }
-    ROOT.set(root)
+    Ok(root)
+}
+
+pub fn configure(root: &Path) -> io::Result<()> {
+    ROOT.set(validated_root(root)?)
         .map_err(|_| io::Error::other("disk-full test already configured"))
 }
 
