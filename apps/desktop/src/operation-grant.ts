@@ -117,7 +117,7 @@ export class OperationApproval {
     return proposal;
   }
 }
-export async function operationFingerprint(operation: Operation): Promise<string> {
+export async function operationFingerprint(operation: { protocol: string; request: object }): Promise<string> {
   const data = new TextEncoder().encode(JSON.stringify(operation));
   try { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)), byte => byte.toString(16).padStart(2, '0')).join(''); }
   finally { data.fill(0); }

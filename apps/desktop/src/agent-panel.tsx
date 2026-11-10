@@ -12,6 +12,9 @@ import type { Redaction } from './output-protection';
 import { OutputProtectionEditor, OutputProtectionPreview } from './output-protection-editor';
 import { AuditHistoryPanel } from './audit-history-panel';
 import { BridgePanel } from './bridge-panel';
+import { ProtectedExportGrantPanel, ProtectedExportHandoff, type ExportProposal } from './protected-export-panel';
+import { checkedProtectionReply } from './output-protection';
+import { sameConnection } from './agent-management';
 
 const call = (request: Record<string, unknown>) => invoke<unknown>('agent_management_request', { request });
 const readSlot = () => { try { return restoreSlot(sessionStorage.getItem(slotKey)); } catch { return undefined; } };
@@ -32,6 +35,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
   const [queryId, setQueryId] = useState(() => readSlot()?.request_id ?? '');
   const [view, setView] = useState<GrantView>();
   const [serialConnect, setSerialConnect] = useState<{ grantId: string; serviceId: string; args: string }>();
+  const [protectedExport, setProtectedExport] = useState<{ grantId: string; target: ExportProposal['operation']['request'] }>();
   const [list, setList] = useState<Summary[]>([]);
   const [lease, setLease] = useState<{ connection: ConnectionRef; value: Lease | null }>();
   const [audit, setAudit] = useState<AuditPage>();
@@ -40,7 +44,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
   const [message, setMessage] = useState('选择能力并预览后明确批准。关闭/重载不恢复同意；本入口不发送终端输入。');
   const targetKey = target ? `${target.connection_id}:${target.generation}:${target.protocol}:${target.state}` : '';
   useEffect(() => { alive.current = true; return () => { alive.current = false; approval.current.invalidate(); }; }, []);
-  useEffect(() => { approval.current.invalidate(); setMode('connection'); setForm('scoped'); setTaskLabel(''); setTaskId(requestId()); setProposal(undefined); setConsent(false); setSelected([]); setRedaction(undefined); setReadMode('full'); setReadFrom(''); setReadUntil(''); setConfirmation(undefined); setLease(undefined); setSerialConnect(undefined); }, [serviceId, targetKey]);
+  useEffect(() => { approval.current.invalidate(); setMode('connection'); setForm('scoped'); setTaskLabel(''); setTaskId(requestId()); setProposal(undefined); setConsent(false); setSelected([]); setRedaction(undefined); setReadMode('full'); setReadFrom(''); setReadUntil(''); setConfirmation(undefined); setLease(undefined); setSerialConnect(undefined); setProtectedExport(undefined); }, [serviceId, targetKey]);
   const invalidate = () => { approval.current.invalidate(); setProposal(undefined); setConsent(false); };
   const remember = (id: string) => {
     const saved = { service_id: serviceId, request_id: id };
@@ -65,11 +69,32 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
   const unresolved = !!slot && slot.service_id === serviceId && slot.request_id !== view?.summary.request_id;
   const available = target ? supportedActions(target) : [];
   const task = form === 'timed_task' ? { task_id: taskId, label: taskLabel } : undefined;
+  const rangeForm = form === 'scoped' || form === 'timed_task';
+  const exportTarget = target && ['SSH2', 'SERIAL'].includes(target.protocol) && ['DISCONNECTED', 'FAILED'].includes(target.state) ? target : undefined;
   return <Panel title="Agent 授权" label="Agent授权面板" close={() => { invalidate(); close(); }} closeLabel="关闭Agent授权">
     <p role="status" aria-label="Agent管理状态">{message}</p>
     <small>服务 {serviceId} · 凭据只在原生/服务内存中。MCP需在下方单独绑定原授权；本面板不提供 token 复制或保存。</small>
     <p>Read包含本代次当前有界保留输出与授权期间后续输出；可明确启用下方输出保护，保护票据不提供原始字节。不包含持久日志/导出、认证秘密或其他连接。写入、独立 exec、协议控制与断开连接分别批准；变更操作还需 Agent 自己取得最长60秒的独占租约。</p>
-    <Field label="授权形式"><select aria-label="Agent授权形式" disabled={busy || unresolved} value={form} onChange={event => { invalidate(); setForm(event.target.value); setSelected([]); setRedaction(undefined); setMode('connection'); setTaskLabel(''); setTaskId(requestId()); }}><option value="scoped">限时范围授权</option><option value="timed_task">限时任务（固定任务说明和范围）</option><option value="single_operation">单次完整操作（固定编号和参数）</option></select></Field>
+    <Field label="授权形式"><select aria-label="Agent授权形式" disabled={busy || unresolved} value={form} onChange={event => { invalidate(); setForm(event.target.value); setSelected([]); setRedaction(undefined); setMode('connection'); setTaskLabel(''); setTaskId(requestId()); }}><option value="scoped">限时范围授权</option><option value="timed_task">限时任务（固定任务说明和范围）</option><option value="single_operation">单次完整操作（固定编号和参数）</option><option value="protected_export" disabled={!exportTarget}>单次保护文本导出</option></select></Field>
+    {form === 'protected_export' && exportTarget && <ProtectedExportGrantPanel key={`${serviceId}:${targetKey}`} serviceId={serviceId} target={exportTarget} disabled={busy || unresolved} submit={(approved, current) => run(async () => {
+      const fingerprint = await operationFingerprint(approved.operation);
+      if (!alive.current || !current()) return;
+      const id = requestId();
+      remember(id); setView(undefined); setProtectedExport(undefined);
+      const result = checkedProtectionReply(checkedGrant(await call({
+        op: 'grant_protected', request_id: id, scopes: approved.scopes, lifetime_ms: approved.lifetime_ms,
+        form: { kind: 'single_operation', operation: approved.operation }, redaction: approved.redaction,
+      }), id), approved.redaction);
+      if (!alive.current || !current()) return;
+      const scope = result.approved_scopes[0];
+      if (result.summary.state !== 'ACTIVE' || result.effective_scopes.length !== 1 || result.approved_scopes.length !== 1
+        || scope.action !== 'EXPORT' || scope.target.kind !== 'connection'
+        || !sameConnection(scope.target.connection, approved.operation.request.retained_ended_output.connection)
+        || result.form?.kind !== 'single_operation' || result.form.operation.request_id !== approved.operation.request.request_id
+        || result.form.operation.fingerprint !== fingerprint) throw new Error('导出授权回执与预览不一致');
+      setView(result); setProtectedExport({ grantId: id, target: approved.operation.request });
+      setMessage('已批准单次保护文本导出。请绑定本票据并使用固定参数。完成产物须由用户明确另存。');
+    })} />}
     {form === 'timed_task' && <><Field label="本次任务说明（最多80字符）"><input aria-label="Agent任务说明" value={taskLabel} maxLength={80} onChange={event => { invalidate(); setTaskLabel(event.target.value); }} /></Field><small>任务 {taskId} · 说明不增加权限，取消任务须撤销本票据；不能撤回已执行动作。</small></>}
     {form === 'single_operation' && <OperationGrantPanel key={`single:${serviceId}:${targetKey}:${profileId}:${encoding}`} serviceId={serviceId} target={target} profileId={profileId} encoding={encoding} disabled={busy || unresolved} submit={(approved, current) => {
       if (flight.current) return Promise.resolve();
@@ -98,8 +123,8 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
         }
       });
     }} />}
-    {form !== 'single_operation' && <Field label="授权目标类型"><select aria-label="Agent授权类型" disabled={busy} value={mode} onChange={event => { invalidate(); setRedaction(undefined); setMode(event.target.value); }}><option value="connection">当前连接能力</option><option value="profile">已保存配置建连</option><option value="reconnect" disabled={!target || target.protocol !== 'SSH2' || !profileId || !['DISCONNECTED', 'FAILED'].includes(target.state)}>SSH2旧代次重连（双范围）</option></select></Field>}
-    {form !== 'single_operation' && (mode === 'profile' || mode === 'reconnect') && <ProfileGrantPanel key={`${form}:${mode}:${targetKey}`} serviceId={serviceId} disabled={busy || unresolved} task={task} reconnectTarget={mode === 'reconnect' && target && profileId ? { ...target, profile_id: profileId } : undefined} submit={(approved, current) => {
+    {rangeForm && <Field label="授权目标类型"><select aria-label="Agent授权类型" disabled={busy} value={mode} onChange={event => { invalidate(); setRedaction(undefined); setMode(event.target.value); }}><option value="connection">当前连接能力</option><option value="profile">已保存配置建连</option><option value="reconnect" disabled={!target || target.protocol !== 'SSH2' || !profileId || !['DISCONNECTED', 'FAILED'].includes(target.state)}>SSH2旧代次重连（双范围）</option></select></Field>}
+    {rangeForm && (mode === 'profile' || mode === 'reconnect') && <ProfileGrantPanel key={`${form}:${mode}:${targetKey}`} serviceId={serviceId} disabled={busy || unresolved} task={task} reconnectTarget={mode === 'reconnect' && target && profileId ? { ...target, profile_id: profileId } : undefined} submit={(approved, current) => {
       if (flight.current) return Promise.resolve();
       return run(async () => {
         const snapshot = await readConfiguration();
@@ -111,7 +136,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
         setView(result); setMessage(mode === 'reconnect' ? '已签发限时双范围授权；尚未执行重连，旧代次能力不会迁移，真实桥尚未交付。' : '已签发限时授权：仅固定配置版本的Connect，尚未建连或向真实桥交付。');
       });
     }} />}
-    {form !== 'single_operation' && mode === 'connection' && <fieldset disabled={busy || unresolved}><legend>批准当前目标</legend>
+    {rangeForm && mode === 'connection' && <fieldset disabled={busy || unresolved}><legend>批准当前目标</legend>
       <small aria-label="Agent批准目标">{target ? `${target.protocol} · ${targetText(target)}` : '尚无活动连接'}</small>
       <p>默认未选择能力。配置建连请切换授权目标类型；广播尚未开放；协议控制仅为SSH尺寸或串口控制线；合成会话只提供测试读取。</p>
       {available.map(action => <label className="check" key={action}><input type="checkbox" aria-label={`授权${actionName[action]}`} checked={selected.includes(action)} onChange={event => { invalidate(); const next = event.target.checked ? [...selected, action] : selected.filter(item => item !== action); setSelected(next); if (!next.some(a => a === 'READ' || a === 'EXEC')) setRedaction(undefined); }} />{actionName[action]}</label>)}
@@ -130,7 +155,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
       <button disabled={!target || !selected.length} onClick={() => { try { if (!target) return; setProposal(approval.current.prepare(serviceId, target, selected, seconds, selected.includes('READ') && readMode === 'window' ? parseReadWindow(readFrom, readUntil) : undefined, task, redaction)); setConsent(false); setMessage('请核对固定目标、能力和期限；尚未签发。'); } catch (error) { invalidate(); setMessage(String(error)); } }}>预览Agent授权</button>
     </fieldset>}
     {unresolved && <p>保留编号的签发结果尚未核对；请先查询原编号，当前禁止再次签发。</p>}
-    {form !== 'single_operation' && mode === 'connection' && proposal && <fieldset disabled={busy}><legend>核对本次授权</legend>
+    {rangeForm && mode === 'connection' && proposal && <fieldset disabled={busy}><legend>核对本次授权</legend>
       {proposal.task && <p aria-label="Agent任务预览">限时任务 {proposal.task.task_id} · {proposal.task.label} · 仅以下固定范围，任务说明不增加权限</p>}
       <small aria-label="Agent授权预览">{proposal.protocol} · {targetText(proposal.connection)} · {proposal.lifetime_ms / 1000} 秒</small>
       <ul>{proposal.scopes.map(scope => <li key={scope.action}>{scopeText(scope)}</li>)}</ul>
@@ -186,6 +211,11 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
         });
       }}>确认Agent变更</button></fieldset>}
     <BridgePanel serviceId={serviceId} grantId={view?.summary.request_id} />
+    {protectedExport && protectedExport.target.service_id === serviceId && exportTarget
+      && sameConnection(protectedExport.target.retained_ended_output.connection, exportTarget)
+      && view?.summary.request_id === protectedExport.grantId && view.summary.state === 'ACTIVE'
+      && view.effective_scopes.some(scope => scope.action === 'EXPORT')
+      && <ProtectedExportHandoff key={protectedExport.grantId} approved={protectedExport.target} />}
     {serialConnect && serialConnect.serviceId === serviceId && serialConnect.grantId === view?.summary.request_id && view.summary.state === 'ACTIVE' &&
       <Field label="已批准的 MCP 串口建连参数">
         <textarea aria-label="已批准的 MCP 串口建连参数" readOnly rows={7} value={serialConnect.args} />

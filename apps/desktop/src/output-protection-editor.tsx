@@ -1,9 +1,9 @@
 import { Field } from './ui';
 import { ruleDisplay, type Redaction } from './output-protection';
 
-export function OutputProtectionEditor({ value, change }: { value?: Redaction; change(value?: Redaction): void }) {
+export function OutputProtectionEditor({ value, change, required = false }: { value?: Redaction; change(value?: Redaction): void; required?: boolean }) {
   return <fieldset aria-label="Agent输出保护设置"><legend>输出保护</legend>
-    <label className="check"><input aria-label="启用Agent输出保护" type="checkbox" checked={!!value} onChange={e => change(e.target.checked ? { sensitive_fields: true, literals: [] } : undefined)} />仅向Agent提供服务端保护后的文本与屏幕</label>
+    {required ? <p>此导出必须启用输出保护。文件只接收应用规则后的文本。</p> : <label className="check"><input aria-label="启用Agent输出保护" type="checkbox" checked={!!value} onChange={e => change(e.target.checked ? { sensitive_fields: true, literals: [] } : undefined)} />仅向Agent提供服务端保护后的文本与屏幕</label>}
     {!value ? <small>未启用保护：按本次Read或本人exec批准提供原始上下文。敏感内容可能出现，请按需要启用保护。</small> : <>
       <label className="check"><input aria-label="Agent敏感字段保护" type="checkbox" checked={value.sensitive_fields} onChange={e => change({ ...value, sensitive_fields: e.target.checked })} />隐藏已知密码、token、密钥字段及PEM私钥块</label>
       <small>精确文本逐字匹配，保留空白与换行，区分大小写；最多32条，每条256 UTF-8字节。至少启用字段或一条非空规则。</small>

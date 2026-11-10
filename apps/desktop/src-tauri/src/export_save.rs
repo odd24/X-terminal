@@ -41,6 +41,7 @@ pub enum SourceMode {
     Text,
     Normal,
     Recovery,
+    Protected,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,9 +53,9 @@ pub struct Scope {
     pub request_id: Uuid,
 }
 impl Scope {
-    pub fn source_status(&self) -> session_protocol::logging::Request {
+    pub fn source_status(&self) -> Option<session_protocol::logging::Request> {
         use session_protocol::logging::Request;
-        match self.mode {
+        Some(match self.mode {
             SourceMode::Text | SourceMode::Menu => Request::TextExportStatus {
                 connection: self.connection,
                 log_id: self.log_id,
@@ -70,7 +71,8 @@ impl Scope {
                 log_id: self.log_id,
                 request_id: self.request_id,
             },
-        }
+            SourceMode::Protected => return None,
+        })
     }
     // Only the mode-specific trusted service reply may authorize the copy.
     pub fn fingerprint(
@@ -183,6 +185,7 @@ struct Entry {
     info: Info,
     cancel: Arc<AtomicBool>,
     nonce: Uuid,
+    commit: Option<Box<dyn FnOnce() -> bool + Send>>,
 }
 #[derive(Default)]
 struct Registry {
@@ -241,7 +244,15 @@ fn choose(owner: usize, id: Uuid, mode: SourceMode) -> windows::core::Result<Opt
         )?;
         dialog.SetTitle(w!("另存终端导出"))?;
         dialog.SetOkButtonLabel(w!("保存"))?;
-        if matches!(mode, SourceMode::Text | SourceMode::Menu) {
+        if mode == SourceMode::Protected {
+            dialog.SetTitle(w!("另存受保护文本"))?;
+            dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
+                pszName: w!("UTF-8 文本 (*.txt)"),
+                pszSpec: w!("*.txt"),
+            }])?;
+            dialog.SetDefaultExtension(w!("txt"))?;
+            dialog.SetFileName(&HSTRING::from(format!("protected-{id}.txt")))?;
+        } else if matches!(mode, SourceMode::Text | SourceMode::Menu) {
             dialog.SetTitle(w!("保存文本日志"))?;
             dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
                 pszName: w!("文本日志 (*.log)"),
@@ -498,6 +509,20 @@ impl Manager {
         owner: usize,
         fingerprint: ExportFingerprint,
     ) -> Result<Info, String> {
+        self.start_checked(scope, id, owner, fingerprint, None)
+    }
+
+    pub fn start_checked(
+        &self,
+        scope: Scope,
+        id: Uuid,
+        owner: usize,
+        fingerprint: ExportFingerprint,
+        commit: Option<Box<dyn FnOnce() -> bool + Send>>,
+    ) -> Result<Info, String> {
+        if (scope.mode == SourceMode::Protected) != commit.is_some() {
+            return Err("INVALID_SOURCE".into());
+        }
         if self.stopping.load(Ordering::Acquire) {
             return Err("SAVE_STOPPING".into());
         }
@@ -551,6 +576,7 @@ impl Manager {
                 info: info.clone(),
                 nonce: Uuid::new_v4(),
                 cancel: Arc::new(AtomicBool::new(false)),
+                commit,
             },
         );
         if self
@@ -629,7 +655,11 @@ fn set_phase(
     code: Option<i32>,
 ) {
     let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
-    let info = &mut state.entries.get_mut(&id).unwrap().info;
+    let entry = state.entries.get_mut(&id).unwrap();
+    if phase != "COPYING" {
+        entry.commit = None;
+    }
+    let info = &mut entry.info;
     info.phase = phase.into();
     info.failure = failure.map(str::to_owned);
     info.os_code = code;
@@ -644,16 +674,23 @@ fn copy(
     fingerprint: ExportFingerprint,
 ) {
     set_phase(shared, id, "COPYING", None, None);
-    let (cancel, export_id, mode) = {
-        let state = shared.lock().unwrap_or_else(|e| e.into_inner());
-        let e = &state.entries[&id];
-        (e.cancel.clone(), e.info.scope.request_id, e.info.scope.mode)
+    let (cancel, export_id, mode, commit) = {
+        let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
+        let e = state.entries.get_mut(&id).unwrap();
+        let mode = e.info.scope.mode;
+        let export_id = if mode == SourceMode::Protected {
+            e.info.scope.log_id
+        } else {
+            e.info.scope.request_id
+        };
+        (e.cancel.clone(), export_id, mode, e.commit.take())
     };
     let menu_directory = directory.join("terminal-menu");
-    let source_directory = if mode == SourceMode::Menu {
-        menu_directory.as_path()
-    } else {
-        directory
+    let protected_directory = directory.join(session_protocol::export::MANAGED_DIRECTORY);
+    let source_directory = match mode {
+        SourceMode::Menu => menu_directory.as_path(),
+        SourceMode::Protected => protected_directory.as_path(),
+        _ => directory,
     };
     let mut source = match VerifiedExport::open(source_directory, export_id, fingerprint, || {
         cancel.load(Ordering::Acquire)
@@ -675,7 +712,15 @@ fn copy(
             return;
         }
     };
-    let report = target.save(&mut source, || cancel.load(Ordering::Acquire));
+    let report = target.save_checked(
+        &mut source,
+        || cancel.load(Ordering::Acquire),
+        || match (mode, commit) {
+            (SourceMode::Protected, Some(commit)) => commit(),
+            (SourceMode::Protected, None) => false,
+            _ => true,
+        },
+    );
     drop(source);
     let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
     let info = &mut state.entries.get_mut(&id).unwrap().info;
@@ -737,6 +782,7 @@ mod tests {
             },
             nonce,
             cancel: Arc::new(AtomicBool::new(false)),
+            commit: None,
         }
     }
     #[test]
@@ -824,11 +870,11 @@ mod tests {
         recovery.mode = SourceMode::Recovery;
         assert!(matches!(
             normal.source_status(),
-            Request::ExportStatus { .. }
+            Some(Request::ExportStatus { .. })
         ));
         assert!(matches!(
             recovery.source_status(),
-            Request::RecoveryExportStatus { .. }
+            Some(Request::RecoveryExportStatus { .. })
         ));
         let value = serde_json::json!({"result":"recovery_export", "connection":normal.connection,"log_id":normal.log_id,"request_id":normal.request_id,"phase":"COMPLETED","failure":null,"incomplete":true,"bytes":123,"sha256":"ab".repeat(32),"recovered":{"recovered_records":2,"recovered_raw_bytes":10,"recovered_gap_bytes":0,"next_cursor":3,"stop":{"kind":"TRUNCATED_RECORD","segment":1,"next_cursor":3}}});
         let decode = |v| serde_json::from_value::<Reply>(v).unwrap();
@@ -871,7 +917,7 @@ mod tests {
         text.mode = SourceMode::Text;
         assert!(matches!(
             text.source_status(),
-            Request::TextExportStatus { .. }
+            Some(Request::TextExportStatus { .. })
         ));
         let plain = serde_json::json!({"result":"text_export","connection":text.connection,"log_id":text.log_id,"request_id":text.request_id,"phase":"COMPLETED","failure":null,"bytes":321,"sha256":"cd".repeat(32),"retained_records":1,"retained_raw_bytes":10,"retained_gap_bytes":0,"next_cursor":2});
         assert_eq!(text.fingerprint(decode(plain.clone())).unwrap().bytes, 321);

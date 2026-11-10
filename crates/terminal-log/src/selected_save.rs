@@ -242,18 +242,33 @@ impl SaveTarget {
             .map(|f| f.metadata().map(|m| m.len()))
             .transpose()
     }
-    pub fn save(
+    pub fn save(self, source: &mut VerifiedExport, cancelled: impl FnMut() -> bool) -> SaveReport {
+        self.save_checked(source, cancelled, || true)
+    }
+    /// Called after staging and verification, before the first destination change.
+    pub fn save_checked(
         self,
         source: &mut VerifiedExport,
         mut cancelled: impl FnMut() -> bool,
+        authorize_commit: impl FnOnce() -> bool,
     ) -> SaveReport {
-        self.run(source, &mut cancelled, |_, _| {})
+        self.run_checked(source, &mut cancelled, |_, _| {}, authorize_commit)
     }
+    #[cfg(test)]
     fn run(
         self,
         source: &mut VerifiedExport,
         cancelled: &mut impl FnMut() -> bool,
+        hook: impl FnMut(bool, &Path),
+    ) -> SaveReport {
+        self.run_checked(source, cancelled, hook, || true)
+    }
+    fn run_checked(
+        self,
+        source: &mut VerifiedExport,
+        cancelled: &mut impl FnMut() -> bool,
         mut hook: impl FnMut(bool, &Path),
+        authorize_commit: impl FnOnce() -> bool,
     ) -> SaveReport {
         let mut report = SaveReport {
             phase: "FAILED",
@@ -296,6 +311,12 @@ impl SaveTarget {
                 return Err((
                     "CANCELLED",
                     io::Error::new(io::ErrorKind::Interrupted, "cancelled"),
+                ));
+            }
+            if !authorize_commit() {
+                return Err((
+                    "AUTHORIZATION",
+                    io::Error::other("save authorization unavailable"),
                 ));
             }
             if let Some(original) = &self.original {

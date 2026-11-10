@@ -1,6 +1,6 @@
 import type { ExportScope } from './logging-api';
 import { restoreExport } from './log-export.ts';
-export type SaveMode = 'NORMAL' | 'RECOVERY' | 'TEXT' | 'MENU';
+export type SaveMode = 'NORMAL' | 'RECOVERY' | 'TEXT' | 'MENU' | 'PROTECTED';
 export type SaveScope = { scope: ExportScope & { mode: SaveMode }; save_id: string };
 export type SaveInfo = SaveScope & { phase: 'CHOOSING' | 'AWAITING_CONFIRMATION' | 'COPYING' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED' | 'FAILED' | 'RECOVERY_REQUIRED'; cancel_requested: boolean; path: string | null; existing_bytes: string | null; confirmation: string | null; expires_at_ms: number | null; backup: string | null; staging: string | null; failure: string | null; os_code: number | null };
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v) && v !== '00000000-0000-0000-0000-000000000000';
@@ -12,7 +12,7 @@ export function restoreSave(raw: string | null, mode?: SaveMode): SaveScope | un
 export function terminalSave(info: SaveInfo) { return !['CHOOSING', 'AWAITING_CONFIRMATION', 'COPYING'].includes(info.phase); }
 export function checkedSave(value: unknown, target: SaveScope, previous?: SaveInfo): SaveInfo {
   const invalid = () => new Error('另存响应范围或状态不匹配，请查询原任务；未重新保存。');
-  if (!object(value) || !object(value.scope) || !object(value.scope.connection) || value.save_id !== target.save_id || value.scope.mode !== target.scope.mode || !['NORMAL', 'RECOVERY', 'TEXT', 'MENU'].includes(value.scope.mode as string) || value.scope.log_id !== target.scope.log_id || value.scope.request_id !== target.scope.request_id || value.scope.connection.connection_id !== target.scope.connection.connection_id || value.scope.connection.generation !== target.scope.connection.generation || !['CHOOSING', 'AWAITING_CONFIRMATION', 'COPYING', 'COMPLETED', 'CANCELLED', 'EXPIRED', 'FAILED', 'RECOVERY_REQUIRED'].includes(value.phase as string) || typeof value.cancel_requested !== 'boolean') throw invalid();
+  if (!object(value) || !object(value.scope) || !object(value.scope.connection) || value.save_id !== target.save_id || value.scope.mode !== target.scope.mode || !['NORMAL', 'RECOVERY', 'TEXT', 'MENU', 'PROTECTED'].includes(value.scope.mode as string) || value.scope.log_id !== target.scope.log_id || value.scope.request_id !== target.scope.request_id || value.scope.connection.connection_id !== target.scope.connection.connection_id || value.scope.connection.generation !== target.scope.connection.generation || !['CHOOSING', 'AWAITING_CONFIRMATION', 'COPYING', 'COMPLETED', 'CANCELLED', 'EXPIRED', 'FAILED', 'RECOVERY_REQUIRED'].includes(value.phase as string) || typeof value.cancel_requested !== 'boolean') throw invalid();
   for (const key of ['path', 'backup', 'staging']) if (value[key] !== null && (typeof value[key] !== 'string' || !(value[key] as string).length || (value[key] as string).length > 32768 || (value[key] as string).includes('\0'))) throw invalid();
   if (['AWAITING_CONFIRMATION', 'COPYING', 'COMPLETED', 'EXPIRED', 'RECOVERY_REQUIRED'].includes(value.phase as string) && value.path === null) throw invalid();
   if (value.existing_bytes !== null && (typeof value.existing_bytes !== 'string' || !/^(0|[1-9]\d{0,19})$/.test(value.existing_bytes) || BigInt(value.existing_bytes) > 18446744073709551615n)) throw invalid();

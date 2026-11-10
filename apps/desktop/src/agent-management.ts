@@ -1,7 +1,7 @@
 import type { Connection, ConnectionRef } from './ssh-api';
 import { checkedRedaction, checkedProtectionReply, sameRedaction, type Redaction, type ProtectionInfo } from './output-protection.ts';
 
-export type Action = 'READ' | 'WRITE' | 'EXEC' | 'CONTROL' | 'CONNECT' | 'DISCONNECT' | 'RECONNECT' | 'FORGET' | 'BROADCAST';
+export type Action = 'READ' | 'WRITE' | 'EXEC' | 'CONTROL' | 'CONNECT' | 'DISCONNECT' | 'RECONNECT' | 'FORGET' | 'BROADCAST' | 'EXPORT';
 export type ReadWindow = { from_ms: number; until_ms: number };
 export type Scope = { target: { kind: 'connection'; connection: ConnectionRef } | { kind: 'output_window'; connection: ConnectionRef; window: ReadWindow } | { kind: 'profile'; profile_id: string } | { kind: 'profile_revision'; profile_id: string; revision: string }; action: Action };
 export type Summary = { request_id: string; ticket_id: string; expires_at_ms: number; state: 'ACTIVE' | 'EXPIRED' | 'REVOKED'; effective_scope_count: number };
@@ -19,7 +19,7 @@ export const uuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9
 const integer = (v: unknown, min = 0): v is number => Number.isSafeInteger(v) && (v as number) >= min;
 export const sameConnection = (a: ConnectionRef, b: ConnectionRef) => a.connection_id === b.connection_id && a.generation === b.generation;
 const connection = (v: unknown): v is ConnectionRef => exact(v, ['connection_id', 'generation']) && uuid(v.connection_id) && integer(v.generation, 1);
-const actions: Action[] = ['READ', 'WRITE', 'EXEC', 'CONTROL', 'CONNECT', 'DISCONNECT', 'RECONNECT', 'FORGET', 'BROADCAST'];
+const actions: Action[] = ['READ', 'WRITE', 'EXEC', 'CONTROL', 'CONNECT', 'DISCONNECT', 'RECONNECT', 'FORGET', 'BROADCAST', 'EXPORT'];
 const validWindow = (v: unknown): v is ReadWindow => exact(v, ['from_ms', 'until_ms']) && integer(v.from_ms) && integer(v.until_ms, 1) && v.until_ms <= 253402300799999 && v.from_ms < v.until_ms;
 export function parseReadWindow(from: string, until: string): ReadWindow {
   const parse = (input: string) => {
@@ -79,7 +79,7 @@ export function checkedGrant(value: unknown, request_id: string): GrantView {
   if (keys.size !== approved.length || new Set(effective.map(scopeKey)).size !== effective.length || effective.some(s => !keys.has(scopeKey(s)))) throw fail();
   if ('protection' in view) {
     const p = view.protection;
-    if (!exact(p, ['policy_id', 'sensitive_fields', 'literal_count']) || !uuid(p.policy_id) || typeof p.sensitive_fields !== 'boolean' || !integer(p.literal_count) || p.literal_count > 32 || (!p.sensitive_fields && !p.literal_count) || !approved.some(s => s.action === 'READ' || s.action === 'EXEC')) throw fail();
+    if (!exact(p, ['policy_id', 'sensitive_fields', 'literal_count']) || !uuid(p.policy_id) || typeof p.sensitive_fields !== 'boolean' || !integer(p.literal_count) || p.literal_count > 32 || (!p.sensitive_fields && !p.literal_count) || !approved.some(s => ['READ', 'EXEC', 'EXPORT'].includes(s.action))) throw fail();
   }
   if ('form' in view) {
     const form = view.form;
@@ -88,9 +88,10 @@ export function checkedGrant(value: unknown, request_id: string): GrantView {
       if (!exact(form, ['kind', 'task_id', 'label'])) throw fail();
       checkedTask({ task_id: form.task_id as string, label: form.label as string });
     } else if (form.kind === 'single_operation') {
-      if (!exact(form, ['kind', 'operation']) || !exact(form.operation, ['request_id', 'fingerprint']) || !uuid(form.operation.request_id) || typeof form.operation.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(form.operation.fingerprint) || approved.length > 2 || approved.some(s => !['WRITE', 'EXEC', 'CONTROL', 'CONNECT', 'DISCONNECT', 'RECONNECT', 'FORGET'].includes(s.action) || s.target.kind === 'profile' || s.target.kind === 'output_window') || (approved.length === 1 && approved[0].action === 'RECONNECT') || (approved.length === 2 && (approved.filter(s => s.action === 'RECONNECT').length !== 1 || approved.filter(s => s.action === 'CONNECT').length !== 1))) throw fail();
+      if (!exact(form, ['kind', 'operation']) || !exact(form.operation, ['request_id', 'fingerprint']) || !uuid(form.operation.request_id) || typeof form.operation.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(form.operation.fingerprint) || approved.length > 2 || approved.some(s => !['WRITE', 'EXEC', 'CONTROL', 'CONNECT', 'DISCONNECT', 'RECONNECT', 'FORGET', 'EXPORT'].includes(s.action) || s.target.kind === 'profile' || s.target.kind === 'output_window') || (approved.length === 1 && approved[0].action === 'RECONNECT') || (approved.length === 2 && (approved.filter(s => s.action === 'RECONNECT').length !== 1 || approved.filter(s => s.action === 'CONNECT').length !== 1))) throw fail();
     } else throw fail();
   }
+  if (approved.some(s => s.action === 'EXPORT') && (approved.length !== 1 || !('protection' in view) || (view as GrantView).form?.kind !== 'single_operation')) throw fail();
   return view as GrantView;
 }
 export function checkedList(value: unknown): Summary[] {
@@ -152,7 +153,7 @@ export class GrantApproval {
     return proposal;
   }
 }
-export const actionName: Record<Action, string> = { READ: '读取终端', WRITE: '写入终端', EXEC: '独立 exec', CONTROL: '协议控制（SSH尺寸/串口控制线）', CONNECT: '建立配置连接', DISCONNECT: '断开连接', RECONNECT: '重连旧SSH代次（另需配置建连批准）', FORGET: '移除已回收连接记录', BROADCAST: '广播' };
+export const actionName: Record<Action, string> = { READ: '读取终端', WRITE: '写入终端', EXEC: '独立 exec', CONTROL: '协议控制（SSH尺寸/串口控制线）', CONNECT: '建立配置连接', DISCONNECT: '断开连接', RECONNECT: '重连旧SSH代次（另需配置建连批准）', FORGET: '移除已回收连接记录', BROADCAST: '广播', EXPORT: '导出已结束会话的保护文本' };
 export function scopeText(scope: Scope): string {
   const target = scope.target;
   if (target.kind === 'profile' || target.kind === 'profile_revision') return `${actionName[scope.action]} · 配置 ${target.profile_id} / ${target.kind === 'profile_revision' ? `配置版本 ${target.revision}` : '仅ID范围（不固定配置）'}`;

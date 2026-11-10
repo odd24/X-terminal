@@ -47,6 +47,9 @@ async fn export_save_request(
             confirmation,
         } => manager.confirm(&scope, save_id, confirmation),
         R::OpenDirectory { scope, save_id } => {
+            if scope.mode == export_save::SourceMode::Protected {
+                return Err("UNSUPPORTED".into());
+            }
             manager
                 .open(
                     &scope,
@@ -62,7 +65,8 @@ async fn export_save_request(
             let fingerprint = if scope.mode == export_save::SourceMode::Menu {
                 menu.fingerprint(&scope)?
             } else {
-                let reply = logging_request(state, scope.source_status()).await?;
+                let reply =
+                    logging_request(state, scope.source_status().ok_or("INVALID_SOURCE")?).await?;
                 scope.fingerprint(reply)?
             };
             manager.start(
@@ -81,6 +85,112 @@ async fn export_save_request(
         let _ = menu.release_scope(&info.scope);
     }
     Ok(info)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+enum ProtectedExportDesktopRequest {
+    Prepare {
+        service_id: uuid::Uuid,
+        connection: ConnectionRef,
+    },
+    Save {
+        scope: session_protocol::export::ArtifactScope,
+        save_id: uuid::Uuid,
+    },
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+enum ProtectedExportDesktopReply {
+    Prepared(session_core::session::EndedOutput),
+    Save(export_save::Info),
+}
+
+#[tauri::command]
+async fn protected_export_desktop_request(
+    window: tauri::WebviewWindow,
+    state: State<'_, Desktop>,
+    manager: State<'_, export_save::Manager>,
+    request: ProtectedExportDesktopRequest,
+) -> Result<ProtectedExportDesktopReply, String> {
+    use session_protocol::export::{Reply as R, Request as E};
+    let (service_id, wire) = match request {
+        ProtectedExportDesktopRequest::Prepare {
+            service_id,
+            connection,
+        } => (service_id, E::Prepare { connection }),
+        ProtectedExportDesktopRequest::Save { scope, .. } => {
+            (scope.service_id, E::InspectSave { scope })
+        }
+    };
+    let reply = {
+        let mut shared = state.0.lock().await;
+        let service = shared.as_mut().map_err(|e| e.clone())?;
+        if service.endpoint()?.2 != service_id {
+            return Err("STALE_SERVICE".into());
+        }
+        service
+            .request(Request::ProtectedExport { request: wire })
+            .await?
+    };
+    match (request, reply) {
+        (
+            ProtectedExportDesktopRequest::Prepare { connection, .. },
+            Reply::ProtectedExport(R::Prepared {
+                service_id: actual,
+                source,
+            }),
+        ) if actual == service_id && source.connection == connection => {
+            Ok(ProtectedExportDesktopReply::Prepared(source))
+        }
+        (
+            ProtectedExportDesktopRequest::Save { scope, save_id },
+            Reply::ProtectedExport(R::SaveSource {
+                scope: actual,
+                bytes,
+                sha256,
+            }),
+        ) if scope == actual && (1..=4 * 1024 * 1024).contains(&bytes) => {
+            let owner = window.hwnd().map_err(|_| "WINDOW_UNAVAILABLE")?.0 as usize;
+            let shared = state.0.clone();
+            let commit = Box::new(move || {
+                tauri::async_runtime::block_on(async move {
+                    let Ok(mut shared) =
+                        tokio::time::timeout(Duration::from_secs(2), shared.lock()).await
+                    else {
+                        return false;
+                    };
+                    let Ok(service) = shared.as_mut() else {
+                        return false;
+                    };
+                    if !matches!(service.endpoint(), Ok((_, _, id)) if id == scope.service_id) {
+                        return false;
+                    }
+                    matches!(service.request(Request::ProtectedExport {
+                        request: E::CommitSave { scope, save_id },
+                    }).await, Ok(Reply::ProtectedExport(R::SaveCommitted {
+                        scope: actual, save_id: accepted,
+                    })) if actual == scope && accepted == save_id)
+                })
+            });
+            manager
+                .start_checked(
+                    export_save::Scope {
+                        mode: export_save::SourceMode::Protected,
+                        connection: scope.query.connection,
+                        log_id: scope.artifact_id,
+                        request_id: scope.query.request_id,
+                    },
+                    save_id,
+                    owner,
+                    terminal_log::ExportFingerprint { bytes, sha256 },
+                    Some(commit),
+                )
+                .map(ProtectedExportDesktopReply::Save)
+        }
+        _ => Err("INVALID_EXPORT_REPLY".into()),
+    }
 }
 
 #[tauri::command]
@@ -705,6 +815,7 @@ fn main() {
             audit_history_request,
             bridge_management_request,
             export_save_request,
+            protected_export_desktop_request,
             terminal_log_request,
             config_directory
         ])

@@ -6,11 +6,11 @@ import { checkedSave, restoreSave, terminalSave, type SaveInfo, type SaveScope, 
 import { requestId } from './request-id';
 const storageKey = (mode: SaveMode) => mode === 'TEXT' ? 'terminal-text-log-save-v1' : mode === 'RECOVERY' ? 'terminal-recovery-export-save-v1' : 'terminal-export-save-v1';
 const states: Record<SaveInfo['phase'], string> = { CHOOSING: '正在选择系统保存位置', AWAITING_CONFIRMATION: '目标文件已存在，等待明确替换确认', COPYING: '正在校验、复制并同步', COMPLETED: '本次另存已完成', CANCELLED: '另存已取消', EXPIRED: '替换确认已到期，未执行替换', FAILED: '另存失败，请核对目标与残留文件', RECOVERY_REQUIRED: '发布未完成，需要检查原文件备份；未自动重试' };
-const failures: Record<string, string> = { SOURCE: '源产物已变化或不可读，请重新核对导出', TARGET: '所选目标不可用或不是受支持的普通本地文件', DIALOG: '系统位置选择器不可用', STAGING: '无法在目标目录新建暂存文件', COPY: '复制中断或写入失败', SYNC: '无法确认文件已同步', PERMISSIONS: '无法保留原文件的访问权限', BACKUP: '无法保留原文件备份', PUBLISH: '目标名称发生冲突或发布失败', CANCELLED: '已请求取消' };
+const failures: Record<string, string> = { SOURCE: '源产物已变化或不可读，请重新核对导出', TARGET: '所选目标不可用或不是受支持的普通本地文件', DIALOG: '系统位置选择器不可用', STAGING: '无法在目标目录新建暂存文件', COPY: '复制中断或写入失败', SYNC: '无法确认文件已同步', PERMISSIONS: '无法保留原文件的访问权限', BACKUP: '无法保留原文件备份', PUBLISH: '目标名称发生冲突或发布失败', CANCELLED: '已请求取消', AUTHORIZATION: '未收到原授权的保存提交确认' };
 type Task = SaveScope & { last?: SaveInfo };
 function remembered(mode: SaveMode, key=storageKey(mode)) { try { const value = restoreSave(sessionStorage.getItem(key), mode); return value?.scope.mode === mode ? value : undefined; } catch { return undefined; } }
-export function LogSavePanel({ source, mode = 'NORMAL', autoStart = false, onChange }: { source?: ExportInfo; mode?: 'NORMAL' | 'TEXT' | 'MENU'; autoStart?: boolean; onChange?(info:SaveInfo):void } | { source?: RecoveryExportInfo; mode: 'RECOVERY'; autoStart?: boolean; onChange?(info:SaveInfo):void }) {
-  const key = mode==='MENU'?`terminal-menu-log-save-${source?.request_id??''}`:storageKey(mode); const recovery = mode === 'RECOVERY'; const label = (text: string) => recovery ? `恢复${text}` : mode === 'MENU' ? `右键日志${text}` : mode === 'TEXT' ? `文本${text}` : text;
+export function LogSavePanel({ source, mode = 'NORMAL', autoStart = false, onChange, serviceId }: { source?: ExportInfo | RecoveryExportInfo | (SaveScope['scope'] & { phase: 'COMPLETED' }); mode?: SaveMode; autoStart?: boolean; onChange?(info:SaveInfo):void; serviceId?: string }) {
+  const key = mode==='MENU'?`terminal-menu-log-save-${source?.request_id??''}`:storageKey(mode); const recovery = mode === 'RECOVERY'; const label = (text: string) => recovery ? `恢复${text}` : mode === 'MENU' ? `右键日志${text}` : mode === 'TEXT' ? `文本${text}` : mode === 'PROTECTED' ? `保护文本${text}` : text;
   const [task, setTask] = useState<Task | undefined>(() => {const old=remembered(mode,key);return !['TEXT','MENU'].includes(mode)||old?.scope.connection.connection_id===source?.connection.connection_id&&old?.scope.connection.generation===source?.connection.generation&&old?.scope.log_id===source?.log_id&&old?.scope.request_id===source?.request_id?old:undefined;}); const current = useRef(task);
   const [pending, setPending] = useState(false); const busy = useRef(false); const mounted = useRef(true);
   const [uncertain, setUncertain] = useState(!!task); const [missing, setMissing] = useState(false); const [reviewed, setReviewed] = useState(false); const [now, setNow] = useState(Date.now());
@@ -25,7 +25,16 @@ export function LogSavePanel({ source, mode = 'NORMAL', autoStart = false, onCha
     if (op === 'confirm' && (!target.last?.confirmation || target.last.cancel_requested || !reviewed || uncertain || (target.last.expires_at_ms ?? 0) <= Date.now())) return;
     busy.current = true; setPending(true); if (op !== 'status') setReviewed(false); focus.current = op !== 'status';
     try {
-      const info = checkedSave(await invoke('export_save_request', { request: { op, scope: target.scope, save_id: target.save_id, ...(op === 'confirm' ? { confirmation: target.last!.confirmation } : {}) } }), target, target.last);
+      let reply: unknown;
+      if (op === 'start' && mode === 'PROTECTED') {
+        const { connection, request_id, log_id } = target.scope;
+        const response = await invoke<{ type: string; data: unknown }>('protected_export_desktop_request', { request: { op: 'save', scope: { service_id: serviceId, query: { connection, request_id }, artifact_id: log_id }, save_id: target.save_id } });
+        if (response.type !== 'save') throw new Error('另存回执类型不匹配');
+        reply = response.data;
+      } else {
+        reply = await invoke('export_save_request', { request: { op, scope: target.scope, save_id: target.save_id, ...(op === 'confirm' ? { confirmation: target.last!.confirmation } : {}) } });
+      }
+      const info = checkedSave(reply, target, target.last);
       target.last = info;
       if (!mounted.current) { await close(target); return; }
       if (current.current !== target) return;
@@ -48,7 +57,11 @@ export function LogSavePanel({ source, mode = 'NORMAL', autoStart = false, onCha
   function start() {
     if (!source || source.phase !== 'COMPLETED' || (recovery && (!('incomplete' in source) || !source.incomplete || !source.recovered)) || busy.current || (current.current && !missing && (!current.current.last || !terminalSave(current.current.last) || uncertain))) return;
     const target: Task = { scope: { mode, connection: { ...source.connection }, log_id: source.log_id, request_id: source.request_id }, save_id: requestId() };
-    current.current = target; setTask(target); setReviewed(false); setMissing(false); setUncertain(false); try { sessionStorage.setItem(key, JSON.stringify(target)); } catch { /* visible task ID remains usable */ } void run(target, 'start');
+    current.current = target; setTask(target); setReviewed(false); setMissing(false); setUncertain(false);
+    if (mode !== 'PROTECTED') {
+      try { sessionStorage.setItem(key, JSON.stringify(target)); } catch { /* visible task ID remains usable */ }
+    }
+    void run(target, 'start');
   }
   const automatic=useRef(false);
   useEffect(()=>{if((mode==='TEXT'||mode==='MENU')&&autoStart&&!automatic.current){automatic.current=true;if(!current.current)start();}},[autoStart,mode]);
@@ -67,7 +80,7 @@ export function LogSavePanel({ source, mode = 'NORMAL', autoStart = false, onCha
   return <fieldset aria-label={label("导出另存")}><legend>{recovery ? "另存未完整恢复产物" : "另存到自选位置"}</legend>
     {recovery && <p>恢复模式 · 未完整前缀。另存仅复制已发布的恢复 JSONL，保留停止报告；文件保存完成也不代表源日志完整。</p>}
     <small>使用系统位置选择器。新文件在验证与同步后发布；已有文件需另行确认，并在同目录保留原文件备份。当前替换仅支持普通可写本地文件，特殊属性文件请选新文件名。关闭面板会请求取消未完成任务，已发布文件不能撤销。</small>
-    <div className="config-actions"><button disabled={!source || pending || active} onClick={start}>{recovery ? "另存未完整恢复文件" : "另存导出文件"}</button><button ref={query} disabled={!task || pending} onClick={() => { if (current.current) void run(current.current, 'status'); }}>{label("查询另存结果")}</button><button disabled={!active || pending || uncertain || missing || info?.cancel_requested} onClick={() => { if (current.current) void run(current.current, 'cancel'); }}>{label("取消另存")}</button><button disabled={!info?.path || pending || uncertain || active} onClick={() => { if (current.current) void run(current.current, 'open_directory'); }}>{label("打开保存目录")}</button></div>
+    <div className="config-actions"><button disabled={!source || pending || active} onClick={start}>{recovery ? "另存未完整恢复文件" : mode === 'PROTECTED' ? "另存保护文本" : "另存导出文件"}</button><button ref={query} disabled={!task || pending} onClick={() => { if (current.current) void run(current.current, 'status'); }}>{label("查询另存结果")}</button><button disabled={!active || pending || uncertain || missing || info?.cancel_requested} onClick={() => { if (current.current) void run(current.current, 'cancel'); }}>{label("取消另存")}</button>{mode !== 'PROTECTED' && <button disabled={!info?.path || pending || uncertain || active} onClick={() => { if (current.current) void run(current.current, 'open_directory'); }}>{label("打开保存目录")}</button>}</div>
     {task && <p className="data-location" aria-label={label("另存固定目标")}>{task.scope.mode === 'RECOVERY' ? '恢复模式 · 未完整 · ' : '普通导出 · '}日志 {task.scope.log_id} · {task.scope.connection.connection_id} / {task.scope.connection.generation} · 导出 {task.scope.request_id} · 另存 {task.save_id}</p>}
     {info?.path && <label>所选保存路径<input aria-label={label("另存文件路径")} readOnly value={info.path} onFocus={event => event.target.select()} /></label>}
     {info?.phase === 'AWAITING_CONFIRMATION' && <><p>原文件 {info.existing_bytes} 字节。确认到期 {new Date(info.expires_at_ms!).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} 北京时间。保留原访问权限；原文件移至同目录备份后再发布新文件。发生冲突时保留备份并报告恢复位置，不保证自动回滚。</p><label className="check"><input ref={check} type="checkbox" aria-label={label("确认替换保存文件")} checked={reviewed} disabled={pending || uncertain || info.cancel_requested || now >= info.expires_at_ms!} onChange={event => setReviewed(event.target.checked)} />{recovery ? "我已核对未完整恢复目标，确认替换并保留原文件备份" : "我已核对固定目标，确认替换并保留原文件备份"}</label><div className="config-actions"><button ref={confirm} disabled={!reviewed || pending || uncertain || info.cancel_requested || now >= info.expires_at_ms!} onClick={() => { if (current.current) void run(current.current, 'confirm'); }}>{label("确认替换并保存")}</button></div></>}
