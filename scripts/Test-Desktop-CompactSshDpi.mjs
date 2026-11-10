@@ -7,7 +7,8 @@ import path from 'node:path';
 import { launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, activeText, desktopKeyboard } from './lib/DesktopKeyboard.mjs';
 
-const preview = JSON.parse(await readFile('artifacts/P22-audit-grant-feedback-preview.json', 'utf8'));
+const manifest = process.argv[2] ?? 'artifacts/P22-audit-grant-feedback-preview.json';
+const preview = JSON.parse(await readFile(manifest, 'utf8'));
 assert.equal(preview.result, 'PASS');
 assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
 assert.deepEqual(preview.files.map(file => file.name).sort(),
@@ -26,6 +27,7 @@ const host = `t23-${'w'.repeat(288)}.invalid`;
 const dialog = 'dialog[aria-label="连接服务器"]';
 const hostField = `${dialog} [aria-label="SSH服务器"]`;
 const submit = `${dialog} button[type="submit"]`;
+const alert = `${dialog} [role="alert"]`;
 const viewport = '({width:innerWidth,height:innerHeight,visualWidth:visualViewport.width,visualHeight:visualViewport.height,dpr:devicePixelRatio})';
 const measurements = {};
 const focusTrace = [];
@@ -75,37 +77,107 @@ try {
     return actual;
   }
 
-  function assertReachableFocus({ rect, clip, hit, focus, outline, outlineWidth, outlineOffset }, label) {
+  function assertReachable({ rect, clip, hit, focus, outline, outlineWidth, outlineOffset }, label, focused = false) {
     const inside = (margin) => rect.left - margin >= clip.left - 1 && rect.right + margin <= clip.right + 1
       && rect.top - margin >= clip.top - 1 && rect.bottom + margin <= clip.bottom + 1;
     assert.ok(rect.width > 0 && rect.height > 0 && hit && inside(0), `Clipped or obscured ${label}`);
+    if (!focused) return;
     assert.ok(focus && outline === 'solid' && outlineWidth > 0, `No visible keyboard focus on ${label}`);
     assert.ok(inside(outlineWidth + Math.max(0, outlineOffset)), `Clipped focus outline on ${label}`);
   }
 
-  await ui.waitFor(`document.documentElement.dataset.theme==='dark'`);
-  measurements.pageColor = await ui.evaluate('getComputedStyle(document.documentElement).backgroundColor');
-  assert.ok(await ui.evaluate('document.documentElement.scrollWidth <= innerWidth'));
-  await tabTo(activeText('连接服务器'), '工作区连接入口');
-  measurements.workspace = await measure('nav .primary-action');
-  assertReachableFocus(measurements.workspace, 'workspace connection button');
-  await ui.screenshot(`${artifact}-workspace.png`);
-  await enter();
-  await ui.waitFor(`!!document.querySelector(${JSON.stringify(`${hostField}:not([disabled])`)})`);
-  await tabTo(active(hostField), '服务器地址');
-  await ui.command('Input.insertText', { text: host });
-  assert.equal(await ui.evaluate('document.activeElement.value'), host);
-  await tabTo(active('[aria-label="SSH用户名"]'), '用户名');
-  await type('synthetic');
-  await tabTo(activeText('高级连接设置'), '高级连接设置');
-  await enter();
-  await tabTo(active('[aria-label="保存SSH连接"]'), '保存合成配置');
-  await key(' ', 'Space', 32, { text: ' ' });
-  await tabTo(active(submit), '本地校验前连接按钮');
-  measurements.submit = await measure(submit);
-  measurements.connections = (await ui.invoke('service_list')).length;
-  assert.equal(measurements.connections, 0);
-  assertReachableFocus(measurements.submit, 'SSH dialog connection button');
+  const escape = () => key('Escape', 'Escape', 27);
+  async function switchToLightTheme() {
+    await tabTo(activeText('更多工具'), '更多工具');
+    await enter();
+    await tabTo(activeText('外观'), '外观');
+    await enter();
+    await tabTo(active('[aria-label="应用主题"]'), '应用主题');
+    await key('Home', 'Home', 36);
+    await key('ArrowDown', 'ArrowDown', 40);
+    await ui.waitFor(`document.documentElement.dataset.theme==='light'`);
+    await escape();
+    await ui.waitFor('!document.querySelector("dialog:modal")');
+  }
+
+  const noPageOverflow = () => ui.evaluate('document.documentElement.scrollWidth <= innerWidth');
+  for (const theme of ['dark', 'light']) {
+    if (theme === 'light') await switchToLightTheme();
+    await ui.waitFor(`document.documentElement.dataset.theme===${JSON.stringify(theme)}`);
+    const current = measurements[theme] = {};
+    current.pageColor = await ui.evaluate('getComputedStyle(document.documentElement).backgroundColor');
+    assert.ok(await noPageOverflow());
+    await tabTo(activeText('连接服务器'), '工作区连接入口');
+    current.workspace = await measure('nav .primary-action');
+    assertReachable(current.workspace, 'workspace connection button', true);
+    assertReachable(await measure('.terminal-empty h2'), 'empty workspace heading');
+    await ui.screenshot(`${artifact}-${theme}-workspace.png`);
+
+    await enter();
+    await ui.waitFor(`!!document.querySelector(${JSON.stringify(`${hostField}:not([disabled])`)})`);
+    await tabTo(active(hostField), '服务器地址');
+    await ui.command('Input.insertText', { text: host });
+    assert.equal(await ui.evaluate('document.activeElement.value'), host);
+    await tabTo(active('[aria-label="SSH用户名"]'), '用户名');
+    await type('synthetic');
+    await tabTo(activeText('高级连接设置'), '高级连接设置');
+    await enter();
+    await tabTo(active('[aria-label="保存SSH连接"]'), '保存合成配置');
+    await key(' ', 'Space', 32, { text: ' ' });
+    await tabTo(active(submit), '本地校验前连接按钮');
+    current.submit = await measure(submit);
+    assert.deepEqual(await ui.invoke('service_list'), []);
+    assertReachable(current.submit, 'SSH dialog connection button', true);
+
+    // The resulting profile name exceeds the local 256-byte cap. The real
+    // save rejection is shown before QuickConnect can dispatch SSH.
+    await enter();
+    await ui.waitFor(`document.querySelector(${JSON.stringify(alert)})?.textContent.includes('尚未发起SSH登录')`);
+    current.error = await ui.evaluate(`document.querySelector(${JSON.stringify(alert)}).innerText`);
+    assert.match(current.error, /保存连接\/凭据失败.*配置参数无效/s);
+    assert.ok(!current.error.includes(host));
+    current.alert = await measure(alert);
+    assertReachable(current.alert, 'local error notice');
+    assertReachable(await measure(`${alert} p`), 'local error text');
+    assert.ok(await noPageOverflow());
+    current.dialog = await ui.evaluate(`(() => {
+      const node=document.querySelector(${JSON.stringify(dialog)});
+      return {rect:node.getBoundingClientRect().toJSON(),clientWidth:node.clientWidth,clientHeight:node.clientHeight,
+        scrollWidth:node.scrollWidth,scrollHeight:node.scrollHeight,scrollTop:node.scrollTop,
+        color:getComputedStyle(node).backgroundColor};
+    })()`);
+    const { rect, clientWidth, clientHeight, scrollWidth, scrollHeight } = current.dialog;
+    assert.ok(rect.left >= 0 && rect.top >= 0 && rect.right <= after.width && rect.bottom <= after.height);
+    assert.ok(scrollWidth <= clientWidth && scrollHeight > clientHeight);
+    await ui.screenshot(`${artifact}-${theme}-error.png`);
+
+    await tabTo(active(hostField), '本地错误后的长地址');
+    current.host = await measure(hostField);
+    assertReachable(current.host, 'long address field', true);
+    assert.equal(await ui.evaluate('document.activeElement.value'), host);
+    await tabTo(active(submit), '本地错误后的连接按钮');
+    current.submitAfter = await measure(submit);
+    assertReachable(current.submitAfter, 'SSH dialog connection button after error', true);
+    await ui.screenshot(`${artifact}-${theme}-button.png`);
+
+    await tabTo(activeText('取消连接'), '弹窗末尾按钮');
+    await key('Tab', 'Tab', 9);
+    assert.ok(await ui.evaluate(activeText('收起连接窗口')));
+    await key('Tab', 'Tab', 9, { modifiers: 8 });
+    assert.ok(await ui.evaluate(activeText('取消连接')));
+    if (theme === 'dark') await escape();
+    else {
+      await key('Tab', 'Tab', 9);
+      await enter();
+    }
+    await ui.waitFor(`!document.querySelector('dialog:modal') && ${activeText('连接服务器')}`);
+    assert.deepEqual(await ui.invoke('service_list'), []);
+    const config = await ui.invoke('config_request', { request: { op: 'page', revision: null, offset: 0, folders: false } });
+    assert.deepEqual(config.profiles, []);
+  }
+  assert.notEqual(measurements.dark.pageColor, measurements.light.pageColor);
+  assert.notEqual(measurements.dark.dialog.color, measurements.light.dialog.color);
+  assert.deepEqual(await ui.evaluate(viewport), after);
   evidence = { result: 'PASS', preview: preview.directory, measurements, focusTrace };
 } catch (error) {
   await ui?.screenshot(`${artifact}-failure.png`).catch(() => {});
@@ -122,4 +194,4 @@ assert.equal(path.dirname(resolved), await realpath(tmpdir()));
 assert.ok(path.basename(resolved).startsWith(prefix));
 await rm(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 await writeFile(`artifacts/${artifact}.json`, JSON.stringify(evidence, null, 2) + '\n');
-console.log('PASS native compact window at current DPI: dark SSH dialog keyboard focus outline');
+console.log('PASS native compact window at current DPI: light/dark SSH dialog focus, local error and return to opener');
