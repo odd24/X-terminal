@@ -27,7 +27,7 @@ const mode = narrow ? 'narrow' : maximized ? 'maximized' : 'standard';
 const prefix = `shared-terminal-${mode}-workspace-dpi-中文-`;
 const root = await mkdtemp(path.join(tmpdir(), prefix));
 const executable = path.join(preview.directory, 'shared-terminal-desktop.exe');
-const artifact = `P12-${mode}-workspace-dpi`;
+const artifact = narrow ? 'P12-narrow-tree-space' : `P12-${mode}-workspace-dpi`;
 const sizes = narrow ? [[760, 540]] : maximized ? [[1920, 1080]] : [[1280, 720], [1920, 1080]];
 const viewport = '({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,theme:document.documentElement.dataset.theme})';
 const evidence = { preview: preview.directory, mode, sizes: [], focusTrace: [] };
@@ -113,6 +113,19 @@ try {
         && row.right + margin <= clip.right + 1 && lines.some(line => line.bottom > clip.top && line.top < clip.bottom);
     }
 
+    async function reachSidebarControl(label) {
+      await tabTo(active(`.session-sidebar input[aria-label="${label}"]`), label);
+      const measured = await ui.evaluate(`(() => {
+        const node=document.activeElement, sidebar=node.closest('.session-sidebar');
+        ${focusedRowMeasurements()}
+        const bounds=sidebar.getBoundingClientRect();
+        return { focused:focus.rowFocus, hit:focus.rowHit, within:r.left>=bounds.left && r.right<=bounds.right
+          && r.top>=bounds.top && r.bottom<=bounds.bottom && focus.visibleHeight===r.height };
+      })()`);
+      assert.deepEqual(measured, { focused: true, hit: true, within: true }, label);
+      return measured;
+    }
+
     const summary = 'document.querySelector(".profile-summary")';
     async function detailGeometry() {
       return ui.evaluate(`(() => {
@@ -149,6 +162,7 @@ try {
         await enter();
       }
       await ui.waitFor(`!!document.querySelector(${JSON.stringify(row)})`);
+      if (narrow) item.search = await reachSidebarControl('搜索会话配置');
       await tabTo(active(row), `长配置项 ${width}×${height}`);
       assert.equal(await ui.evaluate('document.activeElement.textContent'), profile.name);
       const result = item.geometry = await geometry();
@@ -163,6 +177,7 @@ try {
       if (narrow) {
         assert.equal(result.position, 'absolute');
         assert.ok(boxes.tree.right > boxes.workspace.left, 'The narrow tree overlays the workspace');
+        assert.ok(clip.bottom - clip.top > 36 && result.visibleHeight > 32, 'The unselected tree must improve on the 36px baseline');
       }
       if ((!narrow && boxes.tree.right > boxes.workspace.left) || boxes.toolbar.bottom > boxes.workspace.top || boxes.workspace.bottom > boxes.footer.top) {
         problems.push('Workspace regions overlap');
@@ -183,6 +198,12 @@ try {
       item.selection = { selected: true, focused: selected.rowFocus, outlineVisible: fullFocusOutline(selected),
         row: selected.boxes.row, clip: selected.clip, scroll: selected.scroll,
         oversized: exceedsTreeHeight(selected), visibleHeight: selected.visibleHeight };
+      if (narrow) {
+        assert.ok(selected.clip.bottom - selected.clip.top > 36 && selected.visibleHeight > 32,
+          'The selected tree must improve on the 36px baseline and 32px visible row');
+        item.selection.mainGeometry = { workspace: selected.boxes.workspace, terminal: selected.boxes.terminal };
+        assert.deepEqual(item.selection.mainGeometry, { workspace: boxes.workspace, terminal: boxes.terminal });
+      }
       if (narrow || maximized || width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-selected.png`);
       if (!visibleTreeFocus(selected)) {
         problems.push('Selection details reduce the tree viewport and clip the focused row');
@@ -193,10 +214,6 @@ try {
         const scroll = 'document.querySelector(".tree-scroll")';
         await key('Home', 'Home', 36);
         await ui.waitFor(`${scroll}.scrollTop===0`);
-        // Home reveals the root label first in the 36px-tall tree. PageDown
-        // moves past that label without shifting keyboard focus off the row.
-        await key('PageDown', 'PageDown', 34);
-        await ui.waitFor(`${scroll}.scrollTop>=20`);
         const first = await geometry();
         await key('End', 'End', 35);
         await ui.waitFor(`(() => {const tree=${scroll}; return tree.scrollTop>0 && tree.scrollHeight-tree.clientHeight-tree.scrollTop<1;})()`);
@@ -224,12 +241,14 @@ try {
       item.details = { focused, top, bottom };
       if (narrow || maximized || width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-details.png`);
       assert.deepEqual(await list(), [], 'Detail navigation must not start a connection');
+      if (narrow) item.navigationWidth = await reachSidebarControl('导航宽度');
       await tabTo(active(row), '返回原配置项', { backward: true });
     }
     const after = await page();
     assert.equal(after.revision, before.revision);
     assert.deepEqual(after.profiles, before.profiles);
     assert.deepEqual(await list(), []);
+    evidence.state = { configRevisionUnchanged: true, profilesUnchanged: true, sessions: 0 };
   }
   for (const item of evidence.sizes) if (item.result === 'READY') item.result = 'NOT_RUN_AFTER_FAILURE';
   evidence.result = evidence.sizes.some(item => item.result === 'FAIL') ? 'FAIL'
