@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P15 [ADR-092](decisions/ADR-092.md) UART 固定设备 Connect/原编号只读回执 v8 软件子包完成。原二十二项保持。Desktop Single 精确手动交付、三种打开前失效无 Port 打开或初始线变化、首答丢失只查及正向一次打开通过。56 协议/2 IPC/3 单测、两协议各 53 拒绝及普通恢复见[P15](records/P15.md)。完整 P15/MCP/实机/长稳仍开放。Step-ID: P15。
+
 2026-11-10 P15 v7 实现 4ead6cb 已交付普通本机预览 ae3908b7-6356-404b-badc-500435269425。复制品真实 stdio 二十二项、退出 ACK、exit 0、无强退、审计 44/44、回执落盘及自有资源释放通过，见[P15](records/P15.md)。Step-ID: P15。
 
 2026-11-10 P15 [ADR-091](decisions/ADR-091.md) 固定版本 SSH2 编号 Connect 与原编号只读回执 v7 软件子包完成。原二十项保持。精确 ProfileRevision、首答丢失只查、实际一次接入与 Desktop 信任/认证通过。54 协议/4 IPC/3 单测、两协议各 51 拒绝及普通恢复见[P15](records/P15.md)。完整 P15/MCP/实机/长稳仍开放。Step-ID: P15。
@@ -394,7 +396,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P12.1 | S1软件阶段完成，实机兼容/全局长稳边界保留，顺序进入S2 | DONE | [P12.1](records/P12.1.md) | Step-ID: P12.1 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
-| P15 | v7 固定 22 项真实 stdio 工具的软件子包已验；完整 P15 待继续 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |
+| P15 | v8 固定 24 项真实 stdio 工具的软件子包已验；完整 P15 待继续 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |
 | P16 | 初版客户端直调共享闭环/本机预览已交付；模型写入需正常交互批准，完整验收后续 | IN_PROGRESS | [P16](records/P16.md) | Step-ID: P16 |
 | P17 | 分组、双窗格及受管理布局显式恢复软件完成，完整R06/全局证据后续 | IN_PROGRESS | [P17](records/P17.md) | Step-ID: P17 |
 | P18 | 同步输入 | IN_PROGRESS | [记录](records/P18.md) | 显式文本批次及专用连续键盘软件贯通；完整R07仍开放 |

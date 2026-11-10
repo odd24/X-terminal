@@ -1,5 +1,46 @@
 use super::*;
+
+impl Start {
+    fn target(&self, request_id: Uuid) -> Option<serial::ConnectTarget> {
+        Some(serial::ConnectTarget {
+            profile_id: self.profile_id,
+            profile_revision: self.profile_revision?,
+            inventory_revision: self.revision,
+            device_id: self.device_id,
+            request_id,
+        })
+    }
+
+    fn reply(&self, request_id: Uuid, connection: ConnectionInfo) -> Reply {
+        match self.target(request_id) {
+            Some(target) => Reply::ConnectReceipt(serial::ConnectReceipt { target, connection }),
+            None => Reply::Started { connection },
+        }
+    }
+}
+
 impl Manager {
+    pub(super) fn connect_status(
+        &self,
+        identity: Option<&Identity>,
+        target: serial::ConnectTarget,
+    ) -> Result<Reply, ErrorCode> {
+        let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let owner = Self::owner(&store, identity)?.ok_or(ErrorCode::PermissionDenied)?;
+        let Some((start, connection)) = inner.starts.get(&target.request_id) else {
+            inner.window.check(target.request_id)?;
+            return Err(ErrorCode::PermissionDenied);
+        };
+        if start.owner != Some(owner) || start.profile_revision.is_none() {
+            return Err(ErrorCode::PermissionDenied);
+        }
+        if start.target(target.request_id) != Some(target) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        Ok(start.reply(target.request_id, connection.clone()))
+    }
+
     pub(super) async fn start_as(
         &self,
         identity: Option<&Identity>,
@@ -8,8 +49,10 @@ impl Manager {
         revision: Uuid,
         device_id: Uuid,
     ) -> Result<Reply, ErrorCode> {
-        self.start_from(identity, profile_id, request_id, revision, device_id, None)
-            .await
+        self.start_from(
+            identity, profile_id, request_id, revision, device_id, None, None,
+        )
+        .await
     }
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn start_from(
@@ -20,6 +63,7 @@ impl Manager {
         revision: Uuid,
         device_id: Uuid,
         temporary: Option<config_store::Settings>,
+        profile_revision: Option<Uuid>,
     ) -> Result<Reply, ErrorCode> {
         let (start, authority) = {
             let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
@@ -28,32 +72,60 @@ impl Manager {
             if temporary.is_some() && owner.is_some() {
                 return Err(ErrorCode::PermissionDenied);
             }
+            if profile_revision.is_some() {
+                let agent = identity
+                    .filter(|_| owner.is_some())
+                    .ok_or(ErrorCode::PermissionDenied)?;
+                if !matches!(
+                    store.pairing.authorization_form(agent, store.now())?,
+                    session_core::authorization::Form::SingleOperation { .. }
+                ) {
+                    return Err(ErrorCode::PermissionDenied);
+                }
+            }
             let spec = Start {
                 temporary: temporary.clone(),
                 owner,
                 profile_id,
+                profile_revision,
                 revision,
                 device_id,
             };
             if let Some(connection) = Self::duplicate(&inner, request_id, &spec)? {
-                return Ok(Reply::Started { connection });
+                return Ok(spec.reply(request_id, connection));
             }
             let now = store.now();
-            let authority = if owner.is_some() {
-                Some((
-                    identity.unwrap().clone(),
+            let authority = if let Some(identity) = identity.filter(|_| owner.is_some()) {
+                let permit = if let Some(profile_revision) = profile_revision {
+                    store.pairing.admit_input(
+                        identity,
+                        Scope {
+                            target: Target::ProfileRevision {
+                                profile_id,
+                                revision: profile_revision,
+                            },
+                            action: Action::Connect,
+                        },
+                        request_id,
+                        now,
+                    )?
+                } else {
                     store
                         .pairing
-                        .admit_connect(identity.unwrap(), profile_id, request_id, now)?,
-                ))
+                        .admit_connect(identity, profile_id, request_id, now)?
+                };
+                Some((identity.clone(), permit))
             } else {
                 None
             };
             (spec, authority)
         };
-        let query = authority
-            .as_ref()
-            .and_then(|(_, permit)| permit.profile_revision())
+        let query = profile_revision
+            .or_else(|| {
+                authority
+                    .as_ref()
+                    .and_then(|(_, permit)| permit.profile_revision())
+            })
             .map_or(Internal::Profile(profile_id), |revision| {
                 Internal::ProfileRevision {
                     id: profile_id,
@@ -75,7 +147,7 @@ impl Manager {
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         Self::owner(&store, identity)?;
         if let Some(connection) = Self::duplicate(&inner, request_id, &start)? {
-            return Ok(Reply::Started { connection });
+            return Ok(start.reply(request_id, connection));
         }
         if let Some((identity, permit)) = &authority {
             store.pairing.check_input(identity, permit, store.now())?;
@@ -138,15 +210,32 @@ impl Manager {
         )?;
         let dispatch: Option<worker::DispatchGuard> = authority.map(|(identity, permit)| {
             let store = self.store.clone();
+            let inventory = profile_revision.map(|_| Arc::downgrade(&self.inner));
             Arc::new(move || {
+                let current = inventory.as_ref().and_then(|inventory| inventory.upgrade());
+                let guard = match &current {
+                    Some(current) => match current.lock() {
+                        Ok(guard)
+                            if guard.revision == revision
+                                && guard.devices.contains_key(&device_id) =>
+                        {
+                            Some(guard)
+                        }
+                        _ => return false,
+                    },
+                    None if inventory.is_some() => return false,
+                    None => None,
+                };
                 let Ok(mut store) = store.lock() else {
                     return false;
                 };
                 let now = store.now();
-                store
+                let allowed = store
                     .pairing
                     .dispatch_input(&identity, &permit, now)
-                    .is_ok()
+                    .is_ok();
+                drop(guard);
+                allowed
             }) as worker::DispatchGuard
         });
         let worker = match self.factory.open(config, device.clone(), dispatch) {
@@ -183,7 +272,8 @@ impl Manager {
                 window: RequestWindow::default(),
             },
         );
-        inner.starts.insert(request_id, (start, connection.clone()));
-        Ok(Reply::Started { connection })
+        let reply = start.reply(request_id, connection.clone());
+        inner.starts.insert(request_id, (start, connection));
+        Ok(reply)
     }
 }

@@ -59,6 +59,7 @@ struct Start {
     temporary: Option<config_store::Settings>,
     owner: Option<Uuid>,
     profile_id: Uuid,
+    profile_revision: Option<Uuid>,
     revision: Uuid,
     device_id: Uuid,
 }
@@ -95,7 +96,7 @@ struct Inner {
     window: RequestWindow,
 }
 pub(crate) struct Manager {
-    inner: Mutex<Inner>,
+    inner: Arc<Mutex<Inner>>,
     store: Arc<Mutex<Store>>,
     config: Access,
     factory: Arc<dyn Factory>,
@@ -108,7 +109,7 @@ impl Manager {
     }
     pub(crate) fn new(store: Arc<Mutex<Store>>, config: Access) -> Self {
         Self {
-            inner: Mutex::new(Inner::default()),
+            inner: Arc::new(Mutex::new(Inner::default())),
             store,
             config,
             factory: Arc::new(Native),
@@ -142,6 +143,8 @@ impl Manager {
                 || !matches!(
                     request,
                     Request::Start { .. }
+                        | Request::StartFixed { .. }
+                        | Request::ConnectStatus { .. }
                         | Request::ForgetStart { .. }
                         | Request::ForgetStatus { .. }
                         | Request::Write { .. }
@@ -169,6 +172,9 @@ impl Manager {
         if !request.validate() {
             return Err(ErrorCode::InvalidArgument);
         }
+        if let Request::ConnectStatus { target } = request {
+            return self.connect_status(identity, target);
+        }
         self.tick();
         match request {
             Request::QuickStart {
@@ -184,9 +190,23 @@ impl Manager {
                     revision,
                     device_id,
                     Some(settings),
+                    None,
                 )
                 .await
             }
+            Request::StartFixed { target } => {
+                self.start_from(
+                    identity,
+                    target.profile_id,
+                    target.request_id,
+                    target.inventory_revision,
+                    target.device_id,
+                    None,
+                    Some(target.profile_revision),
+                )
+                .await
+            }
+            Request::ConnectStatus { .. } => unreachable!("handled before ticking"),
             Request::StartStatus { request_id } => {
                 let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
                 let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;

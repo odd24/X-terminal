@@ -468,6 +468,21 @@ fn ssh_descriptor(r: &ssh::Request) -> Descriptor {
 fn serial_descriptor(r: &serial::Request) -> Descriptor {
     use serial::Request as S;
     match r {
+        S::StartFixed { target } => Descriptor {
+            request_id: Some(target.request_id),
+            requested_scope: Some(Scope {
+                target: Target::ProfileRevision {
+                    profile_id: target.profile_id,
+                    revision: target.profile_revision,
+                },
+                action: Action::Connect,
+            }),
+            ..descriptor(Area::Serial, Verb::Connect)
+        },
+        S::ConnectStatus { target } => Descriptor {
+            request_id: Some(target.request_id),
+            ..descriptor(Area::Serial, Verb::Status)
+        },
         S::QuickStart { request_id, .. } => Descriptor {
             request_id: Some(*request_id),
             ..descriptor(Area::Serial, Verb::Connect)

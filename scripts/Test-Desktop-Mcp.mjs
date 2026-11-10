@@ -9,6 +9,7 @@ import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
 import { prepareSecuritySentinels, checkMcpSecurity } from './lib/McpSecurityChecks.mjs';
 import {checkMcpExec} from './lib/McpExecChecks.mjs';
+import {checkMcpSerialConnect} from './lib/McpSerialConnectChecks.mjs';
 import {checkMcpConnect} from './lib/McpConnectChecks.mjs';
 import {checkMcpReconnect} from './lib/McpReconnectChecks.mjs';
 import {checkMcpForget} from './lib/McpForgetChecks.mjs';
@@ -20,11 +21,12 @@ const disconnect=process.argv.includes('--disconnect');
 const forget=process.argv.includes('--forget');
 const reconnect=process.argv.includes('--reconnect');
 const connect=process.argv.includes('--connect');
-const serial=process.argv.includes('--serial')||serialControl;
-const countedSerial=serialControl||((disconnect||forget)&&serial);
+const serialConnect=process.argv.includes('--serial-connect');
+const serial=process.argv.includes('--serial')||serialControl||serialConnect;
+const countedSerial=serialConnect||serialControl||((disconnect||forget)&&serial);
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
-const evidence=connect?'P15-connect-v7':reconnect?'P15-connect-impact-reconnect-v7':forget?'P15-connect-impact-forget-v7':disconnect?'P15-connect-impact-disconnect-v7':serialControl?'P15-connect-impact-serial-v7':security?'P22-security-v7':exec?'P15-connect-impact-exec-v7':'P15-mcp-v7';
+const evidence=serialConnect?'P15-serial-connect-v8':connect?'P15-serial-connect-impact-ssh-v8':reconnect?'P15-serial-connect-impact-reconnect-v8':forget?'P15-serial-connect-impact-forget-v8':disconnect?'P15-serial-connect-impact-disconnect-v8':serialControl?'P15-serial-connect-impact-serial-v8':security?'P22-security-v8':exec?'P15-serial-connect-impact-exec-v8':'P15-mcp-v8';
 assert.ok(!(exec||reconnect||connect)||!serial,'exec, reconnect and connect fixtures are SSH2 only');
 const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
 const build=fixture=>{const result=spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});assert.equal(result.status,0,'memory fixture/ordinary restore must actually succeed');};
@@ -74,9 +76,9 @@ try {
   rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
   const initialized=await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'p15-real-stdio',version:'0.1.0'}});assert.ok(initialized.result.capabilities.tools);rpc.notify('notifications/initialized',{});
   const catalog=(await rpc.request('tools/list',{})).result.tools;
-  assert.deepEqual({version:7,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v7 twenty-two-tool contract');
+  assert.deepEqual({version:8,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v8 twenty-four-tool contract');
   await writeFile(`artifacts/${evidence}-tools-${serial?'serial':'ssh'}.json`,JSON.stringify({tools:catalog},null,2)+'\n');
-  assert.equal(catalog.length,22);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
+  assert.equal(catalog.length,24);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
   const call=async(name,args={})=>(await rpc.request('tools/call',{name,arguments:args})).result;
   const success=async(name,args={})=>{const result=await call(name,args);assert.equal(result.isError,false,JSON.stringify(result));assert.equal(result.structuredContent.mock,false);return result.structuredContent.reply;};
   const pending=await success('agent_status');assert.equal(pending.data.paired_ticket,null);assert.equal(pending.data.peer_pid,rpc.child.pid);
@@ -118,16 +120,17 @@ try {
   };
   const execChecks=exec?await checkMcpExec({ui,call,success,ref,other:otherRef,management,grantId,signed,lease,metrics,rebind,getRpc:()=>rpc,evidencePrefix:evidence}):null;
   const serialChecks=serialControl?await checkMcpSerial({directory,ui,call,success,ref,other:otherRef,management,grantId,signed,lease,rebind,getRpc:()=>rpc,evidence}):null;
-  if(disconnect||forget||reconnect||connect){
+  if(disconnect||forget||reconnect||connect||serialConnect){
     const common={directory,ui,call,success,ref,other:otherRef,transport,management,grantId,lease,control,rebind,getRpc:()=>rpc};
-    const report=connect
-      ?await checkMcpConnect(common)
+    const report=serialConnect
+      ?await checkMcpSerialConnect(common)
+      :connect?await checkMcpConnect(common)
       :reconnect?await checkMcpReconnect({...common,profileId,sshPin,originalInput:send})
       :forget?await checkMcpForget({...common,profileId,sshPin})
       :await checkMcpDisconnect(common);
     assert.equal((await rpc.close()).code,0);rpc=undefined;
     await writeFile(`artifacts/${evidence}-${serial?'serial':'ssh'}.json`,JSON.stringify({...report,stdio_exit:0},null,2)+'\n');
-    console.log(`PASS real MCP ${transport} ${connect?'Connect':reconnect?'Reconnect':forget?'Forget':'Disconnect'}, original receipt, permission boundaries and transport cleanup`);
+    console.log(`PASS real MCP ${transport} ${connect||serialConnect?'Connect':reconnect?'Reconnect':forget?'Forget':'Disconnect'}, original receipt, permission boundaries and transport cleanup`);
   }else{
     await management({op:'takeover',connection:ref});assert.equal((await call('terminal_send',{...send,request_id:randomUUID(),text:'MUST_NOT_SEND'})).isError,true);
     await securityChecks?.afterTakeover();
@@ -144,7 +147,7 @@ try {
     await execChecks?.afterServiceLoss();
     await serialChecks?.afterServiceLoss();
     assert.ok(!rpc.stderr.includes('P15_PRIVATE'));assert.equal((await rpc.close()).code,0);rpc=undefined;
-    if(security)await writeFile(`artifacts/P22-security-v7-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
+    if(security)await writeFile(`artifacts/P22-security-v8-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
     console.log(`PASS real MCP ${transport}: native fixed-process/original-grant GUI approval, default-none, no unpaired access/bearer, same shared connection exact send/receipt/protected read/screen, lease and dedup, unrelated session denied, takeover/revoke rejected, Agent source audit and stdio EOF cleanup; synthetic only`);
   }
 } catch(error) {

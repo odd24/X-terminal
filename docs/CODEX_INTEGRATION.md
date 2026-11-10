@@ -1,6 +1,12 @@
 # Codex 首版接入方案
 
-当前 [ADR-091](decisions/ADR-091.md) 固定 v7 二十二项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v6](../contracts/mcp/v6-tools.json) 的二十项。
+当前 [ADR-092](decisions/ADR-092.md) 固定 v8 二十四项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v7](../contracts/mcp/v7-tools.json) 的二十二项。
+
+`serial_connect` 与 `serial_connect_status` 都接收 `profile_id`、`profile_revision`、`inventory_revision`、`device_id` 和 `request_id`。在 Desktop 的单次完整操作中选择已保存串口配置，显式读取库存、选择匹配设备，核对端口和初始 DTR/RTS 后批准。确认成功后面板显示本次参数，手动交给调用者，并单独绑定同一授权。
+
+打开前复核当前许可、库存与停止状态，已批准配置决定端口和初始控制线。创建回执只表示创建，实际端口状态由 Desktop 核对。应答未知只用原有效票据和参数查询。此入口仅接收上述五项参数，不提供库存读取或后续会话权限。
+
+此前 [ADR-091](decisions/ADR-091.md) 固定 v7 二十二项工具。[v7 契约](../contracts/mcp/v7-tools.json) 保留 [v6](../contracts/mcp/v6-tools.json) 的二十项。
 
 `ssh_connect` 接收 `profile_id`、`revision`、固定 `request_id`、`cols`（2–500）和 `rows`（1–200）。须有与实际保存配置版本相同的 ProfileRevision Connect 批准，服务核对配置版本后读取固定快照。主机信任、密码及交互认证由 Desktop 处理。建连不授新会话权限或租约。
 
@@ -122,6 +128,7 @@ enabled = true
 | 工具 | 主要输入 | 输出/限制 |
 |---|---|---|
 | sessions_list | scope | 仅可见配置/连接，秘密字段不存在 |
+| serial_connect / serial_connect_status | profile_id、profile_revision、inventory_revision、device_id、request_id | 固定设备 Single Connect 与原票据创建回执 |
 | ssh_connect / ssh_connect_status | profile_id、revision、request_id，发起另带 cols、rows | 保存的固定版本 SSH2 配置与原票据创建快照 |
 | ssh_reconnect / ssh_reconnect_status | connection、request_id，发起另带 cols、rows | SSH2 原代次双范围及原票据创建快照 |
 | sessions_forget / sessions_forget_status | transport、connection、request_id | 已回收代次的记录移除与原票据回执查询 |

@@ -128,6 +128,12 @@ fn serial_descriptor(request: &serial::Request) -> Option<Descriptor> {
             profile_id,
             ..
         } => (*request_id, Action::Connect, None, Some(*profile_id)),
+        StartFixed { target } => (
+            target.request_id,
+            Action::Connect,
+            None,
+            Some(target.profile_id),
+        ),
         Send {
             request_id,
             connection,
@@ -210,7 +216,21 @@ pub fn serial_key(request: &serial::Request) -> Result<Option<OperationKey>, Err
             if !request.validate() {
                 return Err(ErrorCode::InvalidArgument);
             }
-            key(Borrowed::Serial(request), d)
+            // The existing Single recipe binds the inventory and device. The
+            // service requires the exact profile revision scope independently.
+            if let serial::Request::StartFixed { target } = request {
+                key(
+                    Borrowed::Serial(&serial::Request::Start {
+                        profile_id: target.profile_id,
+                        request_id: target.request_id,
+                        revision: target.inventory_revision,
+                        device_id: target.device_id,
+                    }),
+                    d,
+                )
+            } else {
+                key(Borrowed::Serial(request), d)
+            }
         })
         .transpose()
 }
@@ -218,6 +238,7 @@ impl Operation {
     pub fn descriptor(&self) -> Option<Descriptor> {
         match self {
             Self::Ssh2(ssh::Request::StartFixed { .. }) => None,
+            Self::Serial(serial::Request::StartFixed { .. }) => None,
             Self::Ssh2(r) => ssh_descriptor(r),
             Self::Serial(r) => serial_descriptor(r),
         }
@@ -225,6 +246,7 @@ impl Operation {
     pub fn key(&self) -> Result<OperationKey, ErrorCode> {
         match self {
             Self::Ssh2(ssh::Request::StartFixed { .. }) => Err(ErrorCode::InvalidArgument),
+            Self::Serial(serial::Request::StartFixed { .. }) => Err(ErrorCode::InvalidArgument),
             Self::Ssh2(r) => ssh_key(r),
             Self::Serial(r) => serial_key(r),
         }?
@@ -241,6 +263,36 @@ mod tests {
             connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
             generation: 2,
         }
+    }
+    #[test]
+    fn fixed_serial_start_preserves_device_single_key_and_excludes_queries() {
+        let target = serial::ConnectTarget {
+            profile_id: Uuid::new_v4(),
+            profile_revision: Uuid::new_v4(),
+            inventory_revision: Uuid::new_v4(),
+            device_id: Uuid::new_v4(),
+            request_id: Uuid::new_v4(),
+        };
+        let existing = serial::Request::Start {
+            profile_id: target.profile_id,
+            request_id: target.request_id,
+            revision: target.inventory_revision,
+            device_id: target.device_id,
+        };
+        let start = serial::Request::StartFixed { target };
+        assert_eq!(serial_key(&start).unwrap(), serial_key(&existing).unwrap());
+        let changed = serial::Request::StartFixed {
+            target: serial::ConnectTarget {
+                device_id: Uuid::new_v4(),
+                ..target
+            },
+        };
+        assert_ne!(serial_key(&start).unwrap(), serial_key(&changed).unwrap());
+        assert!(Operation::Serial(start).key().is_err());
+        assert_eq!(
+            serial_key(&serial::Request::ConnectStatus { target }).unwrap(),
+            None
+        );
     }
     #[test]
     fn fixed_start_consumes_existing_single_key_but_is_not_a_grant_recipe() {

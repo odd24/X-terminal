@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P15/ADR-092 第53入口 `npm run test:desktop:serial-connect` 前置实际普通构建。显式计数内存 UART 验证桌面 Single 实际批准与手动交付参数、版本和设备匹配、首答丢失只查、实际一次打开和初始线状态、打开前撤销/关闭/库存刷新时零打开。finally 实际普通桌面与服务恢复并运行拒 fixture。详[P15](records/P15.md)。
+
 P15/ADR-091 第52入口 `npm run test:desktop:connect` 前置实际普通构建。真实 stdio 验证无 scope/仅 ID/错和陈旧 revision、Single、跨 owner/撤销、首答丢失只查及精确一次合成 SSH 接入。用独立未受信任的合成端点检查指纹确认与 Desktop 凭据提交。详[P15](records/P15.md)。
 
 P15/ADR-090 第51入口 `npm run test:desktop:reconnect` 前置实际普通构建，合成 SSH 真实 stdio 核对双范围、旧代次/租约、固定配置 revision、接管/撤销、首答丢失只查及精确一次 TCP 接入。新代次需要 Desktop 认证，原输入和权限不继承。详[P15](records/P15.md)。

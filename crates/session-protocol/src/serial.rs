@@ -9,6 +9,12 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    StartFixed {
+        target: ConnectTarget,
+    },
+    ConnectStatus {
+        target: ConnectTarget,
+    },
     QuickStart {
         settings: config_model::Settings,
         request_id: Uuid,
@@ -80,6 +86,7 @@ impl Request {
             !reference.connection_id.0.is_nil() && reference.generation > 0
         };
         match self {
+            Self::StartFixed { target } | Self::ConnectStatus { target } => target.valid(),
             Self::QuickStart {
                 settings,
                 request_id,
@@ -216,6 +223,7 @@ pub struct Status {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    ConnectReceipt(ConnectReceipt),
     Forget(session_core::forget::Receipt),
     Disconnect(session_core::disconnect::Receipt),
     Inventory {
@@ -230,6 +238,36 @@ pub enum Reply {
     Status(Status),
     Input(InputReceipt),
     Accepted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectTarget {
+    pub profile_id: Uuid,
+    pub profile_revision: Uuid,
+    pub inventory_revision: Uuid,
+    pub device_id: Uuid,
+    pub request_id: Uuid,
+}
+impl ConnectTarget {
+    fn valid(self) -> bool {
+        [
+            self.profile_id,
+            self.profile_revision,
+            self.inventory_revision,
+            self.device_id,
+            self.request_id,
+        ]
+        .iter()
+        .all(|id| !id.is_nil())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectReceipt {
+    pub target: ConnectTarget,
+    pub connection: ConnectionInfo,
 }
 
 #[cfg(test)]

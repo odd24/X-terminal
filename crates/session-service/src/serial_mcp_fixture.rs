@@ -175,3 +175,19 @@ pub(crate) fn opened(dtr: bool, rts: Option<bool>) -> io::Result<Option<Trace>> 
     })?;
     Ok(Some(trace.clone()))
 }
+
+pub(crate) fn gate_before_open() -> io::Result<()> {
+    let Some(trace) = TRACE.get() else {
+        return Ok(());
+    };
+    let root = trace
+        .0
+        .lock()
+        .map_err(|_| io::Error::other("SERIAL_MCP_COUNTER_FAILED"))?
+        .root
+        .clone();
+    if root.join("serial-mcp-open-hold").exists() {
+        Trace::wait_for_release(&root, "serial-mcp-open-entered", "serial-mcp-open-release")?;
+    }
+    Ok(())
+}

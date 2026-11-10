@@ -686,6 +686,7 @@ async fn creation_receipt_capacity_retires_ordered_history_but_keeps_opaque_dupl
             temporary: None,
             owner: None,
             profile_id: profile,
+            profile_revision: None,
             revision,
             device_id,
         };

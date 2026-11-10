@@ -31,6 +31,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
   const [slot, setSlot] = useState<Slot | undefined>(readSlot);
   const [queryId, setQueryId] = useState(() => readSlot()?.request_id ?? '');
   const [view, setView] = useState<GrantView>();
+  const [serialConnect, setSerialConnect] = useState<{ grantId: string; serviceId: string; args: string }>();
   const [list, setList] = useState<Summary[]>([]);
   const [lease, setLease] = useState<{ connection: ConnectionRef; value: Lease | null }>();
   const [audit, setAudit] = useState<AuditPage>();
@@ -39,7 +40,7 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
   const [message, setMessage] = useState('选择能力并预览后明确批准。关闭/重载不恢复同意；本入口不发送终端输入。');
   const targetKey = target ? `${target.connection_id}:${target.generation}:${target.protocol}:${target.state}` : '';
   useEffect(() => { alive.current = true; return () => { alive.current = false; approval.current.invalidate(); }; }, []);
-  useEffect(() => { approval.current.invalidate(); setMode('connection'); setForm('scoped'); setTaskLabel(''); setTaskId(requestId()); setProposal(undefined); setConsent(false); setSelected([]); setRedaction(undefined); setReadMode('full'); setReadFrom(''); setReadUntil(''); setConfirmation(undefined); setLease(undefined); }, [serviceId, targetKey]);
+  useEffect(() => { approval.current.invalidate(); setMode('connection'); setForm('scoped'); setTaskLabel(''); setTaskId(requestId()); setProposal(undefined); setConsent(false); setSelected([]); setRedaction(undefined); setReadMode('full'); setReadFrom(''); setReadUntil(''); setConfirmation(undefined); setLease(undefined); setSerialConnect(undefined); }, [serviceId, targetKey]);
   const invalidate = () => { approval.current.invalidate(); setProposal(undefined); setConsent(false); };
   const remember = (id: string) => {
     const saved = { service_id: serviceId, request_id: id };
@@ -87,6 +88,14 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
         const result = checkedOperationReply(checkedGrant(await call(request), id), approved, fingerprint);
         if (!alive.current || !current()) return;
         setView(result); setMessage('已批准一次固定操作，尚未执行或交给真实桥。原操作编号和全部参数不可变，结果不明只查询原签发编号。');
+        const operation = approved.operation;
+        if (operation.protocol === 'SERIAL' && operation.request.op === 'start') {
+          setSerialConnect({ grantId: id, serviceId, args: JSON.stringify({
+            profile_id: approved.profile_id, profile_revision: approved.revision,
+            inventory_revision: operation.request.revision, device_id: operation.request.device_id,
+            request_id: operation.request.request_id,
+          }, null, 2) });
+        }
       });
     }} />}
     {form !== 'single_operation' && <Field label="授权目标类型"><select aria-label="Agent授权类型" disabled={busy} value={mode} onChange={event => { invalidate(); setRedaction(undefined); setMode(event.target.value); }}><option value="connection">当前连接能力</option><option value="profile">已保存配置建连</option><option value="reconnect" disabled={!target || target.protocol !== 'SSH2' || !profileId || !['DISCONNECTED', 'FAILED'].includes(target.state)}>SSH2旧代次重连（双范围）</option></select></Field>}
@@ -177,6 +186,11 @@ export function AgentPanel({ serviceId, target, profileId, encoding, close }: { 
         });
       }}>确认Agent变更</button></fieldset>}
     <BridgePanel serviceId={serviceId} grantId={view?.summary.request_id} />
+    {serialConnect && serialConnect.serviceId === serviceId && serialConnect.grantId === view?.summary.request_id && view.summary.state === 'ACTIVE' &&
+      <Field label="已批准的 MCP 串口建连参数">
+        <textarea aria-label="已批准的 MCP 串口建连参数" readOnly rows={7} value={serialConnect.args} />
+        <small>明确配对同一授权后，可手动转交给 serial_connect。结果不明时，使用同一参数查询 serial_connect_status。</small>
+      </Field>}
     <AuditHistoryPanel serviceId={serviceId} />
     <details><summary>本服务审计与上下文范围</summary><p>最多512条策略元数据环，单页最多128；只显示本页，不拼成无限历史。服务相对时间不是北京时间日期。缺口表示更早条目已覆盖，跨服务历史请使用上方持久审计入口。</p>
       <div className="config-actions"><button disabled={busy} onClick={() => void run(async () => { const result = checkedAudit(await call({ op: 'audit', cursor: 0, limit: 128 }), 0); if (alive.current) { setAudit(result); setMessage('已读取首个保留审计页；未读取终端正文。'); } })}>读取保留审计</button><button disabled={busy || !audit} onClick={() => { if (!audit) return; const cursor = audit.next_cursor; void run(async () => { const result = checkedAudit(await call({ op: 'audit', cursor, limit: 128 }), cursor); if (alive.current) { setAudit(result); setMessage('已读取下一审计页；之前页未在窗口无限累积。'); } }); }}>下一页审计</button></div>

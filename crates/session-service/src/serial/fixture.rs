@@ -16,6 +16,11 @@ impl Factory for MemoryFactory {
         _: Device,
         dispatch: Option<worker::DispatchGuard>,
     ) -> io::Result<Worker> {
+        #[cfg(feature = "serial-mcp-fixture")]
+        let dispatch = dispatch.map(|allow| {
+            Arc::new(move || crate::serial_mcp_fixture::gate_before_open().is_ok() && allow())
+                as worker::DispatchGuard
+        });
         Worker::test_backend_guarded(
             move || {
                 Ok(Echo {

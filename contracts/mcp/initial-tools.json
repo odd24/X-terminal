@@ -1,6 +1,96 @@
 {
-  "version": 7,
+  "version": 8,
   "tools": [
+    {
+      "name": "serial_connect",
+      "description": "Create one SERIAL connection using the exact profile revision, inventory revision, device ID and request ID provided after Desktop Single approval. Opening applies the approved profile's initial line states. The creation snapshot does not prove the port opened. If delivery is unknown only query serial_connect_status.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inventory_revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "profile_revision",
+          "inventory_revision",
+          "device_id",
+          "request_id"
+        ],
+        "title": "ConnectTarget",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "serial_connect_status",
+      "description": "Read only the original SERIAL Connect creation snapshot using the same valid ticket and exact approved arguments. A missing receipt leaves the outcome unknown. Do not replay Connect.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inventory_revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profile_revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "profile_revision",
+          "inventory_revision",
+          "device_id",
+          "request_id"
+        ],
+        "title": "ConnectTarget",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
     {
       "name": "ssh_connect",
       "description": "Create an SSH2 connection from a saved profile with its exact approved revision. Fix the request_id and dimensions first. Requires ProfileRevision Connect approval. Desktop handles host trust and authentication. Creation does not confirm online status or grant session access. If delivery is unknown only query ssh_connect_status.",

@@ -13,6 +13,12 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    SerialConnect {
+        target: serial::ConnectTarget,
+    },
+    SerialConnectStatus {
+        target: serial::ConnectTarget,
+    },
     Connect {
         profile_id: Uuid,
         revision: Uuid,
@@ -112,6 +118,13 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn serial_connect_target(&self) -> Option<serial::ConnectTarget> {
+        match self {
+            Self::SerialConnect { target } | Self::SerialConnectStatus { target } => Some(*target),
+            _ => None,
+        }
+    }
+
     pub fn connect_target(&self) -> Option<(Uuid, Uuid, Uuid)> {
         match self {
             Self::Connect {
@@ -226,6 +239,12 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::SerialConnect { target } => Request::Serial {
+                request: serial::Request::StartFixed { target },
+            },
+            Self::SerialConnectStatus { target } => Request::Serial {
+                request: serial::Request::ConnectStatus { target },
+            },
             Self::Connect {
                 profile_id,
                 revision,
@@ -623,6 +642,7 @@ pub struct Status {
     deny_unknown_fields
 )]
 pub enum ResultMessage {
+    SerialConnect(serial::ConnectReceipt),
     Connect(ssh::ConnectReceipt),
     Reconnect(ssh::ReconnectReceipt),
     Forget(session_core::forget::Receipt),
@@ -653,6 +673,31 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_serial_connect_service(
+        response: Response,
+        target: serial::ConnectTarget,
+    ) -> std::io::Result<Self> {
+        use session_core::session::{Protocol, State};
+        match response {
+            Response::Error { code, .. } => Ok(Self::Error(code)),
+            Response::Ok {
+                reply: Reply::Serial(serial::Reply::ConnectReceipt(receipt)),
+                ..
+            } if receipt.target == target
+                && !receipt.connection.connection_id.0.is_nil()
+                && receipt.connection.generation == 1
+                && receipt.connection.protocol == Protocol::Serial
+                && receipt.connection.state == State::Connecting =>
+            {
+                Ok(Self::SerialConnect(receipt))
+            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unmatched serial Connect response",
+            )),
+        }
+    }
+
     pub fn from_connect_service(
         response: Response,
         profile_id: Uuid,
@@ -876,6 +921,56 @@ impl ResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serial_connect_requires_typed_receipt_and_exact_inventory_binding() {
+        use session_core::session::{Protocol, State};
+        let expected = serial::ConnectTarget {
+            profile_id: Uuid::new_v4(),
+            profile_revision: Uuid::new_v4(),
+            inventory_revision: Uuid::new_v4(),
+            device_id: Uuid::new_v4(),
+            request_id: Uuid::new_v4(),
+        };
+        let receipt = serial::ConnectReceipt {
+            target: expected,
+            connection: ConnectionInfo {
+                connection_id: target().connection_id,
+                generation: 1,
+                protocol: Protocol::Serial,
+                state: State::Connecting,
+            },
+        };
+        let project = |reply| {
+            ResultMessage::from_serial_connect_service(
+                Response::Ok {
+                    id: 1,
+                    reply: Reply::Serial(reply),
+                },
+                expected,
+            )
+        };
+        assert!(matches!(
+            project(serial::Reply::ConnectReceipt(receipt.clone())),
+            Ok(ResultMessage::SerialConnect(v)) if v == receipt
+        ));
+        assert!(
+            project(serial::Reply::Started {
+                connection: receipt.connection.clone()
+            })
+            .is_err()
+        );
+        assert!(
+            project(serial::Reply::ConnectReceipt(serial::ConnectReceipt {
+                target: serial::ConnectTarget {
+                    inventory_revision: Uuid::new_v4(),
+                    ..expected
+                },
+                ..receipt
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn connect_projection_requires_service_profile_revision_number_and_creation() {
