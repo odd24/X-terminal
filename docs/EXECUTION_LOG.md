@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P15/v2实现2113b12已本机普通预览交付fa118fd3-e08a-44a9-a266-ab4e4bf9983e：复制品PE2/普通拒fixture/同目录MCP十二工具精确发现与stdio exit0、真实关闭回执/审计CLOSED/水位一致及自有进程退出PASS，三SHA和结果文件命名更正见[P15](records/P15.md)。仅独立exec/本人任务软件子包，完整P15/MCP模型自治/实机未收口，B仍由统筹协调；无默认用户根/真实端点/COM89操作。Step-ID: P15。
+
 2026-11-10 P15/ADR-086完成独立SSH exec/本人任务get/cancel软件闭环，固定v2十二工具且原九schema逐字段不变：UUIDv7/预算/未知字段、首应答真实丢弃后只查且远端一次、Single/TimedTask/跨owner/代次/保护双流及信号/取消/原票据重配对/接管撤销/实际服务失联均已验证。第47入口、3协议+3既有服务契约、两次实际desktop:build、12工具每协议41拒绝影响、finally普通恢复及首次fixture失败分层见[P15](records/P15.md)。完整47链/全P15/MCP模型自治/实机未收口，B未准入。Step-ID: P15。
 
 2026-11-10 P22/ADR-085实现e47f554已本机普通预览交付：隔离目录e99f5dab-406b-40fd-942a-ffd00c2576ca，实际复制品PE2/普通拒fixture/同目录MCP及真实关闭回执、审计CLOSED/水位一致与自有进程退出均PASS；三SHA与构建/验证分层见[P22](records/P22.md)。旧预览保持，未操作默认用户根/连接/COM89。完整P22/T18八小时/T19与实机不因该软件包收口。Step-ID: P22。
