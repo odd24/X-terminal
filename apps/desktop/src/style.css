@@ -71,6 +71,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 .app-bar { display: flex; align-items: center; gap: var(--space-4); }
 .primary-action { border-color: var(--accent); color: var(--accent-text); }
 .app-dialog { box-sizing: border-box; width: min(var(--dialog-width), calc(100vw - var(--space-8))); max-width: none; max-height: var(--dialog-max-height); margin: auto; padding: 0; color: var(--text); background: var(--surface); border: var(--border-width) solid var(--border); border-radius: var(--radius-panel); }
+.app-dialog { scroll-padding-block: calc(var(--focus-width) + var(--focus-offset)); }
 .app-dialog-wide { width: min(var(--dialog-wide-width), calc(100vw - var(--space-8))); }
 .app-dialog::backdrop { background: color-mix(in srgb, var(--page) 75%, transparent); }
 .app-dialog > .config-panel { margin: 0; border: 0; }
