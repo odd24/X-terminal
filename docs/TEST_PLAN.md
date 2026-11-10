@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P15/ADR-086新增第47入口`npm run test:desktop:exec`（前置实际desktop:build）：真实合成SSH/stdin，通过固定12目录/原9schema精确不变、UUIDv7/整数/预算/字段拒绝、首Start真实应答在调用方丢弃后只按已知ID查且远端一次、同ticket与跨owner/代次、Single全参数/TimedTask、保护双流/信号/取消、原票据重配对/接管/撤销和实际服务流失效。服务已有owner/保护契约先定向运行，finally普通服务实际build及runtime拒fixture；只软件专项，不调用模型或真实端点，不以过滤用例或完整47链未跑当通过。现行契约v2固定12，初版9保留v1并逐项比较；P22安全矩阵同步各12工具未知path拒绝，每协议现为41次，旧38次按原历史版本理解。
+
 P22/ADR-085显式`npm run test:desktop:close-receipts`只编译隔离fixture再finally实际普通desktop:build，不纳入日常46链。只自建中文Temp根验证真实正常/故障/在途/丢ACK/无诊断关闭及重启、坏/未来/未知文件保持；普通参数拒绝与普通关闭必须实测。独立存储5项、原生decoder/模型6项、真实取消Shutdown等待1项及前端事实分列1项单测；目录junction/硬链接/满额/锁与目标竞争、部分EOF/长行/多候选/IO/reader join、晚发布/取消分别核对。退出/配置/导航及审计IPC只按影响运行，不重跑全46/T18/T19/八小时，实际结果见[P22](records/P22.md)。
 
 P22/ADR-084新增显式`Test-AuditDiagnostics.ps1`（不纳入日常46链），仅受控自建根：首错/整数精度/严格白名单、队列与写/同步/flush/close故障、真实正常/调用方Err/在途/错误关闭及权限拒绝。7场景测试PASS不把故障服务exit1当成功，默认参数拒绝和实际普通恢复必核；不是旧uTHyo2根因复现或T18/T19/8小时验收，详[P22](records/P22.md)。

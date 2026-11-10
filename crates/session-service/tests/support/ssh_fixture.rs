@@ -281,6 +281,18 @@ impl server::Handler for Server {
         }
         session.channel_success(channel)?;
         match command {
+            b"protected-exec" => {
+                session.data(
+                    channel,
+                    format!("OUT synthetic-secret {} OUT_END", ".".repeat(150)).into_bytes(),
+                )?;
+                session.extended_data(
+                    channel,
+                    1,
+                    format!("ERR synthetic-secret {} ERR_END", ".".repeat(150)).into_bytes(),
+                )?;
+                session.exit_status_request(channel, 0)?;
+            }
             b"stall" => return Ok(()),
             b"disconnect" => return Err(russh::Error::Disconnect),
             b"utf8" => {

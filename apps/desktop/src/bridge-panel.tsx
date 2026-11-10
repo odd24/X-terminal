@@ -20,7 +20,7 @@ export function BridgePanel({ serviceId, grantId }: { serviceId: string; grantId
     finally { flight.current = false; if (alive.current) setBusy(false); }
   };
   return <details><summary>MCP 初版连接</summary>
-    <p>先在本面板签发或查询原授权，再把它一次绑定到本机实际桥进程。token 只由原生端持有，MCP 仅转发受限读取、发送和租约/回执；不另开 SSH shell。绑定不取租约、不发送命令，不延长原期限。</p>
+    <p>先在本面板签发或查询原授权，再把它一次绑定到本机实际桥进程。token 只由原生端持有；MCP 沿原授权转发读取、发送、租约/回执，以及独立SSH exec和本人任务查询/取消。绑定不取租约、不发送命令、不执行exec，也不延长原期限。</p>
     <div className="config-actions"><button disabled={busy} onClick={() => void run(async current => {
       setPreview(undefined); setConsent(false);
       const result = await invoke<unknown>('bridge_management_request', { request: { op: 'info' } });
@@ -37,6 +37,6 @@ export function BridgePanel({ serviceId, grantId }: { serviceId: string; grantId
       if (!consent) return; const id = preview.preview_id; setPreview(undefined); setConsent(false);
       void run(async current => { const result = await invoke<unknown>('bridge_management_request', { request: { op: 'approve', preview_id: id } }); if (!validPeer(result) || result.pending_id !== preview.peer.pending_id || !result.ticket_id) throw new Error('配对结果不匹配'); if (current()) { setInfo(undefined); setMessage('已绑定独立Agent身份；请刷新状态，服务仍按实时权限与租约验证每次操作。'); } });
     }}>确认MCP绑定</button></div></fieldset>}
-    <p role="status" aria-label="MCP配对状态">{message}</p><p>本版一次连接一个桥；更换授权或应用重启请重新启动并明确配对。断开桥不能撤回已派发动作；原编号查询、撤销和人工接管沿现有服务处理。仅支持基本工具，尚不等于 Codex 闭环或全部 v1 工具已验收。</p>
+    <p role="status" aria-label="MCP配对状态">{message}</p><p>本版一次连接一个桥；更换授权或应用重启请重新启动并明确配对。断开桥不能撤回已派发动作；原编号查询、撤销和人工接管沿现有服务处理。当前固定12工具，包含独立SSH exec及本人任务查询/取消；exec须单独批准和租约。尚不等于模型自治或完整MCP/实机验收。</p>
   </details>;
 }

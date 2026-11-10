@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+2026-11-10当前P15按ADR-086完成v2固定12工具的软件包：原9 schema保持，新增ssh_exec/tasks_get/tasks_cancel；start固定合法RFC9562 UUIDv7、task_id同原编号，首答不明/NotFound/失联不重发或新grant继承原owner。独立Exec/lease/Single全参数/TimedTask及原ticket精确代次保持，保护输出强制ExecReadProtected与typed回复ID/类型校验，信号同策略，无raw回退/模型自签/通用RPC。第47入口、实际构建/原生stdio合成SSH与12工具两协议安全影响、finally普通恢复分层见P15。仅软件子包，不收完整P15/MCP/模型自治/实机；B串口字节/控制未准入，不扩export，不碰用户连接/COM89/私有日志或T18/T19长稳。
+
 2026-11-10指令来源核对：用户“开始持续的执行方案”已覆盖下方历史暂停；旧条款重新注入环境不等于用户新决策。9681273曾因执行者误判而暂停，监督已澄清从原WIP继续ADR-085，不改写历史、不要求用户重复恢复。ADR-085固定受管理关闭回执/上次提示软件验证按P22记录分层，正常不通知、ACK/实际exit/强退/审计与保存失败分列，不自动重连/恢复许可/修复坏文件、不扩renderer任意读取。不得把方案/单测当构建或交付；完整P22/T18八小时/T19/实机仍开放，不重跑已过负载，不碰用户窗口/COM89/私有日志。
 
 2026-11-10当前P22按ADR-084补审计关闭安全诊断/调用方错误阶段：仅version1 stderr白名单state/计数/首failure kind+stage，u64字符串、未知null，不输出底层异常/正文/路径/token、不靠失败audit写诊断。首错粘滞，Shutdown ACK/真实exit/实际强退分列，原失败封闭/权限/容量不变。只受控故障和正常/在途关闭定向验证，生产实际desktop:build及finally普通恢复；不重跑T18/T19/8h或旧根、不扩UI。是诊断增强非旧QueueFull根因修复，详P22；普通Desktop所有者安全采集/退出回执仍是独立待协调缺口。

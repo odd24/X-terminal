@@ -1,5 +1,243 @@
 {
+  "version": 2,
   "tools": [
+    {
+      "name": "ssh_exec",
+      "description": "Start one SSH2 exec with independent Exec scope and lease; command <=16KiB, timeout 1..120000ms, output budget 1..1048576 bytes. Fix a caller RFC9562 UUIDv7 request_id first: task_id is the same ID. Unknown delivery never means not executed: only query that task on the same owner/connection/generation, never automatically retry Start or create a new grant to inherit it.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Sensitive": {
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "$ref": "#/$defs/Sensitive"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "max_output_bytes": {
+            "format": "uint",
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "request_id": {
+            "description": "Caller-fixed RFC9562 UUIDv7. The task ID is this same ID even if the first reply is lost.",
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "timeout_ms": {
+            "format": "uint64",
+            "maximum": 120000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "command",
+          "timeout_ms",
+          "max_output_bytes"
+        ],
+        "title": "ExecArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "tasks_get",
+      "description": "Inspect only this ticket's task with explicit connection/generation/task_id. view status or bounded output (cursor>=1,max_bytes 16384..65536). Unprotected output requires through_cursor=null. Protected output with null first returns protected metadata, then pass its fixed through_cursor for text. No raw fallback. NotFound/REQUEST_EXPIRED/restart is not proof of non-execution; a failed bridge must be explicitly recovered with the original valid ticket before querying.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "TaskView": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "status",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "cursor": {
+                    "format": "uint64",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "const": "output",
+                    "type": "string"
+                  },
+                  "max_bytes": {
+                    "format": "uint",
+                    "maximum": 65536,
+                    "minimum": 16384,
+                    "type": "integer"
+                  },
+                  "through_cursor": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "cursor",
+                  "max_bytes"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "task_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "view": {
+            "$ref": "#/$defs/TaskView"
+          }
+        },
+        "required": [
+          "connection",
+          "task_id",
+          "view"
+        ],
+        "title": "TaskGetArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "tasks_cancel",
+      "description": "Request cancellation of only this ticket's existing task. Already executed actions cannot be undone; cancelling is not proof of remote termination. Keep the exact task/connection/generation. Never retry Start.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "task_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "task_id"
+        ],
+        "title": "TaskArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
     {
       "name": "agent_status",
       "description": "Native pairing status. No token; approval snapshot is not current permission.",

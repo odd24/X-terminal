@@ -369,8 +369,10 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                     wire::RequestMessage::Status {}=>wire::ResultMessage::Status(wire::Status {broker_id:shared.id,service_id:shared.service_id,peer_pid:pid,paired_ticket:bound.as_ref().map(|v|v.view.summary.ticket_id),approved_scopes:bound.as_ref().map(|v|v.view.approved_scopes.clone()).unwrap_or_default(),protection:bound.as_ref().and_then(|v|v.view.protection)}),
                     wire::RequestMessage::Call {request}=>{
                         if let Some(pair)=bound.as_mut() {
+                            let expected_task=request.task_target();
+                            let protected=pair.view.protection.is_some();
                             match request.into_service(pair.view.protection.is_some()) {
-                                Ok(request)=>match pair.client.request(request).await {Ok(response)=>wire::ResultMessage::from_service(response),Err(error)=>return Err(error)},
+                                Ok(request)=>match pair.client.request(request).await {Ok(response)=>match expected_task {Some((c,t,status_only))=>wire::ResultMessage::from_task_service(response,c,t,protected,status_only),None=>wire::ResultMessage::from_service(response)},Err(error)=>return Err(error)},
                                 Err(code)=>wire::ResultMessage::Error(code),
                             }
                         } else {wire::ResultMessage::Error(ErrorCode::PermissionDenied)}

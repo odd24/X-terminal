@@ -1,10 +1,18 @@
 # Codex 首版接入方案
 
+2026-11-10按[ADR-086](decisions/ADR-086.md)扩为固定v2十二工具，当前机器可读契约为[initial-tools.json](../contracts/mcp/initial-tools.json)，历史九项另保留[v1](../contracts/mcp/v1-initial-tools.json)。原九项schema不变，只新增ssh_exec/tasks_get/tasks_cancel；服务既有Exec/租约/owner/代次/保护、Single和TimedTask仍是边界，没有模型自签、Desktop代执行或新连接能力。实际合成stdio与软件验证集中[P15](records/P15.md)，不替代完整MCP/模型自治或实机验收。
+
+`ssh_exec`必须先由调用者固定RFC9562 UUIDv7（版本7、RFC4122 variant），例如`019a6000-0001-7000-8000-000000000001`仅演示编号形状；每个新明确意图使用新编号，完整命令/超时/预算须与批准一致。命令最多16KiB UTF-8，timeout_ms为1..120000，max_output_bytes为1..1048576。它沿原SSH传输建立独立exec通道，不继承交互shell的cd或环境。task_id就是该request_id，首答不明也已知查询编号；不能重新Start找回结果或新签grant冒充原owner。
+
+`tasks_get`/`tasks_cancel`都带原connection（含generation）和task_id。get的view为`{"kind":"status"}`或`{"kind":"output","cursor":1,"max_bytes":65536,"through_cursor":null}`；普通票据返回有限原始stdout/stderr字节事件。保护票据的空水位只返回受保护元数据，再将其through_cursor填回取得固定水位文本，强制服务ExecReadProtected，没有raw回退。max_bytes为16384..65536，覆盖/缺口及完成状态以回执为准。执行task_id不同于授权TimedTask的说明编号；只能读取本ticket创建的执行任务，没有全局任务清单。
+
+取消仅请求停止调度或尝试中断，不保证远端已退出/回滚。NotFound、REQUEST_EXPIRED、服务重启或流失效都不证明原操作未执行；流损坏后应先显式恢复原桥与仍有效的原票据再查，失效则保持未知。服务重启不恢复任务/授权，不以新grant继承旧结果。原独立授权、显式租约和客户端正常批准流程保持。
+
 2026-11-08按[CR-006](changes/CR-006.md)及[现行路线](EXECUTION_PLAN.md#现行路线cr-006)，当前只做简洁SSH2登录，达标再做串口；Codex共享能力保留复用并移至S4按需收敛，不再作为当前主线或普通连接前置。下方已有证据/未验限制保留。
 
 2026-11-08实际安装版本`codex-cli 0.163.0-alpha.10.2`：官方app-server显式客户端通过9工具发现及原SSH连接的精确发送/原回执/读取，未用模型turn；实际exec模型已配对并识别同连接，但input_acquire被客户端“requires approval, but approval policy is never”拒绝且wire0。两类结果独立，不能说模型自主写入通过；模型发送需正常交互批准，不改真实工具属性或组织策略。可直接试用的本机说明见[LOCAL_PREVIEW](LOCAL_PREVIEW.md)，准确证据见[P16](records/P16.md)。本轮仅进程配置，不需要备份/合并或修改用户全局配置；下方旧全v1配置/工具方案保留规划，不能直接复制无endpoint的旧args。
 
-2026-11-07初版桥按[ADR-059](decisions/ADR-059.md)采用原生Agent代理：stdio不持有bearer，只经当前用户Pipe向原生转发9个基本工具，再由独立Agent身份进入原会话服务；没有另开SSH shell或借用Desktop权限。实际启动参数来自“MCP 初版连接”，仅本次endpoint/PID，用户核对实际桥进程与P14原授权后一次批准。受保护读取强制使用原策略；原编号与最后派发仍由服务验证。实际双协议stdio软件证据见[P15](records/P15.md)，工具契约为[initial-tools.json](../contracts/mcp/initial-tools.json)。下方完整v1拟定工具仍留后续，实际Codex测试属P16，不修改全局配置。
+2026-11-07初版桥按[ADR-059](decisions/ADR-059.md)采用原生Agent代理：stdio不持有bearer，只经当前用户Pipe向原生转发9个基本工具，再由独立Agent身份进入原会话服务；没有另开SSH shell或借用Desktop权限。实际启动参数来自“MCP 初版连接”，仅本次endpoint/PID，用户核对实际桥进程与P14原授权后一次批准。受保护读取强制使用原策略；原编号与最后派发仍由服务验证。实际双协议stdio软件证据见[P15](records/P15.md)，初版工具契约为[v1-initial-tools.json](../contracts/mcp/v1-initial-tools.json)。下方完整v1拟定工具仍留后续，实际Codex测试属P16，不修改全局配置。
 
 P14按[ADR-058](decisions/ADR-058.md)直接持久记录RPC/Policy有限元数据，队列与同步分水位、有限保留/坏尾/失败可见；历史只供Desktop读取，不是Agent工具或权限来源。已知记录故障拒绝新Agent授权/lease/admit/final dispatch及完整/窗口新正文读取；原编号安全回执、本人原任务结果、释放/撤销/人工接管保持，不重放或续期。桥应展示原错误并只查询原编号，不能借用Desktop bootstrap绕过故障；真实stdio交付和工具继续P15。
 

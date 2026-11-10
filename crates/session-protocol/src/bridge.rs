@@ -13,6 +13,22 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    Exec {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        command: Sensitive,
+        timeout_ms: u64,
+        max_output_bytes: usize,
+    },
+    TaskGet {
+        connection: ConnectionRef,
+        task_id: Uuid,
+        view: TaskView,
+    },
+    TaskCancel {
+        connection: ConnectionRef,
+        task_id: Uuid,
+    },
     List {},
     Output {
         connection: ConnectionRef,
@@ -43,11 +59,113 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn task_target(&self) -> Option<(ConnectionRef, Uuid, bool)> {
+        match self {
+            Self::Exec {
+                connection,
+                request_id,
+                ..
+            } => Some((*connection, *request_id, true)),
+            Self::TaskCancel {
+                connection,
+                task_id,
+            } => Some((*connection, *task_id, true)),
+            Self::TaskGet {
+                connection,
+                task_id,
+                view,
+            } => Some((*connection, *task_id, matches!(view, TaskView::Status {}))),
+            _ => None,
+        }
+    }
     pub fn into_service(
         self,
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::Exec {
+                connection,
+                request_id,
+                command,
+                timeout_ms,
+                max_output_bytes,
+            } => {
+                if session_core::input::ordered_timestamp(request_id).is_none()
+                    || command.expose().is_empty()
+                    || command.expose().len() > 16384
+                    || !(1..=120000).contains(&timeout_ms)
+                    || !(1..=1048576).contains(&max_output_bytes)
+                {
+                    return Err(session_core::session::ErrorCode::InvalidArgument);
+                }
+                Request::Ssh {
+                    request: ssh::Request::Exec {
+                        connection,
+                        request_id,
+                        command,
+                        timeout_ms,
+                        max_output_bytes,
+                    },
+                }
+            }
+            Self::TaskCancel {
+                connection,
+                task_id,
+            } => Request::Ssh {
+                request: ssh::Request::ExecCancel {
+                    connection,
+                    task_id,
+                },
+            },
+            Self::TaskGet {
+                connection,
+                task_id,
+                view,
+            } => Request::Ssh {
+                request: match view {
+                    TaskView::Status {} => ssh::Request::ExecStatus {
+                        connection,
+                        task_id,
+                    },
+                    TaskView::Output {
+                        cursor,
+                        max_bytes,
+                        through_cursor,
+                    } => {
+                        if cursor == 0
+                            || !(16384..=65536).contains(&max_bytes)
+                            || (!protected && through_cursor.is_some())
+                        {
+                            return Err(session_core::session::ErrorCode::InvalidArgument);
+                        }
+                        if protected {
+                            let view = match through_cursor {
+                                Some(through_cursor) => session_core::protected_task::View::Text {
+                                    through_cursor,
+                                    cursor,
+                                    max_bytes,
+                                },
+                                None => session_core::protected_task::View::Info {},
+                            };
+                            if !view.valid() {
+                                return Err(session_core::session::ErrorCode::InvalidArgument);
+                            }
+                            ssh::Request::ExecReadProtected {
+                                connection,
+                                task_id,
+                                view,
+                            }
+                        } else {
+                            ssh::Request::ExecRead {
+                                connection,
+                                task_id,
+                                cursor,
+                                max_bytes,
+                            }
+                        }
+                    }
+                },
+            },
             Self::List {} => Request::List {},
             Self::Output {
                 connection,
@@ -169,6 +287,18 @@ impl Operation {
     }
 }
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TaskView {
+    Status {},
+    Output {
+        #[schemars(range(min = 1))]
+        cursor: u64,
+        #[schemars(range(min = 16384, max = 65536))]
+        max_bytes: usize,
+        through_cursor: Option<u64>,
+    },
+}
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RequestMessage {
     Status {},
@@ -193,6 +323,17 @@ pub struct Status {
     deny_unknown_fields
 )]
 pub enum ResultMessage {
+    Task(ssh::TaskStatus),
+    TaskOutput {
+        connection: ConnectionRef,
+        task_id: Uuid,
+        output: session_core::task_output::Page,
+    },
+    TaskProtectedOutput {
+        connection: ConnectionRef,
+        task_id: Uuid,
+        output: Box<session_core::protected_task::Reply>,
+    },
     Status(Status),
     Sessions(Vec<ConnectionInfo>),
     Context(Box<session_core::context::Reply>),
@@ -204,6 +345,51 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_task_service(
+        response: Response,
+        connection: ConnectionRef,
+        task_id: Uuid,
+        protected: bool,
+        status_only: bool,
+    ) -> Self {
+        match response {
+            Response::Error { code, .. } => Self::Error(code),
+            Response::Ok {
+                reply: Reply::Ssh(reply),
+                ..
+            } => match reply {
+                ssh::Reply::Exec(v)
+                    if status_only && v.connection == connection && v.task_id == task_id =>
+                {
+                    Self::Task(v)
+                }
+                ssh::Reply::ExecOutput {
+                    connection: c,
+                    task_id: t,
+                    output,
+                } if !status_only && !protected && c == connection && t == task_id => {
+                    Self::TaskOutput {
+                        connection: c,
+                        task_id: t,
+                        output,
+                    }
+                }
+                ssh::Reply::ExecProtectedOutput {
+                    connection: c,
+                    task_id: t,
+                    output,
+                } if !status_only && protected && c == connection && t == task_id => {
+                    Self::TaskProtectedOutput {
+                        connection: c,
+                        task_id: t,
+                        output,
+                    }
+                }
+                _ => Self::Error(session_core::session::ErrorCode::InvalidState),
+            },
+            _ => Self::Error(session_core::session::ErrorCode::InvalidState),
+        }
+    }
     /// Explicit reply projection prevents a future service secret from escaping.
     pub fn from_service(response: Response) -> Self {
         match response {
@@ -225,6 +411,154 @@ impl ResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn target() -> ConnectionRef {
+        ConnectionRef {
+            connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
+            generation: 1,
+        }
+    }
+    fn v7() -> Uuid {
+        Uuid::parse_str("019a5c00-0001-7000-8000-000000000001").unwrap()
+    }
+    fn exec(id: Uuid) -> Operation {
+        Operation::Exec {
+            connection: target(),
+            request_id: id,
+            command: Sensitive::new("synthetic".into()),
+            timeout_ms: 1000,
+            max_output_bytes: 65536,
+        }
+    }
+    #[test]
+    fn exec_requires_service_v7_and_bounded_exact_parameters_before_dispatch() {
+        assert!(
+            matches!(exec(v7()).into_service(false),Ok(Request::Ssh {request:ssh::Request::Exec {request_id,..}}) if request_id==v7())
+        );
+        for id in [
+            Uuid::new_v4(),
+            Uuid::nil(),
+            Uuid::parse_str("019a5c00-0001-7000-c000-000000000001").unwrap(),
+        ] {
+            assert!(exec(id).into_service(false).is_err());
+        }
+        let value = serde_json::to_value(exec(v7())).unwrap();
+        for (key, bad) in [
+            ("timeout_ms", serde_json::json!(0)),
+            ("timeout_ms", serde_json::json!(120001)),
+            ("max_output_bytes", serde_json::json!(1048577)),
+            ("command", serde_json::json!("x".repeat(16385))),
+        ] {
+            let mut v = value.clone();
+            v[key] = bad;
+            assert!(
+                serde_json::from_value::<Operation>(v)
+                    .unwrap()
+                    .into_service(false)
+                    .is_err()
+            );
+        }
+        let mut unknown = value.clone();
+        unknown["path"] = serde_json::json!("synthetic-file");
+        assert!(serde_json::from_value::<Operation>(unknown).is_err());
+        let mut fractional = value;
+        fractional["timeout_ms"] = serde_json::json!(1.5);
+        assert!(serde_json::from_value::<Operation>(fractional).is_err());
+    }
+    #[test]
+    fn task_output_enforces_protected_route_watermark_and_typed_reply_identity() {
+        let c = target();
+        let id = v7();
+        let read = |through_cursor| Operation::TaskGet {
+            connection: c,
+            task_id: id,
+            view: TaskView::Output {
+                cursor: 1,
+                max_bytes: 65536,
+                through_cursor,
+            },
+        };
+        assert!(matches!(
+            read(None).into_service(true),
+            Ok(Request::Ssh {
+                request: ssh::Request::ExecReadProtected {
+                    view: session_core::protected_task::View::Info {},
+                    ..
+                }
+            })
+        ));
+        assert!(matches!(
+            read(Some(3)).into_service(true),
+            Ok(Request::Ssh {
+                request: ssh::Request::ExecReadProtected {
+                    view: session_core::protected_task::View::Text {
+                        through_cursor: 3,
+                        ..
+                    },
+                    ..
+                }
+            })
+        ));
+        assert!(read(Some(0)).into_service(true).is_err());
+        assert!(read(Some(3)).into_service(false).is_err());
+        assert!(matches!(
+            read(None).into_service(false),
+            Ok(Request::Ssh {
+                request: ssh::Request::ExecRead { .. }
+            })
+        ));
+        let response = || Response::Ok {
+            id: 1,
+            reply: Reply::Ssh(ssh::Reply::ExecOutput {
+                connection: c,
+                task_id: id,
+                output: session_core::task_output::Page {
+                    events: vec![],
+                    next_cursor: 1,
+                    available_from: 1,
+                    truncated: false,
+                    completed: false,
+                },
+            }),
+        };
+        assert!(matches!(
+            ResultMessage::from_task_service(response(), c, id, false, false),
+            ResultMessage::TaskOutput { .. }
+        ));
+        assert!(matches!(
+            ResultMessage::from_task_service(response(), c, id, true, false),
+            ResultMessage::Error(_)
+        ));
+        assert!(matches!(
+            ResultMessage::from_task_service(response(), target(), id, false, false),
+            ResultMessage::Error(_)
+        ));
+        assert!(matches!(
+            ResultMessage::from_task_service(response(), c, Uuid::new_v4(), false, false),
+            ResultMessage::Error(_)
+        ));
+        assert!(matches!(
+            ResultMessage::from_task_service(response(), c, id, false, true),
+            ResultMessage::Error(_)
+        ));
+        let status = |task_id| Response::Ok {
+            id: 1,
+            reply: Reply::Ssh(ssh::Reply::Exec(ssh::TaskStatus {
+                task_id,
+                connection: c,
+                phase: ssh::TaskPhase::Queued,
+                encoding: config_model::Encoding::Utf8,
+                summary: None,
+            })),
+        };
+        assert!(matches!(
+            ResultMessage::from_task_service(status(id), c, id, false, true),
+            ResultMessage::Task(_)
+        ));
+        assert!(matches!(
+            ResultMessage::from_task_service(status(Uuid::new_v4()), c, id, false, true),
+            ResultMessage::Error(_)
+        ));
+    }
     #[test]
     fn bridge_is_a_closed_whitelist_and_never_projects_bearers_or_management_replies() {
         for value in [

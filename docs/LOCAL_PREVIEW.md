@@ -4,6 +4,8 @@
 
 这是供当前Windows电脑直接试用的开发预览，尚非正式安装包或完整v1。需要Windows及WebView2；干净系统安装、升级与签名未验。
 
+MCP当前为固定12工具，新增独立SSH exec及本人任务查询/取消。仍需原授权、实际进程配对和Exec租约，模型不自签；首答不明只查事先固定的UUIDv7任务编号，不重发命令。参数、保护输出及取消边界见[接入说明](CODEX_INTEGRATION.md)，普通SSH/UART和日志不依赖MCP。
+
 ## 启动
 
 保留同目录的三个文件：`shared-terminal-desktop.exe`、`session-service.exe`、`terminal-mcp.exe`。双击第一个。默认使用应用用户数据目录；隔离试用可以运行：

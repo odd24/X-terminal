@@ -3,6 +3,7 @@ import {mkdir, readFile, readdir, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID, createHash} from 'node:crypto';
 import {delay} from './DesktopHarness.mjs';
+import {requestId} from '../../apps/desktop/src/request-id.ts';
 
 // Test data only. Nothing in terminal output is dispatched as a test instruction.
 export async function prepareSecuritySentinels({directory, ui, other, ref, serial}) {
@@ -82,7 +83,9 @@ export async function checkMcpSecurity({ui,call,success,catalog,ref,other,transp
   const valid={agent_status:{},sessions_list:{},terminal_read:{connection:ref,window:null,view:{kind:'info'}},
     terminal_screen:{connection:ref,window:null,through_cursor:through},terminal_send:{...send,request_id:randomUUID(),text:'MUST_NOT_DISPATCH'},
     terminal_input_status:{transport,connection:ref,request_id:send.request_id},input_lease:{connection:ref},
-    input_acquire:{connection:ref,lifetime_ms:1000},input_release:{connection:ref,lease_id:lease.lease_id}};
+    input_acquire:{connection:ref,lifetime_ms:1000},input_release:{connection:ref,lease_id:lease.lease_id},
+    ssh_exec:{connection:ref,request_id:requestId(),command:'MUST_NOT_DISPATCH',timeout_ms:1000,max_output_bytes:65536},
+    tasks_get:{connection:ref,task_id:requestId(),view:{kind:'status'}},tasks_cancel:{connection:ref,task_id:requestId()}};
   for(const tool of catalog){
     assert.equal(tool.inputSchema.additionalProperties,false,tool.name);
     await deny('unknown path is not a file capability',tool.name,{...valid[tool.name],path:s.files.secret});
