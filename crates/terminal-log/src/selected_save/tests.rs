@@ -1,6 +1,7 @@
 use super::*;
 use crate::{ExportFingerprint, ExportStore};
 use sha2::{Digest, Sha256};
+mod crash;
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
