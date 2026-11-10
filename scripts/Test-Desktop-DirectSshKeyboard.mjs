@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
+import { active, activeText, desktopKeyboard, terminalInput as terminal } from './lib/DesktopKeyboard.mjs';
 
 const preview = JSON.parse(await readFile('artifacts/P22-audit-grant-feedback-preview.json', 'utf8'));
 assert.equal(preview.result, 'PASS');
@@ -29,10 +30,6 @@ peer.on('error', error => { peerError = error; });
 const lines = createInterface({ input: peer.stdout })[Symbol.asyncIterator]();
 let ui, evidence;
 const focusTrace = [];
-const active = selector => `document.activeElement?.matches(${JSON.stringify(selector)}) && document.activeElement.getClientRects().length>0`;
-const activeText = text => `document.activeElement?.textContent.trim()===${JSON.stringify(text)} && document.activeElement.getClientRects().length>0`;
-const terminal = 'textarea.xterm-helper-textarea';
-
 async function nextReply() {
   let timer;
   try {
@@ -48,38 +45,10 @@ async function metrics() {
   peer.stdin.write('{"op":"metrics"}\n');
   return nextReply();
 }
-async function key(key, code, virtualKey, { modifiers = 0, text } = {}) {
-  const event = { key, code, windowsVirtualKeyCode: virtualKey, nativeVirtualKeyCode: virtualKey, modifiers };
-  await ui.command('Input.dispatchKeyEvent', { type: 'keyDown', ...event, ...(text ? { text, unmodifiedText: text } : {}) });
-  await ui.command('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
-}
-async function type(text) {
-  for (const character of text) {
-    const code = /^[a-z]$/.test(character) ? `Key${character.toUpperCase()}`
-      : /^\d$/.test(character) ? `Digit${character}` : { '.': 'Period', '-': 'Minus' }[character];
-    assert.ok(code, 'synthetic keyboard input must use the supported ASCII keys');
-    const virtualKey = { '.': 190, '-': 189 }[character] ?? character.toUpperCase().charCodeAt(0);
-    await key(character, code, virtualKey, { text: character });
-  }
-}
-async function tabTo(condition, label) {
-  for (let count = 0; count < 32; count++) {
-    if (await ui.evaluate(condition)) return;
-    assert.ok(!await ui.evaluate(active(terminal)), `focus entered terminal before reaching ${label}`);
-    await key('Tab', 'Tab', 9);
-    const observed = await ui.evaluate(`(()=>{
-      const item=document.activeElement;
-      return {tag:item?.tagName,label:item?.getAttribute('aria-label')??(item?.matches('button,summary')?item.textContent.trim():null)};
-    })()`);
-    focusTrace.push({ step: label, ...observed });
-  }
-  throw new Error(`Keyboard focus did not reach ${label}`);
-}
-const enter = () => key('Enter', 'Enter', 13, { text: '\r' });
-
 try {
   const server = await nextReply();
   ui = await launchDesktop(root, { executable: path.join(preview.directory, 'shared-terminal-desktop.exe') });
+  const { key, type, enter, tabTo } = desktopKeyboard(ui, focusTrace);
   await ui.command('Page.bringToFront');
   assert.equal((await ui.invoke('service_status')).fixture, false);
   const page = () => ui.invoke('config_request', { request: { op: 'page', revision: null, offset: 0, folders: false } });
