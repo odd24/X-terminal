@@ -105,6 +105,13 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 .session-tree-list small { display: block; color: var(--text-muted); }
 .session-tree-list .selected { border-color: var(--accent); }
 .profile-summary { border-top: var(--border-width) solid var(--border); padding-top: var(--space-3); overflow-wrap: anywhere; }
+.profile-summary:has(> strong) {
+  max-block-size: min(var(--list-height), 25%);
+  overflow: auto;
+  padding-inline: calc(var(--focus-width) + var(--focus-offset));
+  padding-block-end: calc(var(--focus-width) + var(--focus-offset));
+  scroll-padding-block: calc(var(--focus-width) + var(--focus-offset));
+}
 .profile-summary small { display: block; color: var(--text-muted); }
 .terminal-workspace { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
 .terminal-workspace .terminal { flex: 1; height: auto; min-height: 0; border-radius: var(--radius-control); }
