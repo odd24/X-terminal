@@ -3,7 +3,7 @@ import {CloseReceiptPanel} from './close-receipt-panel';
 import type {PreviousClose} from './close-receipt';
 import {SaveRecoveryPanel, saveRecoveryAttention, type SaveRecoverySnapshot} from './save-recovery-panel';
 import {BatchConfigPanel} from './batch-config-panel';
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -164,6 +164,13 @@ function App() {
     }
   }
   const [configurationOpen, setConfigurationOpen] = useState(false);
+  const configurationFromTools = useRef(false);
+  const toolsSummary = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (configurationOpen || !configurationFromTools.current) return;
+    configurationFromTools.current = false;
+    toolsSummary.current?.focus();
+  }, [configurationOpen]);
   const [configurationTarget,setConfigurationTarget]=useState<{id:string;action:'edit'|'delete'}>();
   const [sshOpen, setSshOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -433,9 +440,9 @@ function App() {
       <button className="primary-action" onClick={() => {workspaceLaunch.current=undefined;setSshOpen(false); setQuickOpen(true); }}>连接服务器</button>
       <button onClick={() => {workspaceLaunch.current=undefined;setSerialNonce(crypto.randomUUID());setRequestedProfile(undefined);setSerialDialog(true);}}>串口连接</button>
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
-      <details className="tools-menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.open = false; }}><summary>更多工具</summary><div className="tools-menu-content">
+      <details className="tools-menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.open = false; }}><summary ref={toolsSummary}>更多工具</summary><div className="tools-menu-content">
 
-      <button onClick={() => {setConfigurationTarget(undefined);setConfigurationOpen(open => !open);}}>连接配置</button>
+      <button onClick={() => {configurationFromTools.current=true;setConfigurationTarget(undefined);setConfigurationOpen(true);}}>连接配置</button>
       <button onClick={()=>setBatchConfigOpen(true)}>批量修改配置</button>
       <button onClick={()=>setImportConfigOpen(true)}>导入原生配置</button>
       <button onClick={()=>setCloseInfoOpen(true)}>上次关闭信息</button>

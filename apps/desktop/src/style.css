@@ -32,7 +32,7 @@ h2 { font-size: var(--text-heading); margin: 0; }
 .config-panel .check { flex-direction: row; align-items: center; }
 .config-panel .check input { width: auto; }
 .config-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
-.profile-list { list-style: none; margin: var(--space-4) 0; padding: 0; max-height: var(--list-height); overflow: auto; }
+.profile-list { list-style: none; margin: var(--space-4) 0; padding: calc(var(--focus-width) + var(--focus-offset)); max-height: var(--list-height); overflow: auto; scroll-padding-block: calc(var(--focus-width) + var(--focus-offset)); }
 .profile-list button { width: 100%; text-align: left; margin-bottom: var(--space-2); overflow-wrap: anywhere; }
 .profile-list .selected { border-color: var(--accent); }
 .config-panel small { display: block; color: var(--text-subtle); font-size: var(--text-xs); line-height: var(--line-height-small); }
