@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
+import { checkOwnerCrashRestart, crashDesktopOwner } from './lib/DesktopOwnerCrashChecks.mjs';
 
 async function verifiedPreview(id, expectedHead) {
   const directory = path.resolve('artifacts', `shared-terminal-preview-${id}`);
@@ -23,12 +24,16 @@ async function verifiedPreview(id, expectedHead) {
   return { id, head: manifest.packagedFromHead, directory, files: manifest.files };
 }
 
-const oldPreview = await verifiedPreview('2b35c396-a51c-4f1f-9472-21314b58c7bd', '0bd0c1054cad2f4d25dc1943235e440fa4adb986');
+const ownerCrash = process.argv.includes('--owner-crash');
 const newPreview = await verifiedPreview('a38cc309-3888-4aaf-8e1c-c821d347ad5a', 'adbd3d138309cd309308b07b0ad6fb1e580d68a5');
-assert.notEqual(oldPreview.head, newPreview.head);
-assert.notDeepEqual(oldPreview.files, newPreview.files);
+const oldPreview = ownerCrash ? newPreview
+  : await verifiedPreview('2b35c396-a51c-4f1f-9472-21314b58c7bd', '0bd0c1054cad2f4d25dc1943235e440fa4adb986');
+if (!ownerCrash) {
+  assert.notEqual(oldPreview.head, newPreview.head);
+  assert.notDeepEqual(oldPreview.files, newPreview.files);
+}
 
-const prefix = 'shared-terminal-preview-switch-中文-';
+const prefix = ownerCrash ? 'shared-terminal-owner-crash-中文-' : 'shared-terminal-preview-switch-中文-';
 const root = await mkdtemp(path.join(tmpdir(), prefix));
 const data = path.join(root, '共同应用数据');
 await mkdir(data);
@@ -167,61 +172,79 @@ try {
     }
     throw new Error('Explicit old Desktop input did not reach the loopback peer');
   }
-  await sendSentinel('P24_SWITCH_BEFORE');
+  await sendSentinel(ownerCrash ? 'P24_OWNER_CRASH_BEFORE' : 'P24_SWITCH_BEFORE');
 
-  newUi = await boot(newPreview, '新版WebView');
-  const blocked = await status(newUi);
-  assert.equal(blocked.fixture, false);
-  assert.notEqual(blocked.service_id, old.service_id);
-  assert.notEqual(blocked.pid, old.pid);
-  const locked = { result: 'error', code: 'LOCKED' };
-  assert.deepEqual(await page(newUi), locked);
-  assert.deepEqual(await sessions(newUi), []);
-  await newUi.click('连接服务器');
-  await newUi.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('未取得配置目录的独占访问权')`);
-  assert.equal(await newUi.evaluate(`${button('连接')}.disabled`), true);
-  await newUi.click('重新检查配置目录');
-  await newUi.waitFor(`document.querySelector('[aria-label="配置目录复查状态"]')?.textContent.includes('本次复查仍未取得')`);
-  assert.deepEqual(await page(newUi), locked);
-  const stillOld = await status(oldUi);
-  assert.equal(stillOld.service_id, old.service_id);
-  assert.equal(stillOld.pid, old.pid);
-  assert.deepEqual(await sessions(oldUi), [session]);
-  assert.deepEqual(await page(oldUi), oldPage);
-  await sendSentinel('P24_SWITCH_WHILE_LOCKED');
-  assert.deepEqual(await agent(oldUi, { op: 'grant_status', request_id: grant.request_id }), originalGrant);
-  await oldUi.click('关闭撰写');
-  const oldClose = await close(oldUi, old, true);
-  assert.equal(oldClose.exit_code, 0);
-  oldUi = undefined;
+  if (ownerCrash) {
+    const observed = await crashDesktopOwner(oldUi, old, oldPreview.directory);
+    oldUi = undefined;
+    newUi = await boot(newPreview, '重开WebView');
+    const { current, ...peer } = await checkOwnerCrashRestart({
+      ui: newUi, owner: old, grant, profiles: oldPage.profiles, data, metrics, expectedWire,
+    });
+    const restartedClose = await close(newUi, current, false);
+    assert.equal(restartedClose.exit_code, 0);
+    newUi = undefined;
+    evidence = {
+      result: 'PASS', preview: { id: newPreview.id, head: newPreview.head },
+      originalService: old.service_id, originalSession: ref, observed,
+      previousClose: current.previous_close, originalGrantAfterRestart: 'NotFound', newSessionCount: 0,
+      restartedService: current.service_id, restartedClose, ...peer,
+    };
+  } else {
+    newUi = await boot(newPreview, '新版WebView');
+    const blocked = await status(newUi);
+    assert.equal(blocked.fixture, false);
+    assert.notEqual(blocked.service_id, old.service_id);
+    assert.notEqual(blocked.pid, old.pid);
+    const locked = { result: 'error', code: 'LOCKED' };
+    assert.deepEqual(await page(newUi), locked);
+    assert.deepEqual(await sessions(newUi), []);
+    await newUi.click('连接服务器');
+    await newUi.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('未取得配置目录的独占访问权')`);
+    assert.equal(await newUi.evaluate(`${button('连接')}.disabled`), true);
+    await newUi.click('重新检查配置目录');
+    await newUi.waitFor(`document.querySelector('[aria-label="配置目录复查状态"]')?.textContent.includes('本次复查仍未取得')`);
+    assert.deepEqual(await page(newUi), locked);
+    const stillOld = await status(oldUi);
+    assert.equal(stillOld.service_id, old.service_id);
+    assert.equal(stillOld.pid, old.pid);
+    assert.deepEqual(await sessions(oldUi), [session]);
+    assert.deepEqual(await page(oldUi), oldPage);
+    await sendSentinel('P24_SWITCH_WHILE_LOCKED');
+    assert.deepEqual(await agent(oldUi, { op: 'grant_status', request_id: grant.request_id }), originalGrant);
+    await oldUi.click('关闭撰写');
+    const oldClose = await close(oldUi, old, true);
+    assert.equal(oldClose.exit_code, 0);
+    oldUi = undefined;
 
-  assert.deepEqual(await page(newUi), locked);
-  await newUi.click('重新检查配置目录');
-  await newUi.waitFor(`Array.from(document.querySelector('[aria-label="快速连接已保存"]')?.options??[]).some(o=>o.value===${JSON.stringify(profile.id)})`);
-  const ready = await status(newUi);
-  assert.equal(ready.service_id, blocked.service_id);
-  assert.equal(ready.pid, blocked.pid);
-  assert.deepEqual((await page(newUi)).profiles, oldPage.profiles);
-  assert.equal(schemaVersion(), 7);
-  assert.deepEqual(await sessions(newUi), []);
-  assert.deepEqual((await agent(newUi, { op: 'grant_list' })).data, []);
-  assert.equal(await newUi.evaluate(`window.__TAURI_INTERNALS__.invoke('agent_management_request',{request:{op:'grant_status',request_id:${JSON.stringify(grant.request_id)}}}).then(()=>null,e=>String(e))`), 'NotFound');
-  await delay(600);
-  const finalPeer = await metrics();
-  assert.deepEqual(Buffer.from(finalPeer.received.flat()), Buffer.from(expectedWire));
-  assert.equal(finalPeer.accepted_connections, 1);
-  assert.equal(finalPeer.attempts, 1);
-  await newUi.click('收起连接窗口');
-  const newClose = await close(newUi, blocked, false);
-  newUi = undefined;
-  evidence = {
-    result: 'PASS', oldPreview: { id: oldPreview.id, head: oldPreview.head },
-    newPreview: { id: newPreview.id, head: newPreview.head },
-    schema: 7, originalSession: ref, oldClose, newClose, sameNewOwnerAfterRecheck: true,
-    originalGrantAfterSwitch: 'NotFound', newSessionCount: 0,
-    peerConnections: finalPeer.accepted_connections, peerAuthAttempts: finalPeer.attempts,
-    peerBytes: Buffer.byteLength(expectedWire),
-  };
+    assert.deepEqual(await page(newUi), locked);
+    await newUi.click('重新检查配置目录');
+    await newUi.waitFor(`Array.from(document.querySelector('[aria-label="快速连接已保存"]')?.options??[]).some(o=>o.value===${JSON.stringify(profile.id)})`);
+    const ready = await status(newUi);
+    assert.equal(ready.service_id, blocked.service_id);
+    assert.equal(ready.pid, blocked.pid);
+    assert.deepEqual((await page(newUi)).profiles, oldPage.profiles);
+    assert.equal(schemaVersion(), 7);
+    assert.deepEqual(await sessions(newUi), []);
+    assert.deepEqual((await agent(newUi, { op: 'grant_list' })).data, []);
+    assert.equal(await newUi.evaluate(`window.__TAURI_INTERNALS__.invoke('agent_management_request',{request:{op:'grant_status',request_id:${JSON.stringify(grant.request_id)}}}).then(()=>null,e=>String(e))`), 'NotFound');
+    await delay(600);
+    const finalPeer = await metrics();
+    assert.deepEqual(Buffer.from(finalPeer.received.flat()), Buffer.from(expectedWire));
+    assert.equal(finalPeer.accepted_connections, 1);
+    assert.equal(finalPeer.attempts, 1);
+    await newUi.click('收起连接窗口');
+    const newClose = await close(newUi, blocked, false);
+    newUi = undefined;
+    evidence = {
+      result: 'PASS', oldPreview: { id: oldPreview.id, head: oldPreview.head },
+      newPreview: { id: newPreview.id, head: newPreview.head },
+      schema: 7, originalSession: ref, oldClose, newClose, sameNewOwnerAfterRecheck: true,
+      originalGrantAfterSwitch: 'NotFound', newSessionCount: 0,
+      peerConnections: finalPeer.accepted_connections, peerAuthAttempts: finalPeer.attempts,
+      peerBytes: Buffer.byteLength(expectedWire),
+    };
+  }
 } catch (error) {
   console.error('P24 owned preview-switch root retained:', root);
   throw error;
@@ -240,5 +263,7 @@ const resolved = await realpath(root);
 assert.equal(path.dirname(resolved), await realpath(tmpdir()));
 assert.ok(path.basename(resolved).startsWith(prefix));
 await rm(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-await writeFile('artifacts/P24-preview-switch.json', JSON.stringify(evidence, null, 2) + '\n');
-console.log('PASS ordinary side-by-side previews, active SSH2 ownership and explicit configuration handoff');
+await writeFile(ownerCrash ? 'artifacts/P24-owner-crash.json' : 'artifacts/P24-preview-switch.json',
+  JSON.stringify(evidence, null, 2) + '\n');
+console.log(ownerCrash ? 'PASS ordinary Desktop owner crash, active SSH2 service reaped and manual restart isolated'
+  : 'PASS ordinary side-by-side previews, active SSH2 ownership and explicit configuration handoff');
