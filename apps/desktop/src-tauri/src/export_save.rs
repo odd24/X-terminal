@@ -174,6 +174,8 @@ pub struct Info {
     pub staging: Option<String>,
     pub failure: Option<String>,
     pub os_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic_issue: Option<terminal_log::close_store::Unavailable>,
 }
 fn active(info: &Info) -> bool {
     matches!(
@@ -569,6 +571,7 @@ impl Manager {
             staging: None,
             failure: None,
             os_code: None,
+            diagnostic_issue: None,
         };
         state.entries.insert(
             id,
@@ -712,13 +715,20 @@ fn copy(
             return;
         }
     };
-    let report = target.save_checked(
+    let report = target.save_tracked(
         &mut source,
         || cancel.load(Ordering::Acquire),
         || match (mode, commit) {
             (SourceMode::Protected, Some(commit)) => commit(),
             (SourceMode::Protected, None) => false,
             _ => true,
+        },
+        directory,
+        |point| {
+            #[cfg(feature = "save-recovery-fixture")]
+            crate::save_recovery_fixture::checkpoint(directory, point);
+            #[cfg(not(feature = "save-recovery-fixture"))]
+            let _ = point;
         },
     );
     drop(source);
@@ -732,6 +742,7 @@ fn copy(
     info.path = Some(display(&report.path));
     info.backup = report.backup.as_deref().map(display);
     info.staging = report.staging.as_deref().map(display);
+    info.diagnostic_issue = report.diagnostic_issue;
 }
 
 #[cfg(test)]
@@ -779,6 +790,7 @@ mod tests {
                 staging: None,
                 failure: None,
                 os_code: None,
+                diagnostic_issue: None,
             },
             nonce,
             cancel: Arc::new(AtomicBool::new(false)),

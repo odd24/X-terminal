@@ -9,6 +9,7 @@ license.workspace = true
 default = []
 load-observer-test = ["dep:sha2"]
 close-receipt-fixture = []
+save-recovery-fixture = []
 serial-mcp-fixture = []
 
 [build-dependencies]

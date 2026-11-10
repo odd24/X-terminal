@@ -1,6 +1,7 @@
 import {ImportConfigPanel} from './import-config-panel';
 import {CloseReceiptPanel} from './close-receipt-panel';
 import type {PreviousClose} from './close-receipt';
+import {SaveRecoveryPanel, saveRecoveryAttention, type SaveRecoverySnapshot} from './save-recovery-panel';
 import {BatchConfigPanel} from './batch-config-panel';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -115,6 +116,17 @@ function App() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [closeInfoOpen,setCloseInfoOpen]=useState(false);
   const [closeNoticeDismissed,setCloseNoticeDismissed]=useState(false);
+  const [saveRecovery,setSaveRecovery]=useState<SaveRecoverySnapshot>();
+  const [saveRecoveryOpen,setSaveRecoveryOpen]=useState(false);
+  const [saveRecoveryDismissed,setSaveRecoveryDismissed]=useState(false);
+  useEffect(()=>{
+    let disposed=false;
+    void invoke<SaveRecoverySnapshot>('save_recovery_status').then(
+      value=>{if(!disposed)setSaveRecovery(value);},
+      ()=>{if(!disposed)setSaveRecovery({availability:'IO',items:[]});},
+    );
+    return ()=>{disposed=true;};
+  },[]);
   const [preferences, setPreferences] = useState<DesktopPreferences>({ theme: 'dark', terminal_font: 'consolas', terminal_palette: 'follow_theme', font_size: 15, ctrl_c_copy: true, ctrl_v_paste: false, right_click_paste: false });
   const preferenceRef = useRef(preferences); preferenceRef.current = preferences;
   const theme: ThemeChoice = preferences.theme, terminalFont: TerminalFont = preferences.terminal_font;
@@ -427,6 +439,7 @@ function App() {
       <button onClick={()=>setBatchConfigOpen(true)}>批量修改配置</button>
       <button onClick={()=>setImportConfigOpen(true)}>导入原生配置</button>
       <button onClick={()=>setCloseInfoOpen(true)}>上次关闭信息</button>
+      <button onClick={()=>setSaveRecoveryOpen(true)}>另存保全信息</button>
       <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
       <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
 
@@ -484,6 +497,8 @@ function App() {
     {triggerNotice&&!triggersOpen&&<div className="terminal-log-feedback" role="status" aria-label="触发器窗口通知"><span>{visibleControls(triggerNotice)}</span><button onClick={()=>setTriggerNotice('')}>关闭触发通知</button></div>}
     {!triggerNotice&&!closeNoticeDismissed&&service?.previous_close?.attention&&service.previous_close.receipt?.service_id!==service.service_id&&<div className="terminal-log-feedback" role="status" aria-label="上次关闭提示"><span>上次本地服务关闭有需查看的信息。</span><button onClick={()=>setCloseInfoOpen(true)}>查看关闭信息</button><button onClick={()=>setCloseNoticeDismissed(true)}>收起关闭提示</button></div>}
     {closeInfoOpen&&<Dialog label="上次关闭信息" close={()=>setCloseInfoOpen(false)}><CloseReceiptPanel previous={service?.previous_close} close={()=>setCloseInfoOpen(false)}/></Dialog>}
+    {!saveRecoveryDismissed&&saveRecovery&&saveRecoveryAttention(saveRecovery)&&<div className="terminal-log-feedback" role="status" aria-label="另存保全提示"><span>上次覆盖另存可能有遗留，当前结果未知。</span><button onClick={()=>setSaveRecoveryOpen(true)}>查看另存保全信息</button><button onClick={()=>setSaveRecoveryDismissed(true)}>收起另存保全提示</button></div>}
+    {saveRecoveryOpen&&<Dialog label="另存保全信息" close={()=>setSaveRecoveryOpen(false)}><SaveRecoveryPanel snapshot={saveRecovery} close={()=>setSaveRecoveryOpen(false)}/></Dialog>}
     {importConfigOpen&&<Dialog label="原生连接配置导入" wide close={()=>{setImportConfigOpen(false);setTreeRevision(value=>value+1);}}><ImportConfigPanel owner={serviceStopped.current?'':service?.service_id??''} close={()=>{setImportConfigOpen(false);setTreeRevision(value=>value+1);}}/></Dialog>}
     {batchConfigOpen&&<Dialog label="批量修改连接配置" wide close={()=>{setBatchConfigOpen(false);setTreeRevision(value=>value+1);}}><BatchConfigPanel owner={serviceStopped.current?'':service?.service_id??''} close={()=>{setBatchConfigOpen(false);setTreeRevision(value=>value+1);}}/></Dialog>}
     {triggersOpen&&<Dialog label="配置本窗口触发器" close={()=>{triggers.current.clear();setTriggersOpen(false);}}><TriggerPanel notice={triggerNotice} dismiss={()=>setTriggerNotice('')} owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={triggers.current} close={()=>setTriggersOpen(false)}/></Dialog>}

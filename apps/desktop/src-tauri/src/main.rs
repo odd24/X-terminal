@@ -11,6 +11,8 @@ mod config_import;
 mod export_save;
 #[cfg(feature = "load-observer-test")]
 mod load_observer_test;
+#[cfg(feature = "save-recovery-fixture")]
+mod save_recovery_fixture;
 #[cfg(feature = "serial-mcp-fixture")]
 mod serial_fixture;
 mod service;
@@ -28,6 +30,31 @@ struct Desktop(
     Arc<Mutex<Option<session_service::client::Client>>>,
     std::path::PathBuf,
 );
+
+#[derive(Clone, serde::Serialize)]
+struct SaveRecoverySnapshot {
+    availability: Option<terminal_log::close_store::Unavailable>,
+    items: Vec<terminal_log::save_recovery::Item>,
+}
+impl SaveRecoverySnapshot {
+    fn load(directory: &std::path::Path) -> Self {
+        match terminal_log::save_recovery::read(directory) {
+            Ok(items) => Self {
+                availability: None,
+                items,
+            },
+            Err(error) => Self {
+                availability: Some(error),
+                items: Vec::new(),
+            },
+        }
+    }
+}
+
+#[tauri::command]
+fn save_recovery_status(state: State<'_, SaveRecoverySnapshot>) -> SaveRecoverySnapshot {
+    state.inner().clone()
+}
 
 #[tauri::command]
 async fn export_save_request(
@@ -707,6 +734,11 @@ fn main() {
         "CLOSE_RECEIPT_FIXTURE_DISABLED"
     );
     let load_observer = args.iter().any(|arg| arg == "--load-observer-test");
+    let save_recovery_fixture = args.iter().position(|arg| arg == "--save-recovery-fixture");
+    assert!(
+        save_recovery_fixture.is_none() || cfg!(feature = "save-recovery-fixture"),
+        "SAVE_RECOVERY_FIXTURE_DISABLED"
+    );
     assert!(
         !load_observer || cfg!(feature = "load-observer-test"),
         "LOAD_OBSERVER_TEST_DISABLED"
@@ -728,6 +760,15 @@ fn main() {
             fixture,
         )
         .expect("CLOSE_RECEIPT_TEST_REJECTED");
+    }
+    #[cfg(feature = "save-recovery-fixture")]
+    if let Some(index) = save_recovery_fixture {
+        save_recovery_fixture::configure(
+            directory.as_deref().expect("missing own test root"),
+            args.get(index + 1).expect("missing save test mode"),
+            fixture,
+        )
+        .expect("SAVE_RECOVERY_TEST_REJECTED");
     }
     #[cfg(feature = "serial-mcp-fixture")]
     if serial_mcp_fixture {
@@ -767,6 +808,7 @@ fn main() {
             }
             let weak = Arc::downgrade(&shared);
             app.manage(export_save::Manager::new(directory.clone())?);
+            app.manage(SaveRecoverySnapshot::load(&directory));
             app.manage(terminal_logs::Manager::new(directory.clone())?);
             app.manage(trigger_match::Manager::default());
             app.manage(config_import::Manager::default());
@@ -815,6 +857,7 @@ fn main() {
             audit_history_request,
             bridge_management_request,
             export_save_request,
+            save_recovery_status,
             protected_export_desktop_request,
             terminal_log_request,
             config_directory

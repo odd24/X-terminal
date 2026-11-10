@@ -6,6 +6,8 @@ pub mod audit;
 mod cleanup;
 #[cfg(windows)]
 pub mod close_store;
+#[cfg(windows)]
+pub use close_store::save_recovery;
 mod directory;
 mod export;
 mod export_store;
@@ -16,7 +18,7 @@ pub use verified_export::{ExportFingerprint, VerifiedExport};
 #[cfg(windows)]
 mod selected_save;
 #[cfg(windows)]
-pub use selected_save::{SaveReport, SaveTarget};
+pub use selected_save::{SaveCheckpoint, SaveReport, SaveTarget};
 mod format;
 mod paired;
 mod recovery;

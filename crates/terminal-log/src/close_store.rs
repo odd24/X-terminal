@@ -10,10 +10,13 @@ use std::{
 };
 use uuid::Uuid;
 use windows_sys::Win32::Storage::FileSystem::*;
+#[path = "save_recovery.rs"]
+pub mod save_recovery;
 pub const DIRECTORY: &str = "desktop-close-receipts-v1";
 pub const MAX_BYTES: usize = 8192;
 pub const MAX_RECORDS: usize = 32;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Unavailable {
     Missing,
     Busy,
@@ -67,9 +70,9 @@ fn leaf(path: &Path, new: bool) -> Result<File> {
     Ok(file)
 }
 impl Store {
-    fn open(root: &Path, create: bool) -> Result<Self> {
+    fn open(root: &Path, directory: &str, create: bool) -> Result<Self> {
         let mut guards = crate::storage::guards(root).map_err(|_| Unavailable::Untrusted)?;
-        let path = root.join(DIRECTORY);
+        let path = root.join(directory);
         let mut fresh = false;
         match fs::symlink_metadata(&path) {
             Ok(_) => {}
@@ -94,7 +97,11 @@ impl Store {
             path,
         })
     }
-    fn scan(&self, validate: &impl Fn(&[u8], Uuid) -> Result<u64>) -> Result<Vec<Held>> {
+    fn scan(
+        &self,
+        limit: usize,
+        validate: &impl Fn(&[u8], Uuid) -> Result<u64>,
+    ) -> Result<Vec<Held>> {
         let mut result = vec![];
         for entry in fs::read_dir(&self.path).map_err(io)? {
             let entry = entry.map_err(io)?;
@@ -103,7 +110,7 @@ impl Store {
             if name == "store.lock" {
                 continue;
             }
-            if result.len() >= MAX_RECORDS {
+            if result.len() >= limit {
                 return Err(Unavailable::Capacity);
             }
             let id = Uuid::parse_str(name.strip_suffix(".json").ok_or(Unavailable::Untrusted)?)
@@ -111,19 +118,7 @@ impl Store {
             if id.is_nil() || name != format!("{id}.json") {
                 return Err(Unavailable::Untrusted);
             }
-            let mut file = leaf(&entry.path(), false)?;
-            let size = file.metadata().map_err(io)?.len();
-            if size == 0 || size > MAX_BYTES as u64 {
-                return Err(Unavailable::Untrusted);
-            }
-            let mut bytes = vec![];
-            std::io::Read::by_ref(&mut file)
-                .take(MAX_BYTES as u64 + 1)
-                .read_to_end(&mut bytes)
-                .map_err(io)?;
-            if bytes.len() > MAX_BYTES {
-                return Err(Unavailable::Untrusted);
-            }
+            let (file, bytes) = read_leaf(&entry.path(), MAX_BYTES)?;
             let time = validate(&bytes, id)?;
             result.push(Held {
                 id,
@@ -135,11 +130,27 @@ impl Store {
         Ok(result)
     }
 }
+fn read_leaf(path: &Path, limit: usize) -> Result<(File, Vec<u8>)> {
+    let mut file = leaf(path, false)?;
+    let size = file.metadata().map_err(io)?.len();
+    if size == 0 || size > limit as u64 {
+        return Err(Unavailable::Untrusted);
+    }
+    let mut bytes = vec![];
+    std::io::Read::by_ref(&mut file)
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io)?;
+    if bytes.len() > limit {
+        return Err(Unavailable::Untrusted);
+    }
+    Ok((file, bytes))
+}
 /// Validator is trusted Rust code, returning only safe format classification/time.
 pub fn read(root: &Path, validate: impl Fn(&[u8], Uuid) -> Result<u64>) -> Result<Vec<Entry>> {
-    let store = Store::open(root, false)?;
+    let store = Store::open(root, DIRECTORY, false)?;
     Ok(store
-        .scan(&validate)?
+        .scan(MAX_RECORDS, &validate)?
         .into_iter()
         .map(|v| Entry {
             service_id: v.id,
@@ -167,8 +178,8 @@ fn publish_inner(
         return Err(Unavailable::Untrusted);
     }
     validate(bytes, id)?;
-    let store = Store::open(root, true)?;
-    let mut entries = store.scan(&validate)?;
+    let store = Store::open(root, DIRECTORY, true)?;
+    let mut entries = store.scan(MAX_RECORDS, &validate)?;
     if let Some(old) = entries.iter().find(|v| v.id == id) {
         return if old.bytes == bytes {
             Ok(())
@@ -181,12 +192,36 @@ fn publish_inner(
         crate::selected_save::remove_owned(&entries[0].file).map_err(io)?;
         entries.remove(0);
     }
-    let pending = store.path.join(format!("{id}.pending"));
-    let mut file = leaf(&pending, true)?;
+    publish_file(&store, id, bytes, before_rename)
+}
+
+fn publish_file(
+    store: &Store,
+    id: Uuid,
+    bytes: &[u8],
+    before_rename: impl FnOnce(&Path),
+) -> Result<()> {
+    publish_leaf(
+        store,
+        &format!("{id}.pending"),
+        &format!("{id}.json"),
+        bytes,
+        before_rename,
+    )
+}
+
+fn publish_leaf(
+    store: &Store,
+    pending: &str,
+    target: &str,
+    bytes: &[u8],
+    before_rename: impl FnOnce(&Path),
+) -> Result<()> {
+    let mut file = leaf(&store.path.join(pending), true)?;
     let result = (|| {
         file.write_all(bytes).map_err(io)?;
         file.sync_all().map_err(io)?;
-        let target = store.path.join(format!("{id}.json"));
+        let target = store.path.join(target);
         before_rename(&target);
         crate::selected_save::rename(&file, &target).map_err(io)?;
         Ok(())

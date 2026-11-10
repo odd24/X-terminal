@@ -1,5 +1,5 @@
 //! User-selected local targets. Never expose these paths through generic IPC.
-use crate::{VerifiedExport, storage};
+use crate::{VerifiedExport, close_store::Unavailable, save_recovery, storage};
 use serde::Serialize;
 use std::{
     fs::{self, File, OpenOptions},
@@ -33,13 +33,25 @@ pub struct SaveReport {
     pub staging: Option<PathBuf>,
     pub failure: Option<&'static str>,
     pub os_code: Option<i32>,
+    pub diagnostic_issue: Option<Unavailable>,
 }
 pub struct SaveTarget {
     _guards: Vec<File>,
+    id: Uuid,
     path: PathBuf,
     staging: PathBuf,
     backup: PathBuf,
     original: Option<File>,
+}
+#[derive(Clone, Copy)]
+pub enum SaveCheckpoint {
+    IntentSynced,
+    BackupMoved,
+    Published,
+}
+struct Tracking<'a> {
+    root: &'a Path,
+    observe: &'a mut dyn FnMut(SaveCheckpoint),
 }
 fn identity(file: &File) -> io::Result<(u32, u32, u32)> {
     use windows_sys::Win32::Storage::FileSystem::{
@@ -227,6 +239,7 @@ impl SaveTarget {
         }
         Ok(Self {
             _guards: guards,
+            id,
             path,
             staging,
             backup,
@@ -252,7 +265,26 @@ impl SaveTarget {
         mut cancelled: impl FnMut() -> bool,
         authorize_commit: impl FnOnce() -> bool,
     ) -> SaveReport {
-        self.run_checked(source, &mut cancelled, |_, _| {}, authorize_commit)
+        self.run_checked(source, &mut cancelled, |_, _| {}, authorize_commit, None)
+    }
+    pub fn save_tracked(
+        self,
+        source: &mut VerifiedExport,
+        mut cancelled: impl FnMut() -> bool,
+        authorize_commit: impl FnOnce() -> bool,
+        root: &Path,
+        mut observe: impl FnMut(SaveCheckpoint),
+    ) -> SaveReport {
+        self.run_checked(
+            source,
+            &mut cancelled,
+            |_, _| {},
+            authorize_commit,
+            Some(Tracking {
+                root,
+                observe: &mut observe,
+            }),
+        )
     }
     #[cfg(test)]
     fn run(
@@ -261,7 +293,7 @@ impl SaveTarget {
         cancelled: &mut impl FnMut() -> bool,
         hook: impl FnMut(bool, &Path),
     ) -> SaveReport {
-        self.run_checked(source, cancelled, hook, || true)
+        self.run_checked(source, cancelled, hook, || true, None)
     }
     fn run_checked(
         self,
@@ -269,6 +301,7 @@ impl SaveTarget {
         cancelled: &mut impl FnMut() -> bool,
         mut hook: impl FnMut(bool, &Path),
         authorize_commit: impl FnOnce() -> bool,
+        mut tracking: Option<Tracking<'_>>,
     ) -> SaveReport {
         let mut report = SaveReport {
             phase: "FAILED",
@@ -277,9 +310,11 @@ impl SaveTarget {
             staging: None,
             failure: None,
             os_code: None,
+            diagnostic_issue: None,
         };
         let mut stage = None;
         let mut moved = false;
+        let mut intent = None;
         let result = (|| -> Result<(), (&'static str, io::Error)> {
             if cancelled() {
                 return Err((
@@ -313,6 +348,39 @@ impl SaveTarget {
                     io::Error::new(io::ErrorKind::Interrupted, "cancelled"),
                 ));
             }
+            if let (Some(original), Some(tracking)) = (&self.original, tracking.as_mut()) {
+                let recorded = (|| {
+                    let parent = self._guards.last().ok_or(Unavailable::Untrusted)?;
+                    save_recovery::begin(
+                        tracking.root,
+                        self.id,
+                        self.path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .ok_or(Unavailable::Untrusted)?,
+                        identity(parent).map_err(|_| Unavailable::Io)?,
+                        identity(original).map_err(|_| Unavailable::Io)?,
+                        identity(file).map_err(|_| Unavailable::Io)?,
+                    )
+                })();
+                match recorded {
+                    Ok(value) => intent = Some(value),
+                    Err(issue) => {
+                        report.diagnostic_issue = Some(issue);
+                        return Err((
+                            "RECOVERY_RECORD",
+                            io::Error::other("save recovery intent unavailable"),
+                        ));
+                    }
+                }
+                (tracking.observe)(SaveCheckpoint::IntentSynced);
+                if cancelled() {
+                    return Err((
+                        "CANCELLED",
+                        io::Error::new(io::ErrorKind::Interrupted, "cancelled"),
+                    ));
+                }
+            }
             if !authorize_commit() {
                 return Err((
                     "AUTHORIZATION",
@@ -323,9 +391,17 @@ impl SaveTarget {
                 rename(original, &self.backup).map_err(|e| ("BACKUP", e))?;
                 moved = true;
                 report.backup = Some(self.backup.clone());
+                if let Some(tracking) = tracking.as_mut() {
+                    (tracking.observe)(SaveCheckpoint::BackupMoved);
+                }
             }
             hook(true, &self.path);
             rename(file, &self.path).map_err(|e| ("PUBLISH", e))?;
+            if intent.is_some()
+                && let Some(tracking) = tracking.as_mut()
+            {
+                (tracking.observe)(SaveCheckpoint::Published);
+            }
             Ok(())
         })();
         match result {
@@ -350,6 +426,18 @@ impl SaveTarget {
                 {
                     report.staging = Some(self.staging.clone());
                 }
+            }
+        }
+        if let (Some(intent), Some(tracking)) = (intent, tracking) {
+            let phase = if report.phase == "COMPLETED" {
+                save_recovery::Phase::Published
+            } else if report.backup.is_some() || report.staging.is_some() {
+                save_recovery::Phase::Preserve
+            } else {
+                save_recovery::Phase::NotPublished
+            };
+            if let Err(issue) = save_recovery::finish(tracking.root, &intent, phase) {
+                report.diagnostic_issue = Some(issue);
             }
         }
         report

@@ -3,7 +3,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {ContextMenu,ErrorNotice,Panel} from './ui';
 import {logging,LogRequestError,type LogInfo,type ExportInfo} from './logging-api';
 import {LogSavePanel} from './log-save-panel';
-import {checkedSave,terminalSave,type SaveInfo} from './log-save';
+import {checkedSave,saveDiagnosticNotice,terminalSave,type SaveInfo} from './log-save';
 import {requestId} from './request-id';
 import {checkedMenu,restoreLogTask,knownMenuRejection,menuFailure,type MenuInfo,type RememberedLogTask,type TerminalMenuContext} from './log-menu';
 type Props={focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
@@ -110,7 +110,7 @@ export function TerminalLogMenu(props:Props){
    {loadError&&<small role="alert">{loadError}</small>}{menu.warning&&<small role="alert">{menu.warning}</small>}
    {pending&&<button role="menuitem" onClick={()=>{setVisible(true);props.close();if(current.current&&!busy)void run(current.current);}}>查询上次日志操作结果</button>}
   </ContextMenu>}
-  {notice&&props.valid(notice.target)&&<div className="terminal-log-feedback" role="status" aria-label="日志保存反馈"><span title={notice.info.path??undefined}>{notice.target.title} · {notice.info.phase==='COMPLETED'?`日志已保存：${notice.info.path}`:'日志保存已取消。'}</span>{notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开保存目录</button>}{directoryError&&<small role="alert">{directoryError}</small>}</div>}
+  {notice&&props.valid(notice.target)&&<div className="terminal-log-feedback" role="status" aria-label="日志保存反馈"><span title={notice.info.path??undefined}>{notice.target.title} · {notice.info.phase==='COMPLETED'?`日志已保存：${notice.info.path}`:'日志保存已取消。'}{saveDiagnosticNotice(notice.info)}</span>{notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开保存目录</button>}{directoryError&&<small role="alert">{directoryError}</small>}</div>}
   {task&&visible&&<div className="terminal-log-operation"><Panel title={`${task.title} · 窗格${task.pane==='first'?1:2}日志`} label="终端右键日志操作" close={closeStatus} closeLabel="收起日志操作">
    {task.error?<ErrorNotice title="日志操作未完成">{task.message}</ErrorNotice>:<p role="status" aria-label="右键日志操作状态">{task.message}</p>}
    {task.log?.readable&&<><p className="data-location" aria-label="实时日志文件名">{task.log.readable.filename}</p><small>同一应用数据目录的所有窗口共用 logs 文件夹。文件刷新目标100ms、持久同步目标1秒，系统阻塞时可能延迟；停止后核对最终同步状态。</small></>}
