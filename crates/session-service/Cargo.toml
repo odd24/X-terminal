@@ -9,6 +9,7 @@ license.workspace = true
 serial-ui-fixture = ["transport-serial/test-backend"]
 serial-mcp-fixture = ["serial-ui-fixture"]
 audit-diagnostics-fixture = ["terminal-log/audit-diagnostics-fixture"]
+log-disk-full-fixture = ["terminal-log/log-disk-full-fixture"]
 
 [dependencies]
 encoding_rs = "=0.8.44"

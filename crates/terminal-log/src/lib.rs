@@ -6,6 +6,8 @@ pub mod audit;
 mod cleanup;
 #[cfg(windows)]
 pub mod close_store;
+#[cfg(all(windows, feature = "log-disk-full-fixture"))]
+pub mod disk_full_fixture;
 #[cfg(windows)]
 pub use close_store::save_recovery;
 mod directory;

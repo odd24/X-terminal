@@ -36,6 +36,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             None
         };
+    if let Some(index) = args.iter().position(|arg| arg == "--log-disk-full-fixture") {
+        if !cfg!(feature = "log-disk-full-fixture") {
+            return Err("LOG_DISK_FULL_FIXTURE_DISABLED".into());
+        }
+        args.remove(index);
+        #[cfg(feature = "log-disk-full-fixture")]
+        terminal_log::disk_full_fixture::configure(
+            directory
+                .as_deref()
+                .ok_or("LOG_DISK_FULL_TEST_ROOT_REQUIRED")?,
+        )
+        .map_err(|_| "LOG_DISK_FULL_TEST_ROOT_REJECTED")?;
+    }
     let (instance, fixture) = match args.as_slice() {
         [] => ("main", false),
         [flag, instance] if flag == "--instance" => (instance.as_str(), false),

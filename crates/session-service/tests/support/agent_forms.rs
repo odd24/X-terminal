@@ -64,6 +64,12 @@ async fn dispatch(client: &mut Client, operation: &Operation) -> Response {
     match copy_operation(operation) {
         Operation::Ssh2(request) => client.request(Request::Ssh { request }).await.unwrap(),
         Operation::Serial(request) => client.request(Request::Serial { request }).await.unwrap(),
+        Operation::Export(target) => client
+            .request(Request::ProtectedExport {
+                request: export::Request::Start { target },
+            })
+            .await
+            .unwrap(),
     }
 }
 async fn release(client: &mut Client, c: ConnectionRef) {

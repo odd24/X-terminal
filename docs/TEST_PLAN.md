@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P24/T20 日志写入故障专项 `pwsh -NoProfile -File scripts/Test-LogDiskFull.ps1` 使用受限服务构建和单一回环 SSH，验证真实 IPC 的 DiskFull、前缀保全与明确新录制，最后恢复普通服务并验证故障开关拒绝，详见[P24](records/P24.md)。
+
 P24/T20 外壳退出专项 `node scripts/Test-Desktop-PreviewSwitch.mjs --owner-crash` 复用已交付普通预览和回环 SSH，独立观察外壳意外退出后的所属服务回收，并验证人工重开与原输入及授权隔离，详见[P24](records/P24.md)。
 
 P24 本机预览切换专项 `node scripts/Test-Desktop-PreviewSwitch.mjs` 复用两份已交付的普通 schema 7 预览和回环 SSH，覆盖活跃旧连接持锁、新版拒绝、旧版正常退出、新版显式复查与旧输入及授权隔离，详见[P24](records/P24.md)。

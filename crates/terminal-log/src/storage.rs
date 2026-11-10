@@ -258,6 +258,8 @@ impl Journal for FileJournal {
                 "record exceeds segment budget",
             ));
         }
+        #[cfg(all(windows, feature = "log-disk-full-fixture"))]
+        crate::disk_full_fixture::before_raw_write(&self.directory)?;
         self.raw.as_mut().unwrap().write_all(&raw)?;
         self.text.as_mut().unwrap().write_all(&text)?;
         if let Some(live) = &mut self.live {

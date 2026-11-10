@@ -1394,6 +1394,211 @@ async fn ssh_shell_logging_captures_actual_transport_bytes_and_closes_with_servi
     );
 }
 
+#[cfg(feature = "log-disk-full-fixture")]
+#[tokio::test]
+async fn ssh_log_disk_full_preserves_synced_prefix_and_requires_explicit_restart() {
+    let remote = ssh_fixture::Fixture::start().await;
+    let root = std::env::temp_dir().join(format!(
+        "shared-terminal-log-disk-full-中文-{}",
+        Uuid::new_v4()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let temp = ConfigTemp(root);
+    let unrelated = temp.0.join("unrelated.txt");
+    std::fs::write(&unrelated, b"unrelated synthetic bytes").unwrap();
+    let mut service = Fixture::on_instance_with_args(
+        Uuid::new_v4().to_string(),
+        false,
+        Some(&temp.0),
+        &["--log-disk-full-fixture"],
+    )
+    .await;
+    let mut client = service.connect().await;
+    let connection = ssh_connected_fixture(&mut client, &remote).await;
+    let start = |request_id| L::Start {
+        connection,
+        request_id,
+        limits: limits(),
+    };
+    let first_id = Uuid::new_v4();
+    let first = info(call(&mut client, start(first_id)).await);
+    settled(&mut client, connection, first.log_id, |i| {
+        matches!(i.phase, log::Phase::Recording)
+    })
+    .await;
+
+    let prefix = b"P24 synced prefix\r\n";
+    remote.push(prefix).await;
+    let baseline = settled(&mut client, connection, first.log_id, |i| {
+        i.written_raw_bytes == prefix.len() as u64
+            && i.readable
+                .as_ref()
+                .is_some_and(|r| r.synced_records > 0 && r.synced_records == i.written_records)
+    })
+    .await;
+    assert_eq!(baseline.accepted_raw_bytes, prefix.len() as u64);
+    assert_eq!(baseline.accepted_records, baseline.written_records);
+    let readable = baseline.readable.as_ref().unwrap();
+    let readable_path = temp.0.join("logs").join(&readable.filename);
+    let baseline_text = std::fs::read(&readable_path).unwrap();
+    assert!(baseline_text.ends_with(prefix));
+    assert_eq!(readable.synced_bytes, baseline_text.len() as u64);
+
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(temp.0.join("arm-disk-full"))
+        .unwrap();
+    let failed_bytes = b"P24 disk full\r\n";
+    remote.push(failed_bytes).await;
+    let failed = settled(&mut client, connection, first.log_id, |i| i.worker_finished).await;
+    assert!(matches!(failed.phase, log::Phase::Failed));
+    assert!(matches!(failed.failure, Some(log::Failure::DiskFull)));
+    assert!(!failed.durable);
+    assert_eq!(
+        failed.accepted_raw_bytes,
+        (prefix.len() + failed_bytes.len()) as u64
+    );
+    assert_eq!(failed.written_raw_bytes, baseline.written_raw_bytes);
+    assert!(failed.accepted_records > baseline.accepted_records);
+    assert_eq!(failed.written_records, baseline.written_records);
+    let failed_readable = failed.readable.as_ref().unwrap();
+    assert_eq!(failed_readable.written_bytes, readable.written_bytes);
+    assert_eq!(failed_readable.flushed_bytes, readable.flushed_bytes);
+    assert_eq!(failed_readable.synced_bytes, readable.synced_bytes);
+    let failed_dir = temp.0.join("terminal-logs").join(first.log_id.to_string());
+    let raw_path = failed_dir.join("0000000000000001.rawlog");
+    let prefix_raw = std::fs::read(&raw_path).unwrap();
+    assert_eq!(
+        records(&temp, first.log_id)
+            .into_iter()
+            .flat_map(|r| r.bytes)
+            .collect::<Vec<_>>(),
+        prefix
+    );
+    assert!(!failed_dir.join("completion.json").exists());
+    assert!(!failed_dir.join("completion.partial").exists());
+
+    remote.push(b"P24 terminal still receiving").await;
+    timeout(Duration::from_secs(4), async {
+        loop {
+            if let Reply::Screen(screen) = ok(client
+                .request(Request::Screen { connection })
+                .await
+                .unwrap())
+                && screen.contents.contains("P24 terminal still receiving")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let old = info(
+        call(
+            &mut client,
+            L::StartStatus {
+                connection,
+                request_id: first_id,
+            },
+        )
+        .await,
+    );
+    assert_eq!(old.log_id, failed.log_id);
+    assert!(matches!(old.failure, Some(log::Failure::DiskFull)));
+    assert_eq!(old.written_raw_bytes, failed.written_raw_bytes);
+    let log::Reply::List { logs } = call(&mut client, L::CaptureList {}).await else {
+        panic!("capture list reply expected");
+    };
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].log_id, first.log_id);
+    assert!(
+        logs[0].active,
+        "failed worker remains attached until explicit release"
+    );
+    let next_id = Uuid::new_v4();
+    assert_eq!(
+        error(
+            client
+                .request(Request::Logging {
+                    request: start(next_id)
+                })
+                .await
+                .unwrap()
+        ),
+        ErrorCode::InvalidState
+    );
+    let released = info(
+        call(
+            &mut client,
+            L::ReleaseFailed {
+                connection,
+                log_id: first.log_id,
+            },
+        )
+        .await,
+    );
+    assert!(matches!(released.phase, log::Phase::Released));
+    assert!(matches!(released.failure, Some(log::Failure::DiskFull)));
+    assert!(!released.active);
+
+    let next = info(call(&mut client, start(Uuid::new_v4())).await);
+    assert_ne!(next.log_id, first.log_id);
+    settled(&mut client, connection, next.log_id, |i| {
+        matches!(i.phase, log::Phase::Recording)
+    })
+    .await;
+    let fresh = b"P24 explicit fresh capture\r\n";
+    remote.push(fresh).await;
+    settled(&mut client, connection, next.log_id, |i| {
+        i.written_raw_bytes == fresh.len() as u64
+    })
+    .await;
+    call(
+        &mut client,
+        L::Stop {
+            connection,
+            log_id: next.log_id,
+        },
+    )
+    .await;
+    let done = settled(&mut client, connection, next.log_id, |i| i.worker_finished).await;
+    assert!(matches!(done.phase, log::Phase::Stopped));
+    assert!(done.durable);
+    assert!(done.failure.is_none());
+    assert!(
+        temp.0
+            .join("terminal-logs")
+            .join(next.log_id.to_string())
+            .join("completion.json")
+            .is_file()
+    );
+    assert_eq!(
+        records(&temp, next.log_id)
+            .into_iter()
+            .flat_map(|r| r.bytes)
+            .collect::<Vec<_>>(),
+        fresh
+    );
+    assert_eq!(std::fs::read(raw_path).unwrap(), prefix_raw);
+    assert_eq!(std::fs::read(readable_path).unwrap(), baseline_text);
+    assert_eq!(
+        std::fs::read(unrelated).unwrap(),
+        b"unrelated synthetic bytes"
+    );
+    assert!(!failed_dir.join("completion.json").exists());
+    assert!(!failed_dir.join("completion.partial").exists());
+    service.stop(&mut client).await;
+    println!(
+        "DiskFull IPC: FAILED/DISK_FULL, accepted={}, written={}, synchronized readable checkpoint={}, explicit new capture={} bytes",
+        failed.accepted_raw_bytes,
+        failed.written_raw_bytes,
+        failed_readable.synced_bytes,
+        done.written_raw_bytes
+    );
+}
+
 async fn captured_fixture(client: &mut Client) -> (ConnectionRef, log::Info) {
     let connection = reference(ok(client.request(Request::CreateFixture {}).await.unwrap()));
     let started = info(

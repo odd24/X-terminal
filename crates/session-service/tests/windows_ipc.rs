@@ -45,12 +45,21 @@ impl Fixture {
         fixture: bool,
         directory: Option<&std::path::Path>,
     ) -> Self {
+        Self::on_instance_with_args(instance, fixture, directory, &[]).await
+    }
+    async fn on_instance_with_args(
+        instance: String,
+        fixture: bool,
+        directory: Option<&std::path::Path>,
+        extra: &[&str],
+    ) -> Self {
         let token = SecretToken::generate();
         let mut command = Command::new(env!("CARGO_BIN_EXE_session-service"));
         command.args(["--instance", &instance]);
         if fixture {
             command.arg("--test-fixture");
         }
+        command.args(extra);
         if let Some(directory) = directory {
             command.arg("--data-dir").arg(directory);
         }
