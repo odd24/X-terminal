@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P15/ADR-095 第56入口 `npm run test:desktop:protected-export` 前置实际普通构建。合成 SSH 和内存 UART 覆盖独立保护导出批准、精确范围、丢答后原编号、跨票据隔离、落盘保护、实际另存和撤销覆盖。UART finally 实际重建普通服务，详见[P15](records/P15.md)。
+
 P15/ADR-094 第55入口 `npm run test:desktop:wait` 前置实际普通构建。合成 SSH 和自建输出验证固定水位跨页、保护文本、覆盖与解码缺口、实际30秒期限、取消槽释放及普通工具并发、失权和桥断开，详[P15](records/P15.md)。
 
 P15/ADR-093 第54入口 `npm run test:desktop:ssh-resize` 前置实际普通构建。合成 SSH 真实 stdio 核对尺寸、独立 Control/lease、Single、跨 owner/代次、首答丢失只查。用前方在途输入和真实对端后续尺寸验证撤销/接管取消队列尾项，详[P15](records/P15.md)。

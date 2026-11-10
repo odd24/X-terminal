@@ -1,6 +1,14 @@
 # Codex 首版接入方案
 
-当前 [ADR-094](decisions/ADR-094.md) 固定 v10 二十六项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v9](../contracts/mcp/v9-tools.json) 的二十五项。
+当前 [ADR-095](decisions/ADR-095.md) 固定 v11 二十九项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v10](../contracts/mcp/v10-tools.json) 的二十六项。
+
+在 Desktop 选中已结束的 SSH2 或串口代次，打开 Agent 授权并选择单次保护文本导出。预览并明确批准固定服务、原 UUIDv7、完整保留源区间、编码、UTF-8 格式、保护规则及期限。将面板显示的参数交给同一票据绑定的 `logs_export`。独立 Export 不授予 Read、租约或输入能力。
+
+`logs_export_status` 与 `logs_export_cancel` 接收原 `connection` 和 `request_id`。状态为 PREPARING、COMPLETED、FAILED 或 CANCELLED，完成时返回不透明产物 ID。应答不明只查原编号。取消仅能阻止尚未登记的产物。撤销、到期、代次退休或服务更换后，原托管副本不可访问。
+
+用户在 Desktop 的同一次交接中输入完成产物 ID，明确选择另存位置。已有文件仍须单独确认替换。服务在原生暂存验证后、目标第一次改名前确认本次提交。托管产物撤销不会撤回已另存的用户文件。
+
+此前 [ADR-094](decisions/ADR-094.md) 固定 v10 二十六项工具。[v10 契约](../contracts/mcp/v10-tools.json) 保留 [v9](../contracts/mcp/v9-tools.json) 的二十五项。
 
 `terminal_wait` 接收精确 `connection`、原始源 `cursor`、大小写敏感的字面 `pattern`（1–256 UTF-8 字节）和 `timeout_ms`（1–30000）。须有该代次完整 Read，时间窗专用授权拒绝。受保护票据只在保护后的文本上匹配并返回证据。每次等待单槽，轮询间隔释放管道。
 
@@ -153,7 +161,8 @@ enabled = true
 | tasks_cancel | task_id、request_id | 停止调度/尝试中断结果；不保证远程已退出 |
 | serial_write | connection_id、generation、request_id、text 或 base64 | 写入字节数；精确字节路径不自动加换行 |
 | serial_control | connection_id、generation、request_id、signal、value | DTR/RTS/Break 结果；独立权限 |
-| logs_export | connection_id、range | 返回应用生成的受控文件标识，不接受任意主机文件路径 |
+| logs_export | service_id、原 UUIDv7、retained_ended_output、protected_utf8 | 仅固定单次 Export 和已结束代次，完成后返回托管产物 ID |
+| logs_export_status / logs_export_cancel | 精确 connection、原 request_id | 仅原票据查询或取消未登记的产物 |
 
 长任务以 task_id + tasks_get 轮询，不占住单次 MCP 调用。轮询有间隔和退避，避免忙循环。stdout 只输出 MCP 协议，诊断写 stderr；不得输出秘密。
 
