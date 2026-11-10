@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P24/T20 所属服务退出专项 `node scripts/Test-Desktop-Mcp.mjs --service-interruption` 复用已交付普通预览、回环 SSH 和实际 stdio，覆盖活跃授权与在途输入下的服务退出、原编号查询、关闭回执及人工重开，详见[P24](records/P24.md)。
+
 P24 启动迁移失败专项 `node scripts/Test-Desktop-ConfigMigrationFailure.mjs` 复用已交付的普通预览。自建 schema 6 配置库注入 SQLite ABORT，核对启动错误、原库回滚、独立旧备份及新根副本显式恢复，详见[P24](records/P24.md)。
 
 P24/T20 软件专项 `node scripts/Test-Desktop-Mcp.mjs --ssh-interruption` 需要已交付的 P24 普通预览及现有 SSH 夹具。覆盖对端意外退出、实际 WebView 提示、输入三类回执、人工重连与旧输入和授权隔离，详见[P24](records/P24.md)。

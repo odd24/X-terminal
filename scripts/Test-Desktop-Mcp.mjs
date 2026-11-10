@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
 import { prepareSecuritySentinels, checkMcpSecurity } from './lib/McpSecurityChecks.mjs';
@@ -19,6 +19,7 @@ import {checkMcpForget} from './lib/McpForgetChecks.mjs';
 import {checkMcpDisconnect} from './lib/McpDisconnectChecks.mjs';
 import {checkMcpSerial} from './lib/McpSerialChecks.mjs';
 import {checkSshInterruption} from './lib/SshInterruptionChecks.mjs';
+import {checkServiceInterruption} from './lib/ServiceInterruptionChecks.mjs';
 
 const serialControl=process.argv.includes('--serial-control');
 const disconnect=process.argv.includes('--disconnect');
@@ -30,16 +31,17 @@ const sshResize=process.argv.includes('--ssh-resize');
 const wait=process.argv.includes('--wait');
 const protectedExport=process.argv.includes('--protected-export');
 const interruption=process.argv.includes('--ssh-interruption');
+const serviceInterruption=process.argv.includes('--service-interruption');
 const serial=process.argv.includes('--serial')||serialControl||serialConnect;
 const countedSerial=serialConnect||serialControl||((disconnect||forget||protectedExport)&&serial);
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
-const evidence=interruption?'P24-ssh-interruption':protectedExport?'P15-protected-export-v11':wait?'P15-terminal-wait-v11':sshResize?'P15-wait-impact-resize-v11':serialConnect?'P15-wait-impact-serial-connect-v11':connect?'P15-wait-impact-connect-v11':reconnect?'P15-wait-impact-reconnect-v11':forget?'P15-wait-impact-forget-v11':disconnect?'P15-wait-impact-disconnect-v11':serialControl?'P15-wait-impact-serial-v11':security?'P22-security-v11':exec?'P15-wait-impact-exec-v11':'P15-mcp-v11';
-assert.ok(!(exec||reconnect||connect||sshResize||wait||interruption)||!serial,'SSH2 fixture required');
-assert.ok(!interruption||!(exec||reconnect||connect||sshResize||wait||protectedExport||disconnect||forget||security),'P24 interruption is an independent case');
+const evidence=serviceInterruption?'P24-service-interruption':interruption?'P24-ssh-interruption':protectedExport?'P15-protected-export-v11':wait?'P15-terminal-wait-v11':sshResize?'P15-wait-impact-resize-v11':serialConnect?'P15-wait-impact-serial-connect-v11':connect?'P15-wait-impact-connect-v11':reconnect?'P15-wait-impact-reconnect-v11':forget?'P15-wait-impact-forget-v11':disconnect?'P15-wait-impact-disconnect-v11':serialControl?'P15-wait-impact-serial-v11':security?'P22-security-v11':exec?'P15-wait-impact-exec-v11':'P15-mcp-v11';
+assert.ok(!(exec||reconnect||connect||sshResize||wait||interruption||serviceInterruption)||!serial,'SSH2 fixture required');
+assert.ok(!(interruption||serviceInterruption)||!(interruption&&serviceInterruption||exec||reconnect||connect||sshResize||wait||protectedExport||disconnect||forget||security),'P24 interruption is an independent case');
 const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
 const build=fixture=>{const result=spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});assert.equal(result.status,0,'memory fixture/ordinary restore must actually succeed');};
-let directory,ui,fixture,rpc,interruptionReport,failed=false;
+let directory,ui,fixture,rpc,interruptionReport,serviceInterruptionReport,failed=false;
 async function startSshFixture(root, port) {
   fixture=spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'),[root,...(port?[String(port)]:[])],{windowsHide:true,stdio:['pipe','pipe','pipe']});
   const child=fixture;
@@ -62,8 +64,16 @@ async function killSshFixture() {
 try {
   if (serial&&!countedSerial) build(true);
   directory=await mkdtemp(path.join(tmpdir(),rootPrefix));
-  const preview=interruption?JSON.parse(await readFile('artifacts/P24-save-recovery-preview.json','utf8')):undefined;
+  const preview=interruption||serviceInterruption?JSON.parse(await readFile('artifacts/P24-save-recovery-preview.json','utf8')):undefined;
   if(preview){assert.equal(preview.result,'PASS');assert.equal(path.dirname(path.resolve(preview.directory)),path.resolve('artifacts'));}
+  if(serviceInterruption){
+    assert.deepEqual(preview.files.map(file=>file.name).sort(),['session-service.exe','shared-terminal-desktop.exe','terminal-mcp.exe']);
+    for(const file of preview.files){
+      const bytes=await readFile(path.join(preview.directory,file.name));
+      assert.equal(bytes.length,file.bytes);
+      assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);
+    }
+  }
   ui=await launchDesktop(directory,preview?{executable:path.join(preview.directory,'shared-terminal-desktop.exe')}:{fixture:true,...(countedSerial?{executable:path.resolve('target/serial-mcp-fixture/shared-terminal-desktop.exe'),extraArgs:['--serial-mcp-fixture']}: {})});
   if(preview)assert.equal((await ui.invoke('service_status')).fixture,false);
   let connection,metrics,control,profileId,sshPin,sshPort;
@@ -92,7 +102,7 @@ try {
     connection=(await ui.invoke('service_list')).find(c=>c.protocol==='SSH2');
   }
   const ref={connection_id:connection.connection_id,generation:connection.generation},transport=serial?'SERIAL':'SSH2';
-  const other=interruption?undefined:await ui.invoke('fixture_create');
+  const other=preview?undefined:await ui.invoke('fixture_create');
   const otherRef=other&&{connection_id:other.connection_id,generation:other.generation};
   const sentinels=security?await prepareSecuritySentinels({directory,ui,other:otherRef,ref,serial}):null;
   const management=request=>ui.invoke('agent_management_request',{request});
@@ -149,7 +159,20 @@ try {
   };
   const execChecks=exec?await checkMcpExec({ui,call,success,ref,other:otherRef,management,grantId,signed,lease,metrics,rebind,getRpc:()=>rpc,evidencePrefix:evidence}):null;
   const serialChecks=serialControl?await checkMcpSerial({directory,ui,call,success,ref,other:otherRef,management,grantId,signed,lease,rebind,getRpc:()=>rpc,evidence}):null;
-  if(disconnect||forget||reconnect||connect||serialConnect||sshResize||wait||protectedExport||interruption){
+  if(serviceInterruption){
+    serviceInterruptionReport=await checkServiceInterruption({
+      directory,ui,call,success,ref,management,grantId,lease,control,send,
+      serviceExecutable:await realpath(path.join(preview.directory,'session-service.exe')),
+      reopen:async()=>{
+        ui=await launchDesktop(directory,{
+          executable:path.join(preview.directory,'shared-terminal-desktop.exe'),
+          webviewDirectory:path.join(directory,'webview-restart'),
+        });
+        return ui;
+      },
+    });
+    assert.equal((await rpc.close()).code,0);rpc=undefined;
+  }else if(disconnect||forget||reconnect||connect||serialConnect||sshResize||wait||protectedExport||interruption){
     const common={directory,ui,call,success,ref,other:otherRef,transport,management,grantId,lease,control,rebind,getRpc:()=>rpc};
     const report=interruption
       ?await checkSshInterruption({...common,send,killSshFixture,restartPeer:async()=>{
@@ -194,7 +217,7 @@ try {
   }
 } catch(error) {
   failed=true;console.error('MCP deterministic test failed before cleanup:',error);
-  if((exec||countedSerial||disconnect||forget||reconnect||connect||sshResize||wait||protectedExport||interruption)&&ui)await ui.screenshot(`${evidence}-${serial?'serial':'ssh'}-failure.png`).catch(()=>{});
+  if((exec||countedSerial||disconnect||forget||reconnect||connect||sshResize||wait||protectedExport||interruption||serviceInterruption)&&ui)await ui.screenshot(`${evidence}-${serial?'serial':'ssh'}-failure.png`).catch(()=>{});
   if(directory)console.error('Owned failed MCP root retained:',directory);throw error;
 } finally {
   try {if(rpc)await rpc.close();await ui?.close();fixture?.kill();if(fixture)await new Promise(resolve=>{if(fixture.exitCode!==null||fixture.signalCode!==null)resolve();else fixture.once('exit',resolve);});if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(rootPrefix));if(!failed)await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}
@@ -203,4 +226,8 @@ try {
 if(interruptionReport){
   await writeFile(`artifacts/${evidence}-ssh.json`,JSON.stringify({...interruptionReport,stdio_exit:0,owned_processes_exited:true,owned_root_removed:true},null,2)+'\n');
   console.log('PASS ordinary Desktop SSH2 peer interruption, manual reconnect, original receipts and owned resource cleanup');
+}
+if(serviceInterruptionReport){
+  await writeFile(`artifacts/${evidence}-ssh.json`,JSON.stringify({...serviceInterruptionReport,stdio_exit:0,owned_processes_exited:true,owned_root_removed:true},null,2)+'\n');
+  console.log('PASS ordinary Desktop owned service loss with active SSH2 and paired Agent, explicit restart and owned resource cleanup');
 }
