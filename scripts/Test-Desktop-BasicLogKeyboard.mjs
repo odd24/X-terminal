@@ -20,6 +20,7 @@ if (process.argv[2] === '--disk-full-ordinary') {
   process.exit(0);
 }
 const diskFull = process.argv[2] === '--disk-full';
+const ordinaryRegression = process.argv[2] === '--ordinary-regression';
 let preview, executable;
 if (diskFull) {
   executable = await realpath(process.argv[3]);
@@ -33,7 +34,8 @@ if (diskFull) {
     return { name, bytes: bytes.length, sha256: sha256(bytes) };
   })) };
 } else {
-  preview = JSON.parse(await readFile('artifacts/P12-compact-config-dpi-preview.json', 'utf8'));
+  const manifest = ordinaryRegression ? 'P12-standard-workspace-dpi-preview' : 'P12-compact-config-dpi-preview';
+  preview = JSON.parse(await readFile(`artifacts/${manifest}.json`, 'utf8'));
   assert.equal(preview.result, 'PASS');
   assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
   assert.deepEqual(preview.files.map(file => file.name).sort(), binaryNames);
@@ -46,7 +48,8 @@ if (diskFull) {
 }
 
 const prefix = diskFull ? 'shared-terminal-log-disk-full-中文-' : 'shared-terminal-basic-log-keyboard-中文-';
-const artifact = diskFull ? 'P24-desktop-log-disk-full' : 'P11.4-basic-log-keyboard';
+const artifact = diskFull ? 'P24-desktop-log-disk-full'
+  : ordinaryRegression ? 'P11.4-basic-log-keyboard-disk-full-impact' : 'P11.4-basic-log-keyboard';
 const root = diskFull ? path.join(tmpdir(), prefix + crypto.randomUUID()) : await mkdtemp(path.join(tmpdir(), prefix));
 if (diskFull) await mkdir(root);
 const peer = spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'), [root], {
