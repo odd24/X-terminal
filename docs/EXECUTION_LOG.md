@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P22按ADR-084实现审计关闭version1安全白名单诊断与测量Err阶段/关闭结果分列，first_failure粘滞且原失败封闭/权限/容量不变。7真实服务受控场景、12库审计/1白名单/2普通IPC/1清理单测及定向严格检查、实际desktop:build与普通恢复已验；错误服务仍exit1，不是旧QueueFull根因修复，详[P22](records/P22.md)。普通Desktop安全采集/退出回执是独立待协调缺口，未扩UI/权限、不重跑负载。Step-ID: P22。
+
 2026-11-10 P22旧uTHyo2根离线只读复核结束：两段1659条完整连续/LF/JSON及SHA未变，末一条仅received；没有当时audit状态或Shutdown分解结果，`incomplete recording`仅可定位关闭水位/状态判定失败，不能追认QUEUE_FULL或首因。无新负载/服务、不修尾/覆盖，风险保持；唯一推荐为安全关闭诊断/首错阶段补证包，不冒称已修原故障，详[P22](records/P22.md)。Step-ID: P22。
 
 2026-11-10 P22/ADR-083设施b537532之后，唯一8秒校准及固定120秒/120可信键软件测量均PASS：20源各实际21504B/s，正式50400帧/51609600字节全序号/内容/SHA，本地P95 0.70ms与Host远端通知保守P95 35.39ms分列；非目标19源零输入，权限/撤销/worker join/普通服务实际恢复及自己进程退出已核对。末审计健康快照不等于所有accepted已同步，资源仅12次限定快照；完整T18八小时/实机、P22与T19旧FAIL/审计风险不关闭，详细原报告及边界见[P22](records/P22.md)。不再重跑本包，继续有界缺项盘点。Step-ID: P22。
@@ -367,7 +369,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P19 | 快速命令/完整撰写窗格 | IN_PROGRESS | [记录](records/P19.md) | 命令/选区/可选窗口历史及逐行节奏软件；完整验收仍开放 |
 | P20 | 触发器 | IN_PROGRESS | [记录](records/P20.md) | Step-ID: P20 |
 | P21 | 批量管理与迁移 | IN_PROGRESS | [记录](records/P21.md) | Step-ID: P21 |
-| P22 | 压力与权限边界 | IN_PROGRESS | T17独立软件已验；T18原生观测120秒子项PASS/旧FAIL保留；八小时/完整验收未闭、T19队列满与旧审计风险保持 | [记录](records/P22.md) |
+| P22 | 压力与权限边界 | IN_PROGRESS | T17/120秒T18子项及安全关闭诊断已验；旧FAIL/八小时/实机未闭；Desktop关闭回执独立规划 | [记录](records/P22.md) |
 | P23 | 兼容与真实试用 | TODO | 待创建 | — |
 | P24 | 故障恢复与升级 | TODO | 待创建 | — |
 | P25 | 安装与发布验收 | TODO | 待创建 | — |

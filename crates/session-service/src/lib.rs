@@ -1,5 +1,6 @@
 #![cfg(windows)]
 mod archives;
+pub mod audit_diagnostic;
 #[cfg(windows)]
 mod audit_journal;
 pub mod client;

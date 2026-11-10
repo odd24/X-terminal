@@ -105,12 +105,27 @@ impl Journal {
     }
     pub(crate) async fn close(mut self) -> io::Result<()> {
         if let Some(writer) = self.writer.take() {
-            let status = tokio::task::spawn_blocking(move || writer.close())
-                .await
-                .map_err(|_| io::Error::other("audit owner join failed"))??;
-            if status.synced_through != status.accepted_through
-                || !matches!(status.state, State::Closed)
-            {
+            use crate::audit_diagnostic::{CloseDiagnostic, Outcome, PREFIX};
+            let sink = self.sink.take();
+            let result = tokio::task::spawn_blocking(move || writer.close()).await;
+            let snapshot = sink.and_then(|s| s.diagnostic_snapshot().ok());
+            let outcome = match (&result, &snapshot) {
+                (Err(_), _) => Outcome::OwnerJoinFailed,
+                (Ok(Err(_)), _) => Outcome::OwnerCloseFailed,
+                (_, None) => Outcome::SnapshotUnavailable,
+                (_, Some((s, _)))
+                    if s.synced_through != s.accepted_through || s.state != State::Closed =>
+                {
+                    Outcome::Incomplete
+                }
+                _ => Outcome::Closed,
+            };
+            let diagnostic = CloseDiagnostic::new(outcome, snapshot);
+            // Serialize only typed safe metadata, never the Result/error payload.
+            if let Ok(json) = serde_json::to_string(&diagnostic) {
+                eprintln!("{PREFIX}{json}");
+            }
+            if outcome != Outcome::Closed {
                 return Err(io::Error::other(
                     "audit journal closed with incomplete recording",
                 ));

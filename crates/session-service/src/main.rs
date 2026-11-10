@@ -12,6 +12,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let diagnostic_mode =
+        if let Some(index) = args.iter().position(|s| s == "--audit-diagnostic-fixture") {
+            if !cfg!(feature = "audit-diagnostics-fixture") {
+                return Err("AUDIT_DIAGNOSTIC_FIXTURE_DISABLED".into());
+            }
+            if index + 1 >= args.len() {
+                return Err("AUDIT_TEST_MODE_REJECTED".into());
+            }
+            let mode = args.remove(index + 1);
+            args.remove(index);
+            Some(mode)
+        } else {
+            None
+        };
     let (instance, fixture) = match args.as_slice() {
         [] => ("main", false),
         [flag, instance] if flag == "--instance" => (instance.as_str(), false),
@@ -20,6 +34,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => return Err("invalid session-service arguments".into()),
     };
+    if let Some(mode) = diagnostic_mode {
+        if !fixture {
+            return Err("AUDIT_TEST_REQUIRES_FIXTURE".into());
+        }
+        #[cfg(feature = "audit-diagnostics-fixture")]
+        terminal_log::audit::configure_diagnostic_fixture(
+            directory.as_deref().ok_or("AUDIT_TEST_ROOT_REQUIRED")?,
+            &mode,
+        )
+        .map_err(|_| "AUDIT_TEST_CONFIGURATION_REJECTED")?;
+        #[cfg(not(feature = "audit-diagnostics-fixture"))]
+        let _ = mode;
+    }
     // Private parent-to-child channel; do not expose the bootstrap in argv/env/files.
     let hello: session_protocol::Hello = tokio::time::timeout(
         std::time::Duration::from_secs(5),

@@ -23,6 +23,93 @@ use tokio::{
 use uuid::Uuid;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+#[derive(Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ErrorStage {
+    Bootstrap,
+    Handshake,
+    Setup,
+    Offering,
+    Stop,
+    Verification,
+    FinalSample,
+    Shutdown,
+    ServiceExit,
+}
+#[derive(serde::Serialize)]
+struct Cleanup {
+    shutdown_attempted: bool,
+    shutdown_ack: bool,
+    shutdown_error: Option<String>,
+    shutdown_request_s: f64,
+    exited: bool,
+    exit_code: Option<i32>,
+    wait_error: Option<&'static str>,
+    service_wait_s: f64,
+    forced_kill_attempted: bool,
+    forced_kill_ok: Option<bool>,
+}
+#[derive(Debug)]
+enum CheckFailure {
+    ScheduleDeadline,
+    CaptureRejected,
+    Constraint,
+}
+impl std::fmt::Display for CheckFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+impl std::error::Error for CheckFailure {}
+fn safe_error(e: &(dyn std::error::Error + Send + Sync + 'static)) -> String {
+    if let Some(e) = e.downcast_ref::<CheckFailure>() {
+        return match e {
+            CheckFailure::ScheduleDeadline => "SCHEDULE_DEADLINE",
+            CheckFailure::CaptureRejected => "CAPTURE_REJECTED_OR_GAP",
+            CheckFailure::Constraint => "CHECK_FAILED",
+        }
+        .into();
+    }
+    if let Some(e) = e.downcast_ref::<io::Error>() {
+        return match e.kind() {
+            io::ErrorKind::UnexpectedEof => "UNEXPECTED_EOF",
+            io::ErrorKind::PermissionDenied => "PERMISSION_DENIED",
+            io::ErrorKind::TimedOut => "TIMEOUT",
+            io::ErrorKind::InvalidData => "INVALID_DATA",
+            io::ErrorKind::NotConnected => "NOT_CONNECTED",
+            _ => "IO_ERROR",
+        }
+        .into();
+    }
+    if e.is::<tokio::time::error::Elapsed>() {
+        return "TIMEOUT".into();
+    }
+    "MEASUREMENT_ERROR".into()
+}
+fn finalized(result: Result<Value>, stage: ErrorStage, cleanup: Cleanup) -> Value {
+    let clean = cleanup.shutdown_ack
+        && cleanup.exited
+        && cleanup.exit_code == Some(0)
+        && !cleanup.forced_kill_attempted;
+    let mut report = match result {
+        Ok(v) => v,
+        Err(e) => json!({"passed":false,"error":safe_error(e.as_ref()),"error_stage":stage}),
+    };
+    if !clean {
+        report["passed"] = json!(false);
+        if report["error"].is_null() {
+            report["error"] = json!("SERVICE_CLEANUP_FAILED");
+            report["error_stage"] = json!(if cleanup.shutdown_ack {
+                ErrorStage::ServiceExit
+            } else {
+                ErrorStage::Shutdown
+            });
+        }
+    }
+    report["owned_service_clean_exit"] = json!(clean);
+    report["cleanup"] = serde_json::to_value(cleanup).unwrap();
+    report
+}
 const STREAMS: usize = 8;
 const BLOCK: usize = 4096;
 const HZ: u64 = 260;
@@ -35,7 +122,12 @@ fn require(ok: bool, reason: &str) -> Result<()> {
     if ok {
         Ok(())
     } else {
-        Err(io::Error::other(reason).into())
+        Err(match reason {
+            "offering missed deadline; no end catch-up allowed" => CheckFailure::ScheduleDeadline,
+            "explicit capture failure/rejection/gap" => CheckFailure::CaptureRejected,
+            _ => CheckFailure::Constraint,
+        }
+        .into())
     }
 }
 fn digest(bytes: impl AsRef<[u8]>) -> String {
@@ -383,7 +475,7 @@ async fn measured(
                 }Ok(())
             }.await;
             if let Err(e) = result {
-                *error.lock().unwrap() = Some(e.to_string());
+                *error.lock().unwrap() = Some(safe_error(e.as_ref()));
             }
         })
     };
@@ -438,7 +530,7 @@ async fn measured(
     observe.await?;
     let error = outcome
         .err()
-        .map(|e| e.to_string())
+        .map(|e| safe_error(e.as_ref()))
         .or(monitor_error.lock().unwrap().clone());
     Ok(
         json!({"error":error,"generated_bytes":generated,"ipc_ack_bytes":acked,"elapsed_s":elapsed,"generated_bytes_per_wall_second":generated as f64/elapsed,"ipc_bytes_per_wall_second":acked as f64/elapsed,"first_ack_s":first_ack,"last_ack_s":last_ack,"second_buckets_bytes":buckets,"max_schedule_late_s":max_late,"max_rpc_s":max_rpc,"started_unix_ms":started_unix_ms,"slow_rpcs":slow_rpcs,"runtime_workers":tokio::runtime::Handle::current().metrics().num_workers(),"batch_blocks":BATCH}),
@@ -451,7 +543,9 @@ async fn run(
     pid: u32,
     seconds: u64,
     segment: u64,
+    phase: &Mutex<ErrorStage>,
 ) -> Result<Value> {
+    *phase.lock().unwrap() = ErrorStage::Setup;
     let mut streams = vec![];
     for index in 0..STREAMS {
         let Reply::Connection(c) = request(client, Request::CreateFixture {}).await? else {
@@ -487,7 +581,7 @@ async fn run(
         let join = thread::spawn(move || {
             let result = verify_journals(path, id, index, vr.clone());
             if let Err(e) = &result {
-                vr.stats.lock().unwrap()["error"] = json!(e.to_string());
+                vr.stats.lock().unwrap()["error"] = json!(safe_error(e.as_ref()));
             }
             result
         });
@@ -514,7 +608,9 @@ async fn run(
         })
         .await??;
     }
+    *phase.lock().unwrap() = ErrorStage::Offering;
     let load = measured(client, monitor_client, &mut streams, root, pid, seconds).await;
+    *phase.lock().unwrap() = ErrorStage::Stop;
     let mut final_status = vec![];
     let mut stop_error = None;
     for s in &streams {
@@ -547,12 +643,13 @@ async fn run(
                 final_status.push(i);
             }
             Err(e) => {
-                stop_error = Some(e.to_string());
+                stop_error.get_or_insert_with(|| safe_error(e.as_ref()));
                 s.verify.abort.store(true, Ordering::SeqCst);
             }
         }
         s.verify.done.store(true, Ordering::SeqCst);
     }
+    *phase.lock().unwrap() = ErrorStage::Verification;
     let mut verified = vec![];
     let mut verification_error = None;
     serde_json::to_writer_pretty(
@@ -563,18 +660,18 @@ async fn run(
         match s.join.take().unwrap().join() {
             Ok(Ok(v)) => verified.push(v),
             Ok(Err(e)) => {
-                verification_error = Some(e.to_string());
+                verification_error.get_or_insert_with(|| safe_error(e.as_ref()));
                 continue;
             }
             Err(_) => {
-                verification_error = Some("verifier panicked".into());
+                verification_error.get_or_insert_with(|| "VERIFIER_PANICKED".into());
                 continue;
             }
         }
         let expected = hex(s.expected.clone().finalize().as_slice());
         let v = verified.last().unwrap();
         if v["records"] != s.count || v["sha256"] != expected {
-            verification_error = Some("full journal digest/count mismatch".into());
+            verification_error.get_or_insert_with(|| "FULL_JOURNAL_MISMATCH".into());
         }
         let live_check: Result<()> = (|| {
             if let Some(status) = final_status.get(index) {
@@ -628,14 +725,27 @@ async fn run(
             Ok(())
         })();
         if let Err(e) = live_check {
-            verification_error.get_or_insert_with(|| e.to_string());
+            verification_error.get_or_insert_with(|| safe_error(e.as_ref()));
         }
     }
+    *phase.lock().unwrap() = ErrorStage::FinalSample;
     let final_sample_result = sample(client, &targets(&streams), root, pid).await;
+    let error_stage =
+        if load.as_ref().is_err() || load.as_ref().is_ok_and(|v| !v["error"].is_null()) {
+            Some(ErrorStage::Offering)
+        } else if stop_error.is_some() {
+            Some(ErrorStage::Stop)
+        } else if verification_error.is_some() {
+            Some(ErrorStage::Verification)
+        } else if final_sample_result.is_err() {
+            Some(ErrorStage::FinalSample)
+        } else {
+            None
+        };
     let error = load
         .as_ref()
         .err()
-        .map(|e| e.to_string())
+        .map(|e| safe_error(e.as_ref()))
         .or_else(|| {
             load.as_ref()
                 .ok()
@@ -644,7 +754,12 @@ async fn run(
         })
         .or(stop_error)
         .or(verification_error.clone())
-        .or_else(|| final_sample_result.as_ref().err().map(|e| e.to_string()));
+        .or_else(|| {
+            final_sample_result
+                .as_ref()
+                .err()
+                .map(|e| safe_error(e.as_ref()))
+        });
     let min = load
         .as_ref()
         .ok()
@@ -663,12 +778,59 @@ async fn run(
                 && v["ipc_ack_bytes"] == v["generated_bytes"]
         });
     Ok(
-        json!({"passed":pass,"error":error,"verification_error":verification_error,"duration_seconds":seconds,"streams":STREAMS,"block_bytes":BLOCK,"offered_bytes_per_second":HZ*BLOCK as u64,"minimum_complete_second_ipc_bytes":min,"load":load.ok(),"final_status":final_status,"full_journal_verification":verified,"final_sample":final_sample_result.ok(),"scope":"Named Pipe synthetic append -> production parser/capture/raw+JSONL+live text; not SSH/UART or GUI"}),
+        json!({"passed":pass,"error":error,"error_stage":error_stage,"verification_error":verification_error,"duration_seconds":seconds,"streams":STREAMS,"block_bytes":BLOCK,"offered_bytes_per_second":HZ*BLOCK as u64,"minimum_complete_second_ipc_bytes":min,"load":load.ok(),"final_status":final_status,"full_journal_verification":verified,"final_sample":final_sample_result.ok(),"scope":"Named Pipe synthetic append -> production parser/capture/raw+JSONL+live text; not SSH/UART or GUI"}),
     )
 }
 #[cfg(test)]
 mod instrument_tests {
     use super::*;
+    fn cleanup_for_test() -> Cleanup {
+        Cleanup {
+            shutdown_attempted: true,
+            shutdown_ack: true,
+            shutdown_error: None,
+            shutdown_request_s: 0.0,
+            exited: true,
+            exit_code: Some(1),
+            wait_error: None,
+            service_wait_s: 0.0,
+            forced_kill_attempted: false,
+            forced_kill_ok: None,
+        }
+    }
+    #[test]
+    fn safe_error_cleanup_preserves_primary_err_and_real_exit_without_fake_kill() {
+        let report = finalized(
+            Err(io::Error::other("SYNTHETIC_PRIVATE_BODY_PATH_TOKEN").into()),
+            ErrorStage::Verification,
+            cleanup_for_test(),
+        );
+        assert_eq!(report["error_stage"], "VERIFICATION");
+        assert_eq!(report["error"], "IO_ERROR");
+        assert_eq!(report["cleanup"]["exit_code"], 1);
+        assert_eq!(report["cleanup"]["forced_kill_attempted"], false);
+        assert!(!report.to_string().contains("SYNTHETIC_PRIVATE"));
+        let report = finalized(
+            Ok(
+                json!({"passed":false,"error":"CAPTURE_FAILED","error_stage":"OFFERING","load":{"accepted":7}}),
+            ),
+            ErrorStage::FinalSample,
+            cleanup_for_test(),
+        );
+        assert_eq!(report["error"], "CAPTURE_FAILED");
+        assert_eq!(report["error_stage"], "OFFERING");
+        assert_eq!(report["load"]["accepted"], 7);
+        let mut cleanup = cleanup_for_test();
+        cleanup.shutdown_ack = false;
+        cleanup.exit_code = Some(0);
+        let report = finalized(
+            Ok(json!({"passed":true,"error":null})),
+            ErrorStage::FinalSample,
+            cleanup,
+        );
+        assert_eq!(report["error_stage"], "SHUTDOWN");
+        assert_eq!(report["passed"], false);
+    }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn instrument_slow_probe_does_not_pause_scheduled_generator() -> Result<()> {
         let active = Arc::new(AtomicU64::new(0));
@@ -727,8 +889,7 @@ mod instrument_tests {
         Ok(())
     }
 }
-#[tokio::main]
-async fn main() -> Result<()> {
+async fn execute() -> Result<()> {
     let args: Vec<_> = std::env::args_os().collect();
     require(
         args.len() == 4,
@@ -773,46 +934,101 @@ async fn main() -> Result<()> {
         .kill_on_drop(true)
         .spawn()?;
     let pid = child.id().unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    write_frame(
-        &mut stdin,
-        &Hello {
-            protocol_version: PROTOCOL_VERSION,
-            client_name: "p22-synthetic-measurement".into(),
-            token: Sensitive::new(token.expose().to_string()),
-        },
-    )
-    .await?;
-    drop(stdin);
-    let mut client = Client::connect(&instance, token.expose(), pid).await?.0;
-    let monitor_client = Client::connect(&instance, token.expose(), pid).await?.0;
-    let result = run(&mut client, monitor_client, &root, pid, seconds, segment).await;
-    let shutdown_started = Instant::now();
-    let shutdown = request(&mut client, Request::Shutdown {}).await;
-    let shutdown_request_s = shutdown_started.elapsed().as_secs_f64();
-    let wait_started = Instant::now();
-    let exited = timeout(Duration::from_secs(15), child.wait()).await;
-    let service_wait_s = wait_started.elapsed().as_secs_f64();
-    let clean = shutdown.is_ok() && matches!(exited,Ok(Ok(s)) if s.success());
-    if !clean {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+    let phase = Mutex::new(ErrorStage::Bootstrap);
+    let mut client = None;
+    let result: Result<Value> = async {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("private bootstrap unavailable"))?;
+        write_frame(
+            &mut stdin,
+            &Hello {
+                protocol_version: PROTOCOL_VERSION,
+                client_name: "p22-synthetic-measurement".into(),
+                token: Sensitive::new(token.expose().to_string()),
+            },
+        )
+        .await?;
+        drop(stdin);
+        *phase.lock().unwrap() = ErrorStage::Handshake;
+        client = Some(Client::connect(&instance, token.expose(), pid).await?.0);
+        let monitor_client = Client::connect(&instance, token.expose(), pid).await?.0;
+        run(
+            client.as_mut().unwrap(),
+            monitor_client,
+            &root,
+            pid,
+            seconds,
+            segment,
+            &phase,
+        )
+        .await
     }
-    let report = match result {
-        Ok(mut v) => {
-            v["owned_service_clean_exit"] = json!(clean);
-            v["cleanup"] = json!({"shutdown_request_s":shutdown_request_s,"service_wait_s":service_wait_s,"shutdown_ok":shutdown.is_ok(),"forced_kill":!clean});
-            v
-        }
-        Err(e) => json!({"passed":false,"error":e.to_string(),"owned_service_clean_exit":clean}),
+    .await;
+    let first_stage = *phase.lock().unwrap();
+    let shutdown_started = Instant::now();
+    let shutdown_attempted = client.is_some();
+    let shutdown = match client.as_mut() {
+        Some(c) => Some(request(c, Request::Shutdown {}).await),
+        None => None,
     };
+    let shutdown_ack = matches!(&shutdown, Some(Ok(Reply::Ok)));
+    let shutdown_error = shutdown
+        .as_ref()
+        .and_then(|r| r.as_ref().err())
+        .map(|e| safe_error(e.as_ref()));
+    let shutdown_request_s = shutdown_started.elapsed().as_secs_f64();
+    drop(client);
+    let wait_started = Instant::now();
+    let waited = timeout(Duration::from_secs(15), child.wait()).await;
+    let mut forced = false;
+    let mut forced_ok = None;
+    let mut wait_error = None;
+    let exit = match waited {
+        Ok(Ok(status)) => Some(status),
+        other => {
+            wait_error = Some(if other.is_err() {
+                "TIMEOUT"
+            } else {
+                "WAIT_IO_ERROR"
+            });
+            forced = true;
+            forced_ok = Some(child.kill().await.is_ok());
+            timeout(Duration::from_secs(5), child.wait())
+                .await
+                .ok()
+                .and_then(|r| r.ok())
+        }
+    };
+    let cleanup = Cleanup {
+        shutdown_attempted,
+        shutdown_ack,
+        shutdown_error,
+        shutdown_request_s,
+        exited: exit.is_some(),
+        exit_code: exit.and_then(|s| s.code()),
+        wait_error,
+        service_wait_s: wait_started.elapsed().as_secs_f64(),
+        forced_kill_attempted: forced,
+        forced_kill_ok: forced_ok,
+    };
+    let report = finalized(result, first_stage, cleanup);
+    let clean = report["owned_service_clean_exit"] == true;
     serde_json::to_writer_pretty(File::create(root.join("result.json"))?, &report)?;
     println!(
         "RESULT {}",
-        json!({"passed":report["passed"],"error":report["error"],"clean_exit":clean,"root":root})
+        json!({"passed":report["passed"],"error":report["error"],"clean_exit":clean})
     );
     require(
         clean && report["passed"] == true,
         "measurement failed; preserve actual evidence",
     )
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    execute()
+        .await
+        .map_err(|e| io::Error::other(safe_error(e.as_ref())).into())
 }

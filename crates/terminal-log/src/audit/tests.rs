@@ -154,6 +154,7 @@ fn queue_pressure_is_sticky_observable_and_never_calls_a_record_synced() {
             retained_records: 0,
         },
         rows: VecDeque::new(),
+        first_failure: None,
     }));
     let sink = Sink {
         sender,
@@ -169,6 +170,13 @@ fn queue_pressure_is_sticky_observable_and_never_calls_a_record_synced() {
     assert_eq!(status.accepted_through, 1);
     assert_eq!(status.synced_through, 0);
     assert_eq!(status.rejected_records, 2);
+    assert_eq!(
+        sink.diagnostic_snapshot().unwrap().1,
+        Some(Failure {
+            kind: FailureKind::QueueFull,
+            stage: FailureStage::Submit
+        })
+    );
 }
 
 #[test]
@@ -200,6 +208,7 @@ fn actual_storage_write_failure_never_advances_synced_watermark() {
             retained_records: 0,
         },
         rows: VecDeque::new(),
+        first_failure: None,
     }));
     let (sender, receiver) = mpsc::sync_channel(4);
     // FlushFileBuffers also genuinely fails without write access; no committed
@@ -217,9 +226,133 @@ fn actual_storage_write_failure_never_advances_synced_watermark() {
     assert_eq!(status.state, State::StorageFailure);
     assert_eq!(status.synced_through, 0);
     assert_eq!(status.accepted_through, 1);
+    assert_eq!(
+        sink.diagnostic_snapshot().unwrap().1,
+        Some(Failure {
+            kind: FailureKind::IoFailure,
+            stage: FailureStage::Append
+        })
+    );
     assert!(!sink.submit(payload(2)));
     sink.sender.send(Message::Close).unwrap();
     thread.join().unwrap();
+}
+
+#[test]
+fn controlled_io_failures_keep_first_stage_and_never_emit_injected_details() {
+    use fixture::{Control, Mode};
+    for (mode, stage) in [
+        (Mode::Write, FailureStage::Append),
+        (Mode::Sync, FailureStage::Checkpoint),
+        (Mode::Flush, FailureStage::FlushBarrier),
+        (Mode::Close, FailureStage::CloseBarrier),
+    ] {
+        let root = temp();
+        let mut disk = Disk::open(&root.0).unwrap();
+        disk.fault = Some(Control::new(root.0.clone(), mode));
+        fs::write(root.0.join("audit-diagnostic-arm"), b"arm").unwrap();
+        let writer = Writer::from_disk(disk, Uuid::new_v4()).unwrap();
+        let sink = writer.sink();
+        assert!(sink.submit(payload(1)));
+        sink.flush().unwrap();
+        let closed = writer.close().unwrap();
+        assert_eq!(closed.state, State::StorageFailure);
+        let (status, failure) = sink.diagnostic_snapshot().unwrap();
+        assert_eq!(
+            failure,
+            Some(Failure {
+                kind: FailureKind::IoFailure,
+                stage
+            })
+        );
+        assert_eq!(
+            status.synced_through,
+            if matches!(mode, Mode::Write | Mode::Sync) {
+                0
+            } else {
+                1
+            }
+        );
+        let encoded = serde_json::to_string(&failure).unwrap();
+        assert!(!encoded.contains("SYNTHETIC_SECRET"));
+    }
+    let root = temp();
+    let normal = Control::new(root.0.clone(), Mode::Normal);
+    fs::write(root.0.join("audit-diagnostic-arm"), b"arm").unwrap();
+    normal.before(FailureStage::Append).unwrap();
+    assert!(!root.0.join("audit-diagnostic-entered").exists());
+}
+
+#[test]
+fn controlled_queue_full_and_inflight_close_join_before_final_snapshot() {
+    use fixture::{Control, Mode};
+    for (mode, later_io_failure) in [
+        (Mode::Queue, false),
+        (Mode::Queue, true),
+        (Mode::Inflight, false),
+    ] {
+        let root = temp();
+        let mut disk = Disk::open(&root.0).unwrap();
+        disk.fault = Some(Control::new(root.0.clone(), mode));
+        fs::write(root.0.join("audit-diagnostic-arm"), b"arm").unwrap();
+        let writer = Writer::from_disk(disk, Uuid::new_v4()).unwrap();
+        let sink = writer.sink();
+        assert!(sink.submit(payload(1)));
+        let began = std::time::Instant::now();
+        while !root.0.join("audit-diagnostic-entered").exists() {
+            assert!(began.elapsed() < std::time::Duration::from_secs(2));
+            thread::sleep(std::time::Duration::from_millis(5));
+        }
+        if mode == Mode::Queue {
+            for n in 2..=(QUEUE + 1) as u64 {
+                assert!(sink.submit(payload(n)));
+            }
+            assert!(!sink.submit(payload((QUEUE + 2) as u64)));
+        }
+        let (tx, rx) = mpsc::sync_channel(1);
+        let owner = thread::spawn(move || {
+            tx.send(writer.close()).unwrap();
+        });
+        assert!(matches!(
+            rx.recv_timeout(std::time::Duration::from_millis(30)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        if later_io_failure {
+            fs::write(root.0.join("audit-diagnostic-fail-after-release"), b"fail").unwrap();
+        }
+        fs::write(root.0.join("audit-diagnostic-release"), b"release").unwrap();
+        let final_status = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
+        owner.join().unwrap();
+        assert_eq!(
+            final_status.synced_through,
+            if later_io_failure {
+                0
+            } else {
+                final_status.accepted_through
+            }
+        );
+        if mode == Mode::Queue {
+            assert_eq!(
+                final_status.state,
+                if later_io_failure {
+                    State::StorageFailure
+                } else {
+                    State::QueueFull
+                }
+            );
+            assert_eq!(final_status.accepted_through, (QUEUE + 1) as u64);
+            assert_eq!(
+                sink.diagnostic_snapshot().unwrap().1.unwrap().kind,
+                FailureKind::QueueFull
+            );
+        } else {
+            assert_eq!(final_status.state, State::Closed);
+            assert!(sink.diagnostic_snapshot().unwrap().1.is_none());
+        }
+    }
 }
 
 #[test]

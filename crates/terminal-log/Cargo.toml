@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+audit-diagnostics-fixture = []
+
 [dependencies]
 session-core = { path = "../session-core" }
 serde = { version = "=1.0.229", features = ["derive"] }

@@ -26,6 +26,33 @@ const SEGMENT_RECORDS: usize = 1024;
 const LINE_BYTES: usize = 8192;
 const QUEUE: usize = 1024;
 const MAGIC: &str = "shared-terminal-audit-v1";
+#[cfg(any(test, feature = "audit-diagnostics-fixture"))]
+mod fixture;
+#[cfg(feature = "audit-diagnostics-fixture")]
+pub use fixture::configure as configure_diagnostic_fixture;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+pub enum FailureKind {
+    QueueFull,
+    ChannelDisconnected,
+    SequenceExhausted,
+    IoFailure,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+pub enum FailureStage {
+    Submit,
+    Append,
+    Checkpoint,
+    FlushBarrier,
+    CloseBarrier,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Failure {
+    pub kind: FailureKind,
+    pub stage: FailureStage,
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Header {
@@ -44,6 +71,8 @@ struct Disk {
     _lock: File,
     path: std::path::PathBuf,
     segments: VecDeque<Segment>,
+    #[cfg(any(test, feature = "audit-diagnostics-fixture"))]
+    fault: Option<fixture::Control>,
 }
 fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid audit storage")
@@ -131,6 +160,8 @@ impl Disk {
             _lock: lock,
             path,
             segments: VecDeque::new(),
+            #[cfg(any(test, feature = "audit-diagnostics-fixture"))]
+            fault: fixture::for_root(root),
         };
         let mut previous = 0;
         for (number, path) in names {
@@ -237,6 +268,10 @@ impl Disk {
         Ok(())
     }
     fn append(&mut self, row: Record) -> io::Result<()> {
+        #[cfg(any(test, feature = "audit-diagnostics-fixture"))]
+        if let Some(fault) = &self.fault {
+            fault.before(FailureStage::Append)?;
+        }
         let mut data = serde_json::to_vec(&row)?;
         data.push(b'\n');
         if data.len() > LINE_BYTES {
@@ -268,6 +303,12 @@ impl Disk {
 struct Shared {
     status: Status,
     rows: VecDeque<Record>,
+    first_failure: Option<Failure>,
+}
+impl Shared {
+    fn fail(&mut self, kind: FailureKind, stage: FailureStage) {
+        self.first_failure.get_or_insert(Failure { kind, stage });
+    }
 }
 enum Message {
     Record(Box<Record>),
@@ -292,6 +333,7 @@ impl Sink {
         }
         let Some(seq) = shared.status.accepted_through.checked_add(1) else {
             shared.status.state = State::StorageFailure;
+            shared.fail(FailureKind::SequenceExhausted, FailureStage::Submit);
             return false;
         };
         match self.sender.try_send(Message::Record(Box::new(Record {
@@ -304,6 +346,13 @@ impl Sink {
                 true
             }
             Err(e) => {
+                shared.fail(
+                    match &e {
+                        TrySendError::Full(_) => FailureKind::QueueFull,
+                        TrySendError::Disconnected(_) => FailureKind::ChannelDisconnected,
+                    },
+                    FailureStage::Submit,
+                );
                 shared.status.state = match e {
                     TrySendError::Full(_) => State::QueueFull,
                     TrySendError::Disconnected(_) => State::StorageFailure,
@@ -315,6 +364,11 @@ impl Sink {
     }
     pub fn status(&self) -> Status {
         self.shared.lock().unwrap().status.clone()
+    }
+    /// Safe metadata only. Never formats a payload or a storage error.
+    pub fn diagnostic_snapshot(&self) -> io::Result<(Status, Option<Failure>)> {
+        let shared = self.shared.lock().map_err(|_| invalid())?;
+        Ok((shared.status.clone(), shared.first_failure))
     }
     pub fn page(&self, cursor: u64, through: u64, limit: usize) -> io::Result<Page> {
         let shared = self.shared.lock().map_err(|_| invalid())?;
@@ -369,6 +423,9 @@ impl Writer {
             return Err(invalid());
         }
         let disk = Disk::open(root)?;
+        Self::from_disk(disk, service_id)
+    }
+    fn from_disk(disk: Disk, service_id: Uuid) -> io::Result<Self> {
         let seq = disk.last_seq();
         let rows = disk.rows();
         let available_from = rows.front().map_or(seq, |r| r.seq - 1);
@@ -383,6 +440,7 @@ impl Writer {
                 retained_records: rows.len(),
             },
             rows,
+            first_failure: None,
         }));
         let (sender, receiver) = mpsc::sync_channel(QUEUE);
         let sink = Sink {
@@ -406,6 +464,8 @@ impl Writer {
     }
     fn stop(&mut self) -> io::Result<Status> {
         if let Some(thread) = self.thread.take() {
+            #[cfg(feature = "audit-diagnostics-fixture")]
+            fixture::mark_closing();
             {
                 let mut s = self.sink.shared.lock().map_err(|_| invalid())?;
                 if s.status.state == State::Healthy {
@@ -423,7 +483,15 @@ impl Drop for Writer {
         let _ = self.stop();
     }
 }
+#[cfg(test)]
 fn commit(disk: &Disk, shared: &Mutex<Shared>) -> io::Result<()> {
+    commit_at(disk, shared, FailureStage::Checkpoint)
+}
+fn commit_at(disk: &Disk, shared: &Mutex<Shared>, _stage: FailureStage) -> io::Result<()> {
+    #[cfg(any(test, feature = "audit-diagnostics-fixture"))]
+    if let Some(fault) = &disk.fault {
+        fault.before(_stage)?;
+    }
     disk.sync()?;
     let rows = disk.rows();
     let mut s = shared.lock().map_err(|_| invalid())?;
@@ -448,10 +516,12 @@ fn run(mut disk: Disk, receiver: mpsc::Receiver<Message>, shared: Arc<Mutex<Shar
                     continue;
                 }
                 let result = (|| {
-                    disk.append(*row)?;
+                    disk.append(*row).map_err(|_| FailureStage::Append)?;
                     for _ in 1..64 {
                         match receiver.try_recv() {
-                            Ok(Message::Record(row)) => disk.append(*row)?,
+                            Ok(Message::Record(row)) => {
+                                disk.append(*row).map_err(|_| FailureStage::Append)?
+                            }
                             Ok(other) => {
                                 pending = Some(other);
                                 break;
@@ -459,23 +529,30 @@ fn run(mut disk: Disk, receiver: mpsc::Receiver<Message>, shared: Arc<Mutex<Shar
                             Err(_) => break,
                         }
                     }
-                    commit(&disk, &shared)
+                    commit_at(&disk, &shared, FailureStage::Checkpoint)
+                        .map_err(|_| FailureStage::Checkpoint)
                 })();
-                if result.is_err() {
+                if let Err(stage) = result {
                     failed = true;
-                    shared.lock().unwrap().status.state = State::StorageFailure;
+                    let mut state = shared.lock().unwrap();
+                    state.status.state = State::StorageFailure;
+                    state.fail(FailureKind::IoFailure, stage);
                 }
             }
             Message::Flush(reply) => {
-                if !failed && commit(&disk, &shared).is_err() {
+                if !failed && commit_at(&disk, &shared, FailureStage::FlushBarrier).is_err() {
                     failed = true;
-                    shared.lock().unwrap().status.state = State::StorageFailure;
+                    let mut state = shared.lock().unwrap();
+                    state.status.state = State::StorageFailure;
+                    state.fail(FailureKind::IoFailure, FailureStage::FlushBarrier);
                 }
                 let _ = reply.send(shared.lock().unwrap().status.clone());
             }
             Message::Close => {
-                if !failed && commit(&disk, &shared).is_err() {
-                    shared.lock().unwrap().status.state = State::StorageFailure;
+                if !failed && commit_at(&disk, &shared, FailureStage::CloseBarrier).is_err() {
+                    let mut state = shared.lock().unwrap();
+                    state.status.state = State::StorageFailure;
+                    state.fail(FailureKind::IoFailure, FailureStage::CloseBarrier);
                 }
                 break;
             }
