@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P15/ADR-094 第55入口 `npm run test:desktop:wait` 前置实际普通构建。合成 SSH 和自建输出验证固定水位跨页、保护文本、覆盖与解码缺口、实际30秒期限、取消槽释放及普通工具并发、失权和桥断开，详[P15](records/P15.md)。
+
 P15/ADR-093 第54入口 `npm run test:desktop:ssh-resize` 前置实际普通构建。合成 SSH 真实 stdio 核对尺寸、独立 Control/lease、Single、跨 owner/代次、首答丢失只查。用前方在途输入和真实对端后续尺寸验证撤销/接管取消队列尾项，详[P15](records/P15.md)。
 
 P15/ADR-092 第53入口 `npm run test:desktop:serial-connect` 前置实际普通构建。显式计数内存 UART 验证桌面 Single 实际批准与手动交付参数、版本和设备匹配、首答丢失只查、实际一次打开和初始线状态、打开前撤销/关闭/库存刷新时零打开。finally 实际普通桌面与服务恢复并运行拒 fixture。详[P15](records/P15.md)。

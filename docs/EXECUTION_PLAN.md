@@ -1,5 +1,7 @@
 # 方案执行计划
 
+2026-11-10 P15 [ADR-094](decisions/ADR-094.md) 增加完整 Read 下有界字面等待，v10 保持原二十五项。第55入口验证保护、连续跨页、缺口、30秒时限和取消隔离，见[P15](records/P15.md)。
+
 2026-11-10 P15 [ADR-093](decisions/ADR-093.md) 增加 SSH2 显式尺寸控制，v9 保持原二十四项。沿 ADR-048 的独立 Control、租约和 FIFO。第54入口分列真实对端观察，见[P15](records/P15.md)。
 
 2026-11-10 P15 [ADR-092](decisions/ADR-092.md) 增加 UART 固定设备编号建连与原只读回执，v8 保持原二十二项。沿现有 Single 完整批准与 ADR-050/052。第53入口与普通恢复见[P15](records/P15.md)。
@@ -461,7 +463,7 @@ S1达到上述阶段门后进入P10.1。一个“串口连接”表单：端口�
 
 ### P15 MCP 工具实现
 
-- 初版9、v2 SSH exec/本人任务get/cancel及v3串口字节/显式控线软件子包已完成，v4 再加编号断开和状态查询，v5 再加两协议编号移除和状态查询，v6 再加 SSH2 编号重连与原只读回执，v7 再加已保存固定版本的 SSH2 编号建连与只读回执，v8 再加 UART 固定设备建连与原编号查询，v9 再加显式 SSH2 尺寸控制，当前固定25工具；原24 schema/公开结果保持，原生Agent代理/实际配对、授权/租约/保护和未知原编号查询均按[P15](records/P15.md)分层验证。完整P15其余连接能力、wait 和 export 仍 IN_PROGRESS，不把本子包当模型自治或全v1/实机通过。
+- 初版9、v2 SSH exec/本人任务get/cancel及v3串口字节/显式控线软件子包已完成，v4 再加编号断开和状态查询，v5 再加两协议编号移除和状态查询，v6 再加 SSH2 编号重连与原只读回执，v7 再加已保存固定版本的 SSH2 编号建连与只读回执，v8 再加 UART 固定设备建连与原编号查询，v9 再加显式 SSH2 尺寸控制，v10 再加完整 Read 有界字面等待，当前固定26工具；原25 schema/公开结果保持，原生Agent代理/实际配对、授权/租约/保护和未知原编号查询均按[P15](records/P15.md)分层验证。完整P15其余连接能力及 export 仍 IN_PROGRESS，不把本子包当模型自治或全v1/实机通过。
 
 - 依赖：P06、P11、P14。
 - 动作：按 CODEX_INTEGRATION.md 实现 schema、read/screen/send/wait/exec/serial/tasks/export；cursor 缺口、超时、长任务和错误语义。

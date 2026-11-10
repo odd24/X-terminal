@@ -1,6 +1,74 @@
 {
-  "version": 9,
+  "version": 10,
   "tools": [
+    {
+      "name": "terminal_wait",
+      "description": "Wait up to 30 seconds for a case-sensitive literal in the exact connection's continuous authorized text. Requires full Read. Protected grants match only protected text. Reports match, timeout, disconnection or gap with source cursors. No regex or time-window fallback.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Sensitive": {
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "cursor": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pattern": {
+            "$ref": "#/$defs/Sensitive"
+          },
+          "timeout_ms": {
+            "format": "uint64",
+            "maximum": 30000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection",
+          "cursor",
+          "pattern",
+          "timeout_ms"
+        ],
+        "title": "Args",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
     {
       "name": "ssh_resize",
       "description": "Request explicit SSH2 terminal dimensions (2–500 columns, 1–200 rows) for an exact generation and caller-fixed request ID. Requires independent Control approval and current input lease. PIPELINE_QUEUED means pipeline acceptance. On unknown delivery query terminal_input_status with SSH2 and the original connection and request ID.",

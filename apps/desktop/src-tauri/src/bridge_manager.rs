@@ -377,11 +377,27 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                             let expected_connect=request.connect_target();
                             let expected_serial_connect=request.serial_connect_target();
                             let expected_ssh_resize=request.ssh_resize_request_id();
+                            let wait_connection=request.wait_connection();
                             let protected=pair.view.protection.is_some();
-                            match request.into_service(protected) {
+                            let request = if let Some(connection) = wait_connection {
+                                use session_core::access::{Action, Scope, Target};
+                                if pair.view.approved_scopes.contains(&Scope {
+                                    target: Target::Connection { connection },
+                                    action: Action::Read,
+                                }) {
+                                    request.into_service(protected)
+                                } else {
+                                    Err(ErrorCode::PermissionDenied)
+                                }
+                            } else {
+                                request.into_service(protected)
+                            };
+                            match request {
                                 Ok(request) => {
                                     let response = pair.client.request(request).await?;
-                                    if let Some(id) = expected_ssh_resize {
+                                    if wait_connection.is_some() {
+                                        wire::ResultMessage::from_wait_service(response, protected)?
+                                    } else if let Some(id) = expected_ssh_resize {
                                         wire::ResultMessage::from_ssh_resize_service(response, id)?
                                     } else if let Some(target) = expected_serial_connect {
                                         wire::ResultMessage::from_serial_connect_service(response, target)?

@@ -13,6 +13,10 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    WaitRead {
+        connection: ConnectionRef,
+        view: View,
+    },
     SshResize {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -124,6 +128,13 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn wait_connection(&self) -> Option<ConnectionRef> {
+        match self {
+            Self::WaitRead { connection, .. } => Some(*connection),
+            _ => None,
+        }
+    }
+
     pub fn ssh_resize_request_id(&self) -> Option<Uuid> {
         match self {
             Self::SshResize { request_id, .. } => Some(*request_id),
@@ -252,6 +263,17 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::WaitRead { connection, view } => {
+                if !matches!(view, View::Info {} | View::Text { .. }) {
+                    return Err(session_core::session::ErrorCode::InvalidArgument);
+                }
+                return Self::Output {
+                    connection,
+                    window: None,
+                    view,
+                }
+                .into_service(protected);
+            }
             Self::SshResize {
                 connection,
                 request_id,
@@ -699,6 +721,24 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_wait_service(response: Response, protected: bool) -> std::io::Result<Self> {
+        match response {
+            Response::Error { code, .. } => Ok(Self::Error(code)),
+            Response::Ok {
+                reply: Reply::Context(reply),
+                ..
+            } if !protected => Ok(Self::Context(Box::new(reply))),
+            Response::Ok {
+                reply: Reply::ProtectedContext(reply),
+                ..
+            } if protected => Ok(Self::ProtectedContext(Box::new(reply))),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unmatched wait projection",
+            )),
+        }
+    }
+
     pub fn from_ssh_resize_service(response: Response, request_id: Uuid) -> std::io::Result<Self> {
         match response {
             Response::Error { code, .. } => Ok(Self::Error(code)),

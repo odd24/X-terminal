@@ -1,6 +1,12 @@
 # Codex 首版接入方案
 
-当前 [ADR-093](decisions/ADR-093.md) 固定 v9 二十五项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v8](../contracts/mcp/v8-tools.json) 的二十四项。
+当前 [ADR-094](decisions/ADR-094.md) 固定 v10 二十六项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v9](../contracts/mcp/v9-tools.json) 的二十五项。
+
+`terminal_wait` 接收精确 `connection`、原始源 `cursor`、大小写敏感的字面 `pattern`（1–256 UTF-8 字节）和 `timeout_ms`（1–30000）。须有该代次完整 Read，时间窗专用授权拒绝。受保护票据只在保护后的文本上匹配并返回证据。每次等待单槽，轮询间隔释放管道。
+
+结果分别为 MATCHED、TIMEOUT、DISCONNECTED、GAP。MATCHED 证据含匹配文本及首末源序号，next_cursor 为末事件之后的源游标。TIMEOUT 的 next_cursor 表示最后完整扫描的独占水位。覆盖、源缺口或解码错误返回 GAP，未完成读取、越权、代次失效及管道损坏分别返回错误。取消停止后续读取，已发出的单帧收完后丢弃结果。
+
+此前 [ADR-093](decisions/ADR-093.md) 固定 v9 二十五项工具。[v9 契约](../contracts/mcp/v9-tools.json) 保留 [v8](../contracts/mcp/v8-tools.json) 的二十四项。
 
 `ssh_resize` 接收精确 SSH2 `connection`、固定 `request_id`、`cols`（2–500）和 `rows`（1–200）。须有独立 Control 及当前租约，Single 固定全部参数。PIPELINE_QUEUED 表示管线接纳，远端尺寸是否应用另行观察。应答不明只用原连接和原编号调用 `terminal_input_status`（SSH2）。
 
@@ -141,7 +147,7 @@ enabled = true
 | terminal_read | connection_id、generation、cursor、max_bytes | events、next_cursor、truncated、available_from；建议最大 64 KiB |
 | terminal_screen | connection_id、generation | 行列、文本、光标、seq；来自服务端状态模型 |
 | terminal_send | connection_id、generation、request_id、text 或 key | 接收/发送状态；write 权限与输入租约 |
-| terminal_wait | connection_id、generation、cursor、pattern、timeout_ms | matched/timeout/disconnected、游标、证据；单次最长 30 秒 |
+| terminal_wait | connection、cursor、pattern、timeout_ms | 完整 Read，字面匹配、超时、断开或缺口，单次最长 30 秒 |
 | ssh_exec | connection_id、generation、request_id、command、timeout_ms | task_id；独立 exec 通道，不继承终端 shell 状态 |
 | tasks_get | task_id、cursor | 状态、输出增量、退出码（仅可用时） |
 | tasks_cancel | task_id、request_id | 停止调度/尝试中断结果；不保证远程已退出 |

@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P15 [ADR-094](decisions/ADR-094.md) 有界终端字面等待 v10 软件子包完成。原二十五项保持。真实跨页、保护、覆盖与解码缺口、30 秒总时限、取消/并发与失权分层通过。两协议各 55 拒绝、普通恢复见[P15](records/P15.md)。完整 P15/MCP/实机/长稳仍开放。Step-ID: P15。
+
 2026-11-10 P15 v9 实现 8332ec4 已交付普通本机预览 a3efbba6-38f9-4b9e-90dc-357ebc774c90。复制品真实 stdio 二十五项、退出 ACK、exit 0、无强退、审计 44/44、回执落盘及自有资源释放通过，见[P15](records/P15.md)。Step-ID: P15。
 
 2026-11-10 P15 [ADR-093](decisions/ADR-093.md) SSH2 显式尺寸控制 v9 软件子包完成。原二十四项保持。Control/lease/Single、丢首答原编号查询与对端一次实收、撤销/接管队列取消分别验证。10 协议/2 IPC、两协议各 54 拒绝及普通恢复见[P15](records/P15.md)。完整 P15/MCP/实机/长稳仍开放。Step-ID: P15。
@@ -402,7 +404,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P12.1 | S1软件阶段完成，实机兼容/全局长稳边界保留，顺序进入S2 | DONE | [P12.1](records/P12.1.md) | Step-ID: P12.1 |
 | P13 | SSH1 正式兼容 | TODO | 待创建 | — |
 | P14 | Agent 授权/调度、完整参数/窗口/保护批准及有界持久审计（软件范围；真实桥属P15） | DONE | [P14](records/P14.md) | Step-ID: P14 |
-| P15 | v9 固定 25 项真实 stdio 工具的软件子包已验；完整 P15 待继续 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |
+| P15 | v10 固定 26 项真实 stdio 工具的软件子包已验；完整 P15 待继续 | IN_PROGRESS | [P15](records/P15.md) | Step-ID: P15 |
 | P16 | 初版客户端直调共享闭环/本机预览已交付；模型写入需正常交互批准，完整验收后续 | IN_PROGRESS | [P16](records/P16.md) | Step-ID: P16 |
 | P17 | 分组、双窗格及受管理布局显式恢复软件完成，完整R06/全局证据后续 | IN_PROGRESS | [P17](records/P17.md) | Step-ID: P17 |
 | P18 | 同步输入 | IN_PROGRESS | [记录](records/P18.md) | 显式文本批次及专用连续键盘软件贯通；完整R07仍开放 |
