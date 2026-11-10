@@ -8,7 +8,10 @@ import { createInterface } from 'node:readline';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, activeText, desktopKeyboard, terminalInput } from './lib/DesktopKeyboard.mjs';
 
-const preview = JSON.parse(await readFile('artifacts/P22-audit-grant-feedback-preview.json', 'utf8'));
+const previewOverride = process.argv[2];
+const manifest = previewOverride ?? 'artifacts/P22-audit-grant-feedback-preview.json';
+const report = previewOverride ? `P12.1-saved-ssh-keyboard-${path.parse(manifest).name}.json` : 'P12.1-saved-ssh-keyboard.json';
+const preview = JSON.parse(await readFile(manifest, 'utf8'));
 assert.equal(preview.result, 'PASS');
 assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
 assert.deepEqual(preview.files.map(file => file.name).sort(),
@@ -237,5 +240,5 @@ const resolved = await realpath(root);
 assert.equal(path.dirname(resolved), await realpath(tmpdir()));
 assert.ok(path.basename(resolved).startsWith(prefix));
 await rm(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-await writeFile('artifacts/P12.1-saved-ssh-keyboard.json', JSON.stringify(evidence, null, 2) + '\n');
+await writeFile(path.join('artifacts', report), JSON.stringify(evidence, null, 2) + '\n');
 console.log('PASS ordinary Desktop saved SSH2 keyboard selection, switching, isolated input and disconnect');
