@@ -140,6 +140,11 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); height
 @media (max-width: 850px) {
   .desktop-body, .desktop-body:has(.auxiliary-panels:not(:empty)), .desktop-body.sidebar-hidden:has(.auxiliary-panels:not(:empty)) { grid-template-columns: minmax(0, 1fr); }
   .session-sidebar, .auxiliary-panels:not(:empty) { position: absolute; inset: 0 auto 0 0; width: min(85%, var(--navigation-width)); z-index: 2; }
+  .session-sidebar { gap: var(--space-2); padding: var(--space-2); }
+  .session-sidebar .profile-summary:has(> strong) {
+    max-block-size: clamp(calc(var(--control-height) + var(--space-4)), 20%, var(--list-height));
+    padding-block-start: var(--space-2);
+  }
   .auxiliary-panels:not(:empty) { inset: 0 0 0 auto; width: min(90%, var(--auxiliary-width)); border: var(--border-width) solid var(--border); }
 }
 
