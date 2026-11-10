@@ -164,13 +164,14 @@ function App() {
     }
   }
   const [configurationOpen, setConfigurationOpen] = useState(false);
-  const configurationFromTools = useRef(false);
+  const toolsReturnDialog = useRef<'configuration' | 'appearance' | undefined>(undefined);
   const toolsSummary = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
-    if (configurationOpen || !configurationFromTools.current) return;
-    configurationFromTools.current = false;
+    const dialog = toolsReturnDialog.current;
+    if (!dialog || (dialog === 'configuration' ? configurationOpen : appearanceOpen)) return;
+    toolsReturnDialog.current = undefined;
     toolsSummary.current?.focus();
-  }, [configurationOpen]);
+  }, [configurationOpen, appearanceOpen]);
   const [configurationTarget,setConfigurationTarget]=useState<{id:string;action:'edit'|'delete'}>();
   const [sshOpen, setSshOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -442,7 +443,7 @@ function App() {
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
       <details className="tools-menu" onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.open = false; }}><summary ref={toolsSummary}>更多工具</summary><div className="tools-menu-content">
 
-      <button onClick={() => {configurationFromTools.current=true;setConfigurationTarget(undefined);setConfigurationOpen(true);}}>连接配置</button>
+      <button onClick={() => {toolsReturnDialog.current='configuration';setConfigurationTarget(undefined);setConfigurationOpen(true);}}>连接配置</button>
       <button onClick={()=>setBatchConfigOpen(true)}>批量修改配置</button>
       <button onClick={()=>setImportConfigOpen(true)}>导入原生配置</button>
       <button onClick={()=>setCloseInfoOpen(true)}>上次关闭信息</button>
@@ -466,7 +467,7 @@ function App() {
       <button disabled={!selected} onClick={() => void clipboard.current?.paste()}>粘贴到终端</button>
       <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
       <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
-      <button onClick={() => setAppearanceOpen(open => !open)}>外观</button>
+      <button onClick={() => {toolsReturnDialog.current='appearance';setAppearanceOpen(true);}}>外观</button>
       <button onClick={()=>setGroupsOpen(true)}>标签分组</button>
       <button disabled={!service} onClick={()=>setWorkspaceOpen(true)}>工作区</button>
       <button disabled={!active||active.state!=='CONNECTED'||!['SSH2','SERIAL'].includes(active.protocol)} onClick={()=>{if(active){const nonce=crypto.randomUUID();splitNonce.current=nonce;setSplitSource({owner:serviceRef.current!.service_id,first:{...active},nonce});}}}>分屏</button>
