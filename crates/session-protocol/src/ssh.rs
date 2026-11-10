@@ -50,6 +50,10 @@ pub enum Request {
         cols: u32,
         rows: u32,
     },
+    ReconnectStatus {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Exec {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -127,6 +131,10 @@ impl Request {
     pub fn validate(&self) -> bool {
         match self {
             Self::StartStatus { request_id } => !request_id.is_nil(),
+            Self::ReconnectStatus {
+                connection,
+                request_id,
+            } => valid(*connection) && !request_id.is_nil(),
             Self::QuickStart {
                 settings,
                 request_id,
@@ -411,6 +419,7 @@ pub struct Status {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    ReconnectReceipt(ReconnectReceipt),
     ExecProtectedOutput {
         connection: ConnectionRef,
         task_id: Uuid,
@@ -430,6 +439,14 @@ pub enum Reply {
     },
     Status(Box<Status>),
     Accepted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReconnectReceipt {
+    pub request_id: Uuid,
+    pub previous: ConnectionRef,
+    pub connection: ConnectionInfo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -13,6 +13,16 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    Reconnect {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+    },
+    ReconnectStatus {
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Forget {
         transport: Transport,
         connection: ConnectionRef,
@@ -90,6 +100,21 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn reconnect_target(&self) -> Option<(ConnectionRef, Uuid, bool)> {
+        match self {
+            Self::Reconnect {
+                connection,
+                request_id,
+                ..
+            } => Some((*connection, *request_id, false)),
+            Self::ReconnectStatus {
+                connection,
+                request_id,
+            } => Some((*connection, *request_id, true)),
+            _ => None,
+        }
+    }
+
     pub fn forget_target(&self) -> Option<(Transport, ConnectionRef, Uuid)> {
         match self {
             Self::Forget {
@@ -172,6 +197,28 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::Reconnect {
+                connection,
+                request_id,
+                cols,
+                rows,
+            } => Request::Ssh {
+                request: ssh::Request::Reconnect {
+                    connection,
+                    request_id,
+                    cols,
+                    rows,
+                },
+            },
+            Self::ReconnectStatus {
+                connection,
+                request_id,
+            } => Request::Ssh {
+                request: ssh::Request::ReconnectStatus {
+                    connection,
+                    request_id,
+                },
+            },
             Self::Forget {
                 transport: Transport::Ssh2,
                 connection,
@@ -521,6 +568,7 @@ pub struct Status {
     deny_unknown_fields
 )]
 pub enum ResultMessage {
+    Reconnect(ssh::ReconnectReceipt),
     Forget(session_core::forget::Receipt),
     Disconnect(session_core::disconnect::Receipt),
     SerialOperation {
@@ -549,6 +597,49 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_reconnect_service(
+        response: Response,
+        previous: ConnectionRef,
+        request_id: Uuid,
+        query: bool,
+    ) -> std::io::Result<Self> {
+        use session_core::session::{Protocol, State};
+        let receipt = match response {
+            Response::Error { code, .. } => return Ok(Self::Error(code)),
+            Response::Ok {
+                reply: Reply::Ssh(ssh::Reply::Started { connection }),
+                ..
+            } if !query => ssh::ReconnectReceipt {
+                request_id,
+                previous,
+                connection,
+            },
+            Response::Ok {
+                reply: Reply::Ssh(ssh::Reply::ReconnectReceipt(receipt)),
+                ..
+            } if query && receipt.previous == previous && receipt.request_id == request_id => {
+                receipt
+            }
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "unmatched Reconnect response",
+                ));
+            }
+        };
+        if receipt.connection.connection_id != previous.connection_id
+            || Some(receipt.connection.generation) != previous.generation.checked_add(1)
+            || receipt.connection.protocol != Protocol::Ssh2
+            || receipt.connection.state != State::Connecting
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid Reconnect creation snapshot",
+            ));
+        }
+        Ok(Self::Reconnect(receipt))
+    }
+
     pub fn from_forget_service(
         response: Response,
         transport: Transport,
@@ -700,6 +791,92 @@ impl ResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconnect_checks_snapshot_and_accepts_only_the_reply_for_each_operation() {
+        use session_core::session::{Protocol, State};
+        let previous = target();
+        let request_id = Uuid::new_v4();
+        let connection = ConnectionInfo {
+            connection_id: previous.connection_id,
+            generation: previous.generation + 1,
+            protocol: Protocol::Ssh2,
+            state: State::Connecting,
+        };
+        let receipt = ssh::ReconnectReceipt {
+            request_id,
+            previous,
+            connection: connection.clone(),
+        };
+        let project = |reply, query| {
+            ResultMessage::from_reconnect_service(
+                Response::Ok {
+                    id: 1,
+                    reply: Reply::Ssh(reply),
+                },
+                previous,
+                request_id,
+                query,
+            )
+        };
+        for (reply, query) in [
+            (
+                ssh::Reply::Started {
+                    connection: connection.clone(),
+                },
+                false,
+            ),
+            (ssh::Reply::ReconnectReceipt(receipt.clone()), true),
+        ] {
+            assert!(
+                matches!(project(reply, query), Ok(ResultMessage::Reconnect(r)) if r == receipt)
+            );
+        }
+        assert!(
+            project(
+                ssh::Reply::Started {
+                    connection: connection.clone()
+                },
+                true
+            )
+            .is_err()
+        );
+        assert!(project(ssh::Reply::ReconnectReceipt(receipt.clone()), false).is_err());
+        assert!(
+            project(
+                ssh::Reply::ReconnectReceipt(ssh::ReconnectReceipt {
+                    request_id: Uuid::new_v4(),
+                    ..receipt
+                }),
+                true
+            )
+            .is_err()
+        );
+        for changed in [
+            ConnectionInfo {
+                generation: previous.generation,
+                ..connection.clone()
+            },
+            ConnectionInfo {
+                protocol: Protocol::Serial,
+                ..connection.clone()
+            },
+            ConnectionInfo {
+                state: State::Connected,
+                ..connection
+            },
+        ] {
+            assert!(
+                project(
+                    ssh::Reply::Started {
+                        connection: changed
+                    },
+                    false
+                )
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn forget_preserves_known_rejection_and_treats_mismatched_receipts_as_unknown() {

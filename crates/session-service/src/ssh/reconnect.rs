@@ -1,5 +1,35 @@
 use super::*;
 impl Manager {
+    pub(super) fn reconnect_status(
+        &self,
+        identity: &Identity,
+        previous: ConnectionRef,
+        request_id: Uuid,
+    ) -> Result<ssh::Reply, ErrorCode> {
+        let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let owner = Self::start_owner(&store, Some(identity))?;
+        let Some((start, connection)) = inner.requests.get(&request_id) else {
+            inner.request_window.check(request_id)?;
+            return Err(if owner.is_some() {
+                ErrorCode::PermissionDenied
+            } else {
+                ErrorCode::NotFound
+            });
+        };
+        if start.owner != owner || start.previous.is_none() {
+            return Err(ErrorCode::PermissionDenied);
+        }
+        if start.previous != Some(previous) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        Ok(ssh::Reply::ReconnectReceipt(ssh::ReconnectReceipt {
+            request_id,
+            previous,
+            connection: connection.clone(),
+        }))
+    }
+
     fn reconnect_duplicate(
         &self,
         identity: Option<&Identity>,

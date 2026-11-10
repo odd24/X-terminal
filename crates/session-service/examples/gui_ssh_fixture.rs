@@ -59,6 +59,7 @@ async fn main() {
             "{}",
             serde_json::json!({
                 "attempts":fixture.attempts.load(Ordering::SeqCst),
+                "accepted_connections":fixture.accepted_connections(),
                 "received":*fixture.received.lock().unwrap(),
                 "received_at_us":*fixture.received_at.lock().unwrap(),
                 "sizes":*fixture.sizes.lock().unwrap(),

@@ -11,6 +11,14 @@ fn request(connection: ConnectionRef, request_id: Uuid) -> Request {
         },
     }
 }
+fn status(connection: ConnectionRef, request_id: Uuid) -> Request {
+    Request::Ssh {
+        request: S::ReconnectStatus {
+            connection,
+            request_id,
+        },
+    }
+}
 async fn terminal(
     desktop: &mut Client,
     remote: &ssh_fixture::Fixture,
@@ -126,6 +134,11 @@ async fn reconnect_requires_independent_old_generation_lease_and_fixed_profile_a
     );
     lease(&mut client, old, 10000).await;
     let id = Uuid::new_v4();
+    assert_eq!(
+        error(client.request(status(old, id)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(remote.accepted_connections(), 1);
     let mut pipe = service.raw().await;
     write_frame(
         &mut pipe,
@@ -153,13 +166,17 @@ async fn reconnect_requires_independent_old_generation_lease_and_fixed_profile_a
     // Recover the original request over another authenticated Pipe; never read its response.
     let result = timeout(Duration::from_secs(5), async {
         loop {
-            match client.request(request(old, id)).await.unwrap() {
+            match client.request(status(old, id)).await.unwrap() {
                 Response::Ok {
-                    reply: Reply::Ssh(ssh::Reply::Started { connection }),
+                    reply: Reply::Ssh(ssh::Reply::ReconnectReceipt(receipt)),
                     ..
-                } => break connection,
+                } => {
+                    assert_eq!(receipt.previous, old);
+                    assert_eq!(receipt.request_id, id);
+                    break receipt.connection;
+                }
                 Response::Error {
-                    code: ErrorCode::PermissionDenied | ErrorCode::StaleGeneration,
+                    code: ErrorCode::PermissionDenied,
                     ..
                 } => tokio::task::yield_now().await,
                 other => panic!("unexpected restart result: {other:?}"),
@@ -172,6 +189,10 @@ async fn reconnect_requires_independent_old_generation_lease_and_fixed_profile_a
     assert_eq!(result.connection_id, old.connection_id);
     assert_eq!(result.generation, old.generation + 1);
     let current = result.reference();
+    assert_eq!(
+        error(client.request(status(current, id)).await.unwrap()),
+        ErrorCode::InvalidArgument
+    );
     assert!(matches!(
         ok(client
             .request(agent(A::Lease { connection: old }))
@@ -210,6 +231,10 @@ async fn reconnect_requires_independent_old_generation_lease_and_fixed_profile_a
         error(other.request(request(old, id)).await.unwrap()),
         ErrorCode::PermissionDenied
     );
+    assert_eq!(
+        error(other.request(status(old, id)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
     // Removing config and the newly-created connection cannot turn original retry into Start.
     ssh_call(
         &mut desktop,
@@ -234,6 +259,10 @@ async fn reconnect_requires_independent_old_generation_lease_and_fixed_profile_a
     assert!(
         matches!(duplicate, Reply::Ssh(ssh::Reply::Started { connection }) if connection == result)
     );
+    assert!(matches!(
+        ok(client.request(status(old, id)).await.unwrap()),
+        Reply::Ssh(ssh::Reply::ReconnectReceipt(r)) if r.connection == result
+    ));
     assert_eq!(
         error(client.request(request(old, Uuid::new_v4())).await.unwrap()),
         ErrorCode::PermissionDenied
@@ -247,6 +276,10 @@ async fn reconnect_requires_independent_old_generation_lease_and_fixed_profile_a
         .unwrap());
     assert_eq!(
         error(client.request(request(old, id)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(client.request(status(old, id)).await.unwrap()),
         ErrorCode::PermissionDenied
     );
     service.stop(&mut desktop).await;

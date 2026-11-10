@@ -387,6 +387,10 @@ fn ssh_descriptor(r: &ssh::Request) -> Descriptor {
             connection,
             request_id,
         }
+        | S::ReconnectStatus {
+            connection,
+            request_id,
+        }
         | S::ForgetStatus {
             connection,
             request_id,

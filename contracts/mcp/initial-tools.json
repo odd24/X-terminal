@@ -1,6 +1,126 @@
 {
-  "version": 5,
+  "version": 6,
   "tools": [
+    {
+      "name": "ssh_reconnect",
+      "description": "Start SSH2 on the next generation of an ended saved-profile connection. Fix request_id and dimensions first. Requires independent Reconnect approval and current lease for the old generation, plus fixed Profile/revision Connect in the same ticket. Desktop retains host trust and authentication. The creation snapshot does not confirm online status. On unknown delivery only query ssh_reconnect_status.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cols": {
+            "format": "uint32",
+            "maximum": 500,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rows": {
+            "format": "uint32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "cols",
+          "rows"
+        ],
+        "title": "ReconnectArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "ssh_reconnect_status",
+      "description": "Read the retained SSH2 creation snapshot with the original valid ticket, previous connection generation and request_id. This only looks up the original Reconnect receipt, including after old scope retirement. A missing receipt leaves the outcome unknown; do not replay Reconnect.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id"
+        ],
+        "title": "ReconnectStatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
     {
       "name": "sessions_forget",
       "description": "Remove the record for an ended SSH2 or SERIAL connection after verified local cleanup. Requires independent Forget approval and current lease for the exact connection generation and caller-fixed request_id. REMOVED covers only the session record; saved profiles, logs and files are retained. After a known INVALID_STATE, the caller may explicitly retry the same number once cleanup and authority are confirmed. On unknown delivery only query sessions_forget_status.",

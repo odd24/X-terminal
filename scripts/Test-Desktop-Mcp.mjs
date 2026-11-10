@@ -9,6 +9,7 @@ import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
 import { prepareSecuritySentinels, checkMcpSecurity } from './lib/McpSecurityChecks.mjs';
 import {checkMcpExec} from './lib/McpExecChecks.mjs';
+import {checkMcpReconnect} from './lib/McpReconnectChecks.mjs';
 import {checkMcpForget} from './lib/McpForgetChecks.mjs';
 import {checkMcpDisconnect} from './lib/McpDisconnectChecks.mjs';
 import {checkMcpSerial} from './lib/McpSerialChecks.mjs';
@@ -16,12 +17,13 @@ import {checkMcpSerial} from './lib/McpSerialChecks.mjs';
 const serialControl=process.argv.includes('--serial-control');
 const disconnect=process.argv.includes('--disconnect');
 const forget=process.argv.includes('--forget');
+const reconnect=process.argv.includes('--reconnect');
 const serial=process.argv.includes('--serial')||serialControl;
 const countedSerial=serialControl||((disconnect||forget)&&serial);
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
-const evidence=forget?'P15-forget-v5':disconnect?'P15-forget-impact-disconnect-v5':serialControl?'P15-forget-impact-serial-v5':security?'P22-security-v5':exec?'P15-forget-impact-exec-v5':'P15-mcp-v5';
-assert.ok(!exec||!serial,'exec fixture is SSH2 only');
+const evidence=reconnect?'P15-reconnect-v6':forget?'P15-reconnect-impact-forget-v6':disconnect?'P15-reconnect-impact-disconnect-v6':serialControl?'P15-reconnect-impact-serial-v6':security?'P22-security-v6':exec?'P15-reconnect-impact-exec-v6':'P15-mcp-v6';
+assert.ok(!(exec||reconnect)||!serial,'exec and reconnect fixtures are SSH2 only');
 const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
 const build=fixture=>{const result=spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});assert.equal(result.status,0,'memory fixture/ordinary restore must actually succeed');};
 let directory,ui,fixture,rpc,failed=false;
@@ -70,9 +72,9 @@ try {
   rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
   const initialized=await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'p15-real-stdio',version:'0.1.0'}});assert.ok(initialized.result.capabilities.tools);rpc.notify('notifications/initialized',{});
   const catalog=(await rpc.request('tools/list',{})).result.tools;
-  assert.deepEqual({version:5,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v5 eighteen-tool contract');
+  assert.deepEqual({version:6,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v6 twenty-tool contract');
   await writeFile(`artifacts/${evidence}-tools-${serial?'serial':'ssh'}.json`,JSON.stringify({tools:catalog},null,2)+'\n');
-  assert.equal(catalog.length,18);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
+  assert.equal(catalog.length,20);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
   const call=async(name,args={})=>(await rpc.request('tools/call',{name,arguments:args})).result;
   const success=async(name,args={})=>{const result=await call(name,args);assert.equal(result.isError,false,JSON.stringify(result));assert.equal(result.structuredContent.mock,false);return result.structuredContent.reply;};
   const pending=await success('agent_status');assert.equal(pending.data.paired_ticket,null);assert.equal(pending.data.peer_pid,rpc.child.pid);
@@ -114,14 +116,15 @@ try {
   };
   const execChecks=exec?await checkMcpExec({ui,call,success,ref,other:otherRef,management,grantId,signed,lease,metrics,rebind,getRpc:()=>rpc,evidencePrefix:evidence}):null;
   const serialChecks=serialControl?await checkMcpSerial({directory,ui,call,success,ref,other:otherRef,management,grantId,signed,lease,rebind,getRpc:()=>rpc,evidence}):null;
-  if(disconnect||forget){
+  if(disconnect||forget||reconnect){
     const common={directory,ui,call,success,ref,other:otherRef,transport,management,grantId,lease,control,rebind,getRpc:()=>rpc};
-    const report=forget
-      ?await checkMcpForget({...common,profileId,sshPin})
+    const report=reconnect
+      ?await checkMcpReconnect({...common,profileId,sshPin,originalInput:send})
+      :forget?await checkMcpForget({...common,profileId,sshPin})
       :await checkMcpDisconnect(common);
     assert.equal((await rpc.close()).code,0);rpc=undefined;
     await writeFile(`artifacts/${evidence}-${serial?'serial':'ssh'}.json`,JSON.stringify({...report,stdio_exit:0},null,2)+'\n');
-    console.log(`PASS real MCP ${transport} ${forget?'Forget':'Disconnect'}, original receipt, permission boundaries and transport cleanup`);
+    console.log(`PASS real MCP ${transport} ${reconnect?'Reconnect':forget?'Forget':'Disconnect'}, original receipt, permission boundaries and transport cleanup`);
   }else{
     await management({op:'takeover',connection:ref});assert.equal((await call('terminal_send',{...send,request_id:randomUUID(),text:'MUST_NOT_SEND'})).isError,true);
     await securityChecks?.afterTakeover();
@@ -138,12 +141,12 @@ try {
     await execChecks?.afterServiceLoss();
     await serialChecks?.afterServiceLoss();
     assert.ok(!rpc.stderr.includes('P15_PRIVATE'));assert.equal((await rpc.close()).code,0);rpc=undefined;
-    if(security)await writeFile(`artifacts/P22-security-v5-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
+    if(security)await writeFile(`artifacts/P22-security-v6-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
     console.log(`PASS real MCP ${transport}: native fixed-process/original-grant GUI approval, default-none, no unpaired access/bearer, same shared connection exact send/receipt/protected read/screen, lease and dedup, unrelated session denied, takeover/revoke rejected, Agent source audit and stdio EOF cleanup; synthetic only`);
   }
 } catch(error) {
   failed=true;console.error('MCP deterministic test failed before cleanup:',error);
-  if((exec||countedSerial||disconnect||forget)&&ui)await ui.screenshot(`${evidence}-${serial?'serial':'ssh'}-failure.png`).catch(()=>{});
+  if((exec||countedSerial||disconnect||forget||reconnect)&&ui)await ui.screenshot(`${evidence}-${serial?'serial':'ssh'}-failure.png`).catch(()=>{});
   if(directory)console.error('Owned failed MCP root retained:',directory);throw error;
 } finally {
   try {if(rpc)await rpc.close();await ui?.close();fixture?.kill();if(fixture)await new Promise(resolve=>{if(fixture.exitCode!==null||fixture.signalCode!==null)resolve();else fixture.once('exit',resolve);});if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(rootPrefix));if(!failed)await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}

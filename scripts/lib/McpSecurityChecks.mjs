@@ -86,6 +86,7 @@ export async function checkMcpSecurity({ui,call,success,catalog,ref,other,transp
     input_acquire:{connection:ref,lifetime_ms:1000},input_release:{connection:ref,lease_id:lease.lease_id},
     ssh_exec:{connection:ref,request_id:requestId(),command:'MUST_NOT_DISPATCH',timeout_ms:1000,max_output_bytes:65536},
     tasks_get:{connection:ref,task_id:requestId(),view:{kind:'status'}},tasks_cancel:{connection:ref,task_id:requestId()},
+    ssh_reconnect:{connection:ref,request_id:requestId(),cols:80,rows:24},ssh_reconnect_status:{connection:ref,request_id:requestId()},
     sessions_forget:{transport,connection:ref,request_id:requestId()},sessions_forget_status:{transport,connection:ref,request_id:requestId()},
     sessions_disconnect:{transport,connection:ref,request_id:requestId()},sessions_disconnect_status:{transport,connection:ref,request_id:requestId()},
     serial_write:{connection:ref,request_id:requestId(),bytes:[0,255]},serial_control:{connection:ref,request_id:requestId(),line:'DTR',asserted:false}};

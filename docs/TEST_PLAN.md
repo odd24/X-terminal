@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P15/ADR-090 第51入口 `npm run test:desktop:reconnect` 前置实际普通构建，合成 SSH 真实 stdio 核对双范围、旧代次/租约、固定配置 revision、接管/撤销、首答丢失只查及精确一次 TCP 接入。新代次需要 Desktop 认证，原输入和权限不继承。详[P15](records/P15.md)。
+
 P15/ADR-089 第50入口 `npm run test:desktop:forget` 以前置普通实际构建执行两协议真实 stdio。验证活跃和未回收拒绝、独立范围和租约、Single、丢应答只查、原票据退休后恢复、撤销和错代次，以及配置页和持久文本日志保留。串口隔离构建 finally 恢复普通 Desktop/service 并核对运行拒 fixture。详[P15](records/P15.md)。
 
 P15/ADR-088 第49入口 `npm run test:desktop:disconnect` 以前置实际普通构建执行原生 stdio 两协议专项。检查独立范围、租约、Single 参数、原 owner/代次及丢弃 Start/Status 应答后的原编号查询。SSH 对端独立观察结束，计数内存 UART 在 Port 清理门内必须仍为 REQUESTED，释放门后由服务观察 worker join。隔离构建实际恢复普通 Desktop 并核对 fixture 拒绝，详[P15](records/P15.md)。

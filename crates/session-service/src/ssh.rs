@@ -228,6 +228,10 @@ impl Manager {
                 self.reconnect_as(Some(identity), connection, request_id, cols, rows)
                     .await
             }
+            ssh::Request::ReconnectStatus {
+                connection,
+                request_id,
+            } => self.reconnect_status(identity, connection, request_id),
             ssh::Request::Disconnect {
                 connection,
                 request_id,
@@ -364,9 +368,9 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
-            ssh::Request::QuickStart { .. } | ssh::Request::StartStatus { .. } => {
-                Err(ErrorCode::PermissionDenied)
-            }
+            ssh::Request::QuickStart { .. }
+            | ssh::Request::StartStatus { .. }
+            | ssh::Request::ReconnectStatus { .. } => Err(ErrorCode::PermissionDenied),
             ssh::Request::AuthenticateKey {
                 connection,
                 challenge_id,

@@ -1,6 +1,12 @@
 # Codex 首版接入方案
 
-当前 [ADR-089](decisions/ADR-089.md) 固定 v5 十八项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v4](../contracts/mcp/v4-tools.json) 的十六项。
+当前 [ADR-090](decisions/ADR-090.md) 固定 v6 二十项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v5](../contracts/mcp/v5-tools.json) 的十八项。
+
+`ssh_reconnect` 接收原 `connection`（精确旧代次）、固定 `request_id`、`cols`（2–500）及 `rows`（1–200）。只对已结束且关联保存配置的 SSH2 开放。同票据须有旧代次 Reconnect 和当前租约，以及固定 Profile/revision Connect。新代次的主机信任和认证由 Desktop 处理，旧代次的读写许可、租约与输入不继承。
+
+`ssh_reconnect_status` 只接收原 `connection` 与 `request_id`，使用原有效票据查询创建时快照。结果的 `previous` 是原代次，`connection` 是新代次的创建状态。Start 的原代次及编号由原生绑定原请求，状态查询回执则由服务直接回传并核验。应答不明时只查，不重新发起。
+
+此前 [ADR-089](decisions/ADR-089.md) 固定 v5 十八项工具。[v5 契约](../contracts/mcp/v5-tools.json) 保留 [v4](../contracts/mcp/v4-tools.json) 的十六项。
 
 `sessions_forget` 和 `sessions_forget_status` 接收 `transport`（SSH2 或 SERIAL）、`connection`（含代次）及调用者固定的 `request_id`。发起须独立 Forget 批准和当前输入租约。服务仅在连接已结束且本地回收确认后移除记录，`REMOVED` 仅指该代次的会话记录，配置、日志、导出与用户文件保留。
 
@@ -111,6 +117,7 @@ enabled = true
 |---|---|---|
 | sessions_list | scope | 仅可见配置/连接，秘密字段不存在 |
 | sessions_connect | profile_id、request_id | connection_id、generation、state；需要 connect 权限 |
+| ssh_reconnect / ssh_reconnect_status | connection、request_id，发起另带 cols、rows | SSH2 原代次双范围及原票据创建快照 |
 | sessions_forget / sessions_forget_status | transport、connection、request_id | 已回收代次的记录移除与原票据回执查询 |
 | sessions_disconnect / sessions_disconnect_status | transport、connection、request_id | 编号断开与原票据查询，发起需独立 Disconnect 与租约 |
 | terminal_read | connection_id、generation、cursor、max_bytes | events、next_cursor、truncated、available_from；建议最大 64 KiB |

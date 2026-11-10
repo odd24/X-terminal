@@ -30,6 +30,7 @@ struct Server {
     client_key: russh::keys::PublicKey,
     password: Arc<String>,
     attempts: Arc<AtomicUsize>,
+    accepted: Arc<AtomicUsize>,
     shell: Arc<Mutex<Option<(server::Handle, ChannelId)>>>,
 }
 struct Producer(tokio::task::AbortHandle);
@@ -41,6 +42,7 @@ impl Drop for Producer {
 impl server::Server for Server {
     type Handler = Self;
     fn new_client(&mut self, _: Option<SocketAddr>) -> Self {
+        self.accepted.fetch_add(1, Ordering::SeqCst);
         self.clone()
     }
     fn handle_session_error(&mut self, _: russh::Error) {}
@@ -342,6 +344,7 @@ pub struct Fixture {
     pub port: u16,
     pub password: Arc<String>,
     pub attempts: Arc<AtomicUsize>,
+    accepted: Arc<AtomicUsize>,
     pub key: Vec<u8>,
     pub pin: String,
     shell: Arc<Mutex<Option<(server::Handle, ChannelId)>>>,
@@ -373,6 +376,7 @@ impl Fixture {
         let public = key.public_key().to_bytes().unwrap();
         let password = Arc::new(format!("synthetic-service-{}", rand::random::<u64>()));
         let attempts = Arc::new(AtomicUsize::new(0));
+        let accepted = Arc::new(AtomicUsize::new(0));
         let shell = Arc::new(Mutex::new(None));
         let received = Arc::new(Mutex::new(Vec::new()));
         let keyboard_echo = Arc::new(AtomicBool::new(false));
@@ -397,6 +401,7 @@ impl Fixture {
             client_key: client_key.public_key().clone(),
             password: password.clone(),
             attempts: attempts.clone(),
+            accepted: accepted.clone(),
             shell: shell.clone(),
         };
         let config = Arc::new(server::Config {
@@ -436,12 +441,16 @@ impl Fixture {
             port,
             password,
             attempts,
+            accepted,
             key: public,
             pin,
             shell,
             task,
             shutdown,
         }
+    }
+    pub fn accepted_connections(&self) -> usize {
+        self.accepted.load(Ordering::SeqCst)
     }
     pub async fn push(&self, bytes: &[u8]) {
         let (handle, channel) = self.shell.lock().unwrap().clone().unwrap();
