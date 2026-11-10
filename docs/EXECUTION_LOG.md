@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P15/v3实现97d98c6已本机普通预览交付ced2fb24-3719-409b-9c49-74e657d90199：复制品PE2/普通拒fixture/同目录MCP固定14工具精确发现、stdio exit0及真实关闭回执/审计CLOSED水位一致/自有进程释放均PASS，三SHA和独立结果文件见[P15](records/P15.md)。旧预览/证据保持，没有用户根/真实COM控制或模型执行，完整P15/MCP/实机与长稳仍开放。Step-ID: P15。
+
 2026-11-10 P15/ADR-087串口字节/显式控制软件专项：v3固定14工具且原12 schema/结果保持，WRITE/CONTROL/lease/原owner/代次/Single及未知原编号查询不变。真实内存Port计数5写40字节/6控制，首答丢失只查、旧ID改动作拒绝、接管后已入写完成/队列控制未进Port等PASS；4协议/1 Single/9串口契约、14工具两协议各43拒绝及exec影响、实际构建/普通恢复/默认参数拒绝与第48入口主体证据见[P15](records/P15.md)。connection只native请求绑定不冒称服务回传，完整P15/MCP/实机不收口，无真实COM或长稳。Step-ID: P15。
 
 2026-11-10 P15/v2实现2113b12已本机普通预览交付fa118fd3-e08a-44a9-a266-ab4e4bf9983e：复制品PE2/普通拒fixture/同目录MCP十二工具精确发现与stdio exit0、真实关闭回执/审计CLOSED/水位一致及自有进程退出PASS，三SHA和结果文件命名更正见[P15](records/P15.md)。仅独立exec/本人任务软件子包，完整P15/MCP模型自治/实机未收口，B仍由统筹协调；无默认用户根/真实端点/COM89操作。Step-ID: P15。
