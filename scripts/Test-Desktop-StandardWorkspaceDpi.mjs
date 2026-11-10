@@ -7,7 +7,8 @@ import path from 'node:path';
 import { launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, activeText, desktopKeyboard } from './lib/DesktopKeyboard.mjs';
 
-const manifest = process.argv[2] ?? 'artifacts/P12-standard-workspace-dpi-preview.json';
+const narrow = process.argv.includes('--narrow');
+const manifest = process.argv.slice(2).find(argument => argument !== '--narrow') ?? 'artifacts/P12-standard-workspace-dpi-preview.json';
 const preview = JSON.parse(await readFile(manifest, 'utf8'));
 assert.equal(preview.result, 'PASS');
 assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
@@ -19,11 +20,11 @@ for (const file of preview.files) {
   assert.equal(createHash('sha256').update(bytes).digest('hex'), file.sha256);
 }
 
-const prefix = 'shared-terminal-standard-workspace-dpi-中文-';
+const prefix = narrow ? 'shared-terminal-narrow-workspace-dpi-中文-' : 'shared-terminal-standard-workspace-dpi-中文-';
 const root = await mkdtemp(path.join(tmpdir(), prefix));
 const executable = path.join(preview.directory, 'shared-terminal-desktop.exe');
-const artifact = 'P12-standard-workspace-dpi';
-const sizes = [[1280, 720], [1920, 1080]];
+const artifact = narrow ? 'P12-narrow-workspace-dpi' : 'P12-standard-workspace-dpi';
+const sizes = narrow ? [[760, 540]] : [[1280, 720], [1920, 1080]];
 const viewport = '({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,theme:document.documentElement.dataset.theme})';
 const evidence = { preview: preview.directory, sizes: [], focusTrace: [] };
 let ui;
@@ -62,19 +63,33 @@ try {
     const controls = { toolbar: 'nav[aria-label="会话控制"]', tree: '.session-sidebar', row,
       workspace: '.terminal-workspace', terminal: '.terminal-pane .terminal', footer: 'footer', status: 'footer .connection-summary' };
 
+    function focusedRowMeasurements() {
+      return `const style=getComputedStyle(node), r=node.getBoundingClientRect();
+        const clip={left:0,top:0,right:innerWidth,bottom:innerHeight};
+        for(let parent=node.parentElement;parent;parent=parent.parentElement){
+          const p=parent.getBoundingClientRect(), css=getComputedStyle(parent);
+          const x=p.left+parent.clientLeft,y=p.top+parent.clientTop;
+          if(css.overflowX!=='visible'){clip.left=Math.max(clip.left,x);clip.right=Math.min(clip.right,x+parent.clientWidth);}
+          if(css.overflowY!=='visible'){clip.top=Math.max(clip.top,y);clip.bottom=Math.min(clip.bottom,y+parent.clientHeight);}
+        }
+        const top=Math.max(r.top,clip.top),bottom=Math.min(r.bottom,clip.bottom);
+        const left=Math.max(r.left,clip.left),right=Math.min(r.right,clip.right);
+        const focus={clip,visibleHeight:Math.max(0,bottom-top),
+          rowFocus:node.matches(':focus-visible')&&document.activeElement===node,
+          outline:style.outlineStyle,margin:parseFloat(style.outlineWidth)+parseFloat(style.outlineOffset),
+          rowHit:right>left&&bottom>top&&node.contains(document.elementFromPoint((left+right)/2,(top+bottom)/2))};`;
+    }
+
     async function geometry() {
       return ui.evaluate(`(() => {
         const nodes=Object.fromEntries(Object.entries(${JSON.stringify(controls)}).map(([key,selector])=>[key,document.querySelector(selector)]));
         const boxes=Object.fromEntries(Object.entries(nodes).map(([key,node])=>[key,node.getBoundingClientRect().toJSON()]));
-        const tree=nodes.row.closest('.tree-scroll'), r=tree.getBoundingClientRect(), style=getComputedStyle(nodes.row);
-        const clip={left:r.left+tree.clientLeft,right:r.left+tree.clientLeft+tree.clientWidth,
-          top:r.top+tree.clientTop,bottom:r.top+tree.clientTop+tree.clientHeight};
+        const node=nodes.row, tree=node.closest('.tree-scroll');
+        ${focusedRowMeasurements()}
         const range=document.createRange(); range.selectNodeContents(nodes.row);
-        return {boxes,clip,lines:[...range.getClientRects()].map(rect=>rect.toJSON()),
+        return {boxes,...focus,lines:[...range.getClientRects()].map(rect=>rect.toJSON()),
           scroll:Object.fromEntries(['toolbar','tree','footer'].map(key=>[key,[nodes[key].scrollWidth,nodes[key].clientWidth]])),
-          rowFocus:nodes.row.matches(':focus-visible')&&document.activeElement===nodes.row,
-          outline:style.outlineStyle,margin:parseFloat(style.outlineWidth)+parseFloat(style.outlineOffset),
-          rowHit:nodes.row.contains(document.elementFromPoint((boxes.row.left+boxes.row.right)/2,(boxes.row.top+boxes.row.bottom)/2))};
+          treeScroll:{top:tree.scrollTop,height:tree.clientHeight,content:tree.scrollHeight},position:getComputedStyle(nodes.tree).position};
       })()`);
     }
 
@@ -83,18 +98,22 @@ try {
         && row.right + margin <= clip.right + 1 && row.top - margin >= clip.top - 1 && row.bottom + margin <= clip.bottom + 1;
     }
 
+    const exceedsTreeHeight = ({ boxes: { row }, clip, margin }) => row.height + 2 * margin > clip.bottom - clip.top + 1;
+    function visibleTreeFocus(result) {
+      if (!narrow || !exceedsTreeHeight(result)) return fullFocusOutline(result);
+      const { boxes: { row }, clip, rowFocus, rowHit, outline, margin, lines } = result;
+      return rowFocus && rowHit && outline === 'solid' && margin === 4 && row.left - margin >= clip.left - 1
+        && row.right + margin <= clip.right + 1 && lines.some(line => line.bottom > clip.top && line.top < clip.bottom);
+    }
+
     const summary = 'document.querySelector(".profile-summary")';
     async function detailGeometry() {
       return ui.evaluate(`(() => {
-        const summary=${summary}, button=summary.querySelector('button'), title=summary.querySelector('strong');
-        const area=summary.getBoundingClientRect(), row=button.getBoundingClientRect(), style=getComputedStyle(button);
-        const x=area.left+summary.clientLeft,y=area.top+summary.clientTop;
-        return {boxes:{row:row.toJSON()},clip:{left:x,right:x+summary.clientWidth,top:y,bottom:y+summary.clientHeight},
+        const summary=${summary}, node=summary.querySelector('button'), title=summary.querySelector('strong');
+        ${focusedRowMeasurements()}
+        return {boxes:{row:r.toJSON()},...focus,
           scrollTop:summary.scrollTop,scrollHeight:summary.scrollHeight,clientHeight:summary.clientHeight,
-          scrollWidth:summary.scrollWidth,clientWidth:summary.clientWidth,title:title.getBoundingClientRect().toJSON(),
-          rowFocus:document.activeElement===button&&button.matches(':focus-visible'),outline:style.outlineStyle,
-          margin:parseFloat(style.outlineWidth)+parseFloat(style.outlineOffset),
-          rowHit:button.contains(document.elementFromPoint((row.left+row.right)/2,(row.top+row.bottom)/2))};
+          scrollWidth:summary.scrollWidth,clientWidth:summary.clientWidth,title:title.getBoundingClientRect().toJSON()};
       })()`);
     }
 
@@ -110,6 +129,7 @@ try {
       item.viewport = await ui.evaluate(viewport);
       assert.equal(item.viewport.dpr, physical.dpi / 96);
       assert.equal(item.viewport.theme, evidence.initialViewport.theme);
+      if (narrow) assert.deepEqual([physical.dpi, item.viewport.width, item.viewport.height, item.viewport.theme], [96, 744, 501, 'dark']);
       if (!await ui.evaluate(`document.querySelector('.app-bar button').getAttribute('aria-expanded')==='true'`)) {
         await tabTo(activeText('会话导航'), '打开会话导航');
         await enter();
@@ -123,18 +143,23 @@ try {
       const { boxes, clip } = result;
       const problems = item.findings = [];
       for (const [label, r] of Object.entries(boxes)) {
+        if (narrow && label === 'row') continue;
         if (r.left < 0 || r.top < 0 || r.right > item.viewport.width || r.bottom > item.viewport.height || !r.width || !r.height) {
           problems.push(`${label} is outside the visible workspace`);
         }
       }
-      if (boxes.tree.right > boxes.workspace.left || boxes.toolbar.bottom > boxes.workspace.top || boxes.workspace.bottom > boxes.footer.top) {
+      if (narrow) {
+        assert.equal(result.position, 'absolute');
+        assert.ok(boxes.tree.right > boxes.workspace.left, 'The narrow tree overlays the workspace');
+      }
+      if ((!narrow && boxes.tree.right > boxes.workspace.left) || boxes.toolbar.bottom > boxes.workspace.top || boxes.workspace.bottom > boxes.footer.top) {
         problems.push('Workspace regions overlap');
       }
       if (Object.values(result.scroll).some(([scroll, client]) => scroll > client)) problems.push('Horizontal overflow');
       if (result.lines.length < 2 || result.lines.some(r => r.left < clip.left || r.right > clip.right)) problems.push('Long name does not wrap within the tree');
-      if (!fullFocusOutline(result)) problems.push('Session tree focus outline is clipped or obscured');
+      if (!visibleTreeFocus(result)) problems.push('Focused tree row is not visibly reachable');
       item.result = problems.length ? 'FAIL' : 'PASS';
-      await ui.screenshot(`${artifact}-${width}x${height}.png`);
+      if (!narrow || problems.length) await ui.screenshot(`${artifact}-${width}x${height}.png`);
       if (problems.length) break;
       await enter();
       await ui.waitFor(active(`${row}[aria-pressed="true"]`));
@@ -144,12 +169,31 @@ try {
       assert.ok(Object.values(selected.scroll).every(([scroll, client]) => scroll <= client), 'Selection must not create horizontal overflow');
       assert.deepEqual(await list(), [], 'Keyboard selection must not start a connection');
       item.selection = { selected: true, focused: selected.rowFocus, outlineVisible: fullFocusOutline(selected),
-        row: selected.boxes.row, clip: selected.clip, scroll: selected.scroll };
-      if (width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-selected.png`);
-      if (!item.selection.outlineVisible) {
+        row: selected.boxes.row, clip: selected.clip, scroll: selected.scroll,
+        oversized: exceedsTreeHeight(selected), visibleHeight: selected.visibleHeight };
+      if (narrow || width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-selected.png`);
+      if (!visibleTreeFocus(selected)) {
         problems.push('Selection details reduce the tree viewport and clip the focused row');
         item.result = 'FAIL';
         break;
+      }
+      if (narrow && item.selection.oversized) {
+        const scroll = 'document.querySelector(".tree-scroll")';
+        await key('Home', 'Home', 36);
+        await ui.waitFor(`${scroll}.scrollTop===0`);
+        // Home reveals the root label first in the 36px-tall tree. PageDown
+        // moves past that label without shifting keyboard focus off the row.
+        await key('PageDown', 'PageDown', 34);
+        await ui.waitFor(`${scroll}.scrollTop>=20`);
+        const first = await geometry();
+        await key('End', 'End', 35);
+        await ui.waitFor(`(() => {const tree=${scroll}; return tree.scrollTop>0 && tree.scrollHeight-tree.clientHeight-tree.scrollTop<1;})()`);
+        const last = await geometry();
+        assert.ok(first.lines[0].bottom > first.clip.top && first.lines[0].top < first.clip.bottom);
+        assert.ok(last.lines.at(-1).bottom > last.clip.top && last.lines.at(-1).top < last.clip.bottom);
+        assert.ok(first.rowFocus && last.rowFocus);
+        item.selection.keyboardScroll = { first: first.treeScroll.top, last: last.treeScroll.top,
+          firstVisibleHeight: first.visibleHeight, lastVisibleHeight: last.visibleHeight };
       }
       await tabTo(activeText('连接选中配置'), '只聚焦连接选中配置');
       const focused = await detailGeometry();
@@ -166,7 +210,7 @@ try {
       const bottom = await detailGeometry();
       assert.ok(fullFocusOutline(bottom), 'Keyboard scrolling returns to the complete connect control');
       item.details = { focused, top, bottom };
-      if (width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-details.png`);
+      if (narrow || width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-details.png`);
       assert.deepEqual(await list(), [], 'Detail navigation must not start a connection');
       await tabTo(active(row), '返回原配置项', { backward: true });
     }
@@ -180,6 +224,11 @@ try {
     : evidence.sizes.some(item => item.result === 'PASS') ? 'PASS' : 'NOT_RUN_NO_FIT';
   await writeFile(`artifacts/${artifact}.json`, JSON.stringify(evidence, null, 2) + '\n');
   assert.notEqual(evidence.result, 'FAIL', 'See native geometry evidence for the workspace defect');
+} catch (error) {
+  evidence.result = 'FAIL';
+  evidence.error = error.message;
+  await writeFile(`artifacts/${artifact}.json`, JSON.stringify(evidence, null, 2) + '\n');
+  throw error;
 } finally {
   await ui?.close();
   const resolved = await realpath(root);
@@ -187,4 +236,4 @@ try {
   assert.ok(path.basename(resolved).startsWith(prefix));
   await rm(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
-console.log(`${evidence.result} native standard workspace sizes at current DPI`);
+console.log(`${evidence.result} native ${narrow ? 'narrow' : 'standard'} workspace at current DPI`);
