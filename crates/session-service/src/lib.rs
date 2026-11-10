@@ -6,6 +6,7 @@ mod audit_journal;
 pub mod client;
 mod config;
 mod logging;
+mod protected_export;
 mod request_audit;
 pub mod security;
 mod serial;

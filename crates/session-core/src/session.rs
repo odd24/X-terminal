@@ -111,6 +111,11 @@ pub struct EndedOutput {
     pub cols: u16,
 }
 
+pub struct EndedOutputSnapshot {
+    pub(crate) source: EndedOutput,
+    pub(crate) events: VecDeque<OutputEvent>,
+}
+
 pub struct OutputBuffer {
     events: VecDeque<OutputEvent>,
     bytes: usize,
@@ -261,6 +266,20 @@ impl Sessions {
             encoding: encoding.to_owned(),
             rows,
             cols,
+        })
+    }
+
+    pub fn snapshot_ended_output(
+        &self,
+        expected: &EndedOutput,
+    ) -> Result<EndedOutputSnapshot, ErrorCode> {
+        let source = self.ended_output(expected.connection)?;
+        if &source != expected {
+            return Err(ErrorCode::InvalidState);
+        }
+        Ok(EndedOutputSnapshot {
+            source,
+            events: self.get(expected.connection)?.output.events.clone(),
         })
     }
 

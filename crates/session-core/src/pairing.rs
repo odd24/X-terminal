@@ -303,7 +303,7 @@ impl Pairing {
             .form(identity.ticket_id, now)
             .map_err(policy_error)
     }
-    fn require_agent(&self, identity: &Identity, now: u64) -> Result<(), ErrorCode> {
+    pub fn require_agent(&self, identity: &Identity, now: u64) -> Result<(), ErrorCode> {
         if self.is_agent(identity, now)? {
             Ok(())
         } else {

@@ -42,6 +42,7 @@ struct Runtime {
     audit_journal: crate::audit_journal::Journal,
     request_audit: crate::request_audit::Audit,
     logging: crate::logging::Manager,
+    protected_export: crate::protected_export::Manager,
     config: crate::config::ConfigWorker,
     ssh: crate::ssh::Manager,
     serial: crate::serial::Manager,
@@ -52,6 +53,62 @@ struct Runtime {
     shutdown: watch::Sender<bool>,
 }
 impl Runtime {
+    async fn handle_protected_export(
+        &self,
+        identity: &Identity,
+        request: export::Request,
+    ) -> Result<Reply, ErrorCode> {
+        use export::{Reply as R, Request as E};
+        if !request.validate() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let reply = match request {
+            E::Prepare { connection } => {
+                let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                store.pairing.require_desktop(identity, store.now())?;
+                R::Prepared {
+                    service_id: self.service_id,
+                    source: store.sessions.ended_output(connection)?,
+                }
+            }
+            E::Start { target } => {
+                if target.service_id != self.service_id {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                {
+                    let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    store.pairing.require_agent(identity, store.now())?;
+                }
+                let crate::config::Value::LoggingDirectory(directory) = self
+                    .config
+                    .access()
+                    .request(crate::config::Internal::LoggingDirectory)
+                    .await
+                    .map_err(|_| ErrorCode::InvalidState)?
+                else {
+                    return Err(ErrorCode::InvalidState);
+                };
+                R::Receipt(self.protected_export.start(identity, target, directory)?)
+            }
+            E::Status { query } => {
+                R::Receipt(self.protected_export.status(identity, query, false)?)
+            }
+            E::Cancel { query } => R::Receipt(self.protected_export.status(identity, query, true)?),
+            E::InspectSave { scope } => {
+                if scope.service_id != self.service_id {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                self.protected_export.save(identity, scope, None)?
+            }
+            E::CommitSave { scope, save_id } => {
+                if scope.service_id != self.service_id {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                self.protected_export.save(identity, scope, Some(save_id))?
+            }
+        };
+        Ok(Reply::ProtectedExport(reply))
+    }
     async fn handle_agent(
         &self,
         identity: &Identity,
@@ -724,6 +781,9 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
         let result = match request.request {
             Request::Agent { request } => runtime.handle_agent(&identity, request).await,
             Request::Logging { request } => runtime.handle_logging(&identity, request).await,
+            Request::ProtectedExport { request } => {
+                runtime.handle_protected_export(&identity, request).await
+            }
             Request::Serial { request } => runtime.handle_serial(&identity, request).await,
             Request::Ssh { request } => runtime.handle_ssh(&identity, request).await,
             Request::Config { request } => runtime.handle_config(&identity, request).await,
@@ -784,6 +844,16 @@ pub async fn serve_with_config(
     let ssh = crate::ssh::Manager::new(store.clone(), config.access());
     let serial = crate::serial::Manager::new(store.clone(), config.access());
     let logging = crate::logging::Manager::new(store.clone(), config.access())?;
+    let protected_directory = match config
+        .access()
+        .request(crate::config::Internal::LoggingDirectory)
+        .await
+    {
+        Ok(crate::config::Value::LoggingDirectory(directory)) => Some(directory),
+        _ => None,
+    };
+    let protected_export =
+        crate::protected_export::Manager::new(store.clone(), protected_directory)?;
     #[cfg(feature = "serial-ui-fixture")]
     let serial = if fixture { serial.ui_fixture() } else { serial };
     let runtime = Arc::new(Runtime {
@@ -791,6 +861,7 @@ pub async fn serve_with_config(
             .with_sink(audit_journal.sink()),
         audit_journal,
         logging,
+        protected_export,
         config,
         ssh,
         serial,
@@ -842,10 +913,12 @@ pub async fn serve_with_config(
     runtime.ssh.close().await;
     let serial_result = runtime.serial.close().await;
     let logging_result = runtime.logging.close().await;
+    let protected_export_result = runtime.protected_export.close().await;
     let audit_result = runtime.audit_journal.close().await;
     let config_result = runtime.config.close().await;
     serial_result?;
     logging_result?;
+    protected_export_result?;
     audit_result?;
     config_result?;
     Ok(())

@@ -368,7 +368,7 @@ impl Request {
         }
     }
 }
-fn valid_connection(c: ConnectionRef) -> bool {
+pub(crate) fn valid_connection(c: ConnectionRef) -> bool {
     !c.connection_id.0.is_nil() && c.generation != 0
 }
 

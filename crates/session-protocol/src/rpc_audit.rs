@@ -138,6 +138,28 @@ impl Request {
             R::Serial { request } => serial_descriptor(request),
             R::Config { request } => config_descriptor(request),
             R::Logging { request } => logging_descriptor(request),
+            R::ProtectedExport { request } => {
+                use crate::export::Request as E;
+                let (verb, connection, request_id) = match request {
+                    E::Prepare { connection } => (Verb::Status, *connection, None),
+                    E::Start { target } => (
+                        Verb::Export,
+                        target.retained_ended_output.connection,
+                        Some(target.request_id),
+                    ),
+                    E::Status { query } => (Verb::Status, query.connection, Some(query.request_id)),
+                    E::Cancel { query } => (Verb::Cancel, query.connection, Some(query.request_id)),
+                    E::InspectSave { scope } => (
+                        Verb::Inspect,
+                        scope.query.connection,
+                        Some(scope.query.request_id),
+                    ),
+                    E::CommitSave { scope, save_id } => {
+                        (Verb::Export, scope.query.connection, Some(*save_id))
+                    }
+                };
+                conn(Area::Logging, verb, connection, Action::Export, request_id)
+            }
             R::Ping {} => descriptor(Area::Session, Verb::Ping),
             R::List {} => descriptor(Area::Session, Verb::List),
             R::Read { connection, .. } | R::ReadText { connection, .. } => {

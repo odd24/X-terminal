@@ -157,7 +157,18 @@ impl ExportStore {
         &mut self,
         text: &str,
         export_id: Uuid,
+        cancel: impl FnMut() -> bool,
+    ) -> io::Result<ExportArtifact> {
+        self.create_display_tracked(text, export_id, cancel, || {})
+    }
+
+    /// Reports a successfully reserved directory even when later stages fail.
+    pub fn create_display_tracked(
+        &mut self,
+        text: &str,
+        export_id: Uuid,
         mut cancel: impl FnMut() -> bool,
+        created: impl FnOnce(),
     ) -> io::Result<ExportArtifact> {
         if export_id.is_nil()
             || text.is_empty()
@@ -171,7 +182,7 @@ impl ExportStore {
                 "invalid display snapshot",
             ));
         }
-        self.create_inner(export_id, &mut cancel, |output, cancelled| {
+        self.create_inner_tracked(export_id, &mut cancel, created, |output, cancelled| {
             if cancelled() {
                 return Err(io::ErrorKind::Interrupted.into());
             }
@@ -312,7 +323,17 @@ impl ExportStore {
     fn create_inner<S>(
         &mut self,
         export_id: Uuid,
+        is_cancelled: impl FnMut() -> bool,
+        stream: impl FnOnce(&mut Limited<BufWriter<File>>, &mut dyn FnMut() -> bool) -> io::Result<S>,
+    ) -> io::Result<ExportArtifact<S>> {
+        self.create_inner_tracked(export_id, is_cancelled, || {}, stream)
+    }
+
+    fn create_inner_tracked<S>(
+        &mut self,
+        export_id: Uuid,
         mut is_cancelled: impl FnMut() -> bool,
+        created: impl FnOnce(),
         stream: impl FnOnce(&mut Limited<BufWriter<File>>, &mut dyn FnMut() -> bool) -> io::Result<S>,
     ) -> io::Result<ExportArtifact<S>> {
         if is_cancelled() {
@@ -346,6 +367,7 @@ impl ExportStore {
         }
         let directory = self.path.join(export_id.to_string());
         fs::create_dir(&directory)?;
+        created();
         let _guard = storage::pin(&directory)?;
         let partial = directory.join("export.partial");
         let file = storage::file(&partial)?;

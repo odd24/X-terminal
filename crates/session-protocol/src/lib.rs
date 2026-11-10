@@ -133,6 +133,9 @@ pub enum Request {
     Logging {
         request: logging::Request,
     },
+    ProtectedExport {
+        request: export::Request,
+    },
     Serial {
         request: serial::Request,
     },
@@ -193,6 +196,9 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
+            Self::ProtectedExport { request } if !request.validate() => {
+                return Err(ErrorCode::InvalidArgument);
+            }
             Self::RpcAudit { view } => {
                 if !view.valid() {
                     return Err(ErrorCode::InvalidArgument);
@@ -306,6 +312,7 @@ pub enum Reply {
     RpcAudit(rpc_audit::Reply),
     Agent(agent::Reply),
     Logging(logging::Reply),
+    ProtectedExport(export::Reply),
     Serial(serial::Reply),
     Ssh(ssh::Reply),
     Config(config::ConfigReply),

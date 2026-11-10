@@ -104,6 +104,40 @@ fn protect(
     }
     Ok(obscured)
 }
+
+impl EndedOutputSnapshot {
+    pub fn protected_utf8(self, policy: &ProtectedPolicy) -> Result<String, ErrorCode> {
+        let source = self.source;
+        let mut replay = Presentation::new(&source.encoding, source.rows, source.cols)?;
+        let mut text: Vec<_> = self
+            .events
+            .iter()
+            .map(|event| {
+                replay
+                    .append(event.seq, &event.bytes, event.timestamp_ms)
+                    .clone()
+            })
+            .collect();
+        finish(&mut replay, &mut text);
+        if text.iter().any(|event| event.decode_error) {
+            return Err(ErrorCode::InvalidState);
+        }
+        protect(
+            policy,
+            &mut text,
+            Boundaries {
+                prefix_cut: source.from_cursor != 1,
+                suffix_cut: false,
+            },
+            &mut Report::default(),
+        )?;
+        let protected: String = text.into_iter().map(|event| event.text).collect();
+        if protected.is_empty() {
+            return Err(ErrorCode::InvalidState);
+        }
+        Ok(protected)
+    }
+}
 pub(crate) fn read(
     connection: ConnectionRef,
     window: Option<TimeWindow>,
