@@ -9,7 +9,11 @@ use std::{
     collections::HashMap,
     io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::Duration,
 };
@@ -61,6 +65,7 @@ pub(crate) struct Manager {
     ledger: Ledger,
     sender: mpsc::SyncSender<Job>,
     worker: thread::JoinHandle<io::Result<()>>,
+    stopping: AtomicBool,
 }
 
 impl Manager {
@@ -77,6 +82,7 @@ impl Manager {
             ledger,
             sender,
             worker,
+            stopping: AtomicBool::new(false),
         })
     }
 
@@ -88,6 +94,9 @@ impl Manager {
     ) -> Result<Receipt, ErrorCode> {
         let operation = Operation::Export(target.clone()).key()?;
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(ErrorCode::InvalidState);
+        }
         let now = store.now();
         let source = target.retained_ended_output;
         let query = Query {
@@ -173,6 +182,9 @@ impl Manager {
         let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         let now = store.now();
         store.pairing.require_desktop(desktop, now)?;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(ErrorCode::InvalidState);
+        }
         let mut ledger = self.ledger.lock().map_err(|_| ErrorCode::InvalidState)?;
         let entry = ledger
             .values_mut()
@@ -205,7 +217,23 @@ impl Manager {
         }
     }
 
+    pub(crate) fn stop(&self) {
+        let Ok(_store) = self.store.lock() else {
+            return;
+        };
+        self.stopping.store(true, Ordering::Release);
+        let Ok(mut ledger) = self.ledger.lock() else {
+            return;
+        };
+        for entry in ledger.values_mut() {
+            if entry.receipt.state == Phase::Preparing {
+                entry.receipt.state = Phase::Cancelled;
+            }
+        }
+    }
+
     pub(crate) async fn close(self) -> io::Result<()> {
+        self.stop();
         drop(self.sender);
         tokio::task::spawn_blocking(move || self.worker.join())
             .await
@@ -237,14 +265,19 @@ fn run(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        if let Some((_, exports)) = storage.as_mut() {
-            let _ = reap(&store, &ledger, exports, false);
-        }
+        let _ = reap(
+            &store,
+            &ledger,
+            storage.as_mut().map(|(_, exports)| exports),
+            false,
+        );
     }
-    if let Some((_, exports)) = storage.as_mut() {
-        reap(&store, &ledger, exports, true)?;
-    }
-    Ok(())
+    reap(
+        &store,
+        &ledger,
+        storage.as_mut().map(|(_, exports)| exports),
+        true,
+    )
 }
 
 fn open(directory: &Path) -> io::Result<ExportStore> {
@@ -270,7 +303,12 @@ fn cleanup(exports: &mut ExportStore, artifact_id: Uuid) -> io::Result<()> {
                 Err(io::Error::other("protected export cleanup incomplete"))
             }
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            match std::fs::symlink_metadata(exports.path().join(artifact_id.to_string())) {
+                Err(missing) if missing.kind() == io::ErrorKind::NotFound => Ok(()),
+                _ => Err(error),
+            }
+        }
         Err(error) => Err(error),
     }
 }
@@ -356,7 +394,7 @@ fn process(
 fn reap(
     store: &Mutex<Store>,
     ledger: &Ledger,
-    exports: &mut ExportStore,
+    exports: Option<&mut ExportStore>,
     shutdown: bool,
 ) -> io::Result<()> {
     let mut work = Vec::new();
@@ -375,7 +413,7 @@ fn reap(
             {
                 entry.receipt.state = Phase::Failed { code };
             }
-            if entry.on_disk && (shutdown || allowed.is_err() || failed || entry.save_committed) {
+            if entry.on_disk && (shutdown || allowed.is_err() || failed) {
                 work.push((*key, entry.artifact_id));
             }
             entry.on_disk
@@ -386,6 +424,13 @@ fn reap(
                     .is_ok()
         });
     }
+    let Some(exports) = exports else {
+        return if work.is_empty() {
+            Ok(())
+        } else {
+            Err(io::Error::other("protected export storage unavailable"))
+        };
+    };
     let mut cleanup_failed = false;
     for (key, id) in work {
         let result = cleanup(exports, id);
@@ -421,11 +466,7 @@ mod tests {
         session::{Protocol, State},
     };
 
-    #[tokio::test]
-    async fn protected_export_keeps_raw_off_disk_and_rejects_cross_owner_and_retired_source() {
-        let directory =
-            std::env::temp_dir().join(format!("protected-export-中文-{}", Uuid::new_v4()));
-        std::fs::create_dir(&directory).unwrap();
+    fn fixture() -> (Arc<Mutex<Store>>, Identity, Identity, Start) {
         let store = Store::test_store();
         let bootstrap = SecretToken::generate();
         let (owner, other, target) = {
@@ -486,6 +527,57 @@ mod tests {
                 .unwrap();
             (owner, other, target)
         };
+        (store, owner, other, target)
+    }
+
+    #[tokio::test]
+    async fn cancellation_before_publication_keeps_original_terminal_receipt_and_creates_no_file() {
+        let (store, owner, _, target) = fixture();
+        let directory =
+            std::env::temp_dir().join(format!("protected-export-中文-{}", Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let ledger = Ledger::default();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (release, ready) = mpsc::channel();
+        let worker_store = store.clone();
+        let worker_ledger = ledger.clone();
+        let worker = thread::spawn(move || {
+            ready.recv().unwrap();
+            run(receiver, worker_store, worker_ledger, None)
+        });
+        let manager = Manager {
+            store,
+            ledger,
+            sender,
+            worker,
+            stopping: AtomicBool::new(false),
+        };
+        let receipt = manager
+            .start(&owner, target.clone(), directory.clone())
+            .unwrap();
+        assert_eq!(
+            manager.status(&owner, receipt.query, true).unwrap().state,
+            Phase::Cancelled
+        );
+        assert_eq!(
+            manager
+                .start(&owner, target, directory.clone())
+                .unwrap()
+                .state,
+            Phase::Cancelled
+        );
+        release.send(()).unwrap();
+        manager.close().await.unwrap();
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn protected_export_keeps_raw_off_disk_and_rejects_cross_owner_and_retired_source() {
+        let directory =
+            std::env::temp_dir().join(format!("protected-export-中文-{}", Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let (store, owner, other, target) = fixture();
         let manager = Manager::new(store.clone(), None).unwrap();
         let pending = manager
             .start(&owner, target.clone(), directory.clone())

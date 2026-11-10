@@ -901,6 +901,7 @@ pub async fn serve_with_config(
         }
     }
     // Allow the shutdown RPC's acknowledgement to flush, then bound cleanup time.
+    runtime.protected_export.stop();
     drop(listener);
     let _ = timeout(Duration::from_secs(1), async {
         while tasks.join_next().await.is_some() {}

@@ -87,6 +87,29 @@ fn cancelled_save_keeps_original_and_removes_only_its_private_staging() {
     assert!(result.staging.is_none());
 }
 #[test]
+fn denied_commit_keeps_original_and_removes_verified_staging() {
+    let temp = Temp::new();
+    let (data, mut source) = source(&temp);
+    let path = temp.0.join("受保护.txt");
+    fs::write(&path, b"original").unwrap();
+    let target = SaveTarget::prepare(&path, &data, Uuid::new_v4()).unwrap();
+    let staging = target.staging.clone();
+    let result = target.save_checked(
+        &mut source,
+        || false,
+        || {
+            assert!(staging.is_file());
+            assert!(path.is_file());
+            false
+        },
+    );
+    assert_eq!(result.phase, "FAILED");
+    assert_eq!(result.failure, Some("AUTHORIZATION"));
+    assert_eq!(fs::read(path).unwrap(), b"original");
+    assert!(!staging.exists());
+    assert!(result.backup.is_none() && result.staging.is_none());
+}
+#[test]
 fn new_namespace_collision_is_not_overwritten_and_failed_restore_reports_backup() {
     let temp = Temp::new();
     let (data, mut source) = source(&temp);
