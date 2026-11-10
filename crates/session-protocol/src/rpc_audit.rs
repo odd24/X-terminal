@@ -288,6 +288,26 @@ fn agent_descriptor(r: &agent::Request) -> Descriptor {
 fn ssh_descriptor(r: &ssh::Request) -> Descriptor {
     use ssh::Request as S;
     match r {
+        S::StartFixed {
+            profile_id,
+            revision,
+            request_id,
+            ..
+        } => Descriptor {
+            request_id: Some(*request_id),
+            requested_scope: Some(Scope {
+                target: Target::ProfileRevision {
+                    profile_id: *profile_id,
+                    revision: *revision,
+                },
+                action: Action::Connect,
+            }),
+            ..descriptor(Area::Ssh2, Verb::Connect)
+        },
+        S::ConnectStatus { request_id, .. } => Descriptor {
+            request_id: Some(*request_id),
+            ..descriptor(Area::Ssh2, Verb::Status)
+        },
         S::StartStatus { request_id } => Descriptor {
             request_id: Some(*request_id),
             ..descriptor(Area::Ssh2, Verb::Status)

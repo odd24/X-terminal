@@ -1,6 +1,90 @@
 {
-  "version": 6,
+  "version": 7,
   "tools": [
+    {
+      "name": "ssh_connect",
+      "description": "Create an SSH2 connection from a saved profile with its exact approved revision. Fix the request_id and dimensions first. Requires ProfileRevision Connect approval. Desktop handles host trust and authentication. Creation does not confirm online status or grant session access. If delivery is unknown only query ssh_connect_status.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cols": {
+            "format": "uint32",
+            "maximum": 500,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rows": {
+            "format": "uint32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "profile_id",
+          "revision",
+          "request_id",
+          "cols",
+          "rows"
+        ],
+        "title": "ConnectArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "ssh_connect_status",
+      "description": "Read only the original fixed-profile SSH2 Connect creation snapshot with the same valid ticket, profile_id, revision and request_id. A missing receipt leaves the outcome unknown. Do not replay Connect.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "revision",
+          "request_id"
+        ],
+        "title": "ConnectStatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
     {
       "name": "ssh_reconnect",
       "description": "Start SSH2 on the next generation of an ended saved-profile connection. Fix request_id and dimensions first. Requires independent Reconnect approval and current lease for the old generation, plus fixed Profile/revision Connect in the same ticket. Desktop retains host trust and authentication. The creation snapshot does not confirm online status. On unknown delivery only query ssh_reconnect_status.",

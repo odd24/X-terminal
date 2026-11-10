@@ -1,6 +1,12 @@
 # Codex 首版接入方案
 
-当前 [ADR-090](decisions/ADR-090.md) 固定 v6 二十项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v5](../contracts/mcp/v5-tools.json) 的十八项。
+当前 [ADR-091](decisions/ADR-091.md) 固定 v7 二十二项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v6](../contracts/mcp/v6-tools.json) 的二十项。
+
+`ssh_connect` 接收 `profile_id`、`revision`、固定 `request_id`、`cols`（2–500）和 `rows`（1–200）。须有与实际保存配置版本相同的 ProfileRevision Connect 批准，服务核对配置版本后读取固定快照。主机信任、密码及交互认证由 Desktop 处理。建连不授新会话权限或租约。
+
+`ssh_connect_status` 只用原有效票据和原 `profile_id`、`revision`、`request_id` 读取原创建快照。发起和查询的回执均来自服务，并由原生核对编号与配置绑定。创建快照 CONNECTING 不表示在线。应答不明只查询，不能重发。
+
+此前 [ADR-090](decisions/ADR-090.md) 固定 v6 二十项工具。[v6 契约](../contracts/mcp/v6-tools.json) 保留 [v5](../contracts/mcp/v5-tools.json) 的十八项。
 
 `ssh_reconnect` 接收原 `connection`（精确旧代次）、固定 `request_id`、`cols`（2–500）及 `rows`（1–200）。只对已结束且关联保存配置的 SSH2 开放。同票据须有旧代次 Reconnect 和当前租约，以及固定 Profile/revision Connect。新代次的主机信任和认证由 Desktop 处理，旧代次的读写许可、租约与输入不继承。
 
@@ -116,7 +122,7 @@ enabled = true
 | 工具 | 主要输入 | 输出/限制 |
 |---|---|---|
 | sessions_list | scope | 仅可见配置/连接，秘密字段不存在 |
-| sessions_connect | profile_id、request_id | connection_id、generation、state；需要 connect 权限 |
+| ssh_connect / ssh_connect_status | profile_id、revision、request_id，发起另带 cols、rows | 保存的固定版本 SSH2 配置与原票据创建快照 |
 | ssh_reconnect / ssh_reconnect_status | connection、request_id，发起另带 cols、rows | SSH2 原代次双范围及原票据创建快照 |
 | sessions_forget / sessions_forget_status | transport、connection、request_id | 已回收代次的记录移除与原票据回执查询 |
 | sessions_disconnect / sessions_disconnect_status | transport、connection、request_id | 编号断开与原票据查询，发起需独立 Disconnect 与租约 |

@@ -247,6 +247,8 @@ impl Runtime {
                 || !matches!(
                     request,
                     ssh::Request::Start { .. }
+                        | ssh::Request::StartFixed { .. }
+                        | ssh::Request::ConnectStatus { .. }
                         | ssh::Request::Reconnect { .. }
                         | ssh::Request::ReconnectStatus { .. }
                         | ssh::Request::ForgetStart { .. }

@@ -8,6 +8,18 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    StartFixed {
+        profile_id: Uuid,
+        revision: Uuid,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+    },
+    ConnectStatus {
+        profile_id: Uuid,
+        revision: Uuid,
+        request_id: Uuid,
+    },
     StartStatus {
         request_id: Uuid,
     },
@@ -130,6 +142,24 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         match self {
+            Self::StartFixed {
+                profile_id,
+                revision,
+                request_id,
+                cols,
+                rows,
+            } => {
+                !profile_id.is_nil()
+                    && !revision.is_nil()
+                    && !request_id.is_nil()
+                    && (2..=500).contains(cols)
+                    && (1..=200).contains(rows)
+            }
+            Self::ConnectStatus {
+                profile_id,
+                revision,
+                request_id,
+            } => !profile_id.is_nil() && !revision.is_nil() && !request_id.is_nil(),
             Self::StartStatus { request_id } => !request_id.is_nil(),
             Self::ReconnectStatus {
                 connection,
@@ -419,6 +449,7 @@ pub struct Status {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    ConnectReceipt(ConnectReceipt),
     ReconnectReceipt(ReconnectReceipt),
     ExecProtectedOutput {
         connection: ConnectionRef,
@@ -439,6 +470,15 @@ pub enum Reply {
     },
     Status(Box<Status>),
     Accepted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectReceipt {
+    pub request_id: Uuid,
+    pub profile_id: Uuid,
+    pub revision: Uuid,
+    pub connection: ConnectionInfo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

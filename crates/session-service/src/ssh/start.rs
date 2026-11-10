@@ -1,5 +1,52 @@
 use super::*;
+
+pub(super) enum Source {
+    Saved {
+        profile_id: Uuid,
+        revision: Option<Uuid>,
+    },
+    Temporary(Profile),
+}
+
+impl Start {
+    fn reply(&self, request_id: Uuid, connection: ConnectionInfo) -> ssh::Reply {
+        match self.revision {
+            Some(revision) => ssh::Reply::ConnectReceipt(ssh::ConnectReceipt {
+                request_id,
+                profile_id: self.profile_id,
+                revision,
+                connection,
+            }),
+            None => ssh::Reply::Started { connection },
+        }
+    }
+}
+
 impl Manager {
+    pub(super) fn connect_status(
+        &self,
+        identity: &Identity,
+        profile_id: Uuid,
+        revision: Uuid,
+        request_id: Uuid,
+    ) -> Result<ssh::Reply, ErrorCode> {
+        let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let owner =
+            Self::start_owner(&store, Some(identity))?.ok_or(ErrorCode::PermissionDenied)?;
+        let Some((start, connection)) = inner.requests.get(&request_id) else {
+            inner.request_window.check(request_id)?;
+            return Err(ErrorCode::PermissionDenied);
+        };
+        if start.owner != Some(owner) || start.revision.is_none() {
+            return Err(ErrorCode::PermissionDenied);
+        }
+        if start.profile_id != profile_id || start.revision != Some(revision) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        Ok(start.reply(request_id, connection.clone()))
+    }
+
     pub(super) fn start_owner(
         store: &Store,
         identity: Option<&Identity>,
@@ -42,29 +89,48 @@ impl Manager {
         cols: u32,
         rows: u32,
     ) -> Result<ssh::Reply, ErrorCode> {
-        self.start_from(identity, profile_id, request_id, cols, rows, None)
-            .await
+        self.start_from(
+            identity,
+            Source::Saved {
+                profile_id,
+                revision: None,
+            },
+            request_id,
+            cols,
+            rows,
+        )
+        .await
     }
     pub(super) async fn start_from(
         &self,
         identity: Option<&Identity>,
-        profile_id: Uuid,
+        source: Source,
         request_id: Uuid,
         cols: u32,
         rows: u32,
-        temporary: Option<Profile>,
     ) -> Result<ssh::Reply, ErrorCode> {
+        let (profile_id, revision, temporary) = match source {
+            Source::Saved {
+                profile_id,
+                revision,
+            } => (profile_id, revision, None),
+            Source::Temporary(profile) => (profile.id, None, Some(profile)),
+        };
         let temporary_settings = temporary.as_ref().map(|p| p.settings.clone());
-        let (owner, authority) = {
+        let (start, authority) = {
             let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
             let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
             let now = store.now();
             let owner = Self::start_owner(&store, identity)?;
+            if revision.is_some() && owner.is_none() {
+                return Err(ErrorCode::PermissionDenied);
+            }
             let start = Start {
                 temporary: temporary_settings.clone(),
                 owner,
                 previous: None,
                 profile_id,
+                revision,
                 cols,
                 rows,
             };
@@ -76,32 +142,41 @@ impl Manager {
                 if *old != start {
                     return Err(ErrorCode::InvalidArgument);
                 }
-                let connection = connection.clone();
-                return Ok(ssh::Reply::Started { connection });
+                return Ok(old.reply(request_id, connection.clone()));
             }
             inner.request_window.check(request_id)?;
             let authority = match (identity, owner) {
-                (Some(identity), Some(_)) => Some((
-                    identity.clone(),
-                    store
-                        .pairing
-                        .admit_connect(identity, profile_id, request_id, now)?,
-                )),
+                (Some(identity), Some(_)) => {
+                    let permit = if let Some(revision) = revision {
+                        store.pairing.admit_input(
+                            identity,
+                            Scope {
+                                target: Target::ProfileRevision {
+                                    profile_id,
+                                    revision,
+                                },
+                                action: Action::Connect,
+                            },
+                            request_id,
+                            now,
+                        )?
+                    } else {
+                        store
+                            .pairing
+                            .admit_connect(identity, profile_id, request_id, now)?
+                    };
+                    Some((identity.clone(), permit))
+                }
                 _ => None,
             };
-            (owner, authority)
+            (start, authority)
         };
-        let start = Start {
-            temporary: temporary_settings.clone(),
-            owner,
-            previous: None,
-            profile_id,
-            cols,
-            rows,
-        };
-        let query = authority
-            .as_ref()
-            .and_then(|(_, permit)| permit.profile_revision())
+        let query = revision
+            .or_else(|| {
+                authority
+                    .as_ref()
+                    .and_then(|(_, permit)| permit.profile_revision())
+            })
             .map_or(Internal::Profile(profile_id), |revision| {
                 Internal::ProfileRevision {
                     id: profile_id,
@@ -118,13 +193,11 @@ impl Manager {
         Self::start_owner(&store, identity)?;
         // Concurrent same-owner completion wins even if lookup now fails (e.g. deletion).
         if let Some((previous, connection)) = inner.requests.get(&request_id) {
-            if previous.owner != owner {
+            if previous.owner != start.owner {
                 return Err(ErrorCode::PermissionDenied);
             }
             return if *previous == start {
-                Ok(ssh::Reply::Started {
-                    connection: connection.clone(),
-                })
+                Ok(previous.reply(request_id, connection.clone()))
             } else {
                 Err(ErrorCode::InvalidArgument)
             };
@@ -176,6 +249,7 @@ impl Manager {
                 transport: None,
             },
         );
+        let reply = start.reply(request_id, connection.clone());
         inner
             .requests
             .insert(request_id, (start, connection.clone()));
@@ -198,7 +272,7 @@ impl Manager {
             .get_mut(&connection.connection_id)
             .unwrap()
             .task = Some(task);
-        Ok(ssh::Reply::Started { connection })
+        Ok(reply)
     }
 }
 

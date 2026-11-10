@@ -37,6 +37,6 @@ export function BridgePanel({ serviceId, grantId }: { serviceId: string; grantId
       if (!consent) return; const id = preview.preview_id; setPreview(undefined); setConsent(false);
       void run(async current => { const result = await invoke<unknown>('bridge_management_request', { request: { op: 'approve', preview_id: id } }); if (!validPeer(result) || result.pending_id !== preview.peer.pending_id || !result.ticket_id) throw new Error('配对结果不匹配'); if (current()) { setInfo(undefined); setMessage('已绑定独立Agent身份；请刷新状态，服务仍按实时权限与租约验证每次操作。'); } });
     }}>确认MCP绑定</button></div></fieldset>}
-    <p role="status" aria-label="MCP配对状态">{message}</p><p>本版一次连接一个桥；更换授权或应用重启请重新启动并明确配对。断开桥不能撤回已派发动作；原编号查询、撤销和人工接管沿现有服务处理。当前固定20工具。SSH2 重连须批准旧代次及固定配置版本，认证仍由桌面处理。移除已结束会话记录须独立批准和租约，清理完成后才可执行。SSH2 和串口断开均须独立批准和租约，应答不明时用原有效授权查询原编号。包含独立SSH exec及本人任务查询/取消；exec须单独批准和租约，串口WRITE/CONTROL独立，控线无默认动作。尚不等于模型自治或完整MCP/实机验收。</p>
+    <p role="status" aria-label="MCP配对状态">{message}</p><p>本版一次连接一个桥；更换授权或应用重启请重新启动并明确配对。断开桥不能撤回已派发动作；原编号查询、撤销和人工接管沿现有服务处理。当前固定22工具。SSH2 建连限已保存并批准的固定配置版本，主机信任和认证由桌面处理。SSH2 重连须批准旧代次及固定配置版本，认证仍由桌面处理。移除已结束会话记录须独立批准和租约，清理完成后才可执行。SSH2 和串口断开均须独立批准和租约，应答不明时用原有效授权查询原编号。包含独立SSH exec及本人任务查询/取消；exec须单独批准和租约，串口WRITE/CONTROL独立，控线无默认动作。尚不等于模型自治或完整MCP/实机验收。</p>
   </details>;
 }

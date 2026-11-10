@@ -42,6 +42,7 @@ struct Start {
     owner: Option<Uuid>,
     previous: Option<ConnectionRef>,
     profile_id: Uuid,
+    revision: Option<Uuid>,
     cols: u32,
     rows: u32,
 }
@@ -175,11 +176,10 @@ impl Manager {
                 };
                 self.start_from(
                     Some(identity),
-                    request_id,
+                    start::Source::Temporary(profile),
                     request_id,
                     cols,
                     rows,
-                    Some(profile),
                 )
                 .await
             }
@@ -198,6 +198,30 @@ impl Manager {
                     connection: connection.clone(),
                 })
             }
+            ssh::Request::StartFixed {
+                profile_id,
+                revision,
+                request_id,
+                cols,
+                rows,
+            } => {
+                self.start_from(
+                    Some(identity),
+                    start::Source::Saved {
+                        profile_id,
+                        revision: Some(revision),
+                    },
+                    request_id,
+                    cols,
+                    rows,
+                )
+                .await
+            }
+            ssh::Request::ConnectStatus {
+                profile_id,
+                revision,
+                request_id,
+            } => self.connect_status(identity, profile_id, revision, request_id),
             request @ ssh::Request::AuthenticateKey { .. } => {
                 {
                     let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
@@ -370,6 +394,8 @@ impl Manager {
         match request {
             ssh::Request::QuickStart { .. }
             | ssh::Request::StartStatus { .. }
+            | ssh::Request::StartFixed { .. }
+            | ssh::Request::ConnectStatus { .. }
             | ssh::Request::ReconnectStatus { .. } => Err(ErrorCode::PermissionDenied),
             ssh::Request::AuthenticateKey {
                 connection,

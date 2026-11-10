@@ -374,11 +374,14 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                             let expected_disconnect=request.disconnect_target();
                             let expected_forget=request.forget_target();
                             let expected_reconnect=request.reconnect_target();
+                            let expected_connect=request.connect_target();
                             let protected=pair.view.protection.is_some();
                             match request.into_service(protected) {
                                 Ok(request) => {
                                     let response = pair.client.request(request).await?;
-                                    if let Some((previous, id, query)) = expected_reconnect {
+                                    if let Some((profile_id, revision, id)) = expected_connect {
+                                        wire::ResultMessage::from_connect_service(response, profile_id, revision, id)?
+                                    } else if let Some((previous, id, query)) = expected_reconnect {
                                         wire::ResultMessage::from_reconnect_service(response, previous, id, query)?
                                     } else if let Some((transport, connection, id)) = expected_forget {
                                         wire::ResultMessage::from_forget_service(response, transport, connection, id)?

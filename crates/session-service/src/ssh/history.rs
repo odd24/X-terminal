@@ -95,6 +95,7 @@ mod tests {
             owner: None,
             previous: None,
             profile_id: Uuid::new_v4(),
+            revision: None,
             cols: 80,
             rows: 24,
         };

@@ -13,6 +13,18 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    Connect {
+        profile_id: Uuid,
+        revision: Uuid,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+    },
+    ConnectStatus {
+        profile_id: Uuid,
+        revision: Uuid,
+        request_id: Uuid,
+    },
     Reconnect {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -100,6 +112,23 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn connect_target(&self) -> Option<(Uuid, Uuid, Uuid)> {
+        match self {
+            Self::Connect {
+                profile_id,
+                revision,
+                request_id,
+                ..
+            }
+            | Self::ConnectStatus {
+                profile_id,
+                revision,
+                request_id,
+            } => Some((*profile_id, *revision, *request_id)),
+            _ => None,
+        }
+    }
+
     pub fn reconnect_target(&self) -> Option<(ConnectionRef, Uuid, bool)> {
         match self {
             Self::Reconnect {
@@ -197,6 +226,32 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::Connect {
+                profile_id,
+                revision,
+                request_id,
+                cols,
+                rows,
+            } => Request::Ssh {
+                request: ssh::Request::StartFixed {
+                    profile_id,
+                    revision,
+                    request_id,
+                    cols,
+                    rows,
+                },
+            },
+            Self::ConnectStatus {
+                profile_id,
+                revision,
+                request_id,
+            } => Request::Ssh {
+                request: ssh::Request::ConnectStatus {
+                    profile_id,
+                    revision,
+                    request_id,
+                },
+            },
             Self::Reconnect {
                 connection,
                 request_id,
@@ -568,6 +623,7 @@ pub struct Status {
     deny_unknown_fields
 )]
 pub enum ResultMessage {
+    Connect(ssh::ConnectReceipt),
     Reconnect(ssh::ReconnectReceipt),
     Forget(session_core::forget::Receipt),
     Disconnect(session_core::disconnect::Receipt),
@@ -597,6 +653,35 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_connect_service(
+        response: Response,
+        profile_id: Uuid,
+        revision: Uuid,
+        request_id: Uuid,
+    ) -> std::io::Result<Self> {
+        use session_core::session::{Protocol, State};
+        match response {
+            Response::Error { code, .. } => Ok(Self::Error(code)),
+            Response::Ok {
+                reply: Reply::Ssh(ssh::Reply::ConnectReceipt(receipt)),
+                ..
+            } if receipt.profile_id == profile_id
+                && receipt.revision == revision
+                && receipt.request_id == request_id
+                && !receipt.connection.connection_id.0.is_nil()
+                && receipt.connection.generation == 1
+                && receipt.connection.protocol == Protocol::Ssh2
+                && receipt.connection.state == State::Connecting =>
+            {
+                Ok(Self::Connect(receipt))
+            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unmatched Connect response",
+            )),
+        }
+    }
+
     pub fn from_reconnect_service(
         response: Response,
         previous: ConnectionRef,
@@ -791,6 +876,69 @@ impl ResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connect_projection_requires_service_profile_revision_number_and_creation() {
+        use session_core::session::{Protocol, State};
+        let receipt = ssh::ConnectReceipt {
+            request_id: Uuid::new_v4(),
+            profile_id: Uuid::new_v4(),
+            revision: Uuid::new_v4(),
+            connection: ConnectionInfo {
+                connection_id: target().connection_id,
+                generation: 1,
+                protocol: Protocol::Ssh2,
+                state: State::Connecting,
+            },
+        };
+        let project = |reply| {
+            ResultMessage::from_connect_service(
+                Response::Ok {
+                    id: 1,
+                    reply: Reply::Ssh(reply),
+                },
+                receipt.profile_id,
+                receipt.revision,
+                receipt.request_id,
+            )
+        };
+        assert!(matches!(
+            project(ssh::Reply::ConnectReceipt(receipt.clone())),
+            Ok(ResultMessage::Connect(r)) if r == receipt
+        ));
+        for changed in [
+            ssh::ConnectReceipt {
+                revision: Uuid::new_v4(),
+                ..receipt.clone()
+            },
+            ssh::ConnectReceipt {
+                profile_id: Uuid::new_v4(),
+                ..receipt.clone()
+            },
+            ssh::ConnectReceipt {
+                request_id: Uuid::new_v4(),
+                ..receipt.clone()
+            },
+        ] {
+            assert!(project(ssh::Reply::ConnectReceipt(changed)).is_err());
+        }
+        assert!(
+            project(ssh::Reply::Started {
+                connection: receipt.connection.clone()
+            })
+            .is_err()
+        );
+        assert!(
+            project(ssh::Reply::ConnectReceipt(ssh::ConnectReceipt {
+                connection: ConnectionInfo {
+                    state: State::Connected,
+                    ..receipt.connection.clone()
+                },
+                ..receipt.clone()
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn reconnect_checks_snapshot_and_accepts_only_the_reply_for_each_operation() {

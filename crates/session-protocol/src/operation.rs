@@ -71,6 +71,11 @@ fn ssh_descriptor(request: &ssh::Request) -> Option<Descriptor> {
             request_id,
             profile_id,
             ..
+        }
+        | StartFixed {
+            request_id,
+            profile_id,
+            ..
         } => (*request_id, Action::Connect, None, Some(*profile_id)),
         Reconnect {
             request_id,
@@ -174,7 +179,28 @@ pub fn ssh_key(request: &ssh::Request) -> Result<Option<OperationKey>, ErrorCode
             if !request.validate() {
                 return Err(ErrorCode::InvalidArgument);
             }
-            key(Borrowed::Ssh2(request), d)
+            // Existing Single Start approval already freezes ProfileRevision in
+            // its scope. StartFixed separately requires that exact scope at dispatch.
+            if let ssh::Request::StartFixed {
+                profile_id,
+                request_id,
+                cols,
+                rows,
+                ..
+            } = request
+            {
+                key(
+                    Borrowed::Ssh2(&ssh::Request::Start {
+                        profile_id: *profile_id,
+                        request_id: *request_id,
+                        cols: *cols,
+                        rows: *rows,
+                    }),
+                    d,
+                )
+            } else {
+                key(Borrowed::Ssh2(request), d)
+            }
         })
         .transpose()
 }
@@ -191,12 +217,14 @@ pub fn serial_key(request: &serial::Request) -> Result<Option<OperationKey>, Err
 impl Operation {
     pub fn descriptor(&self) -> Option<Descriptor> {
         match self {
+            Self::Ssh2(ssh::Request::StartFixed { .. }) => None,
             Self::Ssh2(r) => ssh_descriptor(r),
             Self::Serial(r) => serial_descriptor(r),
         }
     }
     pub fn key(&self) -> Result<OperationKey, ErrorCode> {
         match self {
+            Self::Ssh2(ssh::Request::StartFixed { .. }) => Err(ErrorCode::InvalidArgument),
             Self::Ssh2(r) => ssh_key(r),
             Self::Serial(r) => serial_key(r),
         }?
@@ -213,6 +241,38 @@ mod tests {
             connection_id: session_core::session::ConnectionId(Uuid::new_v4()),
             generation: 2,
         }
+    }
+    #[test]
+    fn fixed_start_consumes_existing_single_key_but_is_not_a_grant_recipe() {
+        let profile_id = Uuid::new_v4();
+        let request_id = Uuid::new_v4();
+        let revision = Uuid::new_v4();
+        let start = ssh::Request::Start {
+            profile_id,
+            request_id,
+            cols: 80,
+            rows: 24,
+        };
+        let fixed = ssh::Request::StartFixed {
+            profile_id,
+            revision,
+            request_id,
+            cols: 80,
+            rows: 24,
+        };
+        assert_eq!(ssh_key(&fixed).unwrap(), ssh_key(&start).unwrap());
+        assert_eq!(
+            ssh_key(&ssh::Request::ConnectStatus {
+                profile_id,
+                revision,
+                request_id
+            })
+            .unwrap(),
+            None
+        );
+        let recipe = Operation::Ssh2(fixed);
+        assert!(recipe.descriptor().is_none());
+        assert!(recipe.key().is_err());
     }
     #[test]
     fn canonical_typed_operations_cover_mutations_and_every_parameter_is_bound() {

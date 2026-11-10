@@ -2335,6 +2335,48 @@ async fn agent_profile_revision_freezes_connect_configuration_and_receipt() {
     };
     let original = ok(client.request(start(id)).await.unwrap());
     assert!(matches!(original, Reply::Ssh(ssh::Reply::Started { .. })));
+    let fixed_start = |request_id| Request::Ssh {
+        request: ssh::Request::StartFixed {
+            profile_id: profile.id,
+            revision,
+            request_id,
+            cols: 80,
+            rows: 24,
+        },
+    };
+    let fixed_status = |request_id| Request::Ssh {
+        request: ssh::Request::ConnectStatus {
+            profile_id: profile.id,
+            revision,
+            request_id,
+        },
+    };
+    assert_eq!(
+        error(client.request(fixed_status(id)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(client.request(fixed_start(id)).await.unwrap()),
+        ErrorCode::InvalidArgument
+    );
+    let fixed_id = Uuid::new_v4();
+    assert_eq!(
+        error(client.request(fixed_status(fixed_id)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    let Reply::Ssh(ssh::Reply::ConnectReceipt(fixed)) =
+        ok(client.request(fixed_start(fixed_id)).await.unwrap())
+    else {
+        panic!("typed fixed start receipt expected")
+    };
+    assert_eq!(fixed.request_id, fixed_id);
+    assert_eq!(fixed.profile_id, profile.id);
+    assert_eq!(fixed.revision, revision);
+    assert_eq!(fixed.connection.state, State::Connecting);
+    assert_eq!(
+        error(client.request(start(fixed_id)).await.unwrap()),
+        ErrorCode::InvalidArgument
+    );
     // Even a name-only edit changes the global revision; no future open with old approval.
     profile.name = "合成配置已编辑".into();
     config_call(
@@ -2353,6 +2395,14 @@ async fn agent_profile_revision_freezes_connect_configuration_and_receipt() {
         serde_json::to_value(ok(client.request(start(id)).await.unwrap())).unwrap(),
         serde_json::to_value(original).unwrap()
     );
+    assert_eq!(
+        error(client.request(fixed_start(Uuid::new_v4())).await.unwrap()),
+        ErrorCode::InvalidArgument
+    );
+    assert!(matches!(
+        ok(client.request(fixed_status(fixed_id)).await.unwrap()),
+        Reply::Ssh(ssh::Reply::ConnectReceipt(r)) if r == fixed
+    ));
     assert_eq!(
         error(
             desktop
@@ -2375,6 +2425,10 @@ async fn agent_profile_revision_freezes_connect_configuration_and_receipt() {
         .unwrap());
     assert_eq!(
         error(client.request(start(id)).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        error(client.request(fixed_status(fixed_id)).await.unwrap()),
         ErrorCode::PermissionDenied
     );
     service.stop(&mut desktop).await;

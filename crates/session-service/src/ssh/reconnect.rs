@@ -269,6 +269,7 @@ impl Manager {
                     owner,
                     previous: Some(connection),
                     profile_id,
+                    revision: None,
                     cols,
                     rows,
                 },

@@ -1,5 +1,7 @@
 # 方案执行计划
 
+2026-11-10 P15 [ADR-091](decisions/ADR-091.md) 增加固定配置版本的 SSH2 编号 Connect 与原只读回执，v7 保持原二十项。第52入口验证精确范围、配置线程复核及独立 Desktop 主机信任与认证，见[P15](records/P15.md)。
+
 2026-11-10 P15 [ADR-090](decisions/ADR-090.md) 增加 SSH2 编号重连及原编号只读查询，v6 保持原十八项。沿 ADR-053 的同票据双范围和旧代次租约，保留 Desktop 主机信任与认证。第51入口与分层证据见[P15](records/P15.md)。
 
 2026-11-10 P15 [ADR-089](decisions/ADR-089.md)增加 v5 两协议编号 Forget 与原回执查询。保持原十六项工具，沿 ADR-054 的独立授权、当前租约与实际本地回收要求。第50入口与配置日志保留证据见[P15](records/P15.md)。
@@ -455,7 +457,7 @@ S1达到上述阶段门后进入P10.1。一个“串口连接”表单：端口�
 
 ### P15 MCP 工具实现
 
-- 初版9、v2 SSH exec/本人任务get/cancel及v3串口字节/显式控线软件子包已完成，v4 再加编号断开和状态查询，v5 再加两协议编号移除和状态查询，v6 再加 SSH2 编号重连与原只读回执，当前固定20工具；原18 schema/公开结果保持，原生Agent代理/实际配对、授权/租约/保护和未知原编号查询均按[P15](records/P15.md)分层验证。完整P15其余connect/wait/export仍IN_PROGRESS，不把本子包当模型自治或全v1/实机通过。
+- 初版9、v2 SSH exec/本人任务get/cancel及v3串口字节/显式控线软件子包已完成，v4 再加编号断开和状态查询，v5 再加两协议编号移除和状态查询，v6 再加 SSH2 编号重连与原只读回执，v7 再加已保存固定版本的 SSH2 编号建连与只读回执，当前固定22工具；原20 schema/公开结果保持，原生Agent代理/实际配对、授权/租约/保护和未知原编号查询均按[P15](records/P15.md)分层验证。完整P15其余连接能力、wait 和 export 仍 IN_PROGRESS，不把本子包当模型自治或全v1/实机通过。
 
 - 依赖：P06、P11、P14。
 - 动作：按 CODEX_INTEGRATION.md 实现 schema、read/screen/send/wait/exec/serial/tasks/export；cursor 缺口、超时、长任务和错误语义。
