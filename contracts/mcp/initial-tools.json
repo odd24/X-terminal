@@ -1,6 +1,140 @@
 {
-  "version": 2,
+  "version": 3,
   "tools": [
+    {
+      "name": "serial_write",
+      "description": "Send 1..16384 exact integer bytes (0..255) on an existing approved SERIAL connection; no encoding or newline. Requires independent Write and input lease. Native-request-bound connection plus checked request_id receipt; not proof of device execution. Unknown delivery: query terminal_input_status(SERIAL) with the original connection/generation/request_id, never replay or change action under that ID.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 16384,
+            "minItems": 1,
+            "type": "array"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "bytes"
+        ],
+        "title": "SerialWriteArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "serial_control",
+      "description": "Apply one explicit DTR/RTS/BREAK asserted boolean on an existing approved SERIAL connection; no default or pulse. Independent Control and input lease; Write is not Control. Native-request-bound connection plus checked request_id receipt. Unknown delivery only queries terminal_input_status(SERIAL), never replays a control pulse. No inventory, configuration, open/close or physical completion claim.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Line": {
+            "enum": [
+              "DTR",
+              "RTS",
+              "BREAK"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "asserted": {
+            "type": "boolean"
+          },
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "line": {
+            "$ref": "#/$defs/Line"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id",
+          "line",
+          "asserted"
+        ],
+        "title": "SerialControlArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
     {
       "name": "ssh_exec",
       "description": "Start one SSH2 exec with independent Exec scope and lease; command <=16KiB, timeout 1..120000ms, output budget 1..1048576 bytes. Fix a caller RFC9562 UUIDv7 request_id first: task_id is the same ID. Unknown delivery never means not executed: only query that task on the same owner/connection/generation, never automatically retry Start or create a new grant to inherit it.",

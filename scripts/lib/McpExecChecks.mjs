@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {writeFile} from 'node:fs/promises';
 import {requestId} from '../../apps/desktop/src/request-id.ts';
 import {delay} from './DesktopHarness.mjs';
-export async function checkMcpExec({ui,call,success,ref,other,management,grantId,signed,lease,metrics,rebind,getRpc}){
+export async function checkMcpExec({ui,call,success,ref,other,management,grantId,signed,lease,metrics,rebind,getRpc,evidencePrefix='P15-mcp-exec'}){
   const checks={},count=async()=>(await metrics()).exec_calls.length;
   const start=(command='utf8',id=requestId())=>({connection:ref,request_id:id,command,timeout_ms:3000,max_output_bytes:65536});
   const get=(id,view={kind:'status'},connection=ref)=>({connection,task_id:id,view});
@@ -54,10 +54,10 @@ export async function checkMcpExec({ui,call,success,ref,other,management,grantId
   const resumed=await status(stalled.request_id);assert.equal(resumed.task_id,stalled.request_id);
   const cancelled=await success('tasks_cancel',{connection:ref,task_id:stalled.request_id});assert.ok(['CANCELLING','FINISHED'].includes(cancelled.data.phase));await done(stalled.request_id);
   assert.equal(await count(),before+4);checks.original_ticket_after_stdio_eof_cancel_late_task=true;
-  await ui.evaluate(`document.querySelector('[aria-label="MCP配对状态"]').scrollIntoView({block:'center'})`);await ui.screenshot('P15-exec-pairing-v2.png');
+  await ui.evaluate(`document.querySelector('[aria-label="MCP配对状态"]').scrollIntoView({block:'center'})`);await ui.screenshot(`${evidencePrefix}-pairing.png`);
   return {
     async afterTakeover(){await deny('ssh_exec',start(),'PERMISSION_DENIED');assert.equal((await status(lost.request_id)).task_id,lost.request_id);checks.takeover_blocks_new_exec_keeps_owned_result=true;},
     async afterRevoke(){await deny('tasks_get',get(lost.request_id),'PERMISSION_DENIED');await deny('tasks_cancel',{connection:ref,task_id:stalled.request_id},'PERMISSION_DENIED');checks.revoked_queries_denied=true;},
-    async afterServiceLoss(){await deny('tasks_get',get(lost.request_id),'UNKNOWN_DELIVERY');await deny('tasks_cancel',{connection:ref,task_id:stalled.request_id},'UNKNOWN_DELIVERY');assert.equal(await count(),before+4);checks.service_loss_no_replay=true;await writeFile('artifacts/P15-mcp-exec-result.json',JSON.stringify({result:'PASS',checks,actual_exec_calls:await count(),expected_new_exec_calls:4,model_run:false,scope:'synthetic SSH/real stdio only'},null,2)+'\n');}
+    async afterServiceLoss(){await deny('tasks_get',get(lost.request_id),'UNKNOWN_DELIVERY');await deny('tasks_cancel',{connection:ref,task_id:stalled.request_id},'UNKNOWN_DELIVERY');assert.equal(await count(),before+4);checks.service_loss_no_replay=true;await writeFile(`artifacts/${evidencePrefix}-result.json`,JSON.stringify({result:'PASS',checks,actual_exec_calls:await count(),expected_new_exec_calls:4,model_run:false,scope:'synthetic SSH/real stdio only'},null,2)+'\n');}
   };
 }

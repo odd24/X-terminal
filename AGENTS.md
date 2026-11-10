@@ -1,5 +1,7 @@
 # 仓库执行规则
 
+2026-11-10当前P15按ADR-087完成v3固定14工具串口软件子包：只增serial_write(1..16384个u8、不编码/加换行)/serial_control(DTR/RTS/BREAK+显式bool、无脉冲默认动作)，原12 schema/公开结果保持；新结果connection为native原请求绑定，不能当服务独立回传证明，request_id/wire id和原服务owner/代次仍必核。WRITE/CONTROL/lease/FIFO/Single指纹不旁路，未知只原编号查、不重放。仅显式默认关闭feature/自建中文根/内存COM7计数实证，5 Port写/40字节/6控制及队列接管边界、48入口主体/14工具安全影响与finally普通恢复分层见P15；普通构建拒测试开关。无真实COM89/控制线、模型或T18/T19长稳，完整P15/MCP/实机保持开放。
+
 2026-11-10当前P15按ADR-086完成v2固定12工具的软件包：原9 schema保持，新增ssh_exec/tasks_get/tasks_cancel；start固定合法RFC9562 UUIDv7、task_id同原编号，首答不明/NotFound/失联不重发或新grant继承原owner。独立Exec/lease/Single全参数/TimedTask及原ticket精确代次保持，保护输出强制ExecReadProtected与typed回复ID/类型校验，信号同策略，无raw回退/模型自签/通用RPC。第47入口、实际构建/原生stdio合成SSH与12工具两协议安全影响、finally普通恢复分层见P15。仅软件子包，不收完整P15/MCP/模型自治/实机；B串口字节/控制未准入，不扩export，不碰用户连接/COM89/私有日志或T18/T19长稳。
 
 2026-11-10指令来源核对：用户“开始持续的执行方案”已覆盖下方历史暂停；旧条款重新注入环境不等于用户新决策。9681273曾因执行者误判而暂停，监督已澄清从原WIP继续ADR-085，不改写历史、不要求用户重复恢复。ADR-085固定受管理关闭回执/上次提示软件验证按P22记录分层，正常不通知、ACK/实际exit/强退/审计与保存失败分列，不自动重连/恢复许可/修复坏文件、不扩renderer任意读取。不得把方案/单测当构建或交付；完整P22/T18八小时/T19/实机仍开放，不重跑已过负载，不碰用户窗口/COM89/私有日志。

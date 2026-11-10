@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P15/ADR-087串口字节/显式控制软件专项：v3固定14工具且原12 schema/结果保持，WRITE/CONTROL/lease/原owner/代次/Single及未知原编号查询不变。真实内存Port计数5写40字节/6控制，首答丢失只查、旧ID改动作拒绝、接管后已入写完成/队列控制未进Port等PASS；4协议/1 Single/9串口契约、14工具两协议各43拒绝及exec影响、实际构建/普通恢复/默认参数拒绝与第48入口主体证据见[P15](records/P15.md)。connection只native请求绑定不冒称服务回传，完整P15/MCP/实机不收口，无真实COM或长稳。Step-ID: P15。
+
 2026-11-10 P15/v2实现2113b12已本机普通预览交付fa118fd3-e08a-44a9-a266-ab4e4bf9983e：复制品PE2/普通拒fixture/同目录MCP十二工具精确发现与stdio exit0、真实关闭回执/审计CLOSED/水位一致及自有进程退出PASS，三SHA和结果文件命名更正见[P15](records/P15.md)。仅独立exec/本人任务软件子包，完整P15/MCP模型自治/实机未收口，B仍由统筹协调；无默认用户根/真实端点/COM89操作。Step-ID: P15。
 
 2026-11-10 P15/ADR-086完成独立SSH exec/本人任务get/cancel软件闭环，固定v2十二工具且原九schema逐字段不变：UUIDv7/预算/未知字段、首应答真实丢弃后只查且远端一次、Single/TimedTask/跨owner/代次/保护双流及信号/取消/原票据重配对/接管撤销/实际服务失联均已验证。第47入口、3协议+3既有服务契约、两次实际desktop:build、12工具每协议41拒绝影响、finally普通恢复及首次fixture失败分层见[P15](records/P15.md)。完整47链/全P15/MCP模型自治/实机未收口，B未准入。Step-ID: P15。

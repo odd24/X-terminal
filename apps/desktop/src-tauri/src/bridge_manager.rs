@@ -370,9 +370,10 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                     wire::RequestMessage::Call {request}=>{
                         if let Some(pair)=bound.as_mut() {
                             let expected_task=request.task_target();
+                            let expected_serial=request.serial_target();
                             let protected=pair.view.protection.is_some();
                             match request.into_service(pair.view.protection.is_some()) {
-                                Ok(request)=>match pair.client.request(request).await {Ok(response)=>match expected_task {Some((c,t,status_only))=>wire::ResultMessage::from_task_service(response,c,t,protected,status_only),None=>wire::ResultMessage::from_service(response)},Err(error)=>return Err(error)},
+                                Ok(request)=>match pair.client.request(request).await {Ok(response)=>match (expected_task,expected_serial) {(Some((c,t,status_only)),_)=>wire::ResultMessage::from_task_service(response,c,t,protected,status_only),(_,Some((c,r,envelope)))=>wire::ResultMessage::from_serial_service(response,c,r,envelope),_=>wire::ResultMessage::from_service(response)},Err(error)=>return Err(error)},
                                 Err(code)=>wire::ResultMessage::Error(code),
                             }
                         } else {wire::ResultMessage::Error(ErrorCode::PermissionDenied)}

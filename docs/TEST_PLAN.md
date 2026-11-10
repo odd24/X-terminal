@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P15/ADR-087新增第48入口`npm run test:desktop:serial-control`，主体Test-Desktop-McpSerial.ps1在隔离测试二进制/显式flag/中文自建根、固定内存COM7中实跑：Port入口计数和应用状态独立于RPC/ACK，明确5写40字节/6控制、00/FF/控制字节回显、两次真实首答丢弃后只查、无lease/WRITE与CONTROL不互授、跨owner/代次/Single指纹/旧ID改动作、排队接管及失联。前12 schema/公开结果保持，v3固定14清单；安全影响每协议43拒绝，exec原闭环受影响复验。普通/测试build与参数/根准入6拒绝、finally实际普通desktop:build及runtime必核；没有真实控制线或完整48链/长稳/模型通过结论，详[P15](records/P15.md)。
+
 P15/ADR-086新增第47入口`npm run test:desktop:exec`（前置实际desktop:build）：真实合成SSH/stdin，通过固定12目录/原9schema精确不变、UUIDv7/整数/预算/字段拒绝、首Start真实应答在调用方丢弃后只按已知ID查且远端一次、同ticket与跨owner/代次、Single全参数/TimedTask、保护双流/信号/取消、原票据重配对/接管/撤销和实际服务流失效。服务已有owner/保护契约先定向运行，finally普通服务实际build及runtime拒fixture；只软件专项，不调用模型或真实端点，不以过滤用例或完整47链未跑当通过。现行契约v2固定12，初版9保留v1并逐项比较；P22安全矩阵同步各12工具未知path拒绝，每协议现为41次，旧38次按原历史版本理解。
 
 P22/ADR-085显式`npm run test:desktop:close-receipts`只编译隔离fixture再finally实际普通desktop:build，不纳入日常46链。只自建中文Temp根验证真实正常/故障/在途/丢ACK/无诊断关闭及重启、坏/未来/未知文件保持；普通参数拒绝与普通关闭必须实测。独立存储5项、原生decoder/模型6项、真实取消Shutdown等待1项及前端事实分列1项单测；目录junction/硬链接/满额/锁与目标竞争、部分EOF/长行/多候选/IO/reader join、晚发布/取消分别核对。退出/配置/导航及审计IPC只按影响运行，不重跑全46/T18/T19/八小时，实际结果见[P22](records/P22.md)。

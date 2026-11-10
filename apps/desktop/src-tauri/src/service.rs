@@ -82,6 +82,10 @@ impl Service {
         if fixture {
             command.arg("--test-fixture");
         }
+        #[cfg(feature = "serial-mcp-fixture")]
+        if crate::serial_fixture::enabled(&directory) {
+            command.arg("--serial-mcp-fixture");
+        }
         #[cfg(feature = "close-receipt-fixture")]
         if let Some(mode) = crate::close_fixture::mode(&directory) {
             command.args(["--audit-diagnostic-fixture", mode]);

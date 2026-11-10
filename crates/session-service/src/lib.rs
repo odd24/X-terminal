@@ -9,6 +9,8 @@ mod logging;
 mod request_audit;
 pub mod security;
 mod serial;
+#[cfg(feature = "serial-mcp-fixture")]
+pub mod serial_mcp_fixture;
 mod server;
 mod ssh;
 pub use server::{serve, serve_with_config};

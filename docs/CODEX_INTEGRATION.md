@@ -1,6 +1,12 @@
 # Codex 首版接入方案
 
-2026-11-10按[ADR-086](decisions/ADR-086.md)扩为固定v2十二工具，当前机器可读契约为[initial-tools.json](../contracts/mcp/initial-tools.json)，历史九项另保留[v1](../contracts/mcp/v1-initial-tools.json)。原九项schema不变，只新增ssh_exec/tasks_get/tasks_cancel；服务既有Exec/租约/owner/代次/保护、Single和TimedTask仍是边界，没有模型自签、Desktop代执行或新连接能力。实际合成stdio与软件验证集中[P15](records/P15.md)，不替代完整MCP/模型自治或实机验收。
+2026-11-10当前按[ADR-087](decisions/ADR-087.md)为v3固定十四工具，仅在v2基础增serial_write/serial_control，前十二schema/公开结果不变；[当前契约](../contracts/mcp/initial-tools.json)与[历史v2](../contracts/mcp/v2-tools.json)分开保存。只使用用户已打开且已批准的SERIAL精确connection/generation，模型不能枚举/配置/打开关闭端口或自行签发授权。
+
+`serial_write`字段为connection、request_id、bytes（1..16384个整数0..255）；不收文本/HEX/base64，不做编码或附加换行。`serial_control`字段为connection、request_id、line（DTR/RTS/BREAK）及必须显式提供的asserted布尔；没有脉冲/持续时间或默认动作，true不是定时脉冲，需解除时须另有明确的新意图/新编号。两者分别要求WRITE或CONTROL和原输入租约，不能互授；Single批准须匹配完整原参数。
+
+新结果serial_operation包含connection与receipt；connection是native冻结的原请求绑定，不能当作服务独立回传或物理设备证明。服务receipt.request_id与真实wire response id仍核对，授权由原服务owner/代次检查负责。未知只用terminal_input_status的SERIAL、原connection/generation/request_id查询；该旧工具结果结构保持，不重放原控制/换编号或借新grant继承回执。CONTROL_APPLIED仅说明服务报告控制调用应用，DRIVER_ACCEPTED不是设备业务执行完成；实际副作用不能回滚，配对不发动作，安全关闭的Break清理沿原worker规则。
+
+此前2026-11-10按[ADR-086](decisions/ADR-086.md)扩为固定v2十二工具，该版契约为[v2-tools.json](../contracts/mcp/v2-tools.json)，历史九项另保留[v1](../contracts/mcp/v1-initial-tools.json)。原九项schema不变，只新增ssh_exec/tasks_get/tasks_cancel；服务既有Exec/租约/owner/代次/保护、Single和TimedTask仍是边界，没有模型自签、Desktop代执行或新连接能力。实际合成stdio与软件验证集中[P15](records/P15.md)，不替代完整MCP/模型自治或实机验收。
 
 `ssh_exec`必须先由调用者固定RFC9562 UUIDv7（版本7、RFC4122 variant），例如`019a6000-0001-7000-8000-000000000001`仅演示编号形状；每个新明确意图使用新编号，完整命令/超时/预算须与批准一致。命令最多16KiB UTF-8，timeout_ms为1..120000，max_output_bytes为1..1048576。它沿原SSH传输建立独立exec通道，不继承交互shell的cd或环境。task_id就是该request_id，首答不明也已知查询编号；不能重新Start找回结果或新签grant冒充原owner。
 

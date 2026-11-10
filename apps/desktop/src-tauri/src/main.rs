@@ -11,6 +11,8 @@ mod config_import;
 mod export_save;
 #[cfg(feature = "load-observer-test")]
 mod load_observer_test;
+#[cfg(feature = "serial-mcp-fixture")]
+mod serial_fixture;
 mod service;
 mod terminal_clipboard;
 mod terminal_logs;
@@ -584,6 +586,11 @@ async fn fixture_lifecycle(
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let fixture = args.iter().any(|arg| arg == "--test-fixture");
+    let serial_mcp_fixture = args.iter().any(|s| s == "--serial-mcp-fixture");
+    assert!(
+        !serial_mcp_fixture || cfg!(feature = "serial-mcp-fixture"),
+        "SERIAL_MCP_FIXTURE_DISABLED"
+    );
     let close_fixture_index = args.iter().position(|arg| arg == "--close-receipt-fixture");
     assert!(
         close_fixture_index.is_none() || cfg!(feature = "close-receipt-fixture"),
@@ -611,6 +618,14 @@ fn main() {
             fixture,
         )
         .expect("CLOSE_RECEIPT_TEST_REJECTED");
+    }
+    #[cfg(feature = "serial-mcp-fixture")]
+    if serial_mcp_fixture {
+        serial_fixture::configure(
+            directory.as_deref().expect("missing own test root"),
+            fixture,
+        )
+        .expect("SERIAL_MCP_ROOT_REJECTED");
     }
     let app = tauri::Builder::default()
         .setup(move |app| {

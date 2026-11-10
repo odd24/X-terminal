@@ -1,5 +1,7 @@
 # 方案执行计划
 
+2026-11-10 P15按[ADR-087](decisions/ADR-087.md)补精确串口字节/显式控线，v3固定14工具、原12逐字段schema/公开结果不变。新回执connection只为native请求绑定，原服务owner/代次/独立WRITE/CONTROL及lease/FIFO/Single规则保持；只计数内存UART，默认关闭fixture/普通参数拒绝/构建与影响范围见[P15](records/P15.md)。新增第48入口，不把有限子包当完整48链/全P15/模型自治/实机通过，不扩export/连接/库存或真实硬件。
+
 2026-11-10 P15按[ADR-086](decisions/ADR-086.md)扩固定v2十二工具：原九schema不变，独立ssh_exec/本人tasks_get/tasks_cancel软件闭环与UUIDv7未知只查边界按[P15](records/P15.md)实际验证。既有授权/lease/owner/代次/保护保持，无模型自签或任意RPC/新连接；新增第47入口仅专项运行，完整47链/全P15/模型自治/实机未收口。串口字节/控制及export继续独立后续，不并行扩。
 
 2026-11-10 P22按[ADR-085](decisions/ADR-085.md)补普通Desktop所有者安全关闭回执：原关闭确认/时序不变，有界持续白名单drain、固定本根32份不可变记录及上次明确异常非模态提示。存储失败与服务关闭失败分列，不增加renderer路径/通用RPC或授权恢复；原生实际构建、受控生命周期/普通恢复和退出/配置影响证据集中[P22](records/P22.md)。9681273暂停是执行者误读历史AGENTS，不是用户新暂停；按原持续授权继续，完整阶段与T19旧失败不关闭。
@@ -447,7 +449,7 @@ S1达到上述阶段门后进入P10.1。一个“串口连接”表单：端口�
 
 ### P15 MCP 工具实现
 
-- 初版9工具及后续v2 SSH exec/本人任务get/cancel软件子包已完成，当前固定12工具；原9schema精确保持，原生Agent代理/实际配对、授权/租约/保护和未知原编号查询均按[P15](records/P15.md)分层验证。完整P15其余connect/wait/serial/export仍IN_PROGRESS，不把本子包当模型自治或全v1/实机通过。
+- 初版9、v2 SSH exec/本人任务get/cancel及v3串口字节/显式控线软件子包已完成，当前固定14工具；原12 schema/公开结果保持，原生Agent代理/实际配对、授权/租约/保护和未知原编号查询均按[P15](records/P15.md)分层验证。完整P15其余connect/wait/export仍IN_PROGRESS，不把本子包当模型自治或全v1/实机通过。
 
 - 依赖：P06、P11、P14。
 - 动作：按 CODEX_INTEGRATION.md 实现 schema、read/screen/send/wait/exec/serial/tasks/export；cursor 缺口、超时、长任务和错误语义。

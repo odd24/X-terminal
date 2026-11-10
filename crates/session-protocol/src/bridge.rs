@@ -13,6 +13,17 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    SerialWrite {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        bytes: SensitiveBytes,
+    },
+    SerialControl {
+        connection: ConnectionRef,
+        request_id: Uuid,
+        line: serial::Line,
+        asserted: bool,
+    },
     Exec {
         connection: ConnectionRef,
         request_id: Uuid,
@@ -59,6 +70,32 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn serial_target(&self) -> Option<(ConnectionRef, Uuid, bool)> {
+        match self {
+            Self::SerialWrite {
+                connection,
+                request_id,
+                ..
+            }
+            | Self::SerialControl {
+                connection,
+                request_id,
+                ..
+            } => Some((*connection, *request_id, true)),
+            Self::Send {
+                transport: Transport::Serial,
+                connection,
+                request_id,
+                ..
+            }
+            | Self::InputStatus {
+                transport: Transport::Serial,
+                connection,
+                request_id,
+            } => Some((*connection, *request_id, false)),
+            _ => None,
+        }
+    }
     pub fn task_target(&self) -> Option<(ConnectionRef, Uuid, bool)> {
         match self {
             Self::Exec {
@@ -83,6 +120,35 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::SerialWrite {
+                connection,
+                request_id,
+                bytes,
+            } => {
+                if bytes.expose().is_empty() || bytes.expose().len() > 16384 {
+                    return Err(session_core::session::ErrorCode::InvalidArgument);
+                }
+                Request::Serial {
+                    request: serial::Request::Write {
+                        connection,
+                        request_id,
+                        bytes,
+                    },
+                }
+            }
+            Self::SerialControl {
+                connection,
+                request_id,
+                line,
+                asserted,
+            } => Request::Serial {
+                request: serial::Request::Control {
+                    connection,
+                    request_id,
+                    line,
+                    asserted,
+                },
+            },
             Self::Exec {
                 connection,
                 request_id,
@@ -323,6 +389,10 @@ pub struct Status {
     deny_unknown_fields
 )]
 pub enum ResultMessage {
+    SerialOperation {
+        connection: ConnectionRef,
+        receipt: serial::InputReceipt,
+    },
     Task(ssh::TaskStatus),
     TaskOutput {
         connection: ConnectionRef,
@@ -345,6 +415,31 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    /// `connection` is the native-frozen request binding, not a service-reported field.
+    pub fn from_serial_service(
+        response: Response,
+        connection: ConnectionRef,
+        request_id: Uuid,
+        envelope: bool,
+    ) -> Self {
+        match response {
+            Response::Error { code, .. } => Self::Error(code),
+            Response::Ok {
+                reply: Reply::Serial(serial::Reply::Input(receipt)),
+                ..
+            } if receipt.request_id == request_id => {
+                if envelope {
+                    Self::SerialOperation {
+                        connection,
+                        receipt,
+                    }
+                } else {
+                    Self::SerialInput(receipt)
+                }
+            }
+            _ => Self::Error(session_core::session::ErrorCode::InvalidState),
+        }
+    }
     pub fn from_task_service(
         response: Response,
         connection: ConnectionRef,
@@ -411,6 +506,99 @@ impl ResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn serial_bytes_controls_and_request_bound_projection_are_strict() {
+        let c = target();
+        let id = Uuid::new_v4();
+        let write = |bytes| Operation::SerialWrite {
+            connection: c,
+            request_id: id,
+            bytes: SensitiveBytes::new(bytes),
+        };
+        assert!(
+            matches!(write(vec![0,255,3,13,10]).into_service(false),Ok(Request::Serial {request:serial::Request::Write {bytes,..}}) if bytes.expose()==[0,255,3,13,10])
+        );
+        assert!(write(vec![]).into_service(false).is_err());
+        assert!(write(vec![0; 16385]).into_service(false).is_err());
+        for bytes in [
+            serde_json::json!([-1]),
+            serde_json::json!([256]),
+            serde_json::json!([1.5]),
+            serde_json::json!("00ff"),
+        ] {
+            assert!(serde_json::from_value::<Operation>(serde_json::json!({"op":"serial_write","connection":c,"request_id":id,"bytes":bytes})).is_err());
+        }
+        for line in ["DTR", "RTS", "BREAK"] {
+            let v = serde_json::json!({"op":"serial_control","connection":c,"request_id":id,"line":line,"asserted":false});
+            let op = serde_json::from_value::<Operation>(v.clone()).unwrap();
+            assert_eq!(op.serial_target(), Some((c, id, true)));
+            assert!(matches!(
+                op.into_service(true),
+                Ok(Request::Serial {
+                    request: serial::Request::Control {
+                        asserted: false,
+                        ..
+                    }
+                })
+            ));
+            for extra in [
+                serde_json::json!({"line":"PULSE"}),
+                serde_json::json!({"asserted":1}),
+                serde_json::json!({"duration_ms":100}),
+            ] {
+                let mut bad = v.clone();
+                for (k, val) in extra.as_object().unwrap() {
+                    bad[k] = val.clone();
+                }
+                assert!(serde_json::from_value::<Operation>(bad).is_err());
+            }
+        }
+        let response = |request_id| Response::Ok {
+            id: 1,
+            reply: Reply::Serial(serial::Reply::Input(serial::InputReceipt {
+                request_id,
+                state: serial::InputState::ControlApplied,
+                driver_accepted: None,
+                failure: None,
+            })),
+        };
+        assert!(
+            matches!(ResultMessage::from_serial_service(response(id),c,id,true),ResultMessage::SerialOperation {connection,..} if connection==c)
+        );
+        assert!(matches!(
+            ResultMessage::from_serial_service(response(id), c, id, false),
+            ResultMessage::SerialInput(_)
+        ));
+        assert!(matches!(
+            ResultMessage::from_serial_service(response(Uuid::new_v4()), c, id, true),
+            ResultMessage::Error(_)
+        ));
+        assert!(matches!(
+            ResultMessage::from_serial_service(
+                Response::Ok {
+                    id: 1,
+                    reply: Reply::Ok
+                },
+                c,
+                id,
+                true
+            ),
+            ResultMessage::Error(_)
+        ));
+        assert!(serde_json::from_value::<serial::InputReceipt>(serde_json::json!({"request_id":id,"state":"CONTROL_APPLIED","driver_accepted":null,"failure":null,"connection":c})).is_err());
+        let status = Operation::InputStatus {
+            transport: Transport::Serial,
+            connection: c,
+            request_id: id,
+        };
+        assert_eq!(status.serial_target(), Some((c, id, false)));
+        let swapped = Operation::InputStatus {
+            transport: Transport::Serial,
+            connection: ConnectionRef { generation: 2, ..c },
+            request_id: id,
+        };
+        assert_ne!(swapped.serial_target(), status.serial_target());
+    }
     fn target() -> ConnectionRef {
         ConnectionRef {
             connection_id: session_core::session::ConnectionId(Uuid::new_v4()),

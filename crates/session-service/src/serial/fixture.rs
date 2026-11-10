@@ -24,6 +24,14 @@ impl Factory for MemoryFactory {
                     passive: config.baud_rate == 57600,
                     next: Instant::now(),
                     sequence: 0,
+                    #[cfg(feature = "serial-mcp-fixture")]
+                    trace: crate::serial_mcp_fixture::opened(
+                        config.dtr_on_open,
+                        config.rts_on_open,
+                    )?,
+                    dtr: config.dtr_on_open,
+                    rts: config.rts_on_open,
+                    break_asserted: false,
                 })
             },
             dispatch,
@@ -36,6 +44,11 @@ struct Echo {
     passive: bool,
     next: Instant,
     sequence: u32,
+    dtr: bool,
+    rts: Option<bool>,
+    break_asserted: bool,
+    #[cfg(feature = "serial-mcp-fixture")]
+    trace: Option<crate::serial_mcp_fixture::Trace>,
 }
 impl worker::Port for Echo {
     fn bytes_to_read(&self) -> io::Result<u32> {
@@ -59,6 +72,11 @@ impl worker::Port for Echo {
         Ok(transport_serial::ReadOutcome::Data(count))
     }
     fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        #[cfg(feature = "serial-mcp-fixture")]
+        if let Some(trace) = &self.trace {
+            trace.begin_write()?;
+            trace.gate_before_write()?;
+        }
         if self.passive {
             return Err(io::ErrorKind::PermissionDenied.into());
         }
@@ -66,12 +84,37 @@ impl worker::Port for Echo {
             return Err(io::ErrorKind::WouldBlock.into());
         }
         self.bytes.extend(bytes);
+        #[cfg(feature = "serial-mcp-fixture")]
+        if let Some(trace) = &self.trace {
+            trace.wrote(bytes.len())?;
+        }
         Ok(bytes.len())
     }
     fn control(&mut self, command: &worker::Command) -> io::Result<()> {
+        #[cfg(feature = "serial-mcp-fixture")]
+        if let Some(trace) = &self.trace {
+            trace.begin_control()?;
+        }
+        match command {
+            worker::Command::Dtr(v) => self.dtr = *v,
+            worker::Command::Rts(v) if !self.hardware => self.rts = Some(*v),
+            worker::Command::Break(v) => self.break_asserted = *v,
+            _ => return Err(io::ErrorKind::InvalidInput.into()),
+        }
+        #[cfg(feature = "serial-mcp-fixture")]
+        if let Some(trace) = &self.trace {
+            match command {
+                worker::Command::Dtr(v) => trace.controlled("DTR", *v)?,
+                worker::Command::Rts(v) if !self.hardware => trace.controlled("RTS", *v)?,
+                worker::Command::Break(v) => trace.controlled("BREAK", *v)?,
+                _ => {}
+            }
+        }
         match command {
             worker::Command::Rts(_) if self.hardware => Err(io::ErrorKind::InvalidInput.into()),
-            worker::Command::Dtr(_) | worker::Command::Rts(_) | worker::Command::Break(_) => Ok(()),
+            worker::Command::Dtr(v) if self.dtr == *v => Ok(()),
+            worker::Command::Rts(v) if self.rts == Some(*v) => Ok(()),
+            worker::Command::Break(v) if self.break_asserted == *v => Ok(()),
             _ => Err(io::ErrorKind::InvalidInput.into()),
         }
     }

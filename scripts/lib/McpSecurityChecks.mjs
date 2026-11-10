@@ -85,7 +85,8 @@ export async function checkMcpSecurity({ui,call,success,catalog,ref,other,transp
     terminal_input_status:{transport,connection:ref,request_id:send.request_id},input_lease:{connection:ref},
     input_acquire:{connection:ref,lifetime_ms:1000},input_release:{connection:ref,lease_id:lease.lease_id},
     ssh_exec:{connection:ref,request_id:requestId(),command:'MUST_NOT_DISPATCH',timeout_ms:1000,max_output_bytes:65536},
-    tasks_get:{connection:ref,task_id:requestId(),view:{kind:'status'}},tasks_cancel:{connection:ref,task_id:requestId()}};
+    tasks_get:{connection:ref,task_id:requestId(),view:{kind:'status'}},tasks_cancel:{connection:ref,task_id:requestId()},
+    serial_write:{connection:ref,request_id:requestId(),bytes:[0,255]},serial_control:{connection:ref,request_id:requestId(),line:'DTR',asserted:false}};
   for(const tool of catalog){
     assert.equal(tool.inputSchema.additionalProperties,false,tool.name);
     await deny('unknown path is not a file capability',tool.name,{...valid[tool.name],path:s.files.secret});

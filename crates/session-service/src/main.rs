@@ -12,6 +12,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let serial_mcp_fixture =
+        if let Some(index) = args.iter().position(|s| s == "--serial-mcp-fixture") {
+            if !cfg!(feature = "serial-mcp-fixture") {
+                return Err("SERIAL_MCP_FIXTURE_DISABLED".into());
+            }
+            args.remove(index);
+            true
+        } else {
+            false
+        };
     let diagnostic_mode =
         if let Some(index) = args.iter().position(|s| s == "--audit-diagnostic-fixture") {
             if !cfg!(feature = "audit-diagnostics-fixture") {
@@ -46,6 +56,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| "AUDIT_TEST_CONFIGURATION_REJECTED")?;
         #[cfg(not(feature = "audit-diagnostics-fixture"))]
         let _ = mode;
+    }
+    if serial_mcp_fixture {
+        if !fixture {
+            return Err("SERIAL_MCP_REQUIRES_FIXTURE".into());
+        }
+        #[cfg(feature = "serial-mcp-fixture")]
+        session_service::serial_mcp_fixture::configure(
+            directory.as_deref().ok_or("SERIAL_MCP_ROOT_REQUIRED")?,
+        )
+        .map_err(|_| "SERIAL_MCP_ROOT_REJECTED")?;
     }
     // Private parent-to-child channel; do not expose the bootstrap in argv/env/files.
     let hello: session_protocol::Hello = tokio::time::timeout(
