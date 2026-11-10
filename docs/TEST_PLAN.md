@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P24 启动迁移失败专项 `node scripts/Test-Desktop-ConfigMigrationFailure.mjs` 复用已交付的普通预览。自建 schema 6 配置库注入 SQLite ABORT，核对启动错误、原库回滚、独立旧备份及新根副本显式恢复，详见[P24](records/P24.md)。
+
 P24/T20 软件专项 `node scripts/Test-Desktop-Mcp.mjs --ssh-interruption` 需要已交付的 P24 普通预览及现有 SSH 夹具。覆盖对端意外退出、实际 WebView 提示、输入三类回执、人工重连与旧输入和授权隔离，详见[P24](records/P24.md)。
 
 P24/ADR-096 独立入口 `npm run test:desktop:save-recovery` 验证实际 Desktop 的覆盖另存写前记录和重启只读诊断。显式夹具分别停在意图同步、备份改名和发布后，外部终止后以同一自建应用根重启。另有一次覆盖暂存同步错误，核对原件、源产物、暂存清理、旧确认和明确重试。普通构建验证夹具参数拒绝、写前失败、新文件另存、已记录终态及原有另存回归，详见[P24](records/P24.md)。
