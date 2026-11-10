@@ -13,6 +13,15 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    LogsExport {
+        target: export::Start,
+    },
+    LogsExportStatus {
+        query: export::Query,
+    },
+    LogsExportCancel {
+        query: export::Query,
+    },
     WaitRead {
         connection: ConnectionRef,
         view: View,
@@ -128,6 +137,16 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn export_query(&self) -> Option<export::Query> {
+        match self {
+            Self::LogsExport { target } => Some(export::Query {
+                connection: target.retained_ended_output.connection,
+                request_id: target.request_id,
+            }),
+            Self::LogsExportStatus { query } | Self::LogsExportCancel { query } => Some(*query),
+            _ => None,
+        }
+    }
     pub fn wait_connection(&self) -> Option<ConnectionRef> {
         match self {
             Self::WaitRead { connection, .. } => Some(*connection),
@@ -263,6 +282,18 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::LogsExport { target } if protected => Request::ProtectedExport {
+                request: export::Request::Start { target },
+            },
+            Self::LogsExportStatus { query } if protected => Request::ProtectedExport {
+                request: export::Request::Status { query },
+            },
+            Self::LogsExportCancel { query } if protected => Request::ProtectedExport {
+                request: export::Request::Cancel { query },
+            },
+            Self::LogsExport { .. }
+            | Self::LogsExportStatus { .. }
+            | Self::LogsExportCancel { .. } => return Err(ErrorCode::PermissionDenied),
             Self::WaitRead { connection, view } => {
                 if !matches!(view, View::Info {} | View::Text { .. }) {
                     return Err(session_core::session::ErrorCode::InvalidArgument);
@@ -690,6 +721,7 @@ pub struct Status {
     deny_unknown_fields
 )]
 pub enum ResultMessage {
+    LogsExport(export::Receipt),
     SerialConnect(serial::ConnectReceipt),
     Connect(ssh::ConnectReceipt),
     Reconnect(ssh::ReconnectReceipt),
@@ -721,6 +753,26 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_export_service(
+        response: Response,
+        expected: export::Query,
+    ) -> std::io::Result<Self> {
+        match response {
+            Response::Error { code, .. } => Ok(Self::Error(code)),
+            Response::Ok {
+                reply: Reply::ProtectedExport(export::Reply::Receipt(receipt)),
+                ..
+            } if receipt.query == expected
+                && !matches!(receipt.state, export::Phase::Completed { artifact_id } if artifact_id.is_nil()) =>
+            {
+                Ok(Self::LogsExport(receipt))
+            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unmatched export receipt",
+            )),
+        }
+    }
     pub fn from_wait_service(response: Response, protected: bool) -> std::io::Result<Self> {
         match response {
             Response::Error { code, .. } => Ok(Self::Error(code)),

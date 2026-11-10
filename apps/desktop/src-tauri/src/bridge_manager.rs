@@ -370,6 +370,7 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                     wire::RequestMessage::Call {request}=>{
                         if let Some(pair)=bound.as_mut() {
                             let expected_task=request.task_target();
+                            let expected_export=request.export_query();
                             let expected_serial=request.serial_target();
                             let expected_disconnect=request.disconnect_target();
                             let expected_forget=request.forget_target();
@@ -397,6 +398,8 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                                     let response = pair.client.request(request).await?;
                                     if wait_connection.is_some() {
                                         wire::ResultMessage::from_wait_service(response, protected)?
+                                    } else if let Some(query) = expected_export {
+                                        wire::ResultMessage::from_export_service(response, query)?
                                     } else if let Some(id) = expected_ssh_resize {
                                         wire::ResultMessage::from_ssh_resize_service(response, id)?
                                     } else if let Some(target) = expected_serial_connect {
