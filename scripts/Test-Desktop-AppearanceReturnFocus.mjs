@@ -44,6 +44,7 @@ try {
   }
   assert.equal(before.result, 'preferences');
   const viewport = await ui.evaluate('({width:innerWidth,height:innerHeight,theme:document.documentElement.dataset.theme})');
+  if (matrix) assert.deepEqual(viewport, { width: 1100, height: 760, theme: 'dark' });
   assert.deepEqual(await ui.invoke('service_list'), []);
   const { key, enter, tabTo } = desktopKeyboard(ui, focusTrace);
   const observe = () => ui.evaluate(`(() => {
@@ -69,6 +70,7 @@ try {
     ['另存保全信息', '另存保全信息', 'Escape'],
     ['工作区', '保存与打开工作区', 'Escape'],
     ['批量修改配置', '批量修改连接配置', 'Escape'],
+    ['上次关闭信息', '上次关闭信息', '关闭退出信息'],
   ] : [['外观', '外观设置', 'Escape'], ['外观', '外观设置', '关闭外观']];
   for (const [entry, dialog, method] of entries) {
     await openFromTools(entry);
@@ -77,7 +79,7 @@ try {
     const modalFocus = opened.dialog === dialog && opened.visibleFocus && !opened.toolsOpen;
     if (method === 'Escape') await key('Escape', 'Escape', 27);
     else {
-      await tabTo(activeText('关闭外观'), '关闭外观按钮');
+      await tabTo(activeText(method), method);
       await enter();
     }
     await ui.waitFor(`!document.querySelector('dialog:modal')`);
@@ -91,7 +93,16 @@ try {
   }
 
   const regressions = [];
-  if (!matrix && cases.every(item => item.passed)) {
+  if (cases.every(item => item.passed)) {
+    if (matrix) {
+      await openFromTools('外观');
+      await ui.waitFor(`!!document.querySelector('dialog:modal[aria-label="外观设置"]')`);
+      await key('Escape', 'Escape', 27);
+      await ui.waitFor(`!document.querySelector('dialog:modal')`);
+      const appearance = await observe();
+      regressions.push({ source: '更多工具 → 外观', returned: appearance,
+        passed: appearance.toolsSummary && appearance.visibleFocus && !appearance.toolsOpen });
+    }
     const configDialog = `!!document.querySelector('dialog:modal[aria-label="连接配置"]')`;
     await openFromTools('连接配置');
     await ui.waitFor(configDialog);
