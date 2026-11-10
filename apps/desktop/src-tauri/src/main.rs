@@ -4,6 +4,7 @@
 mod agent_management;
 mod audit_history;
 mod bridge_manager;
+mod close_receipt;
 mod config_import;
 mod export_save;
 #[cfg(feature = "load-observer-test")]

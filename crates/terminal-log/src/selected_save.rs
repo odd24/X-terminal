@@ -55,7 +55,7 @@ fn identity(file: &File) -> io::Result<(u32, u32, u32)> {
         info.nFileIndexLow,
     ))
 }
-fn rename(file: &File, path: &Path) -> io::Result<()> {
+pub(crate) fn rename(file: &File, path: &Path) -> io::Result<()> {
     let name: Vec<u16> = path.as_os_str().encode_wide().collect();
     if name.len() > 32760 {
         return Err(io::Error::new(
@@ -82,7 +82,7 @@ fn rename(file: &File, path: &Path) -> io::Result<()> {
     }
     Ok(())
 }
-fn remove_owned(file: &File) -> io::Result<()> {
+pub(crate) fn remove_owned(file: &File) -> io::Result<()> {
     let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
     if unsafe {
         SetFileInformationByHandle(

@@ -25,6 +25,15 @@ pub struct Service {
     pub fixture: bool,
     service_id: Uuid,
     failed: bool,
+    owned_pid: u32,
+    directory: std::path::PathBuf,
+    started_at_ms: u64,
+    reader: crate::close_receipt::Collector,
+    previous_close: crate::close_receipt::Previous,
+    shutdown_once: bool,
+    shutdown_ack: crate::close_receipt::Ack,
+    shutdown_error: Option<crate::close_receipt::RequestError>,
+    stop_outcome: Option<crate::close_receipt::StopOutcome>,
 }
 
 #[derive(Serialize)]
@@ -33,6 +42,7 @@ pub struct Status {
     pid: u32,
     fixture: bool,
     exit_policy: &'static str,
+    previous_close: crate::close_receipt::Previous,
 }
 
 impl Service {
@@ -63,14 +73,23 @@ impl Service {
         if fixture {
             command.arg("--test-fixture");
         }
-        command.arg("--data-dir").arg(directory);
+        command.arg("--data-dir").arg(&directory);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .creation_flags(0x08000000)
             .kill_on_drop(true)
             .spawn()?;
+        let owned_pid = child
+            .id()
+            .ok_or_else(|| io::Error::other("missing own PID"))?;
+        let reader = crate::close_receipt::Collector::start(
+            child
+                .stderr
+                .take()
+                .ok_or_else(|| io::Error::other("missing private stderr"))?,
+        );
         // Child cannot serve before receiving bootstrap. Assignment failure is fatal.
         if unsafe {
             AssignProcessToJobObject(
@@ -122,6 +141,9 @@ impl Service {
         )
         .await?
         .0;
+        let started_at_ms = crate::close_receipt::clock();
+        let previous_close =
+            crate::close_receipt::load(directory.clone(), welcome.service_id, started_at_ms).await;
         Ok(Self {
             instance,
             config_client: Some(config_client),
@@ -131,6 +153,15 @@ impl Service {
             fixture,
             service_id: welcome.service_id,
             failed: false,
+            owned_pid,
+            directory,
+            started_at_ms,
+            reader,
+            previous_close,
+            shutdown_once: false,
+            shutdown_ack: crate::close_receipt::Ack::NotAttempted,
+            shutdown_error: None,
+            stop_outcome: None,
         })
     }
 
@@ -172,16 +203,82 @@ impl Service {
             pid: self.child.id().ok_or("SERVICE_UNAVAILABLE")?,
             fixture: self.fixture,
             exit_policy: "stop_on_desktop_exit",
+            previous_close: self.previous_close.clone(),
         })
     }
 
-    pub async fn stop(&mut self) {
-        let _ = self.request(Request::Shutdown {}).await;
-        if timeout(Duration::from_secs(2), self.child.wait())
-            .await
-            .is_err()
-        {
-            let _ = self.child.kill().await;
+    pub async fn stop(&mut self) -> crate::close_receipt::StopOutcome {
+        use crate::close_receipt::{Ack, Format, Receipt, RequestError, StopOutcome, WaitError};
+        if let Some(outcome) = &self.stop_outcome {
+            return outcome.clone();
         }
+        if !self.shutdown_once {
+            self.shutdown_once = true;
+            if self.failed {
+                self.shutdown_error = Some(RequestError::Unavailable);
+            } else {
+                // Persist intent in memory before await: cancellation never replays it.
+                self.shutdown_ack = Ack::Unknown;
+                self.shutdown_error = Some(RequestError::UnknownDelivery);
+                match self.request(Request::Shutdown {}).await {
+                    Ok(Reply::Ok) => {
+                        self.shutdown_ack = Ack::Acknowledged;
+                        self.shutdown_error = None;
+                    }
+                    Ok(_) => self.shutdown_error = Some(RequestError::InvalidReply),
+                    Err(_) => self.shutdown_error = Some(RequestError::Unavailable),
+                }
+            }
+        }
+        let waited = timeout(Duration::from_secs(2), self.child.wait()).await;
+        let mut wait_error = None;
+        let mut kill_requested = false;
+        let mut kill_request_ok = None;
+        let exit = match waited {
+            Ok(Ok(s)) => Some(s),
+            other => {
+                wait_error = Some(if other.is_err() {
+                    WaitError::Timeout
+                } else {
+                    WaitError::Io
+                });
+                kill_requested = true;
+                kill_request_ok = Some(self.child.start_kill().is_ok());
+                timeout(Duration::from_secs(2), self.child.wait())
+                    .await
+                    .ok()
+                    .and_then(|r| r.ok())
+            }
+        };
+        let reader = self.reader.finish().await;
+        let receipt = Receipt {
+            version: 1,
+            format: Format::V1,
+            service_id: self.service_id,
+            owned_pid: self.owned_pid,
+            started_at_ms: self.started_at_ms,
+            recorded_at_ms: crate::close_receipt::clock(),
+            shutdown_attempted: self.shutdown_ack != Ack::NotAttempted,
+            shutdown_ack: self.shutdown_ack,
+            request_error: self.shutdown_error,
+            exited: exit.is_some(),
+            exit_code: exit.and_then(|s| s.code()),
+            wait_error,
+            kill_requested,
+            kill_request_ok,
+            reader,
+        };
+        self.stop_outcome = Some(StopOutcome {
+            receipt: receipt.clone(),
+            publication: crate::close_receipt::Publication::Unknown,
+        });
+        let publication =
+            crate::close_receipt::publish(self.directory.clone(), receipt.clone()).await;
+        let outcome = StopOutcome {
+            receipt,
+            publication,
+        };
+        self.stop_outcome = Some(outcome.clone());
+        outcome
     }
 }

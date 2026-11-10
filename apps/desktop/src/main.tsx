@@ -1,4 +1,6 @@
 import {ImportConfigPanel} from './import-config-panel';
+import {CloseReceiptPanel} from './close-receipt-panel';
+import type {PreviousClose} from './close-receipt';
 import {BatchConfigPanel} from './batch-config-panel';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -59,7 +61,7 @@ import './style.css';
 type Connection = { connection_id: string; generation: number; protocol: string; state: string };
 type Ref = Pick<Connection, 'connection_id' | 'generation'>;
 type ServiceScreen = { connection: Ref; encoding: string; parser: string; resize_reflow: boolean; rows: number; cols: number; contents: string; contents_truncated: boolean; cursor_row: number; cursor_col: number; alternate: boolean; source_cursor: number; completed: boolean; gap_bytes: number; decode_error_events: number };
-type Status = { service_id: string; pid: number; fixture: boolean; exit_policy: string };
+type Status = { service_id: string; pid: number; fixture: boolean; exit_policy: string; previous_close?:PreviousClose };
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
 
 function App() {
@@ -111,6 +113,8 @@ function App() {
   const liveConnections = useRef<Connection[]>([]);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [closeInfoOpen,setCloseInfoOpen]=useState(false);
+  const [closeNoticeDismissed,setCloseNoticeDismissed]=useState(false);
   const [preferences, setPreferences] = useState<DesktopPreferences>({ theme: 'dark', terminal_font: 'consolas', terminal_palette: 'follow_theme', font_size: 15, ctrl_c_copy: true, ctrl_v_paste: false, right_click_paste: false });
   const preferenceRef = useRef(preferences); preferenceRef.current = preferences;
   const theme: ThemeChoice = preferences.theme, terminalFont: TerminalFont = preferences.terminal_font;
@@ -422,6 +426,7 @@ function App() {
       <button onClick={() => {setConfigurationTarget(undefined);setConfigurationOpen(open => !open);}}>连接配置</button>
       <button onClick={()=>setBatchConfigOpen(true)}>批量修改配置</button>
       <button onClick={()=>setImportConfigOpen(true)}>导入原生配置</button>
+      <button onClick={()=>setCloseInfoOpen(true)}>上次关闭信息</button>
       <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
       <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
 
@@ -477,6 +482,8 @@ function App() {
     {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active} profileId={activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
     {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
     {triggerNotice&&!triggersOpen&&<div className="terminal-log-feedback" role="status" aria-label="触发器窗口通知"><span>{visibleControls(triggerNotice)}</span><button onClick={()=>setTriggerNotice('')}>关闭触发通知</button></div>}
+    {!triggerNotice&&!closeNoticeDismissed&&service?.previous_close?.attention&&service.previous_close.receipt?.service_id!==service.service_id&&<div className="terminal-log-feedback" role="status" aria-label="上次关闭提示"><span>上次本地服务关闭有需查看的信息。</span><button onClick={()=>setCloseInfoOpen(true)}>查看关闭信息</button><button onClick={()=>setCloseNoticeDismissed(true)}>收起关闭提示</button></div>}
+    {closeInfoOpen&&<Dialog label="上次关闭信息" close={()=>setCloseInfoOpen(false)}><CloseReceiptPanel previous={service?.previous_close} close={()=>setCloseInfoOpen(false)}/></Dialog>}
     {importConfigOpen&&<Dialog label="原生连接配置导入" wide close={()=>{setImportConfigOpen(false);setTreeRevision(value=>value+1);}}><ImportConfigPanel owner={serviceStopped.current?'':service?.service_id??''} close={()=>{setImportConfigOpen(false);setTreeRevision(value=>value+1);}}/></Dialog>}
     {batchConfigOpen&&<Dialog label="批量修改连接配置" wide close={()=>{setBatchConfigOpen(false);setTreeRevision(value=>value+1);}}><BatchConfigPanel owner={serviceStopped.current?'':service?.service_id??''} close={()=>{setBatchConfigOpen(false);setTreeRevision(value=>value+1);}}/></Dialog>}
     {triggersOpen&&<Dialog label="配置本窗口触发器" close={()=>{triggers.current.clear();setTriggersOpen(false);}}><TriggerPanel notice={triggerNotice} dismiss={()=>setTriggerNotice('')} owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={triggers.current} close={()=>setTriggersOpen(false)}/></Dialog>}

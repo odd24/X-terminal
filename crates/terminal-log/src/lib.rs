@@ -4,6 +4,8 @@ mod archive;
 pub mod audit;
 #[cfg(windows)]
 mod cleanup;
+#[cfg(windows)]
+pub mod close_store;
 mod directory;
 mod export;
 mod export_store;
