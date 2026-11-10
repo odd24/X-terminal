@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P24 本机预览切换专项 `node scripts/Test-Desktop-PreviewSwitch.mjs` 复用两份已交付的普通 schema 7 预览和回环 SSH，覆盖活跃旧连接持锁、新版拒绝、旧版正常退出、新版显式复查与旧输入及授权隔离，详见[P24](records/P24.md)。
+
 P24/T20 所属服务退出专项 `node scripts/Test-Desktop-Mcp.mjs --service-interruption` 复用已交付普通预览、回环 SSH 和实际 stdio，覆盖活跃授权与在途输入下的服务退出、原编号查询、关闭回执及人工重开，详见[P24](records/P24.md)。
 
 P24 启动迁移失败专项 `node scripts/Test-Desktop-ConfigMigrationFailure.mjs` 复用已交付的普通预览。自建 schema 6 配置库注入 SQLite ABORT，核对启动错误、原库回滚、独立旧备份及新根副本显式恢复，详见[P24](records/P24.md)。
