@@ -715,6 +715,9 @@ fn copy(
             return;
         }
     };
+    #[cfg(feature = "save-recovery-fixture")]
+    let target =
+        target.with_replacement_sync_fixture(crate::save_recovery_fixture::before_replacement_sync);
     let report = target.save_tracked(
         &mut source,
         || cancel.load(Ordering::Acquire),

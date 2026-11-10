@@ -42,6 +42,8 @@ pub struct SaveTarget {
     staging: PathBuf,
     backup: PathBuf,
     original: Option<File>,
+    #[cfg(feature = "save-recovery-fixture")]
+    before_replacement_sync: Option<fn(&Path) -> io::Result<()>>,
 }
 #[derive(Clone, Copy)]
 pub enum SaveCheckpoint {
@@ -244,6 +246,8 @@ impl SaveTarget {
             staging,
             backup,
             original,
+            #[cfg(feature = "save-recovery-fixture")]
+            before_replacement_sync: None,
         })
     }
     pub fn path(&self) -> &Path {
@@ -285,6 +289,11 @@ impl SaveTarget {
                 observe: &mut observe,
             }),
         )
+    }
+    #[cfg(feature = "save-recovery-fixture")]
+    pub fn with_replacement_sync_fixture(mut self, inject: fn(&Path) -> io::Result<()>) -> Self {
+        self.before_replacement_sync = Some(inject);
+        self
     }
     #[cfg(test)]
     fn run(
@@ -339,6 +348,10 @@ impl SaveTarget {
             file.sync_all().map_err(|e| ("SYNC", e))?;
             if let Some(original) = &self.original {
                 copy_dacl(original, file).map_err(|e| ("PERMISSIONS", e))?;
+                #[cfg(feature = "save-recovery-fixture")]
+                if let (Some(inject), Some(tracking)) = (self.before_replacement_sync, &tracking) {
+                    inject(tracking.root).map_err(|e| ("SYNC", e))?;
+                }
                 file.sync_all().map_err(|e| ("SYNC", e))?;
             }
             hook(false, &self.path);

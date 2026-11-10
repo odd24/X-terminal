@@ -87,7 +87,42 @@ async function closeOrdinary(ui) {
   await ui.close();
 }
 
-for (const mode of only ? [only] : ordinary ? ['gate-failure','completed'] : ['intent','backup','published','terminal-failure']) {
+async function verifySyncFailure(ui, { root, output, target, originalId, exported, task, confirmation, intent, done }) {
+  const report = await waitStatus(ui, task, 'FAILED');
+  assert.equal(report.failure, 'SYNC');
+  assert.equal(report.os_code, 29);
+  for (const field of ['confirmation', 'backup', 'staging', 'expires_at_ms']) assert.equal(report[field], null);
+  assert.equal(report.diagnostic_issue, undefined);
+  await ui.waitFor(`document.querySelector('[aria-label="导出另存状态"]')?.textContent.includes('无法确认文件已同步（系统代码 29）')`);
+  assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="确认替换保存文件"]')`), false);
+  assert.deepEqual(await save(ui, { op: 'confirm', ...task, confirmation }), report);
+  await assertIdentity(target, originalId);
+  await assertBytes(target, original);
+  assert.deepEqual(await readdir(output), [path.basename(target)]);
+  await assertAbsent(intent);
+  await assertAbsent(done);
+  await assertIdentity(exported.source, exported.object);
+  await assertBytes(exported.source, exported.bytes);
+
+  const retry = await select(ui, root, target);
+  assert.notEqual(retry.save_id, task.save_id);
+  assert.deepEqual(retry.scope, task.scope);
+  assert.notEqual(await confirm(ui, retry), confirmation);
+  const completed = await waitStatus(ui, retry, 'COMPLETED');
+  assert.equal(completed.failure, null);
+  const retryBackup = path.join(output, `.terminal-export-${retry.save_id}.backup`);
+  assert.equal(await realpath(completed.backup), await realpath(retryBackup));
+  assert.deepEqual((await readdir(output)).sort(), [path.basename(retryBackup), path.basename(target)].sort());
+  await assertBytes(target, exported.bytes);
+  await assertIdentity(retryBackup, originalId);
+  await assertBytes(retryBackup, original);
+  await assertIdentity(exported.source, exported.object);
+  await assertBytes(exported.source, exported.bytes);
+  assert.deepEqual(await save(ui, { op: 'status', ...task }), report);
+  return { failedSave: task.save_id, retrySave: retry.save_id, failure: report.failure, osCode: report.os_code, retryBackup };
+}
+
+for (const mode of only ? [only] : ordinary ? ['gate-failure','completed'] : ['intent','backup','published','terminal-failure','sync-failure']) {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
   const data = path.join(root, '应用数据');
   const store = path.join(data, namespace);
@@ -102,7 +137,7 @@ for (const mode of only ? [only] : ordinary ? ['gate-failure','completed'] : ['i
   let failed = false;
   try {
     if (mode === 'gate-failure') {
-      const refused = spawnSync(executable, ['--save-recovery-fixture', 'intent'], { windowsHide: true, encoding: 'utf8', timeout: 10000 });
+      const refused = spawnSync(executable, ['--save-recovery-fixture', 'sync-failure'], { windowsHide: true, encoding: 'utf8', timeout: 10000 });
       assert.ok(!refused.error);assert.notEqual(refused.status, 0);assert.match(refused.stderr, /SAVE_RECOVERY_FIXTURE_DISABLED/);
       await mkdir(store);
       await writeFile(path.join(store, 'store.lock'), '');
@@ -116,6 +151,28 @@ for (const mode of only ? [only] : ordinary ? ['gate-failure','completed'] : ['i
     const intent = path.join(store, `${task.save_id}.json`);
     const done = path.join(store, `${task.save_id}.done`);
     const confirmation = await confirm(ui, task);
+    if (mode === 'sync-failure') {
+      const { retryBackup, ...evidence } = await verifySyncFailure(ui, {
+        root, output, target, originalId, exported, task, confirmation, intent, done,
+      });
+      const targetAfter = await fileIdentity(target);
+      await closeOrdinary(ui);ui = undefined;
+      ui = await launchDesktop(data, { executable, webviewDirectory: path.join(data, 'webview-restart') });
+      assert.equal((await ui.invoke('service_status')).fixture, false);
+      for (const request of [{ op: 'status', ...task }, { op: 'confirm', ...task, confirmation }]) {
+        assert.equal(await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('export_save_request',${JSON.stringify({request})}).then(()=>null,error=>String(error))`), 'NOT_FOUND');
+      }
+      const view = await ui.invoke('save_recovery_status');
+      assert.equal(view.availability, null);
+      assert.deepEqual(view.items.map(item => [item.save_id, item.phase]), [[evidence.retrySave, 'PUBLISHED']]);
+      await assertIdentity(target, targetAfter);await assertBytes(target, exported.bytes);
+      await assertIdentity(retryBackup, originalId);await assertBytes(retryBackup, original);
+      await assertIdentity(exported.source, exported.object);await assertBytes(exported.source, exported.bytes);
+      await closeOrdinary(ui);ui = undefined;
+      results.push({ mode, result: 'PASS', originalId, targetAfter, ...evidence, oldConfirmationAfterRestart: 'NOT_FOUND' });
+      console.log(`PASS P24 save recovery ${mode}`);
+      continue;
+    }
     if (mode === 'gate-failure') {
       const report = await waitStatus(ui, task, 'FAILED');
       assert.equal(report.failure, 'RECOVERY_RECORD');assert.equal(report.diagnostic_issue, 'UNTRUSTED');
