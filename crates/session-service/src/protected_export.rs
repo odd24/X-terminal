@@ -574,6 +574,7 @@ mod tests {
 
     #[tokio::test]
     async fn protected_export_keeps_raw_off_disk_and_rejects_cross_owner_and_retired_source() {
+        use std::os::windows::fs::OpenOptionsExt;
         let directory =
             std::env::temp_dir().join(format!("protected-export-中文-{}", Uuid::new_v4()));
         std::fs::create_dir(&directory).unwrap();
@@ -601,16 +602,19 @@ mod tests {
         })
         .await
         .unwrap();
-        let text = std::fs::read_to_string(
-            directory
-                .join(MANAGED_DIRECTORY)
-                .join("terminal-log-exports")
-                .join(artifact_id.to_string())
-                .join("export.jsonl"),
-        )
-        .unwrap();
+        let path = directory
+            .join(MANAGED_DIRECTORY)
+            .join("terminal-log-exports")
+            .join(artifact_id.to_string())
+            .join("export.jsonl");
+        let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("prefix ") && text.ends_with(" suffix\n"));
         assert!(!text.contains("private-marker"));
+        let pin = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&path)
+            .unwrap();
         store
             .lock()
             .unwrap()
@@ -620,6 +624,17 @@ mod tests {
             manager.status(&owner, pending.query, false),
             Err(ErrorCode::PermissionDenied)
         ));
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !manager.ledger.lock().unwrap()[&(owner.ticket_id(), pending.query)]
+                .cleanup_failed
+            {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(path.is_file());
+        drop(pin);
         manager.close().await.unwrap();
         assert!(
             CleanupPreview::export_ids(&directory.join(MANAGED_DIRECTORY))

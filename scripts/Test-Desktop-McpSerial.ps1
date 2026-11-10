@@ -1,4 +1,4 @@
-param([switch]$Disconnect, [switch]$Forget, [switch]$Connect)
+param([switch]$Disconnect, [switch]$Forget, [switch]$Connect, [switch]$Export)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/Enter-Toolchain.ps1"
 $serialRepoRoot=Split-Path -Parent $PSScriptRoot
@@ -14,20 +14,25 @@ try {
     Copy-Item -LiteralPath (Join-Path $serialRepoRoot 'target/debug/shared-terminal-desktop.exe') -Destination $serialFixtureDirectory -Force
     & node (Join-Path $PSScriptRoot 'Test-SerialMcpFixtureGuards.mjs')
     if ($LASTEXITCODE -ne 0) {throw 'explicit serial fixture guards failed'}
-    if ($Connect) {
-        & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial-connect
-        if ($LASTEXITCODE -ne 0) {throw 'real serial MCP Connect checks failed'}
+    if ($Export) {
+        & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial --protected-export
+        if ($LASTEXITCODE -ne 0) {throw 'real serial MCP protected export checks failed'}
+    } else {
+        if ($Connect) {
+            & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial-connect
+            if ($LASTEXITCODE -ne 0) {throw 'real serial MCP Connect checks failed'}
+        }
+        if ($Forget -or $Connect) {
+            & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial --forget
+            if ($LASTEXITCODE -ne 0) {throw 'real serial MCP Forget checks failed'}
+        }
+        if ($Forget -or $Disconnect -or $Connect) {
+            & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial --disconnect
+            if ($LASTEXITCODE -ne 0) {throw 'real serial MCP Disconnect checks failed'}
+        }
+        & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial-control
+        if ($LASTEXITCODE -ne 0) {throw 'serial byte/control checks failed'}
     }
-    if ($Forget -or $Connect) {
-        & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial --forget
-        if ($LASTEXITCODE -ne 0) {throw 'real serial MCP Forget checks failed'}
-    }
-    if ($Forget -or $Disconnect -or $Connect) {
-        & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial --disconnect
-        if ($LASTEXITCODE -ne 0) {throw 'real serial MCP Disconnect checks failed'}
-    }
-    & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial-control
-    if ($LASTEXITCODE -ne 0) {throw 'serial byte/control checks failed'}
 } finally {
     & npm run desktop:build
     if ($LASTEXITCODE -ne 0) {throw 'ordinary Desktop/service actual restoration failed'}

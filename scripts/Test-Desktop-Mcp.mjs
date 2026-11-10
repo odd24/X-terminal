@@ -10,6 +10,7 @@ import { processRpc } from './jsonrpc-client.mjs';
 import { prepareSecuritySentinels, checkMcpSecurity } from './lib/McpSecurityChecks.mjs';
 import {checkMcpExec} from './lib/McpExecChecks.mjs';
 import {checkMcpWait} from './lib/McpWaitChecks.mjs';
+import {checkProtectedExport} from './lib/McpProtectedExportChecks.mjs';
 import {checkMcpSshResize} from './lib/McpSshResizeChecks.mjs';
 import {checkMcpSerialConnect} from './lib/McpSerialConnectChecks.mjs';
 import {checkMcpConnect} from './lib/McpConnectChecks.mjs';
@@ -26,11 +27,12 @@ const connect=process.argv.includes('--connect');
 const serialConnect=process.argv.includes('--serial-connect');
 const sshResize=process.argv.includes('--ssh-resize');
 const wait=process.argv.includes('--wait');
+const protectedExport=process.argv.includes('--protected-export');
 const serial=process.argv.includes('--serial')||serialControl||serialConnect;
-const countedSerial=serialConnect||serialControl||((disconnect||forget)&&serial);
+const countedSerial=serialConnect||serialControl||((disconnect||forget||protectedExport)&&serial);
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
-const evidence=wait?'P15-terminal-wait-v10':sshResize?'P15-wait-impact-resize-v10':serialConnect?'P15-wait-impact-serial-connect-v10':connect?'P15-wait-impact-connect-v10':reconnect?'P15-wait-impact-reconnect-v10':forget?'P15-wait-impact-forget-v10':disconnect?'P15-wait-impact-disconnect-v10':serialControl?'P15-wait-impact-serial-v10':security?'P22-security-v10':exec?'P15-wait-impact-exec-v10':'P15-mcp-v10';
+const evidence=protectedExport?'P15-protected-export-v11':wait?'P15-terminal-wait-v11':sshResize?'P15-wait-impact-resize-v11':serialConnect?'P15-wait-impact-serial-connect-v11':connect?'P15-wait-impact-connect-v11':reconnect?'P15-wait-impact-reconnect-v11':forget?'P15-wait-impact-forget-v11':disconnect?'P15-wait-impact-disconnect-v11':serialControl?'P15-wait-impact-serial-v11':security?'P22-security-v11':exec?'P15-wait-impact-exec-v11':'P15-mcp-v11';
 assert.ok(!(exec||reconnect||connect||sshResize||wait)||!serial,'SSH2 fixture required');
 const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
 const build=fixture=>{const result=spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});assert.equal(result.status,0,'memory fixture/ordinary restore must actually succeed');};
@@ -80,9 +82,9 @@ try {
   rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
   const initialized=await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'p15-real-stdio',version:'0.1.0'}});assert.ok(initialized.result.capabilities.tools);rpc.notify('notifications/initialized',{});
   const catalog=(await rpc.request('tools/list',{})).result.tools;
-  assert.deepEqual({version:10,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v10 twenty-six-tool contract');
+  assert.deepEqual({version:11,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v11 contract');
   await writeFile(`artifacts/${evidence}-tools-${serial?'serial':'ssh'}.json`,JSON.stringify({tools:catalog},null,2)+'\n');
-  assert.equal(catalog.length,26);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
+  assert.equal(catalog.length,29);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
   const call=async(name,args={})=>(await rpc.request('tools/call',{name,arguments:args})).result;
   const success=async(name,args={})=>{const result=await call(name,args);assert.equal(result.isError,false,JSON.stringify(result));assert.equal(result.structuredContent.mock,false);return result.structuredContent.reply;};
   const pending=await success('agent_status');assert.equal(pending.data.paired_ticket,null);assert.equal(pending.data.peer_pid,rpc.child.pid);
@@ -124,9 +126,11 @@ try {
   };
   const execChecks=exec?await checkMcpExec({ui,call,success,ref,other:otherRef,management,grantId,signed,lease,metrics,rebind,getRpc:()=>rpc,evidencePrefix:evidence}):null;
   const serialChecks=serialControl?await checkMcpSerial({directory,ui,call,success,ref,other:otherRef,management,grantId,signed,lease,rebind,getRpc:()=>rpc,evidence}):null;
-  if(disconnect||forget||reconnect||connect||serialConnect||sshResize||wait){
+  if(disconnect||forget||reconnect||connect||serialConnect||sshResize||wait||protectedExport){
     const common={directory,ui,call,success,ref,other:otherRef,transport,management,grantId,lease,control,rebind,getRpc:()=>rpc};
-    const report=wait
+    const report=protectedExport
+      ?await checkProtectedExport(common)
+      :wait
       ?await checkMcpWait(common)
       :sshResize?await checkMcpSshResize(common)
       :serialConnect?await checkMcpSerialConnect(common)
@@ -136,7 +140,7 @@ try {
       :await checkMcpDisconnect(common);
     assert.equal((await rpc.close()).code,0);rpc=undefined;
     await writeFile(`artifacts/${evidence}-${serial?'serial':'ssh'}.json`,JSON.stringify({...report,stdio_exit:0},null,2)+'\n');
-    console.log(`PASS real MCP ${transport} ${wait?'Wait':sshResize?'Resize':connect||serialConnect?'Connect':reconnect?'Reconnect':forget?'Forget':'Disconnect'}, original receipt, permission boundaries and transport cleanup`);
+    console.log(`PASS real MCP ${transport} ${protectedExport?'Protected Export':wait?'Wait':sshResize?'Resize':connect||serialConnect?'Connect':reconnect?'Reconnect':forget?'Forget':'Disconnect'}, original receipt, permission boundaries and transport cleanup`);
   }else{
     await management({op:'takeover',connection:ref});assert.equal((await call('terminal_send',{...send,request_id:randomUUID(),text:'MUST_NOT_SEND'})).isError,true);
     await securityChecks?.afterTakeover();
@@ -153,12 +157,12 @@ try {
     await execChecks?.afterServiceLoss();
     await serialChecks?.afterServiceLoss();
     assert.ok(!rpc.stderr.includes('P15_PRIVATE'));assert.equal((await rpc.close()).code,0);rpc=undefined;
-    if(security)await writeFile(`artifacts/P22-security-v10-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
+    if(security)await writeFile(`artifacts/P22-security-v11-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
     console.log(`PASS real MCP ${transport}: native fixed-process/original-grant GUI approval, default-none, no unpaired access/bearer, same shared connection exact send/receipt/protected read/screen, lease and dedup, unrelated session denied, takeover/revoke rejected, Agent source audit and stdio EOF cleanup; synthetic only`);
   }
 } catch(error) {
   failed=true;console.error('MCP deterministic test failed before cleanup:',error);
-  if((exec||countedSerial||disconnect||forget||reconnect||connect||sshResize||wait)&&ui)await ui.screenshot(`${evidence}-${serial?'serial':'ssh'}-failure.png`).catch(()=>{});
+  if((exec||countedSerial||disconnect||forget||reconnect||connect||sshResize||wait||protectedExport)&&ui)await ui.screenshot(`${evidence}-${serial?'serial':'ssh'}-failure.png`).catch(()=>{});
   if(directory)console.error('Owned failed MCP root retained:',directory);throw error;
 } finally {
   try {if(rpc)await rpc.close();await ui?.close();fixture?.kill();if(fixture)await new Promise(resolve=>{if(fixture.exitCode!==null||fixture.signalCode!==null)resolve();else fixture.once('exit',resolve);});if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(rootPrefix));if(!failed)await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}

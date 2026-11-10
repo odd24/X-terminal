@@ -5,7 +5,7 @@ import path from 'node:path';
 import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 import {processRpc} from './jsonrpc-client.mjs';
 const preview=JSON.parse(await readFile('artifacts/P16-local-preview.json','utf8'));
-const catalogVersion=process.argv.includes('--mcp-v10')?10:process.argv.includes('--mcp-v9')?9:process.argv.includes('--mcp-v8')?8:process.argv.includes('--mcp-v7')?7:process.argv.includes('--mcp-v6')?6:process.argv.includes('--mcp-v5')?5:process.argv.includes('--mcp-v4')?4:process.argv.includes('--mcp-v3')?3:process.argv.includes('--mcp-v2')?2:null;
+const catalogVersion=process.argv.includes('--mcp-v11')?11:process.argv.includes('--mcp-v10')?10:process.argv.includes('--mcp-v9')?9:process.argv.includes('--mcp-v8')?8:process.argv.includes('--mcp-v7')?7:process.argv.includes('--mcp-v6')?6:process.argv.includes('--mcp-v5')?5:process.argv.includes('--mcp-v4')?4:process.argv.includes('--mcp-v3')?3:process.argv.includes('--mcp-v2')?2:null;
 assert.equal(preview.result,'PASS');
 const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-preview-close-中文-'));
 let ui,rpc,result;
@@ -21,7 +21,7 @@ try{
     rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
     await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'copied-preview-v2',version:'2'}});rpc.notify('notifications/initialized',{});
     const tools=(await rpc.request('tools/list',{})).result.tools;
-    assert.deepEqual({version:catalogVersion,tools},JSON.parse(await readFile(catalogVersion===10?'contracts/mcp/initial-tools.json':`contracts/mcp/v${catalogVersion}-tools.json`,'utf8')));assert.equal(tools.length,catalogVersion>=9?catalogVersion+16:8+2*catalogVersion);toolCount=tools.length;
+    assert.deepEqual({version:catalogVersion,tools},JSON.parse(await readFile(catalogVersion===11?'contracts/mcp/initial-tools.json':`contracts/mcp/v${catalogVersion}-tools.json`,'utf8')));assert.equal(tools.length,catalogVersion===11?29:catalogVersion>=9?catalogVersion+16:8+2*catalogVersion);toolCount=tools.length;
     assert.equal((await rpc.close()).code,0);rpc=undefined;
   }
   await ui.evaluate(`(()=>{const d=document.querySelector('details.tools-menu');if(!d.open)d.querySelector('summary').click();setTimeout(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='退出桌面').click(),50);return true;})()`);
@@ -35,5 +35,5 @@ try{
   await rpc?.close();await ui?.close();assert.equal(path.dirname(path.resolve(root)),path.resolve(tmpdir()));assert.ok(path.basename(root).startsWith('shared-terminal-preview-close-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }
-await writeFile(catalogVersion===10?'artifacts/P15-terminal-wait-v10-preview-result.json':catalogVersion===9?'artifacts/P15-ssh-resize-v9-preview-result.json':catalogVersion===8?'artifacts/P15-serial-connect-v8-preview-result.json':catalogVersion===7?'artifacts/P15-connect-v7-preview-result.json':catalogVersion===6?'artifacts/P15-reconnect-v6-preview-result.json':catalogVersion===5?'artifacts/P15-forget-v5-preview-result.json':catalogVersion===4?'artifacts/P15-disconnect-v4-preview-result.json':catalogVersion===3?'artifacts/P15-serial-v3-preview-result.json':catalogVersion===2?'artifacts/P15-exec-preview-result.json':'artifacts/P22-close-preview-result.json',JSON.stringify(result,null,2)+'\n');
+await writeFile(catalogVersion===11?'artifacts/P15-protected-export-v11-preview-result.json':catalogVersion===10?'artifacts/P15-terminal-wait-v10-preview-result.json':catalogVersion===9?'artifacts/P15-ssh-resize-v9-preview-result.json':catalogVersion===8?'artifacts/P15-serial-connect-v8-preview-result.json':catalogVersion===7?'artifacts/P15-connect-v7-preview-result.json':catalogVersion===6?'artifacts/P15-reconnect-v6-preview-result.json':catalogVersion===5?'artifacts/P15-forget-v5-preview-result.json':catalogVersion===4?'artifacts/P15-disconnect-v4-preview-result.json':catalogVersion===3?'artifacts/P15-serial-v3-preview-result.json':catalogVersion===2?'artifacts/P15-exec-preview-result.json':'artifacts/P22-close-preview-result.json',JSON.stringify(result,null,2)+'\n');
 console.log('PASS copied ordinary preview actual native close, persisted receipt, healthy audit and owned process release.');

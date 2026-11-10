@@ -10,20 +10,17 @@ try{
  rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
  await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'contract-capture',version:'2'}});rpc.notify('notifications/initialized',{});
  const tools=(await rpc.request('tools/list',{})).result.tools;
- assert.deepEqual(tools.map(t=>t.name),['terminal_wait','ssh_resize','serial_connect','serial_connect_status','ssh_connect','ssh_connect_status','ssh_reconnect','ssh_reconnect_status','sessions_forget','sessions_forget_status','sessions_disconnect','sessions_disconnect_status','serial_write','serial_control','ssh_exec','tasks_get','tasks_cancel','agent_status','sessions_list','terminal_read','terminal_screen','terminal_send','terminal_input_status','input_lease','input_acquire','input_release']);
+ assert.deepEqual(tools.slice(0,3).map(t=>t.name),['logs_export','logs_export_status','logs_export_cancel']);
  assert.ok(tools.every(t=>t.inputSchema.additionalProperties===false));
- const initial=JSON.parse(await readFile('contracts/mcp/v1-initial-tools.json','utf8'));
- assert.deepEqual({tools:tools.slice(17)},initial,'original nine tool schemas remain exactly unchanged');
- assert.deepEqual({version:2,tools:tools.slice(14)},JSON.parse(await readFile('contracts/mcp/v2-tools.json','utf8')),'previous twelve schemas remain exactly unchanged');
- assert.deepEqual({version:3,tools:tools.slice(12)},JSON.parse(await readFile('contracts/mcp/v3-tools.json','utf8')),'previous fourteen tools remain exactly unchanged');
- assert.deepEqual({version:4,tools:tools.slice(10)},JSON.parse(await readFile('contracts/mcp/v4-tools.json','utf8')),'previous sixteen tools remain exactly unchanged');
- assert.deepEqual({version:5,tools:tools.slice(8)},JSON.parse(await readFile('contracts/mcp/v5-tools.json','utf8')),'previous eighteen tools remain exactly unchanged');
- assert.deepEqual({version:6,tools:tools.slice(6)},JSON.parse(await readFile('contracts/mcp/v6-tools.json','utf8')),'previous twenty tools remain exactly unchanged');
- assert.deepEqual({version:7,tools:tools.slice(4)},JSON.parse(await readFile('contracts/mcp/v7-tools.json','utf8')),'previous twenty-two tools remain exactly unchanged');
- assert.deepEqual({version:8,tools:tools.slice(2)},JSON.parse(await readFile('contracts/mcp/v8-tools.json','utf8')),'previous twenty-four tools remain exactly unchanged');
- assert.deepEqual({version:9,tools:tools.slice(1)},JSON.parse(await readFile('contracts/mcp/v9-tools.json','utf8')),'previous twenty-five tools remain exactly unchanged');
- await writeFile('contracts/mcp/initial-tools.json',JSON.stringify({version:10,tools},null,2)+'\n');
- console.log('PASS captured exact twenty-six-tool v10 schema; previous twenty-five unchanged; no pairing or execution.');
+ const versions=[9,12,14,16,18,20,22,24,25,26];
+ for (const [index,count] of versions.entries()) {
+   const version=index+1;
+   const file=version===1?'v1-initial-tools.json':`v${version}-tools.json`;
+   const original=JSON.parse(await readFile(`contracts/mcp/${file}`,'utf8'));
+   assert.deepEqual({...(version===1?{}:{version}),tools:tools.slice(-count)},original,`v${version} remains exactly unchanged`);
+ }
+ await writeFile('contracts/mcp/initial-tools.json',JSON.stringify({version:11,tools},null,2)+'\n');
+ console.log('PASS captured exact twenty-nine-tool v11 schema; previous twenty-six unchanged; no pairing or execution.');
 }finally{
  await rpc?.close();await ui?.close();assert.equal(path.dirname(root),path.resolve(tmpdir()));assert.ok(path.basename(root).startsWith('shared-terminal-mcp-contract-中文-'));await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }

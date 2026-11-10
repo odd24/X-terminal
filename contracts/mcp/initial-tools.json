@@ -1,6 +1,235 @@
 {
-  "version": 10,
+  "version": 11,
   "tools": [
+    {
+      "name": "logs_export",
+      "description": "Prepare protected UTF-8 text from the exact ended SSH2 or SERIAL retained output approved in Desktop. Copy the fixed Desktop arguments. Returns safe status and an opaque artifact ID. On unknown delivery only query logs_export_status using the original request ID and connection.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "EndedOutput": {
+            "additionalProperties": false,
+            "properties": {
+              "cols": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "encoding": {
+                "type": "string"
+              },
+              "from_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "protocol": {
+                "$ref": "#/$defs/Protocol"
+              },
+              "rows": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "through_cursor": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection",
+              "protocol",
+              "from_cursor",
+              "through_cursor",
+              "encoding",
+              "rows",
+              "cols"
+            ],
+            "type": "object"
+          },
+          "Format": {
+            "enum": [
+              "protected_utf8"
+            ],
+            "type": "string"
+          },
+          "Protocol": {
+            "enum": [
+              "SSH1",
+              "SSH2",
+              "SERIAL",
+              "FIXTURE"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "$ref": "#/$defs/Format"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "retained_ended_output": {
+            "$ref": "#/$defs/EndedOutput"
+          },
+          "service_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_id",
+          "request_id",
+          "retained_ended_output",
+          "format"
+        ],
+        "title": "Start",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "logs_export_status",
+      "description": "Query only the original protected export receipt using the same valid ticket, connection and request ID. A missing receipt leaves the outcome unknown.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id"
+        ],
+        "title": "Query",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "logs_export_cancel",
+      "description": "Cancel an unpublished protected export with the original valid ticket, connection and request ID. A completed receipt remains completed.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "request_id"
+        ],
+        "title": "Query",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
     {
       "name": "terminal_wait",
       "description": "Wait up to 30 seconds for a case-sensitive literal in the exact connection's continuous authorized text. Requires full Read. Protected grants match only protected text. Reports match, timeout, disconnection or gap with source cursors. No regex or time-window fallback.",
