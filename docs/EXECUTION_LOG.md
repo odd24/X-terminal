@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-10 P24/T20 合成 SSH 对端意外退出及实际 Desktop 人工重连专项通过。原代次三类回执分列，新代次零旧输入重放、旧授权和租约失效。沿用普通构建，真实网络/USB 和完整验收仍开放，见[P24](records/P24.md)。Step-ID: P24。
+
 2026-11-10 P24 [ADR-096](decisions/ADR-096.md) 交付覆盖另存写前记录、重启只读诊断及普通预览 a38cc309-3888-4aaf-8e1c-c821d347ad5a。真实 Desktop 三点强制退出、终态失败、旧确认拒绝、正常保存回归及复制品退出通过，见[P24](records/P24.md)。Step-ID: P24。
 
 2026-11-10 P24 先行软件验证 ADR-033 另存异常退出保全。三个真实子进程终止点及新进程对象与字节核对通过，已记录只读诊断缺口及待协调设计，见[P24](records/P24.md)。Step-ID: P24。
@@ -423,7 +425,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P21 | 批量管理与迁移 | IN_PROGRESS | [记录](records/P21.md) | Step-ID: P21 |
 | P22 | 压力与权限边界 | IN_PROGRESS | T17/120秒T18子项及安全关闭诊断已验；旧FAIL/八小时/实机未闭；Desktop关闭回执独立规划 | [记录](records/P22.md) |
 | P23 | 兼容与真实试用 | TODO | 待创建 | — |
-| P24 | 覆盖另存写前记录与只读诊断已交付，完整故障恢复与升级待验 | IN_PROGRESS | [P24](records/P24.md) | Step-ID: P24 |
+| P24 | 覆盖另存诊断已交付，合成 SSH 中断重连专项通过，完整故障恢复与升级待验 | IN_PROGRESS | [P24](records/P24.md) | Step-ID: P24 |
 | P25 | 安装与发布验收 | TODO | 待创建 | — |
 
 ## 阶段门
