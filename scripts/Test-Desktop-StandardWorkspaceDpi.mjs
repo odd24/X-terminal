@@ -58,7 +58,7 @@ try {
     assert.equal(saved.profile.credential_ref, null);
     const before = await page();
     const row = `.session-tree-list button[data-profile-id="${profile.id}"]`;
-    const { enter, tabTo } = desktopKeyboard(ui, evidence.focusTrace);
+    const { enter, key, tabTo } = desktopKeyboard(ui, evidence.focusTrace);
     const controls = { toolbar: 'nav[aria-label="会话控制"]', tree: '.session-sidebar', row,
       workspace: '.terminal-workspace', terminal: '.terminal-pane .terminal', footer: 'footer', status: 'footer .connection-summary' };
 
@@ -81,6 +81,21 @@ try {
     function fullFocusOutline({ boxes: { row }, clip, rowHit, rowFocus, outline, margin }) {
       return rowHit && rowFocus && outline === 'solid' && margin === 4 && row.left - margin >= clip.left - 1
         && row.right + margin <= clip.right + 1 && row.top - margin >= clip.top - 1 && row.bottom + margin <= clip.bottom + 1;
+    }
+
+    const summary = 'document.querySelector(".profile-summary")';
+    async function detailGeometry() {
+      return ui.evaluate(`(() => {
+        const summary=${summary}, button=summary.querySelector('button'), title=summary.querySelector('strong');
+        const area=summary.getBoundingClientRect(), row=button.getBoundingClientRect(), style=getComputedStyle(button);
+        const x=area.left+summary.clientLeft,y=area.top+summary.clientTop;
+        return {boxes:{row:row.toJSON()},clip:{left:x,right:x+summary.clientWidth,top:y,bottom:y+summary.clientHeight},
+          scrollTop:summary.scrollTop,scrollHeight:summary.scrollHeight,clientHeight:summary.clientHeight,
+          scrollWidth:summary.scrollWidth,clientWidth:summary.clientWidth,title:title.getBoundingClientRect().toJSON(),
+          rowFocus:document.activeElement===button&&button.matches(':focus-visible'),outline:style.outlineStyle,
+          margin:parseFloat(style.outlineWidth)+parseFloat(style.outlineOffset),
+          rowHit:button.contains(document.elementFromPoint((row.left+row.right)/2,(row.top+row.bottom)/2))};
+      })()`);
     }
 
     for (const item of evidence.sizes) {
@@ -136,6 +151,24 @@ try {
         item.result = 'FAIL';
         break;
       }
+      await tabTo(activeText('连接选中配置'), '只聚焦连接选中配置');
+      const focused = await detailGeometry();
+      assert.ok(fullFocusOutline(focused), 'The existing connect control must scroll into view with its focus outline');
+      assert.ok(focused.scrollWidth <= focused.clientWidth, 'Selected details must not overflow horizontally');
+      assert.ok(focused.scrollHeight > focused.clientHeight && focused.scrollTop > 0, 'The long details scroll independently');
+      await key('Home', 'Home', 36);
+      await ui.waitFor(`${summary}.scrollTop===0`);
+      const top = await detailGeometry();
+      assert.ok(top.title.top >= top.clip.top && top.title.top < top.clip.bottom, 'Keyboard scrolling reveals the profile name');
+      await key('End', 'End', 35);
+      await ui.waitFor(`${summary}.scrollTop>0`);
+      await ui.waitFor(`(() => { const panel=${summary}; return panel.scrollHeight-panel.clientHeight-panel.scrollTop<1; })()`);
+      const bottom = await detailGeometry();
+      assert.ok(fullFocusOutline(bottom), 'Keyboard scrolling returns to the complete connect control');
+      item.details = { focused, top, bottom };
+      if (width === 1280) await ui.screenshot(`${artifact}-${width}x${height}-details.png`);
+      assert.deepEqual(await list(), [], 'Detail navigation must not start a connection');
+      await tabTo(active(row), '返回原配置项', { backward: true });
     }
     const after = await page();
     assert.equal(after.revision, before.revision);
