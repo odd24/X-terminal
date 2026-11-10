@@ -13,6 +13,16 @@ pub enum Transport {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    Forget {
+        transport: Transport,
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
+    ForgetStatus {
+        transport: Transport,
+        connection: ConnectionRef,
+        request_id: Uuid,
+    },
     Disconnect {
         transport: Transport,
         connection: ConnectionRef,
@@ -80,6 +90,22 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn forget_target(&self) -> Option<(Transport, ConnectionRef, Uuid)> {
+        match self {
+            Self::Forget {
+                transport,
+                connection,
+                request_id,
+            }
+            | Self::ForgetStatus {
+                transport,
+                connection,
+                request_id,
+            } => Some((*transport, *connection, *request_id)),
+            _ => None,
+        }
+    }
+
     pub fn disconnect_target(&self) -> Option<(Transport, ConnectionRef, Uuid)> {
         match self {
             Self::Disconnect {
@@ -146,6 +172,46 @@ impl Operation {
         protected: bool,
     ) -> Result<Request, session_core::session::ErrorCode> {
         let request = match self {
+            Self::Forget {
+                transport: Transport::Ssh2,
+                connection,
+                request_id,
+            } => Request::Ssh {
+                request: ssh::Request::ForgetStart {
+                    connection,
+                    request_id,
+                },
+            },
+            Self::Forget {
+                transport: Transport::Serial,
+                connection,
+                request_id,
+            } => Request::Serial {
+                request: serial::Request::ForgetStart {
+                    connection,
+                    request_id,
+                },
+            },
+            Self::ForgetStatus {
+                transport: Transport::Ssh2,
+                connection,
+                request_id,
+            } => Request::Ssh {
+                request: ssh::Request::ForgetStatus {
+                    connection,
+                    request_id,
+                },
+            },
+            Self::ForgetStatus {
+                transport: Transport::Serial,
+                connection,
+                request_id,
+            } => Request::Serial {
+                request: serial::Request::ForgetStatus {
+                    connection,
+                    request_id,
+                },
+            },
             Self::Disconnect {
                 transport: Transport::Ssh2,
                 connection,
@@ -455,6 +521,7 @@ pub struct Status {
     deny_unknown_fields
 )]
 pub enum ResultMessage {
+    Forget(session_core::forget::Receipt),
     Disconnect(session_core::disconnect::Receipt),
     SerialOperation {
         connection: ConnectionRef,
@@ -482,6 +549,37 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
 }
 impl ResultMessage {
+    pub fn from_forget_service(
+        response: Response,
+        transport: Transport,
+        connection: ConnectionRef,
+        request_id: Uuid,
+    ) -> std::io::Result<Self> {
+        match (transport, response) {
+            (_, Response::Error { code, .. }) => Ok(Self::Error(code)),
+            (
+                Transport::Ssh2,
+                Response::Ok {
+                    reply: Reply::Ssh(ssh::Reply::Forget(receipt)),
+                    ..
+                },
+            )
+            | (
+                Transport::Serial,
+                Response::Ok {
+                    reply: Reply::Serial(serial::Reply::Forget(receipt)),
+                    ..
+                },
+            ) if receipt.connection == connection && receipt.request_id == request_id => {
+                Ok(Self::Forget(receipt))
+            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unmatched Forget response",
+            )),
+        }
+    }
+
     pub fn from_disconnect_service(
         response: Response,
         transport: Transport,
@@ -602,6 +700,77 @@ impl ResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forget_preserves_known_rejection_and_treats_mismatched_receipts_as_unknown() {
+        use session_core::{forget, session::ErrorCode};
+        let connection = target();
+        let id = Uuid::new_v4();
+        let receipt = forget::Receipt {
+            request_id: id,
+            connection,
+            state: forget::State::Removed,
+        };
+        let project = |reply, transport, connection, request_id| {
+            ResultMessage::from_forget_service(
+                Response::Ok { id: 1, reply },
+                transport,
+                connection,
+                request_id,
+            )
+        };
+        for (transport, reply) in [
+            (
+                Transport::Ssh2,
+                Reply::Ssh(ssh::Reply::Forget(receipt.clone())),
+            ),
+            (
+                Transport::Serial,
+                Reply::Serial(serial::Reply::Forget(receipt.clone())),
+            ),
+        ] {
+            assert!(
+                matches!(project(reply, transport, connection, id), Ok(ResultMessage::Forget(v)) if v == receipt)
+            );
+        }
+        assert!(matches!(
+            ResultMessage::from_forget_service(
+                Response::Error {
+                    id: 1,
+                    code: ErrorCode::InvalidState
+                },
+                Transport::Ssh2,
+                connection,
+                id,
+            ),
+            Ok(ResultMessage::Error(ErrorCode::InvalidState))
+        ));
+        let wrong_generation = ConnectionRef {
+            generation: connection.generation + 1,
+            ..connection
+        };
+        for (transport, expected_connection, expected_id) in [
+            (Transport::Serial, connection, id),
+            (Transport::Ssh2, wrong_generation, id),
+            (Transport::Ssh2, connection, Uuid::new_v4()),
+        ] {
+            let reply = Reply::Ssh(ssh::Reply::Forget(receipt.clone()));
+            assert!(project(reply, transport, expected_connection, expected_id).is_err());
+        }
+        assert!(
+            project(
+                Reply::Ssh(ssh::Reply::Disconnect(session_core::disconnect::Receipt {
+                    request_id: id,
+                    connection,
+                    state: session_core::disconnect::State::TransportEnded,
+                })),
+                Transport::Ssh2,
+                connection,
+                id,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn disconnect_projection_requires_exact_service_receipt() {

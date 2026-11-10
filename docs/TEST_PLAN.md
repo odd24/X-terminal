@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P15/ADR-089 第50入口 `npm run test:desktop:forget` 以前置普通实际构建执行两协议真实 stdio。验证活跃和未回收拒绝、独立范围和租约、Single、丢应答只查、原票据退休后恢复、撤销和错代次，以及配置页和持久文本日志保留。串口隔离构建 finally 恢复普通 Desktop/service 并核对运行拒 fixture。详[P15](records/P15.md)。
+
 P15/ADR-088 第49入口 `npm run test:desktop:disconnect` 以前置实际普通构建执行原生 stdio 两协议专项。检查独立范围、租约、Single 参数、原 owner/代次及丢弃 Start/Status 应答后的原编号查询。SSH 对端独立观察结束，计数内存 UART 在 Port 清理门内必须仍为 REQUESTED，释放门后由服务观察 worker join。隔离构建实际恢复普通 Desktop 并核对 fixture 拒绝，详[P15](records/P15.md)。
 
 P15/ADR-087新增第48入口`npm run test:desktop:serial-control`，主体Test-Desktop-McpSerial.ps1在隔离测试二进制/显式flag/中文自建根、固定内存COM7中实跑：Port入口计数和应用状态独立于RPC/ACK，明确5写40字节/6控制、00/FF/控制字节回显、两次真实首答丢弃后只查、无lease/WRITE与CONTROL不互授、跨owner/代次/Single指纹/旧ID改动作、排队接管及失联。前12 schema/公开结果保持，v3固定14清单；安全影响每协议43拒绝，exec原闭环受影响复验。普通/测试build与参数/根准入6拒绝、finally实际普通desktop:build及runtime必核；没有真实控制线或完整48链/长稳/模型通过结论，详[P15](records/P15.md)。

@@ -1,6 +1,12 @@
 # Codex 首版接入方案
 
-当前[ADR-088](decisions/ADR-088.md)固定 v4 十六项工具。[当前契约](../contracts/mcp/initial-tools.json)保留[历史 v3](../contracts/mcp/v3-tools.json)的十四项。
+当前 [ADR-089](decisions/ADR-089.md) 固定 v5 十八项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v4](../contracts/mcp/v4-tools.json) 的十六项。
+
+`sessions_forget` 和 `sessions_forget_status` 接收 `transport`（SSH2 或 SERIAL）、`connection`（含代次）及调用者固定的 `request_id`。发起须独立 Forget 批准和当前输入租约。服务仅在连接已结束且本地回收确认后移除记录，`REMOVED` 仅指该代次的会话记录，配置、日志、导出与用户文件保留。
+
+明确收到服务 `INVALID_STATE` 后，可在确认清理且权限有效时显式重试原编号。应答不明或回执校验失败只用原有效票据查询原编号。退休后原票据仍可查询，撤销或到期后停止。
+
+此前[ADR-088](decisions/ADR-088.md)固定 v4 十六项工具。[v4 契约](../contracts/mcp/v4-tools.json)保留[历史 v3](../contracts/mcp/v3-tools.json)的十四项。
 
 `sessions_disconnect` 和 `sessions_disconnect_status` 都接收 `transport`（SSH2 或 SERIAL）、`connection`（含精确代次）及调用者固定的 `request_id`。发起需要独立 Disconnect 范围和租约，Single 按完整原参数核对。回执包含服务回传的编号、连接代次及状态。REQUESTED 表示已请求取消，TRANSPORT_ENDED 表示服务观察到本地传输清理完成。
 
@@ -105,6 +111,7 @@ enabled = true
 |---|---|---|
 | sessions_list | scope | 仅可见配置/连接，秘密字段不存在 |
 | sessions_connect | profile_id、request_id | connection_id、generation、state；需要 connect 权限 |
+| sessions_forget / sessions_forget_status | transport、connection、request_id | 已回收代次的记录移除与原票据回执查询 |
 | sessions_disconnect / sessions_disconnect_status | transport、connection、request_id | 编号断开与原票据查询，发起需独立 Disconnect 与租约 |
 | terminal_read | connection_id、generation、cursor、max_bytes | events、next_cursor、truncated、available_from；建议最大 64 KiB |
 | terminal_screen | connection_id、generation | 行列、文本、光标、seq；来自服务端状态模型 |

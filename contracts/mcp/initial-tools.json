@@ -1,6 +1,134 @@
 {
-  "version": 4,
+  "version": 5,
   "tools": [
+    {
+      "name": "sessions_forget",
+      "description": "Remove the record for an ended SSH2 or SERIAL connection after verified local cleanup. Requires independent Forget approval and current lease for the exact connection generation and caller-fixed request_id. REMOVED covers only the session record; saved profiles, logs and files are retained. After a known INVALID_STATE, the caller may explicitly retry the same number once cleanup and authority are confirmed. On unknown delivery only query sessions_forget_status.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "sessions_forget_status",
+      "description": "Query only the original Forget receipt using the same valid ticket, transport, connection generation and request_id, including after retirement. A missing reply or receipt leaves the outcome unknown; do not replay Start.",
+      "inputSchema": {
+        "$defs": {
+          "ConnectionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ConnectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "connection_id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "connection_id",
+              "generation"
+            ],
+            "type": "object"
+          },
+          "Transport": {
+            "enum": [
+              "SSH2",
+              "SERIAL"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionRef"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/$defs/Transport"
+          }
+        },
+        "required": [
+          "transport",
+          "connection",
+          "request_id"
+        ],
+        "title": "StatusArgs",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
     {
       "name": "sessions_disconnect",
       "description": "Request cancellation of an existing SSH2 or SERIAL connection by exact generation and caller-fixed request_id. Requires independent Disconnect approval and input lease. REQUESTED means cancellation was dispatched; TRANSPORT_ENDED means the service observed local transport cleanup. On unknown delivery query sessions_disconnect_status with the original ticket and arguments.",

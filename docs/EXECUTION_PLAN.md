@@ -1,5 +1,7 @@
 # 方案执行计划
 
+2026-11-10 P15 [ADR-089](decisions/ADR-089.md)增加 v5 两协议编号 Forget 与原回执查询。保持原十六项工具，沿 ADR-054 的独立授权、当前租约与实际本地回收要求。第50入口与配置日志保留证据见[P15](records/P15.md)。
+
 2026-11-10 P15 [ADR-088](decisions/ADR-088.md)在 v4 开放两协议编号断开与原编号查询，保持原十四项工具。独立 Disconnect/lease/Single 和原 owner/代次约束沿 ADR-051，按传输分别验证资源释放，新增第49入口，分层见[P15](records/P15.md)。
 
 2026-11-10 P15按[ADR-087](decisions/ADR-087.md)补精确串口字节/显式控线，v3固定14工具、原12逐字段schema/公开结果不变。新回执connection只为native请求绑定，原服务owner/代次/独立WRITE/CONTROL及lease/FIFO/Single规则保持；只计数内存UART，默认关闭fixture/普通参数拒绝/构建与影响范围见[P15](records/P15.md)。新增第48入口，不把有限子包当完整48链/全P15/模型自治/实机通过，不扩export/连接/库存或真实硬件。
@@ -451,7 +453,7 @@ S1达到上述阶段门后进入P10.1。一个“串口连接”表单：端口�
 
 ### P15 MCP 工具实现
 
-- 初版9、v2 SSH exec/本人任务get/cancel及v3串口字节/显式控线软件子包已完成，v4 再加编号断开和状态查询，当前固定16工具；原14 schema/公开结果保持，原生Agent代理/实际配对、授权/租约/保护和未知原编号查询均按[P15](records/P15.md)分层验证。完整P15其余connect/wait/export仍IN_PROGRESS，不把本子包当模型自治或全v1/实机通过。
+- 初版9、v2 SSH exec/本人任务get/cancel及v3串口字节/显式控线软件子包已完成，v4 再加编号断开和状态查询，v5 再加两协议编号移除和状态查询，当前固定18工具；原16 schema/公开结果保持，原生Agent代理/实际配对、授权/租约/保护和未知原编号查询均按[P15](records/P15.md)分层验证。完整P15其余connect/wait/export仍IN_PROGRESS，不把本子包当模型自治或全v1/实机通过。
 
 - 依赖：P06、P11、P14。
 - 动作：按 CODEX_INTEGRATION.md 实现 schema、read/screen/send/wait/exec/serial/tasks/export；cursor 缺口、超时、长任务和错误语义。
