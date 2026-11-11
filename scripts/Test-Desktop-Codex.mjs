@@ -7,13 +7,15 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
+import { approveCodexExport, checkCodexExport } from './lib/CodexProtectedExportCheck.mjs';
 
 // Integration of the installed Codex model/client, not a delegated development task.
 // No user config, shell, apps, plugins, web search, or persistent Codex chat.
 const model=process.argv.includes('--model');
-const previewV11=process.argv.includes('--preview-v11');
-assert.ok(!(model&&previewV11),'preview verification only supports explicit read calls');
-const evidence=previewV11?'artifacts/P16-codex-v11':'artifacts/P16-codex';
+const protectedExport=process.argv.includes('--preview-v11-export');
+const previewV11=protectedExport||process.argv.includes('--preview-v11');
+assert.ok(!(model&&previewV11),'preview verification only supports explicit client calls');
+const evidence=protectedExport?'artifacts/P16-codex-v11-export':previewV11?'artifacts/P16-codex-v11':'artifacts/P16-codex';
 let directory, ui, fixture, codex, watchdog, rpc, threadId;
 let previewDirectory, discovered, previewEvidence;
 const directCalls=[];
@@ -21,14 +23,23 @@ const events=[]; let stderr=''; let completion;
 await mkdir('artifacts',{recursive:true});
 try {
   if(previewV11){
-    const [pointer, receipt]=await Promise.all(['P16-local-preview.json','P15-protected-export-v11-preview-result.json'].map(async file=>JSON.parse(await readFile(path.join('artifacts',file),'utf8'))));
+    const readArtifact=async file=>JSON.parse(await readFile(path.join('artifacts',file),'utf8'));
+    const pointer=await readArtifact(protectedExport?'P12-narrow-tree-space-preview.json':'P16-local-preview.json');
     previewDirectory=path.resolve(pointer.directory);
     assert.equal(path.dirname(previewDirectory),path.resolve('artifacts'));
     assert.match(path.basename(previewDirectory),/^shared-terminal-preview-[0-9a-f-]+$/);
-    assert.equal(pointer.result,'PASS');assert.equal(receipt.result,'PASS');
-    assert.equal(path.resolve(receipt.preview),previewDirectory);
-    assert.equal(receipt.mcp_catalog_version,11);assert.equal(receipt.mcp_tools,29);assert.equal(receipt.ordinary,true);
+    assert.equal(pointer.result,'PASS');
+    if(!protectedExport){
+      const receipt=await readArtifact('P15-protected-export-v11-preview-result.json');
+      assert.equal(receipt.result,'PASS');
+      assert.equal(path.resolve(receipt.preview),previewDirectory);
+      assert.equal(receipt.mcp_catalog_version,11);assert.equal(receipt.mcp_tools,29);assert.equal(receipt.ordinary,true);
+    }
     const manifest=JSON.parse(await readFile(path.join(previewDirectory,'manifest.json'),'utf8'));
+    if(protectedExport){
+      assert.equal(path.basename(previewDirectory),'shared-terminal-preview-ae0e4810-8d39-4d60-b7b2-d1340f060b42');
+      assert.match(manifest.packagedFromHead,/^43b8952[0-9a-f]{33}$/);
+    }
     assert.deepEqual(manifest.files,pointer.files);
     assert.deepEqual(manifest.files.map(file=>file.name),['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe']);
     for(const file of manifest.files){
@@ -67,8 +78,14 @@ try {
   const info=await broker({op:'info'}),request_id=randomUUID();
   if(previewV11)assert.equal(path.resolve(info.executable),path.join(previewDirectory,'terminal-mcp.exe'));
   const secret='P16_SYNTHETIC_REDACTION_MARKER';
-  let grantId, signed;
-  if(previewV11){
+  let grantId, signed, exportTarget;
+  if(protectedExport){
+    exportTarget=await approveCodexExport({ui,openAgent,ref,serviceId:ordinary.service_id,control});
+    grantId=await ui.evaluate(`document.querySelector('[aria-label="Agent签发编号"]').value`);
+    signed=await management({op:'grant_status',request_id:grantId});
+    assert.deepEqual(signed.data.approved_scopes,[{target:{kind:'connection',connection:ref},action:'EXPORT'}]);
+    assert.equal(signed.data.protection.literal_count,1);
+  }else if(previewV11){
     await openAgent();
     await ui.evaluate(`document.querySelector('[aria-label="授权读取终端"]').click()`);
     await ui.evaluate(`document.querySelector('[aria-label="启用Agent输出保护"]').click()`);
@@ -129,6 +146,15 @@ try {
   let pending;
   for(let i=0;i<200;i++){pending=await broker({op:'info'});if(pending.peer?.pid)break;if(codex.exitCode!==null||codex.signalCode!==null)throw new Error(`Codex exited before pairing: ${JSON.stringify(await completion)} ${stderr}`);await delay(100);}
   assert.ok(pending.peer?.pid,'Codex must launch the actual stdio executable');
+  if(protectedExport){
+    assert.ok(Number.isSafeInteger(pending.peer.pid)&&pending.peer.pid>0);
+    const child=JSON.parse(execFileSync('pwsh',['-NoProfile','-Command',
+      `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+Get-CimInstance Win32_Process -Filter 'ProcessId=${pending.peer.pid}' | Select-Object ParentProcessId,ExecutablePath | ConvertTo-Json -Compress`],
+    {encoding:'utf8',windowsHide:true}));
+    assert.equal(child.ParentProcessId,codex.pid);
+    assert.equal(path.resolve(child.ExecutablePath).toLowerCase(),path.resolve(info.executable).toLowerCase());
+  }
   if(!previewV11){
     await openAgent();
     await ui.fill('Agent签发编号',grantId);await ui.click('查询原Agent编号');
@@ -143,18 +169,32 @@ try {
   if(!model){
     // Explicit app-server client calls, not a model turn or approval bypass.
     // processRpc still rejects all approval/callback requests from the child.
-    const call=async(tool,args={})=>{
-      if(previewV11)assert.ok(['agent_status','sessions_list','terminal_read','terminal_wait'].includes(tool));
+    const call=async(tool,args={},expectedError)=>{
+      if(protectedExport)assert.ok(['agent_status','logs_export','logs_export_status','terminal_read','input_acquire'].includes(tool));
+      else if(previewV11)assert.ok(['agent_status','sessions_list','terminal_read','terminal_wait'].includes(tool));
       const response=await rpc.request('mcpServer/tool/call',{threadId,server:'windows_terminal',tool,arguments:args},30000);
       assert.ok(response.result,JSON.stringify(response.error));
       const result=response.result;
       directCalls.push({server:'windows_terminal',tool,arguments:args,result});
-      assert.notEqual(result.isError??result.is_error,true,JSON.stringify(result));
+      assert.equal((result.isError??result.is_error)===true,!!expectedError,JSON.stringify(result));
       const value=result.structuredContent??result.structured_content??JSON.parse(result.content.find(c=>c.type==='text').text);
       assert.equal(value.mock,false);
+      if(protectedExport){
+        assert.deepEqual(Object.keys(value).sort(),expectedError?['error_code','mock']:['mock','reply']);
+        for(const content of result.content){
+          assert.equal(content.type,'text');
+          assert.deepEqual(JSON.parse(content.text),value);
+        }
+      }
+      if(expectedError){assert.equal(value.error_code,expectedError);return;}
       assert.ok(value.reply,JSON.stringify(value));
       return value.reply;
     };
+    let exportEvidence;
+    if(protectedExport){
+      exportEvidence=await checkCodexExport({call,directory,target:exportTarget,signed});
+      assert.equal(directCalls.filter(call=>call.tool==='logs_export').length,1);
+    }else{
     const status=(await call('agent_status')).data;
     assert.equal(status.paired_ticket,signed.data.summary.ticket_id);
     if(previewV11){
@@ -162,7 +202,9 @@ try {
       assert.deepEqual(status.protection,signed.data.protection);
     }
     assert.deepEqual((await call('sessions_list')).data.map(({connection_id,generation})=>({connection_id,generation})),[ref]);
+    }
     if(previewV11){
+      if(!protectedExport){
       const readArgs={connection:ref,window:null};
       const before=(await call('terminal_read',{...readArgs,view:{kind:'info'}})).data.context;
       assert.deepEqual(before.connection,ref);
@@ -184,13 +226,16 @@ try {
       assert.ok(projection.includes(pattern));assert.ok(!projection.includes(secret));
       const desktopText=(await ui.invoke('service_read_text',{connection:ref,cursor:1})).events.map(event=>event.text).join('');
       assert.ok(desktopText.includes(pattern)&&desktopText.includes(secret));
+      }
       assert.equal((await metrics()).received.flat().length,0);
       assert.equal((await rpc.close()).code,0);rpc=undefined;
       await ui.click('关闭Agent授权');
       await ui.evaluate(`(()=>{const menu=document.querySelector('details.tools-menu');if(!menu.open)menu.querySelector('summary').click();return menu.open;})()`);
       await ui.click('退出桌面');
-      await ui.waitFor(`!!document.querySelector('[aria-label="退出桌面确认"]')`);
-      await ui.evaluate(`setTimeout(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认退出并停止服务').click(),50);true`);
+      if(!protectedExport){
+        await ui.waitFor(`!!document.querySelector('[aria-label="退出桌面确认"]')`);
+        await ui.evaluate(`setTimeout(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认退出并停止服务').click(),50);true`);
+      }
       for(let i=0;i<160&&ui.app.exitCode===null;i++)await delay(50);
       assert.equal(ui.app.exitCode,0);await ui.close();ui=undefined;
       const receipt=JSON.parse(await readFile(path.join(directory,'desktop-close-receipts-v1',`${ordinary.service_id}.json`),'utf8'));
@@ -204,7 +249,9 @@ try {
       assert.equal(bridgeAlive(),false,'owned stdio bridge must exit');
       previewEvidence={result:'PASS',codexVersion,preview:previewDirectory,catalogVersion:11,discovered,connection:ref,
         grantId,ticketId:signed.data.summary.ticket_id,stdioPid:pending.peer.pid,explicitCalls:directCalls.map(call=>call.tool),
-        desktopScopeConfirmed:true,desktopPairingConfirmed:true,protectedRead:true,literalMatch:true,fixtureInputBytes:0,codexExit:0,stdioExited:true,receipt};
+        desktopScopeConfirmed:true,desktopPairingConfirmed:true,
+        ...(protectedExport?{export:exportEvidence,stdioParentPid:codex.pid}:{protectedRead:true,literalMatch:true}),
+        fixtureInputBytes:0,codexExit:0,stdioExited:true,receipt};
     }else{
     const lease=(await call('input_acquire',{connection:ref,lifetime_ms:60000})).data;
     await call('terminal_send',{transport:'SSH2',connection:ref,request_id,text});
@@ -233,6 +280,7 @@ try {
   console.log(`PASS installed Codex ${model?'model':'explicit app-server client (NO MODEL TURN)'} → real stdio → native Agent proxy → existing Desktop SSH actor: exact once-only bytes, original receipt, actual MCP read/desktop echo and Agent audit; local synthetic fixture only`);
   }
 } catch(error){
+  if(protectedExport)await writeFile(`${evidence}-failure.json`,JSON.stringify({result:'FAIL',calls:directCalls.map(call=>call.tool),error:error.message},null,2)+'\n');
   console.error(model?stderr:rpc?.stderr??'');throw error;
 } finally {
   await writeFile(model?'artifacts/P16-codex-events.jsonl':`${evidence}-client-calls.json`,model?events.map(e=>JSON.stringify(e)).join('\n')+'\n':JSON.stringify(directCalls,null,2)+'\n');
@@ -241,6 +289,8 @@ try {
   if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-codex-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:20,retryDelay:100});}
 }
 if(previewV11){
+  if(protectedExport)Object.assign(previewEvidence,{fixtureExited:true,rootReleased:true});
   await writeFile(`${evidence}-result.json`,JSON.stringify(previewEvidence,null,2)+'\n');
-  console.log('PASS official Codex app-server, ordinary v11 preview, 29 discovered, protected bounded read and literal wait on the shared synthetic SSH generation.');
+  console.log(protectedExport?'PASS official Codex app-server protected export on the original ended synthetic SSH generation.'
+    :'PASS official Codex app-server, ordinary v11 preview, 29 discovered, protected bounded read and literal wait on the shared synthetic SSH generation.');
 }
