@@ -280,36 +280,55 @@ async fn scan(
         {
             return Err(Fault::Read);
         }
-        for event in page.events {
-            if event.seq != cursor {
-                return Ok(Some(gap(cursor, "SOURCE_SEQUENCE")));
-            }
-            cursor += 1;
-            if event.gap_bytes.is_some() {
-                return Ok(Some(gap(cursor, "SOURCE_GAP")));
-            }
-            if event.decode_error {
-                return Ok(Some(gap(cursor, "DECODE_ERROR")));
-            }
-            budget.bytes = budget
-                .bytes
-                .checked_sub(event.text.len())
-                .ok_or(Fault::Budget)?;
-            if let Some(first_cursor) = matcher.feed(event.text.as_bytes(), event.seq) {
-                return Ok(Some(result(
-                    "MATCHED",
-                    cursor,
-                    json!({
-                        "first_cursor": first_cursor,
-                        "last_cursor": event.seq,
-                        "text": args.pattern.expose(),
-                    }),
-                )));
-            }
+        if let Some(reply) = scan_page(
+            page,
+            &mut cursor,
+            &mut matcher,
+            budget,
+            args.pattern.expose(),
+        )? {
+            return Ok(Some(reply));
         }
-        if cursor != page.next_cursor {
-            return Ok(Some(gap(cursor, "SOURCE_SEQUENCE")));
+    }
+    Ok(None)
+}
+
+fn scan_page(
+    page: TextPage,
+    cursor: &mut u64,
+    matcher: &mut Literal<'_>,
+    budget: &mut Budget,
+    pattern: &str,
+) -> Result<Option<CallToolResponse>, Fault> {
+    for event in page.events {
+        if event.seq != *cursor {
+            return Ok(Some(gap(*cursor, "SOURCE_SEQUENCE")));
         }
+        *cursor += 1;
+        if event.gap_bytes.is_some() {
+            return Ok(Some(gap(*cursor, "SOURCE_GAP")));
+        }
+        if event.decode_error {
+            return Ok(Some(gap(*cursor, "DECODE_ERROR")));
+        }
+        budget.bytes = budget
+            .bytes
+            .checked_sub(event.text.len())
+            .ok_or(Fault::Budget)?;
+        if let Some(first_cursor) = matcher.feed(event.text.as_bytes(), event.seq) {
+            return Ok(Some(result(
+                "MATCHED",
+                *cursor,
+                json!({
+                    "first_cursor": first_cursor,
+                    "last_cursor": event.seq,
+                    "text": pattern,
+                }),
+            )));
+        }
+    }
+    if *cursor != page.next_cursor {
+        return Ok(Some(gap(*cursor, "SOURCE_SEQUENCE")));
     }
     Ok(None)
 }
@@ -363,7 +382,8 @@ impl<'a> Literal<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::Literal;
+    use super::*;
+    use session_core::{presentation::TextEvent, session::ConnectionId};
 
     #[test]
     fn literal_crosses_source_events_and_keeps_the_exact_start() {
@@ -371,5 +391,79 @@ mod tests {
         assert_eq!(matcher.feed(b"aaaa", 13), None);
         assert_eq!(matcher.feed(b"b", 14), None);
         assert_eq!(matcher.feed("终suffix".as_bytes(), 15), Some(13));
+    }
+
+    #[test]
+    fn wait_page_scan_returns_source_gap_before_joining_a_literal() {
+        let pattern = "join-me";
+        let page = |events, next_cursor| TextPage {
+            connection: ConnectionRef {
+                connection_id: ConnectionId(Uuid::from_u128(1)),
+                generation: 1,
+            },
+            encoding: "utf-8".into(),
+            events,
+            next_cursor,
+            available_from: 13,
+            truncated: false,
+            completed: true,
+            source_cursor: 16,
+        };
+        let event = |seq, text: &str, gap_bytes| TextEvent {
+            seq,
+            source_seq: Some(seq),
+            timestamp_ms: seq,
+            text: text.into(),
+            decode_error: false,
+            gap_bytes,
+        };
+        for missing in [Some(17), None] {
+            let mut cursor = 13;
+            let mut matcher = Literal::new(pattern.as_bytes());
+            let mut budget = Budget {
+                pages: 2,
+                bytes: 32,
+            };
+            assert!(
+                scan_page(
+                    page(vec![event(13, "join-", None)], 14),
+                    &mut cursor,
+                    &mut matcher,
+                    &mut budget,
+                    pattern
+                )
+                .unwrap()
+                .is_none()
+            );
+            let reply = scan_page(
+                page(vec![event(14, "", missing), event(15, "me", None)], 16),
+                &mut cursor,
+                &mut matcher,
+                &mut budget,
+                pattern,
+            )
+            .unwrap()
+            .expect("the scan must finish at a gap or a match");
+            let CallToolResponse::Complete(reply) = reply else {
+                panic!("expected a completed wait result");
+            };
+            let response = reply.structured_content.unwrap();
+            assert_eq!(response["reply"]["result"], "wait");
+            let data = &response["reply"]["data"];
+            if missing.is_some() {
+                assert_eq!(cursor, 15);
+                assert_eq!(
+                    data,
+                    &json!({"state":"GAP","next_cursor":15,"evidence":{"reason":"SOURCE_GAP"}})
+                );
+            } else {
+                assert_eq!(cursor, 16);
+                assert_eq!(
+                    data,
+                    &json!({"state":"MATCHED","next_cursor":16,
+                    "evidence":{"first_cursor":13,"last_cursor":15,"text":pattern}})
+                );
+            }
+        }
     }
 }

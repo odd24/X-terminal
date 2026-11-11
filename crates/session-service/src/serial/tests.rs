@@ -492,6 +492,13 @@ async fn closing_waits_for_actual_thread_exit_and_invalid_inventory_never_opens(
 
 #[tokio::test]
 async fn partial_driver_write_is_unknown_and_transport_tail_gaps_reach_shared_readers() {
+    use session_core::{
+        context,
+        pairing::{Pairing, SecretToken},
+        protected_context::View,
+    };
+    use session_protocol::bridge::Operation;
+
     let (_temp, config, manager, wire, profile) = setup().await;
     let (revision, device) = selection(&manager).await;
     wire.burst.store(40, Ordering::Release);
@@ -511,7 +518,7 @@ async fn partial_driver_write_is_unknown_and_transport_tail_gaps_reach_shared_re
     status(&manager, connection, State::Connected).await;
     manager.tick();
     {
-        let store = manager.store.lock().unwrap();
+        let mut store = manager.store.lock().unwrap();
         let page = store.sessions.read(connection, 1, 65536).unwrap();
         let lost: u64 = page.events.iter().filter_map(|event| event.gap_bytes).sum();
         assert!(lost > 0);
@@ -534,6 +541,88 @@ async fn partial_driver_write_is_unknown_and_transport_tail_gaps_reach_shared_re
                 .status
                 .dropped_bytes
         );
+
+        let bootstrap = SecretToken::generate();
+        store.pairing = Pairing::new(&bootstrap);
+        let now = store.now();
+        let desktop = store.pairing.authenticate(&bootstrap, now).unwrap();
+        let (_, token, _) = store
+            .pairing
+            .issue_agent(
+                &desktop,
+                vec![Scope {
+                    target: Target::Connection { connection },
+                    action: Action::Read,
+                }],
+                30000,
+                now,
+            )
+            .unwrap();
+        let agent = store.pairing.authenticate(&token, now).unwrap();
+        assert!(store.pairing.is_agent(&agent, now).unwrap());
+        assert_eq!(
+            store.pairing.can_read(
+                &agent,
+                ConnectionRef {
+                    generation: connection.generation + 1,
+                    ..connection
+                },
+                now,
+            ),
+            Err(ErrorCode::PermissionDenied),
+        );
+
+        let read_context = |view| {
+            let request = Operation::WaitRead { connection, view }
+                .into_service(false)
+                .unwrap();
+            request.validate().unwrap();
+            let session_protocol::Request::Context {
+                connection,
+                window,
+                view,
+            } = request
+            else {
+                panic!("plain WaitRead must project to Context");
+            };
+            store.pairing.require_active(&agent, now).unwrap();
+            store
+                .pairing
+                .require_unfiltered_output(&agent, now)
+                .unwrap();
+            store
+                .pairing
+                .can_read_context(&agent, connection, window, now)
+                .unwrap();
+            store.sessions.context(connection, window, view).unwrap()
+        };
+        let context::Reply::Info { context } = read_context(View::Info {}) else {
+            panic!("expected Context Info");
+        };
+        assert_eq!(context.connection, connection);
+        assert!(!context.source_truncated && !context.source_completed);
+        let raw_gap = page
+            .events
+            .iter()
+            .find(|event| event.gap_bytes.is_some())
+            .unwrap();
+        let context::Reply::Text { page, .. } = read_context(View::Text {
+            through_cursor: context.through_cursor,
+            cursor: raw_gap.seq,
+            max_bytes: 16 * 1024,
+        }) else {
+            panic!("expected Context Text");
+        };
+        assert_eq!(page.connection, connection);
+        assert!(!page.truncated);
+        assert_eq!(page.source_cursor, context.through_cursor);
+        assert_eq!(page.next_cursor, raw_gap.seq + 1);
+        let [gap] = page.events.as_slice() else {
+            panic!("expected exactly the retained transport tail gap");
+        };
+        assert_eq!(gap.seq, raw_gap.seq);
+        assert_eq!(gap.source_seq, Some(raw_gap.seq));
+        assert_eq!(gap.gap_bytes, Some(lost));
     }
     wire.partial.store(true, Ordering::Release);
     let id = Uuid::new_v4();
