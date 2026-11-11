@@ -9,6 +9,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 import {requestId} from '../apps/desktop/src/request-id.ts';
 import {closeSoakDesktop,measureSoak,soakPreflight} from './lib/LoadSoak.mjs';
+import {startSoakSampler} from './lib/SoakSamplerClient.mjs';
 
 const flags=process.argv.slice(2);
 assert.ok(flags.every(x=>['--calibrate','--permissions-only','--soak','--soak-self-check'].includes(x)));
@@ -29,7 +30,7 @@ const reference=c=>({connection_id:c.connection_id,generation:c.generation});
 const until=async(check,label,timeoutMs=10000)=>{const stop=performance.now()+timeoutMs;while(performance.now()<stop){if(await check())return;await delay(5);}throw Error(`timeout: ${label}`);};
 const at=async time=>{while(performance.now()<time)await delay(Math.min(25,time-performance.now()));};
 const quantile=values=>{assert.ok(values.length);const a=[...values].sort((a,b)=>a-b);return {count:a.length,p50:a[Math.ceil(.5*a.length)-1],p95:a[Math.ceil(.95*a.length)-1],max:a.at(-1),algorithm:'nearest-rank ceil(p*N), no sample exclusions'};};
-let ui,fixture,directory,control,service,stderr='',aborted=false,inputBusy=false,stopSignal=false;
+let ui,fixture,directory,control,service,sampler,stderr='',aborted=false,inputBusy=false,stopSignal=false;
 let measurementTasks=[],observerReady=false;
 const optionalJson=async name=>{try{return JSON.parse(await readFile(path.join(directory,name),'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}};
 const publish=async(name,value)=>{const file=path.join(directory,name);await writeFile(file+'.tmp',JSON.stringify(value));await rename(file+'.tmp',file);};
@@ -57,7 +58,8 @@ try {
   directory=await mkdtemp(path.join(os.tmpdir(),'shared-terminal-load-latency-ui-中文-'));
   if(soak){
     console.log(`T18 owned run root: ${directory}; stop via Ctrl+C or an empty load-observer-stop file in this root.`);
-    report.preflight=await soakPreflight(directory,formalSoak);
+    sampler=startSoakSampler(directory);
+    report.preflight=await soakPreflight(sampler,formalSoak);
     assert.equal(stopSignal,false,'Soak stop requested before startup');
   }
   fixture=spawn(path.resolve('target/debug/examples/gui_load_fixture.exe'),[],{windowsHide:true,stdio:['pipe','pipe','pipe']});
@@ -104,7 +106,7 @@ try {
   await publish('load-observer-plan.json',{service_id:service.service_id,connections,seconds,preflight_only:permissionsOnly});
   await until(async()=>{const failure=await optionalJson('load-observer-result.json');if(failure&&!failure.passed)throw Error('native Observer preflight: '+failure.error);const ready=await optionalJson('load-observer-ready.json');if(!ready)return false;assert.equal(ready.service_id,service.service_id);assert.equal(ready.targets,20);assert.equal(ready.permission_preflight.passed,true);report.observerPreflight=ready;return true;},'native scoped Observer ready',15000);observerReady=true;
   if(soak){
-    await measureSoak({directory,ui,fixture,service,connections,seconds,control,done,report,publish,optionalJson,stopped,
+    await measureSoak({directory,ui,fixture,service,sampler,connections,seconds,control,done,report,publish,optionalJson,stopped,
       protocolFailure:()=>protocolFailure});
     assert.deepEqual((await ui.invoke('logging_request',{request:{op:'capture_list'}})).logs,[]);
     assert.deepEqual((await ui.invoke('agent_management_request',{request:{op:'grant_list'}})).data,[]);
@@ -150,12 +152,22 @@ try {
   assert.equal(report.passed,true,'report local and conservative remote upper bound separately; no threshold relaxation');
   }
 }catch(error){aborted=true;report.passed=false;report.error=error.message;report.firstFailureHost=performance.now();
+  if(error.samplerFailure)report.samplerFailure=error.samplerFailure;
   await writeFile(artifact+'.first-fault.json',JSON.stringify({source,error:report.error,hostAt:report.firstFailureHost,sampleCount:samples.length,completedObserverBatches:observerBatches.length},null,2)+'\n');
   let settleTimer;try{report.taskSettlement=await Promise.race([Promise.allSettled(measurementTasks).then(rows=>rows.map(r=>r.status==='rejected'?{status:r.status,error:r.reason?.message}:{status:r.status})),new Promise(resolve=>{settleTimer=setTimeout(()=>resolve('bounded 11 second settle exceeded; no new input/source retries'),11000);})]);}finally{clearTimeout(settleTimer);}
   report.samples=samples;report.remoteEvents=remoteEvents;report.observerBatches=observerBatches;report.resources=resources;report.audit=audit;try{report.partialTrace=await ui?.evaluate(`({keys:window.__t18?.keys,writes:window.__t18?.writes,inputFailure:document.querySelector('.input-status')?.textContent})`);}catch(e){report.traceFailure=e.message;}
   console.error('T18 measurement failed:',error.message);}
 finally{
   const cleanupErrors=[];
+  if(sampler){
+    try{
+      report.sampler=await sampler.close();
+      if(!report.sampler.exited)cleanupErrors.push('owned sampler did not exit');
+      else if(report.passed&&(report.sampler.code!==0||report.sampler.killed||report.sampler.failure)){
+        cleanupErrors.push('owned sampler did not close normally');
+      }
+    }catch{cleanupErrors.push('owned sampler close failed');}
+  }
   if(directory&&!observerReady){try{report.nativeObserver=await optionalJson('load-observer-result.json');}catch(e){report.nativeSummaryFailure=e.message;}}
   if(directory&&observerReady){try{if(!await optionalJson('load-observer-result.json'))await writeFile(path.join(directory,'load-observer-stop'),'stop');await until(async()=>{report.nativeObserver=await optionalJson('load-observer-result.json');return !!report.nativeObserver;},'Observer ticket cleanup',10000);if(report.nativeObserver.observer_worker_joined!==true||report.nativeObserver.active_ticket_count!==0||report.nativeObserver.cleanup_errors)cleanupErrors.push('native Observer ticket cleanup failed');}catch(e){cleanupErrors.push('native Observer cleanup: '+e.message);}}
   if(ui){try{report.finalAudit=await ui.invoke('audit_history_request',{request:{op:'info'}});report.finalAuditObtained=true;if(report.finalAudit.status.state!=='HEALTHY'){report.passed=false;report.finalAuditProblem='normal internal audit not healthy';}}catch(e){report.finalAuditObtained=false;report.finalAuditFailure=e.message;report.passed=false;}}

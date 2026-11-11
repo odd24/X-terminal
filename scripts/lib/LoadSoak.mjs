@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { delay } from './DesktopHarness.mjs';
 
-const run = promisify(execFile);
 const GiB = 1024 ** 3;
 const MiB = 1024 ** 2;
 
-async function resources(directory, args) {
-  const { stdout } = await run('pwsh', ['-NoProfile', '-File', 'scripts/lib/Measure-LoadSoak.ps1',
-    '-DataRoot', directory, '-ReportRoot', path.resolve('artifacts'), ...args],
-  { windowsHide: true, encoding: 'utf8', timeout: 8000, maxBuffer: 16384 });
-  return JSON.parse(stdout);
-}
-
-export async function soakPreflight(directory, formal) {
-  const measured = await resources(directory, ['-Preflight']);
+export async function soakPreflight(sampler, formal) {
+  const measured = await sampler.request('preflight');
   assert.ok(measured.available >= 2 * GiB, 'Soak preflight requires 2 GiB available memory');
   assert.ok(measured.free.length === 2 && measured.free.every(n => n >= 8 * GiB), 'Soak preflight requires 8 GiB on both volumes');
   if (formal) {
@@ -27,7 +17,7 @@ export async function soakPreflight(directory, formal) {
   return measured;
 }
 
-export async function measureSoak({ directory, ui, fixture, service, connections, seconds, control,
+export async function measureSoak({ directory, ui, fixture, service, sampler, connections, seconds, control,
   done, report, publish, optionalJson, stopped, protocolFailure }) {
   const started = await control({ op: 'start', seconds });
   assert.equal(started.interval_seconds, 10);
@@ -50,8 +40,7 @@ export async function measureSoak({ directory, ui, fixture, service, connections
     assert.deepEqual(live.map(c => `${c.connection_id}:${c.generation}`).sort(), ids);
   }
   async function sampleResources(index, began) {
-      const measure = await resources(directory, ['-DesktopPid', String(ui.app.pid), '-ServicePid', String(service.pid),
-        '-FixturePid', String(fixture.pid)]);
+      const measure = await sampler.request('sample', { desktop: ui.app.pid, service: service.pid, fixture: fixture.pid });
       assert.ok(measure.available >= GiB && measure.free.every(n => n >= 4 * GiB), 'Soak resource low water');
       if (seconds === 28800) assert.equal(measure.power, 'Online', 'Soak lost AC power');
       const node = process.memoryUsage().rss;
@@ -171,7 +160,7 @@ export async function measureSoak({ directory, ui, fixture, service, connections
       return { first, last, maximumGrowth };
     };
     report.memoryGrowth = { node: growth(row => row.peaks.node) };
-    for (const name of ['desktop', 'service', 'fixture', 'webview'])
+    for (const name of ['desktop', 'service', 'fixture', 'webview', 'sampler'])
       report.memoryGrowth[name] = growth(row => row.peaks.processes[name].private);
   }
 }
