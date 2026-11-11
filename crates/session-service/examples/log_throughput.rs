@@ -1,4 +1,6 @@
 //! Opt-in synthetic Named Pipe -> production capture measurement. Never opens a device.
+mod log_throughput_candidate;
+
 use serde_json::{Value, json};
 use session_core::{PROTOCOL_VERSION, pairing::SecretToken, session::ConnectionRef};
 use session_protocol::{Hello, Reply, Request, Response, Sensitive, logging as log, write_frame};
@@ -891,41 +893,87 @@ mod instrument_tests {
 }
 async fn execute() -> Result<()> {
     let args: Vec<_> = std::env::args_os().collect();
+    let mode = args.get(4).and_then(|value| value.to_str());
+    let candidate_mode = matches!(mode, Some("--d-tmp-calibrate" | "--check-d-tmp-root"));
+    let ordinary_probe = mode == Some("--probe-ordinary");
     require(
-        args.len() == 4,
-        "usage: log_throughput SELF_CREATED_ROOT SECONDS SEGMENT_MIB",
-    )?;
-    let root = fs::canonicalize(PathBuf::from(&args[1]))?;
-    let workspace = fs::canonicalize(std::env::current_dir()?.join("artifacts"))?;
-    require(
-        root.parent() == Some(workspace.as_path())
-            && root
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("P22-throughput-中文-"),
-        "only fresh own workspace artifact roots",
-    )?;
-    require(
-        fs::read_dir(&root)?.next().is_none(),
-        "measurement root must be empty",
+        args.len() == 4 || (args.len() == 5 && (candidate_mode || ordinary_probe)),
+        "invalid measurement mode",
     )?;
     let seconds = args[2].to_str().unwrap().parse::<u64>()?;
     let segment = args[3].to_str().unwrap().parse::<u64>()? * 1024 * 1024;
     require(
-        matches!(seconds, 20..=60 | 1800) && matches!(segment, 1048576 | 104857600),
+        if candidate_mode || ordinary_probe {
+            seconds == 32 && segment == 1048576
+        } else {
+            matches!(seconds, 20..=60 | 1800) && matches!(segment, 1048576 | 104857600)
+        },
         "bounded calibration or formal parameters only",
     )?;
+    let requested = Path::new(&args[1]);
+    let candidate = candidate_mode
+        .then(|| log_throughput_candidate::Candidate::create(requested))
+        .transpose()?;
+    if mode == Some("--check-d-tmp-root") {
+        let owned = candidate.unwrap();
+        let child = owned.path.join("guard-check");
+        fs::create_dir(&child)?;
+        fs::write(child.join("sentinel"), b"owned")?;
+        require(
+            log_throughput_candidate::Candidate::create(requested)
+                .is_err_and(|e| e.kind() == io::ErrorKind::AlreadyExists),
+            "existing candidate root must be rejected",
+        )?;
+        require(
+            fs::read(child.join("sentinel"))? == b"owned",
+            "existing candidate contents must remain untouched",
+        )?;
+        owned.remove_owned()?;
+        println!("PASS candidate guard, existing-root refusal and owned root removal");
+        return Ok(());
+    }
+    let workspace = fs::canonicalize(std::env::current_dir()?.join("artifacts"))?;
+    let root = if let Some(owned) = &candidate {
+        owned.path.clone()
+    } else {
+        let root = fs::canonicalize(requested)?;
+        let prefix = if ordinary_probe {
+            "P22-throughput-ordinary-中文-"
+        } else {
+            "P22-throughput-中文-"
+        };
+        require(
+            root.parent() == Some(workspace.as_path())
+                && root
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(prefix)),
+            "only fresh own workspace artifact roots",
+        )?;
+        require(
+            fs::read_dir(&root)?.next().is_none(),
+            "measurement root must be empty",
+        )?;
+        root
+    };
+    let initial_free = if ordinary_probe {
+        None
+    } else {
+        Some(free(&root)?)
+    };
     require(
-        free(&root)? >= 24 * GIB,
+        initial_free.is_none_or(|bytes| bytes >= 24 * GIB),
         "requires 8GiB budget plus 16GiB reserve",
     )?;
     let instance = Uuid::new_v4().to_string();
     let token = SecretToken::generate();
     let mut command =
         Command::new(std::env::current_dir()?.join("target/debug/session-service.exe"));
+    command.args(["--instance", &instance]);
+    if !ordinary_probe {
+        command.arg("--test-fixture");
+    }
     let mut child = command
-        .args(["--instance", &instance, "--test-fixture", "--data-dir"])
+        .arg("--data-dir")
         .arg(&root)
         .creation_flags(0x08000000)
         .stdin(Stdio::piped())
@@ -953,6 +1001,21 @@ async fn execute() -> Result<()> {
         drop(stdin);
         *phase.lock().unwrap() = ErrorStage::Handshake;
         client = Some(Client::connect(&instance, token.expose(), pid).await?.0);
+        if ordinary_probe {
+            let client = client.as_mut().unwrap();
+            require(
+                matches!(request(client, Request::List {}).await?, Reply::Sessions(items) if items.is_empty()),
+                "ordinary service sessions must be empty",
+            )?;
+            require(
+                matches!(
+                    client.request(Request::CreateFixture {}).await?,
+                    Response::Error { code: session_core::session::ErrorCode::Unsupported, .. }
+                ),
+                "ordinary service must reject fixture creation",
+            )?;
+            return Ok(json!({"passed":true,"ordinary_runtime_fixture_denied":true}));
+        }
         let monitor_client = Client::connect(&instance, token.expose(), pid).await?.0;
         run(
             client.as_mut().unwrap(),
@@ -1013,9 +1076,21 @@ async fn execute() -> Result<()> {
         forced_kill_attempted: forced,
         forced_kill_ok: forced_ok,
     };
-    let report = finalized(result, first_stage, cleanup);
+    let mut report = finalized(result, first_stage, cleanup);
+    if candidate.is_some() {
+        report["candidate_free_bytes_at_start"] = json!(initial_free);
+    }
     let clean = report["owned_service_clean_exit"] == true;
     serde_json::to_writer_pretty(File::create(root.join("result.json"))?, &report)?;
+    if let Some(owned) = candidate {
+        serde_json::to_writer_pretty(
+            File::create_new(workspace.join(format!("P22-throughput-d-tmp-{}.json", owned.id)))?,
+            &report,
+        )?;
+        if clean && report["passed"] == true {
+            owned.remove_owned()?;
+        }
+    }
     println!(
         "RESULT {}",
         json!({"passed":report["passed"],"error":report["error"],"clean_exit":clean})
