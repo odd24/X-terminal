@@ -3,6 +3,8 @@ use super::*;
 use std::fs::File;
 use std::sync::atomic::AtomicU64;
 
+mod phase_compare;
+
 struct PhaseGate {
     gate: Arc<Gate>,
     phase: u8,
@@ -129,6 +131,60 @@ impl Journal for Timed {
         self.inner.finish(s)
     }
 }
+fn submit_audit_burst(
+    sink: &crate::audit::Sink,
+    meta: &Metadata,
+    slot: u64,
+    began: Instant,
+) -> u64 {
+    let mut accepted = 0;
+    use session_core::{audit_journal::Payload, rpc_audit as r};
+    let attempt = Uuid::new_v4();
+    let origin = r::Origin {
+        pipe_id: meta.connection.connection_id.0,
+        client_id: Some(Uuid::new_v4()),
+        kind: r::OriginKind::Desktop,
+        peer_pid: Some(std::process::id()),
+    };
+    for (j, phase) in [
+        r::Phase::Received {},
+        r::Phase::ReturnedOk {},
+        r::Phase::ReplyWritten {},
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let seq = slot * 3 + j as u64 + 1;
+        let event = r::Event {
+            seq,
+            time: r::Time {
+                unix_ms: seq,
+                elapsed_ms: began.elapsed().as_millis() as u64,
+            },
+            attempt: r::Attempt {
+                attempt_id: attempt,
+                started_seq: slot * 3 + 1,
+                origin,
+                request: r::Descriptor {
+                    area: r::Area::Session,
+                    verb: r::Verb::Fixture,
+                    wire_id: Some(slot as u32 + 1),
+                    request_id: None,
+                    requested_scope: None,
+                    resource: Some(r::Resource {
+                        kind: r::ResourceKind::Connection,
+                        id: meta.connection.connection_id.0,
+                        connection: Some(meta.connection),
+                    }),
+                },
+            },
+            phase,
+        };
+        accepted += u64::from(sink.submit(Payload::Rpc(event)));
+    }
+    accepted
+}
+
 #[test]
 #[ignore = "explicit finite local-disk phase diagnosis only"]
 fn p22_finite_file_journal_phase_probe() {
@@ -209,50 +265,7 @@ fn p22_finite_file_journal_phase_probe() {
                 let _ = loggers[i].submit(data(&metas[i], counts[i], &[b'x'; 4096]));
             }
             if let Some(sink) = &sink {
-                use session_core::{audit_journal::Payload, rpc_audit as r};
-                let attempt = Uuid::new_v4();
-                let origin = r::Origin {
-                    pipe_id: metas[i].connection.connection_id.0,
-                    client_id: Some(Uuid::new_v4()),
-                    kind: r::OriginKind::Desktop,
-                    peer_pid: Some(std::process::id()),
-                };
-                for (j, phase) in [
-                    r::Phase::Received {},
-                    r::Phase::ReturnedOk {},
-                    r::Phase::ReplyWritten {},
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    let seq = slot * 3 + j as u64 + 1;
-                    let event = r::Event {
-                        seq,
-                        time: r::Time {
-                            unix_ms: seq,
-                            elapsed_ms: began.elapsed().as_millis() as u64,
-                        },
-                        attempt: r::Attempt {
-                            attempt_id: attempt,
-                            started_seq: slot * 3 + 1,
-                            origin,
-                            request: r::Descriptor {
-                                area: r::Area::Session,
-                                verb: r::Verb::Fixture,
-                                wire_id: Some(slot as u32 + 1),
-                                request_id: None,
-                                requested_scope: None,
-                                resource: Some(r::Resource {
-                                    kind: r::ResourceKind::Connection,
-                                    id: metas[i].connection.connection_id.0,
-                                    connection: Some(metas[i].connection),
-                                }),
-                            },
-                        },
-                        phase,
-                    };
-                    audit_ok += u64::from(sink.submit(Payload::Rpc(event)));
-                }
+                audit_ok += submit_audit_burst(sink, &metas[i], slot, began);
             }
             for (l, p) in loggers.iter().zip(&phases) {
                 let t = Instant::now();

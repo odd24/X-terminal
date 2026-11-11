@@ -262,6 +262,16 @@ pub struct Logger {
     thread: Option<JoinHandle<()>>,
 }
 trait Journal: Send {
+    #[cfg(test)]
+    fn test_first_sync_advance(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+
+    #[cfg(test)]
+    fn test_periodic_checkpoint(&mut self, sync: bool) -> io::Result<()> {
+        self.checkpoint(sync)
+    }
+
     fn checkpoint(&mut self, _sync: bool) -> io::Result<()> {
         Ok(())
     }
@@ -380,8 +390,14 @@ impl Logger {
                                 state.status.phase = Phase::Recording;
                             }
                         }
+                        #[cfg(test)]
+                        let first_sync_advance = journal.test_first_sync_advance();
                         let mut flushed = std::time::Instant::now();
                         let mut synced = flushed;
+                        #[cfg(test)]
+                        {
+                            synced -= first_sync_advance;
+                        }
                         loop {
                             match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
                                 Ok(record) => {
@@ -401,6 +417,9 @@ impl Logger {
                             }
                             if flushed.elapsed() >= std::time::Duration::from_millis(100) {
                                 let sync = synced.elapsed() >= std::time::Duration::from_secs(1);
+                                #[cfg(test)]
+                                journal.test_periodic_checkpoint(sync)?;
+                                #[cfg(not(test))]
                                 journal.checkpoint(sync)?;
                                 state.lock().unwrap().status.readable = journal.readable();
                                 flushed = std::time::Instant::now();
