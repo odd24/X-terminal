@@ -147,19 +147,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let id = value["id"].clone();
         match value["op"].as_str().unwrap_or("") {
             "start"=>{
-                assert!(!started);started=true;let seconds=value["seconds"].as_u64().unwrap();assert!(matches!(seconds,8|120));
+                assert!(!started);started=true;let seconds=value["seconds"].as_u64().unwrap();assert!(matches!(seconds,8|25|120|28800));
+                let sparse=matches!(seconds,25|28800);
+                let frames=if sparse {seconds.div_ceil(10)} else {seconds*HZ};
                 let base_start=Instant::now()+Duration::from_millis(250);let clock=tokio::time::Instant::from_std(base_start);let unix_ms=SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis()+250;
                 for index in 0..STREAMS {let f=sources[index].clone();let tx=tx.clone();let failed=notification_failed.clone();let stop=stop.clone();generation.push(tokio::spawn(async move{
                     tokio::time::sleep_until(clock).await;let start=base_start;let mut count=0;let mut hash=Sha256::new();let mut max_late=0f64;let mut error=None;let mut max_clock_drift=0f64;
-                    for n in 0..seconds*HZ {let due=Duration::from_nanos(n*1_000_000_000/HZ);tokio::time::sleep_until(clock+due).await;
+                    for n in 0..frames {let due=if sparse {Duration::from_secs(n*10)} else {Duration::from_nanos(n*1_000_000_000/HZ)};tokio::time::sleep_until(clock+due).await;
                         let late=start.elapsed().saturating_sub(due).as_secs_f64();max_late=max_late.max(late);let wall=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as f64-unix_ms as f64;max_clock_drift=max_clock_drift.max((wall-start.elapsed().as_secs_f64()*1000.0).abs());
                         if stop.load(Ordering::SeqCst)||late>0.250||start.elapsed()>=Duration::from_secs(seconds){error=Some("source deadline/stop" );break;}
-                        let bytes=block(index,n);hash.update(&bytes);f.push(&bytes).await;count+=1;
+                        let bytes=block(index,n);
+                        if sparse {
+                            if tokio::time::timeout(Duration::from_secs(2),f.push(&bytes)).await.is_err(){error=Some("source push deadline");break;}
+                        }else{f.push(&bytes).await;}
+                        hash.update(&bytes);count+=1;
                     }
-                    tokio::time::sleep_until(clock+Duration::from_secs(seconds)).await;
+                    if !sparse || error.is_none(){tokio::time::sleep_until(clock+Duration::from_secs(seconds)).await;}
                     notify(&tx,json!({"event":"source_done","stream":index,"frames":count,"bytes":count*1024,"sha256":hex(hash.finalize().as_slice()),"elapsed_s":start.elapsed().as_secs_f64(),"max_late_s":max_late,"error":error,"start_unix_ms":unix_ms,"max_wall_mono_drift_ms":max_clock_drift}),&failed);
                 }));}
-                tx.send(json!({"id":id,"result":"started","seconds":seconds,"start_unix_ms":unix_ms,"hz":HZ,"block_bytes":1024}))?;
+                let mut response=json!({"id":id,"result":"started","seconds":seconds,"start_unix_ms":unix_ms,"block_bytes":1024});
+                if sparse {response["interval_seconds"]=json!(10);}else{response["hz"]=json!(HZ);}
+                tx.send(response)?;
             }
             "metrics"=>tx.send(json!({"id":id,"result":"metrics","notification_failed":notification_failed.load(Ordering::SeqCst),"received":sources.iter().map(|f|f.received.lock().unwrap().concat()).collect::<Vec<_>>()}))?,
             "resources"=>{let pids=value["pids"].as_array().unwrap();assert!(pids.len()<=2);let ids=pids.iter().map(|p|p.as_u64().unwrap() as u32).chain(Some(std::process::id()));let samples=ids.map(resources).collect::<std::io::Result<Vec<_>>>()?;tx.send(json!({"id":id,"result":"resources","samples":samples}))?;}

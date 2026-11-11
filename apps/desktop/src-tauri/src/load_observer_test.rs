@@ -22,6 +22,22 @@ struct Plan {
     seconds: u64,
     preflight_only: bool,
 }
+impl Plan {
+    fn rotation(&self) -> Option<(Duration, u64)> {
+        match self.seconds {
+            25 => Some((Duration::from_secs(12), 25_000)),
+            28_800 => Some((Duration::from_secs(1200), 1_800_000)),
+            _ => None,
+        }
+    }
+    fn frames(&self) -> u64 {
+        if self.rotation().is_some() {
+            self.seconds.div_ceil(10)
+        } else {
+            self.seconds * 21
+        }
+    }
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Go {
@@ -250,7 +266,9 @@ fn binding(
     all: &[session_core::session::ConnectionInfo],
     service_id: Uuid,
 ) -> Result<()> {
-    if !matches!(plan.seconds, 8 | 120) || plan.connections.len() != 20 {
+    if (!matches!(plan.seconds, 8 | 120) && (plan.rotation().is_none() || plan.preflight_only))
+        || plan.connections.len() != 20
+    {
         return Err("observer plan limits");
     }
     if service_id != plan.service_id {
@@ -364,11 +382,12 @@ async fn run(
     // Confirmed expired tickets cannot read. Revoke before any later issue prunes them.
     revoke(shared, id, active).await?;
     stats["permission_preflight"] = json!({"passed":true,"denials":6,"allowed_scoped_read":true,"expiry_ms":100,"revocation_verified":true});
-    let (mut observer, id, _) = issue(
+    let rotation = plan.rotation();
+    let (mut observer, mut id, _) = issue(
         shared,
         &plan,
         plan.connections.clone(),
-        (plan.seconds + 30) * 1000,
+        rotation.map_or((plan.seconds + 30) * 1000, |(_, ttl)| ttl),
         active,
     )
     .await?;
@@ -407,13 +426,53 @@ async fn run(
     let mut max_read = 0f64;
     let mut max_round = 0f64;
     let began = Instant::now();
+    let wall_began = now();
+    let mut last_round = began;
+    let mut next_rotation = rotation.map(|(interval, _)| interval);
+    let mut rotations = 0;
+    let mut max_handoff_ms = 0f64;
     let outcome = async {
         loop {
             if root.join("load-observer-stop").exists() {
                 return Err("observer cancelled");
             }
             let round = Instant::now();
+            if rotation.is_some() {
+                let age = std::fs::metadata(root.join("load-observer-heartbeat"))
+                    .and_then(|info| info.modified())
+                    .ok()
+                    .and_then(|time| time.elapsed().ok());
+                if !age.is_some_and(|age| age < Duration::from_secs(25))
+                    || round.duration_since(last_round) > Duration::from_secs(4)
+                    || wall_began.saturating_add(began.elapsed().as_millis() as u64).abs_diff(now()) > 500
+                {
+                    return Err("soak heartbeat/clock/round gap");
+                }
+                last_round = round;
+                if let Some(due) = next_rotation
+                    && began.elapsed() >= due
+                    && due < Duration::from_secs(plan.seconds)
+                {
+                    let (interval, ttl) = rotation.unwrap();
+                    let handoff = Instant::now();
+                    let (next, next_id, _) =
+                        issue(shared, &plan, plan.connections.clone(), ttl, active).await?;
+                    revoke(shared, id, active).await?;
+                    denied(&mut observer, read_request(first, streams[0].cursor)).await?;
+                    observer = next;
+                    id = next_id;
+                    rotations += 1;
+                    max_handoff_ms = max_handoff_ms.max(handoff.elapsed().as_secs_f64() * 1000.0);
+                    next_rotation = Some(due + interval);
+                }
+            }
             for (i, s) in streams.iter_mut().enumerate() {
+                if rotation.is_some()
+                    && (round.elapsed() >= Duration::from_secs(3)
+                        || root.join("load-observer-stop").exists())
+                {
+                    return Err("soak round deadline/stop");
+                }
                 let start = Instant::now();
                 stats["last_read"]=json!({"stream":i,"connection":s.connection,"cursor":s.cursor,"started_elapsed_s":began.elapsed().as_secs_f64(),"phase":"request"});
                 let p = page(&mut observer, s.connection, s.cursor).await?;
@@ -421,10 +480,19 @@ async fn run(
                 calls += 1;
                 max_read = max_read.max(start.elapsed().as_secs_f64() * 1000.0);
                 s.accept(p, i, &go, plan.seconds)?;
+                if rotation.is_some()
+                    && (s.frames > plan.frames()
+                        || (s.frames < plan.frames()
+                            && now() > go.start_unix_ms + s.frames * 10_000 + 3_000))
+                {
+                    return Err("soak source cadence/count");
+                }
                 stats["last_read"]["phase"]=json!("completed");
             }
             max_round = max_round.max(round.elapsed().as_secs_f64() * 1000.0);
-            if streams.iter().all(|s| s.frames == plan.seconds * 21) {
+            if streams.iter().all(|s| s.frames == plan.frames())
+                && (rotation.is_none() || now() >= go.start_unix_ms + plan.seconds * 1000)
+            {
                 break;
             }
             if now() > go.start_unix_ms + (plan.seconds + 5) * 1000
@@ -432,11 +500,12 @@ async fn run(
             {
                 return Err("observer finite drain deadline");
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(if rotation.is_some() { 1000 } else { 100 })).await;
         }
         if streams
             .iter()
-            .any(|s| !s.pending.is_empty() || s.inside_bytes < plan.seconds * 20 * 1024)
+            .any(|s| !s.pending.is_empty()
+                || if rotation.is_some() { s.inside_bytes != s.bytes } else { s.inside_bytes < plan.seconds * 20 * 1024 })
         {
             return Err("observer main-window rate/pending");
         }
@@ -447,6 +516,10 @@ async fn run(
     stats["max_read_ms"] = json!(max_read);
     stats["max_round_ms"] = json!(max_round);
     stats["elapsed_s"] = json!(began.elapsed().as_secs_f64());
+    if rotation.is_some() {
+        stats["rotations_verified"] = json!(rotations);
+        stats["max_handoff_ms"] = json!(max_handoff_ms);
+    }
     revoke(shared, id, active).await?;
     denied(&mut observer, read_request(first, streams[0].cursor)).await?;
     stats["final_revocation_verified"] = json!(true);
@@ -604,5 +677,26 @@ mod tests {
     fn private_plan_rejects_unknown_capability_fields() {
         let value = json!({"service_id":Uuid::new_v4(),"connections":[],"seconds":8,"preflight_only":true,"token":"forbidden"});
         assert!(serde_json::from_value::<Plan>(value).is_err());
+    }
+
+    #[test]
+    fn sparse_modes_keep_fixed_frame_and_ticket_budgets() {
+        let mut plan = Plan {
+            service_id: Uuid::new_v4(),
+            connections: vec![],
+            seconds: 28_800,
+            preflight_only: false,
+        };
+        assert_eq!(plan.frames(), 2880);
+        assert_eq!(
+            plan.rotation(),
+            Some((Duration::from_secs(1200), 1_800_000))
+        );
+        plan.seconds = 25;
+        assert_eq!(plan.frames(), 3);
+        assert_eq!(plan.rotation(), Some((Duration::from_secs(12), 25_000)));
+        plan.seconds = 120;
+        assert_eq!(plan.frames(), 2520);
+        assert_eq!(plan.rotation(), None);
     }
 }
