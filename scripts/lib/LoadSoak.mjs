@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { delay } from './DesktopHarness.mjs';
@@ -49,27 +49,7 @@ export async function measureSoak({ directory, ui, fixture, service, connections
     assert.ok(live.every(c => c.protocol === 'SSH2' && c.state === 'CONNECTED'));
     assert.deepEqual(live.map(c => `${c.connection_id}:${c.generation}`).sort(), ids);
   }
-  let nextSample = 0;
-  let lastTick = performance.now();
-  while (true) {
-    assert.ok(!await stopped(), 'Soak stop requested');
-    const fixtureError = protocolFailure();
-    if (fixtureError) throw fixtureError;
-    assert.equal(ui.app.exitCode, null, 'Owned Desktop exited during soak');
-    assert.equal(fixture.exitCode, null, 'Owned fixture exited during soak');
-    const tick = performance.now();
-    const elapsed = tick - t0;
-    assert.ok(tick - lastTick <= 4000 && Math.abs(Date.now() - wall - elapsed) <= 500, 'Soak host clock or scheduling gap');
-    lastTick = tick;
-    const result = await optionalJson('load-observer-result.json');
-    if (result) {
-      report.nativeObserver = result;
-      assert.ok(result.passed, result.error);
-      if (done.size === 20) break;
-    }
-    assert.ok(elapsed < seconds * 1000 + 10000, 'Soak final summary or source completion deadline');
-    if (elapsed >= nextSample * 10000 && nextSample * 10 < seconds) {
-      assert.ok(elapsed - nextSample * 10000 < 3000, 'Soak resource sample missed its slot');
+  async function sampleResources(index, began) {
       const measure = await resources(directory, ['-DesktopPid', String(ui.app.pid), '-ServicePid', String(service.pid),
         '-FixturePid', String(fixture.pid)]);
       assert.ok(measure.available >= GiB && measure.free.every(n => n >= 4 * GiB), 'Soak resource low water');
@@ -86,27 +66,67 @@ export async function measureSoak({ directory, ui, fixture, service, connections
       assert.equal(audit.state, 'HEALTHY');
       assert.equal(audit.rejected_records, '0');
       assert.equal(audit.incomplete_segments, '0');
-      await publish('load-observer-heartbeat', {});
-      const sample = { processes, node, available: measure.available, free: measure.free,
+      const sample = { processes, node, available: measure.available, free: measure.free, latencyMs: performance.now() - began,
         audit, auditBacklog: Number(BigInt(audit.accepted_through) - BigInt(audit.synced_through)) };
       assert.ok(sample.auditBacklog < 1024, 'Soak audit backlog reached the queue capacity');
-      const minute = Math.floor(nextSample / 6);
-      const row = minuteRows[minute] ??= { minute, count: 0, peaks: { node: 0, auditBacklog: 0, processes: {} } };
+      const minute = Math.floor(index / 6);
+      const row = minuteRows[minute] ??= { minute, count: 0, peaks: { node: 0, auditBacklog: 0, latencyMs: 0, processes: {} } };
       row.count++;
       row.last = sample;
       row.peaks.node = Math.max(row.peaks.node, node);
       row.peaks.auditBacklog = Math.max(row.peaks.auditBacklog, sample.auditBacklog);
+      row.peaks.latencyMs = Math.max(row.peaks.latencyMs, sample.latencyMs);
       for (const [name, p] of Object.entries(processes)) {
         const peak = row.peaks.processes[name] ??= {};
         for (const [key, value] of Object.entries(p)) peak[key] = Math.max(peak[key] ?? 0, value);
       }
-      if (nextSample % 6 === 0) {
+      if (index % 6 === 0) {
         await publish('load-observer-progress.json', { minute, duration: seconds, sample });
         console.log(`T18 soak minute ${minute}/${Math.ceil(seconds / 60)}`);
       }
-      nextSample++;
+  }
+  let nextSample = 0;
+  let lastTick = performance.now();
+  let nextHeartbeat = lastTick + 5000;
+  let sampleJob, sampleError;
+  try {
+    while (true) {
+      assert.ok(!await stopped(), 'Soak stop requested');
+      const fixtureError = protocolFailure();
+      if (fixtureError) throw fixtureError;
+      if (sampleError) throw sampleError;
+      assert.equal(ui.app.exitCode, null, 'Owned Desktop exited during soak');
+      assert.equal(fixture.exitCode, null, 'Owned fixture exited during soak');
+      const tick = performance.now();
+      const elapsed = tick - t0;
+      const tickGap = tick - lastTick;
+      const clockDrift = Math.abs(Date.now() - wall - elapsed);
+      assert.ok(tickGap <= 4000 && clockDrift <= 500, `Soak clock check: gap=${tickGap.toFixed(1)}ms drift=${clockDrift.toFixed(1)}ms`);
+      lastTick = tick;
+      if (tick >= nextHeartbeat) {
+        await publish('load-observer-heartbeat', {});
+        nextHeartbeat = tick + 5000;
+      }
+      const result = await optionalJson('load-observer-result.json');
+      if (result) {
+        report.nativeObserver = result;
+        assert.ok(result.passed, result.error);
+        if (done.size === 20 && !sampleJob) break;
+      }
+      assert.ok(elapsed < seconds * 1000 + 10000, 'Soak final summary or source completion deadline');
+      if (elapsed >= nextSample * 10000 && nextSample * 10 < seconds) {
+        assert.ok(!sampleJob, 'Soak previous resource sample exceeded its interval');
+        assert.ok(elapsed - nextSample * 10000 < 3000, 'Soak resource sample missed its slot');
+        sampleJob = sampleResources(nextSample++, tick).catch(error => { sampleError = error; })
+          .finally(() => { sampleJob = undefined; });
+      }
+      await delay(250);
     }
-    await delay(250);
+  } catch (error) {
+    await writeFile(path.join(directory, 'load-observer-stop'), '').catch(() => {});
+    throw error;
+  } finally {
+    await sampleJob;
   }
 
   const native = report.nativeObserver;

@@ -7,6 +7,7 @@ param(
   [switch]$Preflight
 )
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName System.Windows.Forms
 $os = Get-CimInstance Win32_OperatingSystem
 $report = @{
