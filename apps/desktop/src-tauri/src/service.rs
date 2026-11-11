@@ -81,6 +81,12 @@ impl Service {
         }
         let instance = format!("desktop-{}", Uuid::new_v4().simple());
         let executable = std::env::current_exe()?.with_file_name("session-service.exe");
+        #[cfg(all(test, feature = "serial-mcp-fixture"))]
+        let executable = if crate::serial_fixture::enabled(&directory) {
+            crate::serial_fixture::wait_gap_binary("session-service.exe")
+        } else {
+            executable
+        };
         #[cfg(all(test, feature = "close-receipt-fixture"))]
         let executable = {
             let _ = executable;

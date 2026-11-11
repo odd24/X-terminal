@@ -25,3 +25,10 @@ pub fn enabled(root: &Path) -> bool {
     ROOT.get()
         .is_some_and(|expected| root.canonicalize().ok().as_ref() == Some(expected))
 }
+
+#[cfg(test)]
+pub(crate) fn wait_gap_binary(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../target/serial-mcp-wait-gap-fixture")
+        .join(name)
+}

@@ -64,6 +64,17 @@ impl Entry {
                     let _ = store.sessions.transition(self.reference, State::Closing);
                 }
             }
+            #[cfg(feature = "serial-mcp-fixture")]
+            if !self.closing && !matches!(self.status.phase, worker::Phase::Ended(_)) {
+                match crate::serial_mcp_fixture::hold_wait_gap_drain(self.status.read_bytes) {
+                    Ok(true) => return,
+                    Ok(false) => {}
+                    Err(_) => {
+                        self.failure = Some(Failure::Io);
+                        worker.cancel();
+                    }
+                }
+            }
             let mut drained = false;
             for _ in 0..32 {
                 let result = match worker.read_output() {

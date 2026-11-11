@@ -125,6 +125,13 @@ fn image_is(pipe: &NamedPipeServer, expected: &Path) -> io::Result<u32> {
 }
 impl Manager {
     pub fn start(service_id: Uuid) -> io::Result<Self> {
+        Self::start_expected(
+            service_id,
+            std::env::current_exe()?.with_file_name("terminal-mcp.exe"),
+        )
+    }
+
+    fn start_expected(service_id: Uuid, expected: PathBuf) -> io::Result<Self> {
         let instance = format!("bridge-{}", Uuid::new_v4().simple());
         let listener = open(&instance, true)?;
         let shared = Arc::new(Shared {
@@ -132,7 +139,7 @@ impl Manager {
             id: Uuid::new_v4(),
             service_id,
             instance,
-            expected: std::env::current_exe()?.with_file_name("terminal-mcp.exe"),
+            expected,
         });
         let (stop, stopping) = watch::channel(false);
         let copy = shared.clone();
@@ -480,3 +487,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, feature = "serial-mcp-fixture"))]
+mod wait_gap_test;

@@ -23,6 +23,9 @@ impl Factory for MemoryFactory {
         });
         Worker::test_backend_guarded(
             move || {
+                #[cfg(feature = "serial-mcp-fixture")]
+                let trace =
+                    crate::serial_mcp_fixture::opened(config.dtr_on_open, config.rts_on_open)?;
                 Ok(Echo {
                     bytes: VecDeque::new(),
                     hardware: config.flow_control == serialport::FlowControl::Hardware,
@@ -30,10 +33,12 @@ impl Factory for MemoryFactory {
                     next: Instant::now(),
                     sequence: 0,
                     #[cfg(feature = "serial-mcp-fixture")]
-                    trace: crate::serial_mcp_fixture::opened(
-                        config.dtr_on_open,
-                        config.rts_on_open,
-                    )?,
+                    gap_reads_left: match &trace {
+                        Some(trace) => trace.wait_gap_burst(),
+                        None => 0,
+                    },
+                    #[cfg(feature = "serial-mcp-fixture")]
+                    trace,
                     dtr: config.dtr_on_open,
                     rts: config.rts_on_open,
                     break_asserted: false,
@@ -54,6 +59,8 @@ struct Echo {
     break_asserted: bool,
     #[cfg(feature = "serial-mcp-fixture")]
     trace: Option<crate::serial_mcp_fixture::Trace>,
+    #[cfg(feature = "serial-mcp-fixture")]
+    gap_reads_left: usize,
 }
 #[cfg(feature = "serial-mcp-fixture")]
 impl Drop for Echo {
@@ -71,6 +78,20 @@ impl worker::Port for Echo {
         #[cfg(feature = "serial-mcp-fixture")]
         if let Some(trace) = &self.trace {
             trace.fail_read_once()?;
+        }
+        #[cfg(feature = "serial-mcp-fixture")]
+        if self.gap_reads_left != 0 {
+            if buffer.len() != worker::READ_BYTES {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            self.gap_reads_left -= 1;
+            buffer.fill(b'.');
+            if self.gap_reads_left == 1 {
+                let prefix = crate::serial_mcp_fixture::GAP_PREFIX;
+                let start = buffer.len() - prefix.len();
+                buffer[start..].copy_from_slice(prefix);
+            }
+            return Ok(transport_serial::ReadOutcome::Data(buffer.len()));
         }
         if self.passive && self.next.elapsed() >= Duration::from_millis(80) {
             self.sequence += 1;
