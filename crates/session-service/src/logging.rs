@@ -77,6 +77,11 @@ impl OutputCapture for Sink {
     }
 }
 pub(crate) struct Manager {
+    #[cfg(feature = "t19-timeline-fixture")]
+    timeline: Option<(
+        terminal_log::timeline_fixture::Timeline,
+        std::sync::atomic::AtomicU8,
+    )>,
     history: history::Worker,
     export: export::Worker,
     cleanup: cleanup::Worker,
@@ -91,6 +96,8 @@ impl Manager {
         let inner = Arc::new(Mutex::new(Inner::default()));
         let cleanup = cleanup::Worker::start(inner.clone(), export.access(), store.clone())?;
         Ok(Self {
+            #[cfg(feature = "t19-timeline-fixture")]
+            timeline: None,
             history: history::Worker::start()?,
             export,
             cleanup,
@@ -99,6 +106,14 @@ impl Manager {
             store,
             config,
         })
+    }
+    #[cfg(feature = "t19-timeline-fixture")]
+    pub(crate) fn with_timeline(
+        mut self,
+        timeline: Option<terminal_log::timeline_fixture::Timeline>,
+    ) -> Self {
+        self.timeline = timeline.map(|timeline| (timeline, std::sync::atomic::AtomicU8::new(0)));
+        self
     }
     fn info(&self, entry: &Entry, removed: bool, released: bool) -> Result<wire::Info, ErrorCode> {
         let status = entry.logger.status();
@@ -488,7 +503,7 @@ impl Manager {
                     source_cursor: position.source_cursor,
                     text_cursor: position.text_cursor,
                 };
-                let logger = Arc::new(
+                let start_logger = || {
                     Logger::start_readable(
                         root.0.path().to_path_buf(),
                         metadata.clone(),
@@ -498,14 +513,29 @@ impl Manager {
                         },
                         window_name.unwrap_or_else(|| "终端".into()),
                     )
-                    .map_err(|error| {
-                        if error.kind() == io::ErrorKind::WouldBlock {
-                            ErrorCode::CapacityExceeded
-                        } else {
-                            ErrorCode::InvalidState
-                        }
-                    })?,
-                );
+                };
+                #[cfg(feature = "t19-timeline-fixture")]
+                let logger = if let Some((timeline, next)) = &self.timeline {
+                    if position.protocol != Protocol::Fixture {
+                        return Err(ErrorCode::Unsupported);
+                    }
+                    use std::sync::atomic::Ordering::Relaxed;
+                    let index = next
+                        .try_update(Relaxed, Relaxed, |index| (index < 8).then_some(index + 1))
+                        .map_err(|_| ErrorCode::CapacityExceeded)?;
+                    timeline.with_logger(index, start_logger)
+                } else {
+                    start_logger()
+                };
+                #[cfg(not(feature = "t19-timeline-fixture"))]
+                let logger = start_logger();
+                let logger = Arc::new(logger.map_err(|error| {
+                    if error.kind() == io::ErrorKind::WouldBlock {
+                        ErrorCode::CapacityExceeded
+                    } else {
+                        ErrorCode::InvalidState
+                    }
+                })?);
                 let id = logger.status().log_id;
                 store.sessions.attach_capture(
                     connection,

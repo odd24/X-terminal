@@ -5,6 +5,8 @@ pub mod audit_diagnostic;
 mod audit_journal;
 pub mod client;
 mod config;
+#[cfg(feature = "t19-timeline-fixture")]
+mod log_calibration_root;
 mod logging;
 mod protected_export;
 mod request_audit;
@@ -14,6 +16,10 @@ mod serial;
 pub mod serial_mcp_fixture;
 mod server;
 mod ssh;
+#[cfg(feature = "t19-timeline-fixture")]
+pub mod t19_timeline_fixture;
+#[cfg(feature = "t19-timeline-fixture")]
+pub use server::serve_t19_timeline_fixture;
 pub use server::{serve, serve_with_config};
 
 pub(crate) fn encoding_label(encoding: &config_store::Encoding) -> &'static str {

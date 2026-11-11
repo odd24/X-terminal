@@ -39,6 +39,8 @@ impl Store {
     }
 }
 struct Runtime {
+    #[cfg(feature = "t19-timeline-fixture")]
+    timeline: Option<terminal_log::timeline_fixture::Timeline>,
     audit_journal: crate::audit_journal::Journal,
     request_audit: crate::request_audit::Audit,
     logging: crate::logging::Manager,
@@ -611,6 +613,15 @@ impl Runtime {
                             ))
                         }
                         Request::AppendFixture { connection, bytes } => {
+                            #[cfg(feature = "t19-timeline-fixture")]
+                            if let Some(timeline) = &self.timeline {
+                                if timeline.has_fault() {
+                                    return Err(ErrorCode::CapacityExceeded);
+                                }
+                                if bytes.len() != 16 * 1024 {
+                                    return Err(ErrorCode::InvalidArgument);
+                                }
+                            }
                             if store.sessions.info(connection)?.protocol != Protocol::Fixture {
                                 return Err(ErrorCode::Unsupported);
                             }
@@ -779,6 +790,12 @@ async fn connection(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> io::Res
             && matches!(kind, ClientKind::Desktop)
             && terminal_log::audit::diagnostic_drop_shutdown_reply();
         let result = match request.request {
+            #[cfg(feature = "t19-timeline-fixture")]
+            ref request
+                if runtime.timeline.is_some() && !crate::t19_timeline_fixture::allows(request) =>
+            {
+                Err(ErrorCode::Unsupported)
+            }
             Request::Agent { request } => runtime.handle_agent(&identity, request).await,
             Request::Logging { request } => runtime.handle_logging(&identity, request).await,
             Request::ProtectedExport { request } => {
@@ -818,6 +835,42 @@ pub async fn serve_with_config(
     fixture: bool,
     directory: Option<std::path::PathBuf>,
 ) -> io::Result<()> {
+    serve_inner(
+        instance,
+        bootstrap,
+        fixture,
+        directory,
+        #[cfg(feature = "t19-timeline-fixture")]
+        None,
+    )
+    .await
+}
+
+#[cfg(feature = "t19-timeline-fixture")]
+pub async fn serve_t19_timeline_fixture(
+    instance: &str,
+    bootstrap: SecretToken,
+    root: crate::t19_timeline_fixture::Root,
+) -> io::Result<()> {
+    serve_inner(
+        instance,
+        bootstrap,
+        true,
+        Some(root.path.clone()),
+        Some(Default::default()),
+    )
+    .await
+}
+
+async fn serve_inner(
+    instance: &str,
+    bootstrap: SecretToken,
+    fixture: bool,
+    directory: Option<std::path::PathBuf>,
+    #[cfg(feature = "t19-timeline-fixture")] timeline: Option<
+        terminal_log::timeline_fixture::Timeline,
+    >,
+) -> io::Result<()> {
     require_standard_user()?;
     let security = PipeSecurity::current_user()?;
     let name = pipe_name(instance)?;
@@ -828,8 +881,14 @@ pub async fn serve_with_config(
     let config = crate::config::ConfigWorker::start(directory)?;
     let started = Instant::now();
     let service_id = Uuid::new_v4();
-    let audit_journal =
-        crate::audit_journal::Journal::start(config.access(), configured, service_id).await;
+    let audit_journal = crate::audit_journal::Journal::start(
+        config.access(),
+        configured,
+        service_id,
+        #[cfg(feature = "t19-timeline-fixture")]
+        timeline.clone(),
+    )
+    .await;
     let mut pairing = Pairing::new(&bootstrap);
     // Explicit no-directory test fixtures retain their ephemeral policy tests.
     // An ordinary service without durable storage cannot issue Agent permits.
@@ -844,6 +903,8 @@ pub async fn serve_with_config(
     let ssh = crate::ssh::Manager::new(store.clone(), config.access());
     let serial = crate::serial::Manager::new(store.clone(), config.access());
     let logging = crate::logging::Manager::new(store.clone(), config.access())?;
+    #[cfg(feature = "t19-timeline-fixture")]
+    let logging = logging.with_timeline(timeline.clone());
     let protected_directory = match config
         .access()
         .request(crate::config::Internal::LoggingDirectory)
@@ -857,6 +918,8 @@ pub async fn serve_with_config(
     #[cfg(feature = "serial-ui-fixture")]
     let serial = if fixture { serial.ui_fixture() } else { serial };
     let runtime = Arc::new(Runtime {
+        #[cfg(feature = "t19-timeline-fixture")]
+        timeline,
         request_audit: crate::request_audit::Audit::new(service_id, started)
             .with_sink(audit_journal.sink()),
         audit_journal,
@@ -917,10 +980,16 @@ pub async fn serve_with_config(
     let protected_export_result = runtime.protected_export.close().await;
     let audit_result = runtime.audit_journal.close().await;
     let config_result = runtime.config.close().await;
+    #[cfg(feature = "t19-timeline-fixture")]
+    let timeline_result = runtime.timeline.as_ref().map_or(Ok(()), |timeline| {
+        crate::t19_timeline_fixture::emit(timeline, logging_result.is_ok(), audit_result.is_ok())
+    });
     serial_result?;
     logging_result?;
     protected_export_result?;
     audit_result?;
     config_result?;
+    #[cfg(feature = "t19-timeline-fixture")]
+    timeline_result?;
     Ok(())
 }

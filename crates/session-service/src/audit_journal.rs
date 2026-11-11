@@ -35,6 +35,9 @@ impl Journal {
         config: crate::config::Access,
         configured: bool,
         service_id: Uuid,
+        #[cfg(feature = "t19-timeline-fixture")] timeline: Option<
+            terminal_log::timeline_fixture::Timeline,
+        >,
     ) -> Self {
         let mut result = Self {
             writer: None,
@@ -52,8 +55,15 @@ impl Journal {
         if let Ok(crate::config::Value::LoggingDirectory(path)) = config
             .request(crate::config::Internal::LoggingDirectory)
             .await
-            && let Ok(Ok(writer)) =
-                tokio::task::spawn_blocking(move || Writer::open(&path, service_id)).await
+            && let Ok(Ok(writer)) = tokio::task::spawn_blocking(move || {
+                let open = || Writer::open(&path, service_id);
+                #[cfg(feature = "t19-timeline-fixture")]
+                if let Some(timeline) = timeline {
+                    return timeline.with_audit(open);
+                }
+                open()
+            })
+            .await
         {
             result.sink = Some(writer.sink());
             result.writer = Some(writer);

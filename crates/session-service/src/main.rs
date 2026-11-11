@@ -12,6 +12,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let timeline = args.iter().any(|arg| arg == "--t19-timeline-fixture");
+    if timeline && !cfg!(feature = "t19-timeline-fixture") {
+        return Err("T19_TIMELINE_FIXTURE_DISABLED".into());
+    }
+    #[cfg(feature = "t19-timeline-fixture")]
+    let timeline_root = if timeline {
+        match args.as_slice() {
+            [flag, instance, fixture, timeline_flag]
+                if flag == "--instance"
+                    && fixture == "--test-fixture"
+                    && timeline_flag == "--t19-timeline-fixture"
+                    && uuid::Uuid::parse_str(instance).is_ok_and(|id| {
+                        id.get_version_num() == 4 && id.to_string() == *instance
+                    }) => {}
+            _ => return Err("T19_TIMELINE_FIXTURE_ARGUMENTS_REJECTED".into()),
+        }
+        args.pop();
+        Some(
+            session_service::t19_timeline_fixture::Root::open(
+                directory
+                    .as_deref()
+                    .ok_or("T19_TIMELINE_FIXTURE_ROOT_REQUIRED")?,
+            )
+            .map_err(|_| "T19_TIMELINE_FIXTURE_ROOT_REJECTED")?,
+        )
+    } else {
+        None
+    };
     let serial_mcp_fixture =
         if let Some(index) = args.iter().position(|s| s == "--serial-mcp-fixture") {
             if !cfg!(feature = "serial-mcp-fixture") {
@@ -89,6 +117,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .ok_or("missing private bootstrap")?;
     hello.validate()?;
     let token = session_core::pairing::SecretToken::parse(hello.token.expose().to_string())?;
+    #[cfg(feature = "t19-timeline-fixture")]
+    if let Some(root) = timeline_root {
+        session_service::serve_t19_timeline_fixture(instance, token, root).await?;
+        return Ok(());
+    }
     session_service::serve_with_config(instance, token, fixture, directory).await?;
     Ok(())
 }

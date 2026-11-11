@@ -1,5 +1,5 @@
 //! Opt-in timing capture for owned synthetic journals.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
     collections::VecDeque,
@@ -8,17 +8,17 @@ use std::{
     time::Instant,
 };
 
-const BEFORE_FAULT: usize = 3583;
-const AFTER_FAULT: usize = 512;
+pub const BEFORE_FAULT: usize = 3583;
+pub const AFTER_FAULT: usize = 512;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     Logger(u8),
     Audit,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Operation {
     RawWrite,
@@ -33,7 +33,7 @@ pub enum Operation {
     TestPause,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     TrySend,
@@ -51,7 +51,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    fn fault(self) -> bool {
+    pub fn fault(self) -> bool {
         matches!(
             self,
             Self::QueueFull
@@ -64,7 +64,8 @@ impl Kind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Event {
     pub ordinal: u64,
     pub elapsed_ns: u64,
@@ -75,9 +76,11 @@ pub struct Event {
     pub written_records: Option<u64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Summary {
-    pub first_fault: Event,
+    pub first_fault: Option<Event>,
+    pub observed_events: u64,
     pub evicted_before_fault: u64,
     pub omitted_after_fault: u64,
     pub events: VecDeque<Event>,
@@ -90,7 +93,7 @@ struct Capture {
     evicted: u64,
     omitted: u64,
     remaining: usize,
-    next: u64,
+    observed: u64,
     taken: bool,
 }
 
@@ -106,7 +109,7 @@ impl Default for Timeline {
             evicted: 0,
             omitted: 0,
             remaining: AFTER_FAULT,
-            next: 1,
+            observed: 0,
             taken: false,
         })))
     }
@@ -134,13 +137,20 @@ impl Timeline {
         start()
     }
 
-    /// Take the one summary after the owned workers have joined and a fault was observed.
+    pub fn has_fault(&self) -> bool {
+        self.0.lock().unwrap().first_fault.is_some()
+    }
+
+    /// Take the one summary after the owned workers have joined.
     pub fn take_summary(&self) -> Option<Summary> {
         let mut capture = self.0.lock().unwrap();
-        let first_fault = capture.first_fault.take()?;
+        if capture.taken {
+            return None;
+        }
         capture.taken = true;
         Some(Summary {
-            first_fault,
+            first_fault: capture.first_fault,
+            observed_events: capture.observed,
             evicted_before_fault: capture.evicted,
             omitted_after_fault: capture.omitted,
             events: std::mem::take(&mut capture.events),
@@ -167,6 +177,7 @@ impl Context {
         if capture.taken {
             return;
         }
+        capture.observed = capture.observed.saturating_add(1);
         if capture.first_fault.is_some() {
             if capture.remaining == 0 {
                 capture.omitted = capture.omitted.saturating_add(1);
@@ -180,7 +191,7 @@ impl Context {
         // Timestamp under the recorder lock so merged event times never go backwards.
         // No caller holds this lock across an observed I/O operation.
         let event = Event {
-            ordinal: capture.next,
+            ordinal: capture.observed,
             elapsed_ns: u64::try_from(capture.epoch.elapsed().as_nanos()).unwrap_or(u64::MAX),
             source: self.source,
             seq,
@@ -188,7 +199,6 @@ impl Context {
             accepted_records,
             written_records,
         };
-        capture.next = capture.next.saturating_add(1);
         if capture.first_fault.is_none() && kind.fault() {
             capture.first_fault = Some(event);
         }
@@ -283,7 +293,7 @@ mod tests {
             for seq in 1..=(BEFORE_FAULT as u64 + 10) {
                 context.record(seq, Kind::TrySend, None, None);
             }
-            assert!(timeline.take_summary().is_none());
+            assert!(!timeline.has_fault());
             set_sequence(4000);
             let result: io::Result<()> = observe_io(Operation::RawSync, Some(3999), || {
                 Err(io::Error::other("synthetic-error-sentinel"))
@@ -296,12 +306,10 @@ mod tests {
             assert_eq!(summary.events.len(), 4096);
             assert_eq!(summary.evicted_before_fault, 11);
             assert_eq!(summary.omitted_after_fault, 9);
-            assert_eq!(summary.first_fault.seq, 4000);
-            assert_eq!(summary.first_fault.kind, Kind::IoError(Operation::RawSync));
-            assert_eq!(
-                summary.events[BEFORE_FAULT].ordinal,
-                summary.first_fault.ordinal
-            );
+            let first_fault = summary.first_fault.unwrap();
+            assert_eq!(first_fault.seq, 4000);
+            assert_eq!(first_fault.kind, Kind::IoError(Operation::RawSync));
+            assert_eq!(summary.events[BEFORE_FAULT].ordinal, first_fault.ordinal);
             assert_eq!(
                 summary.events[BEFORE_FAULT - 1].kind,
                 Kind::IoBegin(Operation::RawSync)

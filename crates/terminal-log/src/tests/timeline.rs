@@ -69,7 +69,7 @@ fn p22_timeline_joins_real_file_operations_and_audit_around_first_queue_fault() 
             })
         })
         .unwrap();
-    assert!(timeline.take_summary().is_none());
+    assert!(!timeline.has_fault());
     assert!(logger.submit(data(&meta, 1, b"synthetic-sentinel")));
     assert!(logger.submit(data(&meta, 2, b"synthetic-sentinel")));
     wait_entered.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -111,7 +111,7 @@ fn p22_timeline_joins_real_file_operations_and_audit_around_first_queue_fault() 
     assert!(timeline.take_summary().is_none());
     assert_eq!(summary.evicted_before_fault, 0);
     assert_eq!(summary.omitted_after_fault, 0);
-    let first = summary.first_fault;
+    let first = summary.first_fault.unwrap();
     assert_eq!(first.source, Source::Logger(0));
     assert_eq!(first.kind, Kind::QueueFull);
     assert_eq!(first.seq, last_accepted + 1);

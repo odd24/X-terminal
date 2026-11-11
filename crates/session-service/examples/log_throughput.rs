@@ -1,5 +1,9 @@
 //! Opt-in synthetic Named Pipe -> production capture measurement. Never opens a device.
+#[path = "../src/log_calibration_root.rs"]
+mod log_calibration_root;
 mod log_throughput_candidate;
+#[cfg(feature = "t19-timeline-fixture")]
+mod log_throughput_timeline;
 
 use serde_json::{Value, json};
 use session_core::{PROTOCOL_VERSION, pairing::SecretToken, session::ConnectionRef};
@@ -117,6 +121,11 @@ const BLOCK: usize = 4096;
 const HZ: u64 = 260;
 const BATCH: u64 = 4;
 const GIB: u64 = 1024 * 1024 * 1024;
+struct Settings {
+    seconds: u64,
+    segment: u64,
+    timeline: bool,
+}
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -436,6 +445,7 @@ async fn measured(
     root: &Path,
     pid: u32,
     seconds: u64,
+    timeline: bool,
 ) -> Result<Value> {
     let total = seconds * HZ / BATCH;
     let mut buckets = vec![0u64; seconds as usize + 1];
@@ -446,6 +456,7 @@ async fn measured(
     let mut slow_rpcs = Vec::<Value>::new();
     let mut first_ack = None;
     let mut last_ack = 0f64;
+    let mut timeline_gate_rejected_bytes = 0;
     let start = Instant::now();
     let started_unix_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -500,18 +511,35 @@ async fn measured(
             }
             generated += BLOCK as u64 * BATCH;
             generated_counter.store(generated, Ordering::SeqCst);
-            s.expected.update(&b);
-            s.count += BATCH;
+            let expected = if timeline {
+                let mut expected = s.expected.clone();
+                expected.update(&b);
+                Some(expected)
+            } else {
+                s.expected.update(&b);
+                s.count += BATCH;
+                None
+            };
             let rpc = Instant::now();
             let request_started_s=start.elapsed().as_secs_f64();
-            request(
-                client,
+            let response = client.request(
                 Request::AppendFixture {
                     connection: s.connection,
                     bytes: b,
                 },
             )
-            .await?;
+            .await;
+            if timeline && matches!(&response, Ok(Response::Error {
+                code: session_core::session::ErrorCode::CapacityExceeded, ..
+            })) {
+                timeline_gate_rejected_bytes = BLOCK as u64 * BATCH;
+                return Err(CheckFailure::CaptureRejected.into());
+            }
+            if let Some(expected) = expected {
+                s.expected = expected;
+                s.count += BATCH;
+            }
+            reply(response?)?;
             max_rpc = max_rpc.max(rpc.elapsed().as_secs_f64());
             acked += BLOCK as u64 * BATCH;
             acked_counter.store(acked, Ordering::SeqCst);
@@ -534,19 +562,25 @@ async fn measured(
         .err()
         .map(|e| safe_error(e.as_ref()))
         .or(monitor_error.lock().unwrap().clone());
-    Ok(
-        json!({"error":error,"generated_bytes":generated,"ipc_ack_bytes":acked,"elapsed_s":elapsed,"generated_bytes_per_wall_second":generated as f64/elapsed,"ipc_bytes_per_wall_second":acked as f64/elapsed,"first_ack_s":first_ack,"last_ack_s":last_ack,"second_buckets_bytes":buckets,"max_schedule_late_s":max_late,"max_rpc_s":max_rpc,"started_unix_ms":started_unix_ms,"slow_rpcs":slow_rpcs,"runtime_workers":tokio::runtime::Handle::current().metrics().num_workers(),"batch_blocks":BATCH}),
-    )
+    let mut report = json!({"error":error,"generated_bytes":generated,"ipc_ack_bytes":acked,"elapsed_s":elapsed,"generated_bytes_per_wall_second":generated as f64/elapsed,"ipc_bytes_per_wall_second":acked as f64/elapsed,"first_ack_s":first_ack,"last_ack_s":last_ack,"second_buckets_bytes":buckets,"max_schedule_late_s":max_late,"max_rpc_s":max_rpc,"started_unix_ms":started_unix_ms,"slow_rpcs":slow_rpcs,"runtime_workers":tokio::runtime::Handle::current().metrics().num_workers(),"batch_blocks":BATCH});
+    if timeline {
+        report["timeline_gate_rejected_bytes"] = json!(timeline_gate_rejected_bytes);
+    }
+    Ok(report)
 }
 async fn run(
     client: &mut Client,
     monitor_client: Client,
     root: &Path,
     pid: u32,
-    seconds: u64,
-    segment: u64,
+    settings: Settings,
     phase: &Mutex<ErrorStage>,
 ) -> Result<Value> {
+    let Settings {
+        seconds,
+        segment,
+        timeline,
+    } = settings;
     *phase.lock().unwrap() = ErrorStage::Setup;
     let mut streams = vec![];
     for index in 0..STREAMS {
@@ -611,7 +645,16 @@ async fn run(
         .await??;
     }
     *phase.lock().unwrap() = ErrorStage::Offering;
-    let load = measured(client, monitor_client, &mut streams, root, pid, seconds).await;
+    let load = measured(
+        client,
+        monitor_client,
+        &mut streams,
+        root,
+        pid,
+        seconds,
+        timeline,
+    )
+    .await;
     *phase.lock().unwrap() = ErrorStage::Stop;
     let mut final_status = vec![];
     let mut stop_error = None;
@@ -894,8 +937,15 @@ mod instrument_tests {
 async fn execute() -> Result<()> {
     let args: Vec<_> = std::env::args_os().collect();
     let mode = args.get(4).and_then(|value| value.to_str());
-    let candidate_mode = matches!(mode, Some("--d-tmp-calibrate" | "--check-d-tmp-root"));
+    let timeline = matches!(mode, Some("--d-tmp-timeline" | "--check-timeline"));
+    let timeline_smoke = mode == Some("--check-timeline");
+    let candidate_mode =
+        timeline || matches!(mode, Some("--d-tmp-calibrate" | "--check-d-tmp-root"));
     let ordinary_probe = mode == Some("--probe-ordinary");
+    require(
+        !timeline || cfg!(feature = "t19-timeline-fixture"),
+        "timeline feature required",
+    )?;
     require(
         args.len() == 4 || (args.len() == 5 && (candidate_mode || ordinary_probe)),
         "invalid measurement mode",
@@ -966,21 +1016,41 @@ async fn execute() -> Result<()> {
     )?;
     let instance = Uuid::new_v4().to_string();
     let token = SecretToken::generate();
-    let mut command =
-        Command::new(std::env::current_dir()?.join("target/debug/session-service.exe"));
+    let executable = if timeline {
+        "target/debug/session-service-t19-timeline.exe"
+    } else {
+        "target/debug/session-service.exe"
+    };
+    let mut command = Command::new(std::env::current_dir()?.join(executable));
     command.args(["--instance", &instance]);
     if !ordinary_probe {
         command.arg("--test-fixture");
     }
+    let stderr = if timeline {
+        command.arg("--t19-timeline-fixture");
+        let id = candidate.as_ref().unwrap().id;
+        File::create_new(workspace.join(format!("P22-throughput-d-tmp-{id}-service-stderr.txt")))?
+    } else {
+        File::create(root.join("service-stderr.txt"))?
+    };
     let mut child = command
         .arg("--data-dir")
-        .arg(&root)
+        .arg(if timeline { requested } else { &root })
         .creation_flags(0x08000000)
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(File::create(root.join("service-stderr.txt"))?))
+        .stdout(if timeline {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stderr(Stdio::from(stderr))
         .kill_on_drop(true)
         .spawn()?;
+    #[cfg(feature = "t19-timeline-fixture")]
+    let timeline_reader = child
+        .stdout
+        .take()
+        .map(|output| tokio::spawn(log_throughput_timeline::read(output)));
     let pid = child.id().unwrap();
     let phase = Mutex::new(ErrorStage::Bootstrap);
     let mut client = None;
@@ -1016,14 +1086,17 @@ async fn execute() -> Result<()> {
             )?;
             return Ok(json!({"passed":true,"ordinary_runtime_fixture_denied":true}));
         }
+        #[cfg(feature = "t19-timeline-fixture")]
+        if timeline_smoke {
+            return log_throughput_timeline::smoke(client.as_mut().unwrap(), segment).await;
+        }
         let monitor_client = Client::connect(&instance, token.expose(), pid).await?.0;
         run(
             client.as_mut().unwrap(),
             monitor_client,
             &root,
             pid,
-            seconds,
-            segment,
+            Settings { seconds, segment, timeline },
             &phase,
         )
         .await
@@ -1077,6 +1150,40 @@ async fn execute() -> Result<()> {
         forced_kill_ok: forced_ok,
     };
     let mut report = finalized(result, first_stage, cleanup);
+    #[cfg(feature = "t19-timeline-fixture")]
+    if let Some(reader) = timeline_reader {
+        let evidence = match reader.await {
+            Ok(Ok(envelope)) => log_throughput_timeline::save(
+                envelope,
+                &workspace,
+                candidate.as_ref().unwrap().id,
+                timeline_smoke,
+            ),
+            Ok(Err(error)) => Err(error),
+            Err(error) => Err(error.into()),
+        };
+        let evidence = evidence
+            .unwrap_or_else(|error| json!({"saved":false,"error":safe_error(error.as_ref())}));
+        if evidence["workers_closed"] != true
+            || evidence["smoke_passed"] != true
+            || !evidence["first_fault"].is_null()
+        {
+            report["passed"] = json!(false);
+            if report["error"].is_null() {
+                report["error"] = json!(if evidence["first_fault"].is_null() {
+                    "TIMELINE_EVIDENCE_FAILED"
+                } else {
+                    "TIMELINE_CAPTURE_FAULT"
+                });
+                report["error_stage"] = json!(if evidence["first_fault"].is_null() {
+                    ErrorStage::ServiceExit
+                } else {
+                    ErrorStage::Offering
+                });
+            }
+        }
+        report["timeline"] = evidence;
+    }
     if candidate.is_some() {
         report["candidate_free_bytes_at_start"] = json!(initial_free);
     }

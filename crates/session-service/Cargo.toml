@@ -2,6 +2,7 @@
 name = "session-service"
 version.workspace = true
 edition.workspace = true
+default-run = "session-service"
 rust-version.workspace = true
 license.workspace = true
 
@@ -10,6 +11,12 @@ serial-ui-fixture = ["transport-serial/test-backend"]
 serial-mcp-fixture = ["serial-ui-fixture"]
 audit-diagnostics-fixture = ["terminal-log/audit-diagnostics-fixture"]
 log-disk-full-fixture = ["terminal-log/log-disk-full-fixture"]
+t19-timeline-fixture = ["terminal-log/log-timeline-fixture"]
+
+[[bin]]
+name = "session-service-t19-timeline"
+path = "src/bin/t19_timeline.rs"
+required-features = ["t19-timeline-fixture"]
 
 [dependencies]
 encoding_rs = "=0.8.44"
