@@ -229,7 +229,7 @@ impl LiveText {
                 "readable log size limit",
             ));
         }
-        self.output.write_all(bytes)?;
+        timeline_io!(LiveWrite, None, self.output.write_all(bytes))?;
         self.status.written_bytes += bytes.len() as u64;
         Ok(())
     }
@@ -257,13 +257,21 @@ impl LiveText {
         Ok(())
     }
     pub fn checkpoint(&mut self, sync: bool) -> io::Result<()> {
-        self.output.flush()?;
+        timeline_io!(
+            LiveFlush,
+            Some(self.status.written_records),
+            self.output.flush()
+        )?;
         self.status.flushed_records = self.status.written_records;
         self.status.flushed_bytes = self.status.written_bytes;
         self.status.flushed_gap_bytes = self.status.written_gap_bytes;
         self.status.flushed_at_ms = now_ms();
         if sync {
-            self.output.get_ref().sync_all()?;
+            timeline_io!(
+                LiveSync,
+                Some(self.status.written_records),
+                self.output.get_ref().sync_all()
+            )?;
             self.status.synced_records = self.status.written_records;
             self.status.synced_bytes = self.status.written_bytes;
             self.status.synced_gap_bytes = self.status.written_gap_bytes;

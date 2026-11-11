@@ -1,4 +1,20 @@
 //! Opt-in bounded journals. Callers must authorize and route an exact generation.
+macro_rules! timeline_io {
+    ($operation:ident, $watermark:expr, $action:expr) => {{
+        #[cfg(feature = "log-timeline-fixture")]
+        {
+            crate::timeline_fixture::observe_io(
+                crate::timeline_fixture::Operation::$operation,
+                $watermark,
+                || $action,
+            )
+        }
+        #[cfg(not(feature = "log-timeline-fixture"))]
+        {
+            $action
+        }
+    }};
+}
 mod archive;
 #[cfg(windows)]
 pub mod audit;
@@ -8,6 +24,8 @@ mod cleanup;
 pub mod close_store;
 #[cfg(all(windows, feature = "log-disk-full-fixture"))]
 pub mod disk_full_fixture;
+#[cfg(feature = "log-timeline-fixture")]
+pub mod timeline_fixture;
 #[cfg(windows)]
 pub use close_store::save_recovery;
 mod directory;
@@ -188,6 +206,8 @@ pub struct Status {
     pub worker_finished: bool,
 }
 struct Shared {
+    #[cfg(feature = "log-timeline-fixture")]
+    timeline: Option<timeline_fixture::Context>,
     _readable_guard: Option<std::fs::File>,
     sender: Option<SyncSender<Record>>,
     status: Status,
@@ -195,6 +215,17 @@ struct Shared {
     text_cursor: u64,
 }
 impl Shared {
+    #[cfg(feature = "log-timeline-fixture")]
+    fn trace_queue(&self, seq: u64, event: timeline_fixture::Kind) {
+        if let Some(context) = &self.timeline {
+            context.record(
+                seq,
+                event,
+                Some(self.status.accepted_records),
+                Some(self.status.written_records),
+            );
+        }
+    }
     fn fail(&mut self, failure: Failure) {
         self.status.failure.get_or_insert(failure);
         self.status.phase = Phase::Failed;
@@ -300,7 +331,11 @@ impl Logger {
         let permit = Permit::acquire()?;
         let id = Uuid::new_v4();
         let (sender, receiver) = mpsc::sync_channel(QUEUE_RECORDS);
+        #[cfg(feature = "log-timeline-fixture")]
+        let timeline = timeline_fixture::logger_context();
         let shared = Arc::new(Mutex::new(Shared {
+            #[cfg(feature = "log-timeline-fixture")]
+            timeline: timeline.clone(),
             _readable_guard: None,
             sender: Some(sender),
             source_cursor: metadata.source_cursor,
@@ -331,6 +366,8 @@ impl Logger {
         let thread = thread::Builder::new()
             .name("terminal-journal".into())
             .spawn(move || {
+                #[cfg(feature = "log-timeline-fixture")]
+                let _timeline = timeline_fixture::install(timeline);
                 let _permit = permit;
                 let result =
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> io::Result<()> {
@@ -348,6 +385,8 @@ impl Logger {
                         loop {
                             match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
                                 Ok(record) => {
+                                    #[cfg(feature = "log-timeline-fixture")]
+                                    timeline_fixture::dequeued(record.text.seq);
                                     let (first, last) = journal.append(&record)?;
                                     let mut state = state.lock().unwrap();
                                     state.status.written_records += 1;
@@ -381,6 +420,10 @@ impl Logger {
                         Ok(())
                     }));
                 let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+                #[cfg(feature = "log-timeline-fixture")]
+                if !matches!(&result, Ok(Ok(()))) {
+                    timeline_fixture::worker_failed();
+                }
                 match result {
                     Ok(Ok(())) if state.status.failure.is_none() => {
                         state.status.phase = Phase::Stopped;
@@ -409,14 +452,22 @@ impl Logger {
     /// Never waits for disk I/O. Full queues latch an incomplete log and drop all
     /// subsequent capture; neither the caller nor the worker retries records.
     pub fn submit(&self, mut record: Record) -> bool {
+        #[cfg(feature = "log-timeline-fixture")]
+        use timeline_fixture::Kind;
+        #[cfg(feature = "log-timeline-fixture")]
+        let seq = record.text.seq;
         let mut shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
         if shared.sender.is_none() {
             shared.reject(&record);
+            #[cfg(feature = "log-timeline-fixture")]
+            shared.trace_queue(seq, Kind::RejectedClosed);
             return false;
         }
         if !record.valid(&self.metadata, shared.source_cursor, shared.text_cursor) {
             shared.reject(&record);
             shared.fail(Failure::InvalidRecord);
+            #[cfg(feature = "log-timeline-fixture")]
+            shared.trace_queue(seq, Kind::RejectedInvalid);
             return false;
         }
         let raw_bytes = record.raw_bytes();
@@ -442,8 +493,12 @@ impl Logger {
         {
             shared.reject(&record);
             shared.fail(Failure::CounterExhausted);
+            #[cfg(feature = "log-timeline-fixture")]
+            shared.trace_queue(seq, Kind::RejectedCounter);
             return false;
         }
+        #[cfg(feature = "log-timeline-fixture")]
+        shared.trace_queue(seq, Kind::TrySend);
         match shared.sender.as_ref().unwrap().try_send(record) {
             Ok(()) => {
                 shared.text_cursor += 1;
@@ -451,6 +506,8 @@ impl Logger {
                 shared.status.accepted_records += 1;
                 shared.status.accepted_raw_bytes += raw_bytes;
                 shared.status.source_gap_bytes += source_gap;
+                #[cfg(feature = "log-timeline-fixture")]
+                shared.trace_queue(seq, Kind::Accepted);
                 if final_record {
                     shared.status.natural_end = true;
                     shared.status.phase = Phase::Stopping;
@@ -460,11 +517,15 @@ impl Logger {
             }
             Err(TrySendError::Full(record)) => {
                 shared.reject(&record);
+                #[cfg(feature = "log-timeline-fixture")]
+                shared.trace_queue(seq, Kind::QueueFull);
                 shared.fail(Failure::QueueFull);
                 false
             }
             Err(TrySendError::Disconnected(record)) => {
                 shared.reject(&record);
+                #[cfg(feature = "log-timeline-fixture")]
+                shared.trace_queue(seq, Kind::RejectedDisconnected);
                 shared.fail(Failure::Storage);
                 false
             }

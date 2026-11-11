@@ -10,6 +10,8 @@ use uuid::Uuid;
 mod checkpoint_probe;
 
 pub(crate) struct FileJournal {
+    #[cfg(feature = "log-timeline-fixture")]
+    timeline_written_records: u64,
     live: Option<crate::live_text::LiveText>,
     // Retain non-delete-sharing Windows directory handles to prevent junction/rename
     // substitution during all file creation, rotation and completion operations.
@@ -128,6 +130,8 @@ impl FileJournal {
         let source = metadata.source_cursor;
         let text = metadata.text_cursor;
         let mut result = Self {
+            #[cfg(feature = "log-timeline-fixture")]
+            timeline_written_records: 0,
             live: None,
             _guards: guards,
             directory,
@@ -171,8 +175,16 @@ impl FileJournal {
         )
     }
     fn sync(&mut self) -> io::Result<()> {
-        self.raw.as_mut().unwrap().sync_all()?;
-        self.text.as_mut().unwrap().sync_all()
+        timeline_io!(
+            RawSync,
+            Some(self.timeline_written_records),
+            self.raw.as_mut().unwrap().sync_all()
+        )?;
+        timeline_io!(
+            JsonlSync,
+            Some(self.timeline_written_records),
+            self.text.as_mut().unwrap().sync_all()
+        )
     }
     fn segment(&mut self, number: u64, source_cursor: u64, text_cursor: u64) -> io::Result<()> {
         if self.raw.is_some() {
@@ -260,8 +272,16 @@ impl Journal for FileJournal {
         }
         #[cfg(all(windows, feature = "log-disk-full-fixture"))]
         crate::disk_full_fixture::before_raw_write(&self.directory)?;
-        self.raw.as_mut().unwrap().write_all(&raw)?;
-        self.text.as_mut().unwrap().write_all(&text)?;
+        timeline_io!(RawWrite, None, self.raw.as_mut().unwrap().write_all(&raw))?;
+        timeline_io!(
+            JsonlWrite,
+            None,
+            self.text.as_mut().unwrap().write_all(&text)
+        )?;
+        #[cfg(feature = "log-timeline-fixture")]
+        {
+            self.timeline_written_records = self.timeline_written_records.saturating_add(1);
+        }
         if let Some(live) = &mut self.live {
             live.append(record)?;
         }

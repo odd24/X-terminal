@@ -8,6 +8,7 @@ license.workspace = true
 [features]
 audit-diagnostics-fixture = []
 log-disk-full-fixture = []
+log-timeline-fixture = []
 save-recovery-fixture = []
 
 [dependencies]

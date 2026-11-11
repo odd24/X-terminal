@@ -16,6 +16,8 @@ mod recovery;
 mod recovery_export;
 #[cfg(windows)]
 mod throughput;
+#[cfg(all(windows, feature = "log-timeline-fixture"))]
+mod timeline;
 
 struct Temp(PathBuf);
 impl Temp {

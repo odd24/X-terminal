@@ -297,7 +297,7 @@ impl Disk {
     }
     fn sync(&self) -> io::Result<()> {
         if let Some(s) = self.segments.back() {
-            s.file.sync_all()?;
+            timeline_io!(AuditSync, None, s.file.sync_all())?;
         }
         Ok(())
     }
@@ -450,9 +450,15 @@ impl Writer {
             shared: shared.clone(),
             service_id,
         };
+        #[cfg(feature = "log-timeline-fixture")]
+        let timeline = crate::timeline_fixture::audit_context();
         let thread = thread::Builder::new()
             .name("audit-journal".into())
-            .spawn(move || run(disk, receiver, shared))?;
+            .spawn(move || {
+                #[cfg(feature = "log-timeline-fixture")]
+                let _timeline = crate::timeline_fixture::install(timeline);
+                run(disk, receiver, shared)
+            })?;
         Ok(Self {
             sink,
             thread: Some(thread),
@@ -490,6 +496,8 @@ fn commit(disk: &Disk, shared: &Mutex<Shared>) -> io::Result<()> {
     commit_at(disk, shared, FailureStage::Checkpoint)
 }
 fn commit_at(disk: &Disk, shared: &Mutex<Shared>, _stage: FailureStage) -> io::Result<()> {
+    #[cfg(feature = "log-timeline-fixture")]
+    crate::timeline_fixture::set_sequence(disk.last_seq());
     #[cfg(any(test, feature = "audit-diagnostics-fixture"))]
     if let Some(fault) = &disk.fault {
         fault.before(_stage)?;
