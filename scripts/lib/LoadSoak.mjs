@@ -6,10 +6,24 @@ import { delay } from './DesktopHarness.mjs';
 const GiB = 1024 ** 3;
 const MiB = 1024 ** 2;
 
-export async function soakPreflight(sampler, formal) {
+export function checkSoakResourceFloor(measured, stage, report) {
+  const availableFloor = stage === 'preflight' ? 2 * GiB : GiB;
+  const volumeFloor = stage === 'preflight' ? 8 * GiB : 4 * GiB;
+  const [data, reports] = measured.free;
+  const hasMemory = measured.available >= availableFloor;
+  const hasDisk = measured.free.length === 2 && data >= volumeFloor && reports >= volumeFloor;
+  if (!hasMemory || !hasDisk) {
+    report.resourceLowWater = {
+      stage, availableBytes: measured.available, availableFloorBytes: availableFloor,
+      freeBytes: { data, reports }, volumeFloorBytes: volumeFloor,
+    };
+  }
+  assert.ok(hasMemory && hasDisk, `Soak resource low water during ${stage}`);
+}
+
+export async function soakPreflight(sampler, formal, report) {
   const measured = await sampler.request('preflight');
-  assert.ok(measured.available >= 2 * GiB, 'Soak preflight requires 2 GiB available memory');
-  assert.ok(measured.free.length === 2 && measured.free.every(n => n >= 8 * GiB), 'Soak preflight requires 8 GiB on both volumes');
+  checkSoakResourceFloor(measured, 'preflight', report);
   if (formal) {
     assert.equal(measured.power, 'Online', 'Soak requires continuous AC power');
     assert.deepEqual(measured.acTimers, [0, 0], 'Soak requires AC sleep and hibernate timers disabled');
@@ -41,7 +55,7 @@ export async function measureSoak({ directory, ui, fixture, service, sampler, co
   }
   async function sampleResources(index, began) {
       const measure = await sampler.request('sample', { desktop: ui.app.pid, service: service.pid, fixture: fixture.pid });
-      assert.ok(measure.available >= GiB && measure.free.every(n => n >= 4 * GiB), 'Soak resource low water');
+      checkSoakResourceFloor(measure, 'sampling', report);
       if (seconds === 28800) assert.equal(measure.power, 'Online', 'Soak lost AC power');
       const node = process.memoryUsage().rss;
       assert.ok(node <= 512 * MiB, 'Soak Node RSS limit');

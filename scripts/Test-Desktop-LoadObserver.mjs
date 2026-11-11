@@ -59,7 +59,7 @@ try {
   if(soak){
     console.log(`T18 owned run root: ${directory}; stop via Ctrl+C or an empty load-observer-stop file in this root.`);
     sampler=startSoakSampler(directory);
-    report.preflight=await soakPreflight(sampler,formalSoak);
+    report.preflight=await soakPreflight(sampler,formalSoak,report);
     assert.equal(stopSignal,false,'Soak stop requested before startup');
   }
   fixture=spawn(path.resolve('target/debug/examples/gui_load_fixture.exe'),[],{windowsHide:true,stdio:['pipe','pipe','pipe']});

@@ -3,6 +3,27 @@ import os from 'node:os';
 import { mkdtemp, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { samplerClient, startSoakSampler } from './lib/SoakSamplerClient.mjs';
+import { checkSoakResourceFloor } from './lib/LoadSoak.mjs';
+
+const GiB = 1024 ** 3;
+for (const [stage, availableFloorBytes, volumeFloorBytes] of [
+  ['preflight', 2 * GiB, 8 * GiB],
+  ['sampling', GiB, 4 * GiB],
+]) {
+  const report = {};
+  checkSoakResourceFloor({ available: availableFloorBytes, free: [volumeFloorBytes, volumeFloorBytes] }, stage, report);
+  assert.deepEqual(report, {});
+  for (const [available, data, reports] of [
+    [availableFloorBytes - 1, volumeFloorBytes, volumeFloorBytes],
+    [availableFloorBytes, volumeFloorBytes - 1, volumeFloorBytes],
+    [availableFloorBytes, volumeFloorBytes, volumeFloorBytes - 1],
+  ]) {
+    assert.throws(() => checkSoakResourceFloor({ available, free: [data, reports] }, stage, report), /Soak resource low water/);
+    assert.deepEqual(report.resourceLowWater, {
+      stage, availableBytes: available, availableFloorBytes, freeBytes: { data, reports }, volumeFloorBytes,
+    });
+  }
+}
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'shared-terminal-soak-sampler-中文-'));
 try {
