@@ -8,35 +8,39 @@ import { createHash, randomUUID } from 'node:crypto';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
 import { approveCodexExport, checkCodexExport } from './lib/CodexProtectedExportCheck.mjs';
+import { approveCodexExec, checkCodexExec } from './lib/CodexProtectedExecCheck.mjs';
 
 // Integration of the installed Codex model/client, not a delegated development task.
 // No user config, shell, apps, plugins, web search, or persistent Codex chat.
 const model=process.argv.includes('--model');
 const protectedExport=process.argv.includes('--preview-v11-export');
-const previewV11=protectedExport||process.argv.includes('--preview-v11');
+const protectedExec=process.argv.includes('--preview-v11-exec');
+assert.ok(!(protectedExport&&protectedExec),'choose one protected operation');
+const latestPreview=protectedExport||protectedExec;
+const previewV11=latestPreview||process.argv.includes('--preview-v11');
 assert.ok(!(model&&previewV11),'preview verification only supports explicit client calls');
-const evidence=protectedExport?'artifacts/P16-codex-v11-export':previewV11?'artifacts/P16-codex-v11':'artifacts/P16-codex';
+const evidence=protectedExec?'artifacts/P16-codex-v11-exec':protectedExport?'artifacts/P16-codex-v11-export':previewV11?'artifacts/P16-codex-v11':'artifacts/P16-codex';
 let directory, ui, fixture, codex, watchdog, rpc, threadId;
-let previewDirectory, discovered, previewEvidence;
+let previewDirectory, discovered, previewEvidence, metrics;
 const directCalls=[];
 const events=[]; let stderr=''; let completion;
 await mkdir('artifacts',{recursive:true});
 try {
   if(previewV11){
     const readArtifact=async file=>JSON.parse(await readFile(path.join('artifacts',file),'utf8'));
-    const pointer=await readArtifact(protectedExport?'P12-narrow-tree-space-preview.json':'P16-local-preview.json');
+    const pointer=await readArtifact(latestPreview?'P12-narrow-tree-space-preview.json':'P16-local-preview.json');
     previewDirectory=path.resolve(pointer.directory);
     assert.equal(path.dirname(previewDirectory),path.resolve('artifacts'));
     assert.match(path.basename(previewDirectory),/^shared-terminal-preview-[0-9a-f-]+$/);
     assert.equal(pointer.result,'PASS');
-    if(!protectedExport){
+    if(!latestPreview){
       const receipt=await readArtifact('P15-protected-export-v11-preview-result.json');
       assert.equal(receipt.result,'PASS');
       assert.equal(path.resolve(receipt.preview),previewDirectory);
       assert.equal(receipt.mcp_catalog_version,11);assert.equal(receipt.mcp_tools,29);assert.equal(receipt.ordinary,true);
     }
     const manifest=JSON.parse(await readFile(path.join(previewDirectory,'manifest.json'),'utf8'));
-    if(protectedExport){
+    if(latestPreview){
       assert.equal(path.basename(previewDirectory),'shared-terminal-preview-ae0e4810-8d39-4d60-b7b2-d1340f060b42');
       assert.match(manifest.packagedFromHead,/^43b8952[0-9a-f]{33}$/);
     }
@@ -56,7 +60,7 @@ try {
   const next=async()=>{let timer;try{return await Promise.race([lines.next().then(x=>JSON.parse(x.value)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('fixture timeout')),10000);})]);}finally{clearTimeout(timer);}};
   const server=await next();
   const control=async request=>{fixture.stdin.write(JSON.stringify(request)+'\n');return next();};
-  const metrics=()=>control({op:'metrics'});
+  metrics=()=>control({op:'metrics'});
   const profile={id:randomUUID(),folder_id:null,name:'Codex合成SSH',settings:{protocol:'ssh2',host:'127.0.0.1',port:server.port,username:'synthetic',auth:'password',encoding:'utf8'}};
   await ui.invoke('config_request',{request:{op:'save_profile',profile,credential:{action:'replace',value:{password:server.password,private_key:null,passphrase:null}}}});
   await ui.click('SSH2 连接');await ui.waitFor(`document.querySelector('[aria-label="SSH2 配置"]').options.length===2`);await ui.fill('SSH2 配置',profile.id);await ui.click('建立 SSH2 连接');
@@ -78,8 +82,10 @@ try {
   const info=await broker({op:'info'}),request_id=randomUUID();
   if(previewV11)assert.equal(path.resolve(info.executable),path.join(previewDirectory,'terminal-mcp.exe'));
   const secret='P16_SYNTHETIC_REDACTION_MARKER';
-  let grantId, signed, exportTarget;
-  if(protectedExport){
+  let grantId, signed, exportTarget, execTarget;
+  if(protectedExec){
+    ({target:execTarget,grantId,signed}=await approveCodexExec({ui,openAgent,ref,management}));
+  }else if(protectedExport){
     exportTarget=await approveCodexExport({ui,openAgent,ref,serviceId:ordinary.service_id,control});
     grantId=await ui.evaluate(`document.querySelector('[aria-label="Agent签发编号"]').value`);
     signed=await management({op:'grant_status',request_id:grantId});
@@ -146,7 +152,7 @@ try {
   let pending;
   for(let i=0;i<200;i++){pending=await broker({op:'info'});if(pending.peer?.pid)break;if(codex.exitCode!==null||codex.signalCode!==null)throw new Error(`Codex exited before pairing: ${JSON.stringify(await completion)} ${stderr}`);await delay(100);}
   assert.ok(pending.peer?.pid,'Codex must launch the actual stdio executable');
-  if(protectedExport){
+  if(latestPreview){
     assert.ok(Number.isSafeInteger(pending.peer.pid)&&pending.peer.pid>0);
     const child=JSON.parse(execFileSync('pwsh',['-NoProfile','-Command',
       `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -170,16 +176,18 @@ Get-CimInstance Win32_Process -Filter 'ProcessId=${pending.peer.pid}' | Select-O
     // Explicit app-server client calls, not a model turn or approval bypass.
     // processRpc still rejects all approval/callback requests from the child.
     const call=async(tool,args={},expectedError)=>{
-      if(protectedExport)assert.ok(['agent_status','logs_export','logs_export_status','terminal_read','input_acquire'].includes(tool));
+      if(protectedExec)assert.ok(['agent_status','input_lease','input_acquire','ssh_exec','tasks_get','input_release'].includes(tool));
+      else if(protectedExport)assert.ok(['agent_status','logs_export','logs_export_status','terminal_read','input_acquire'].includes(tool));
       else if(previewV11)assert.ok(['agent_status','sessions_list','terminal_read','terminal_wait'].includes(tool));
       const response=await rpc.request('mcpServer/tool/call',{threadId,server:'windows_terminal',tool,arguments:args},30000);
+      if(protectedExec&&response.error)directCalls.push({server:'windows_terminal',tool,arguments:args,error:response.error});
       assert.ok(response.result,JSON.stringify(response.error));
       const result=response.result;
       directCalls.push({server:'windows_terminal',tool,arguments:args,result});
       assert.equal((result.isError??result.is_error)===true,!!expectedError,JSON.stringify(result));
       const value=result.structuredContent??result.structured_content??JSON.parse(result.content.find(c=>c.type==='text').text);
       assert.equal(value.mock,false);
-      if(protectedExport){
+      if(latestPreview){
         assert.deepEqual(Object.keys(value).sort(),expectedError?['error_code','mock']:['mock','reply']);
         for(const content of result.content){
           assert.equal(content.type,'text');
@@ -190,8 +198,11 @@ Get-CimInstance Win32_Process -Filter 'ProcessId=${pending.peer.pid}' | Select-O
       assert.ok(value.reply,JSON.stringify(value));
       return value.reply;
     };
-    let exportEvidence;
-    if(protectedExport){
+    let exportEvidence, execEvidence;
+    if(protectedExec){
+      execEvidence=await checkCodexExec({call,target:execTarget,signed,metrics});
+      assert.equal(directCalls.filter(call=>call.tool==='ssh_exec').length,1);
+    }else if(protectedExport){
       exportEvidence=await checkCodexExport({call,directory,target:exportTarget,signed});
       assert.equal(directCalls.filter(call=>call.tool==='logs_export').length,1);
     }else{
@@ -204,7 +215,7 @@ Get-CimInstance Win32_Process -Filter 'ProcessId=${pending.peer.pid}' | Select-O
     assert.deepEqual((await call('sessions_list')).data.map(({connection_id,generation})=>({connection_id,generation})),[ref]);
     }
     if(previewV11){
-      if(!protectedExport){
+      if(!latestPreview){
       const readArgs={connection:ref,window:null};
       const before=(await call('terminal_read',{...readArgs,view:{kind:'info'}})).data.context;
       assert.deepEqual(before.connection,ref);
@@ -250,7 +261,8 @@ Get-CimInstance Win32_Process -Filter 'ProcessId=${pending.peer.pid}' | Select-O
       previewEvidence={result:'PASS',codexVersion,preview:previewDirectory,catalogVersion:11,discovered,connection:ref,
         grantId,ticketId:signed.data.summary.ticket_id,stdioPid:pending.peer.pid,explicitCalls:directCalls.map(call=>call.tool),
         desktopScopeConfirmed:true,desktopPairingConfirmed:true,
-        ...(protectedExport?{export:exportEvidence,stdioParentPid:codex.pid}:{protectedRead:true,literalMatch:true}),
+        ...(protectedExec?{exec:execEvidence,stdioParentPid:codex.pid}
+          :protectedExport?{export:exportEvidence,stdioParentPid:codex.pid}:{protectedRead:true,literalMatch:true}),
         fixtureInputBytes:0,codexExit:0,stdioExited:true,receipt};
     }else{
     const lease=(await call('input_acquire',{connection:ref,lifetime_ms:60000})).data;
@@ -280,7 +292,11 @@ Get-CimInstance Win32_Process -Filter 'ProcessId=${pending.peer.pid}' | Select-O
   console.log(`PASS installed Codex ${model?'model':'explicit app-server client (NO MODEL TURN)'} → real stdio → native Agent proxy → existing Desktop SSH actor: exact once-only bytes, original receipt, actual MCP read/desktop echo and Agent audit; local synthetic fixture only`);
   }
 } catch(error){
-  if(protectedExport)await writeFile(`${evidence}-failure.json`,JSON.stringify({result:'FAIL',calls:directCalls.map(call=>call.tool),error:error.message},null,2)+'\n');
+  if(latestPreview){
+    const observed=protectedExec?await metrics?.().catch(()=>undefined):undefined;
+    await writeFile(`${evidence}-failure.json`,JSON.stringify({result:'FAIL',calls:directCalls.map(call=>call.tool),error:error.message,
+      fixtureExecRequests:observed?.exec_calls.length,fixtureTerminalInputBytes:observed?.received.flat().length},null,2)+'\n');
+  }
   console.error(model?stderr:rpc?.stderr??'');throw error;
 } finally {
   await writeFile(model?'artifacts/P16-codex-events.jsonl':`${evidence}-client-calls.json`,model?events.map(e=>JSON.stringify(e)).join('\n')+'\n':JSON.stringify(directCalls,null,2)+'\n');
@@ -289,8 +305,9 @@ Get-CimInstance Win32_Process -Filter 'ProcessId=${pending.peer.pid}' | Select-O
   if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-codex-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:20,retryDelay:100});}
 }
 if(previewV11){
-  if(protectedExport)Object.assign(previewEvidence,{fixtureExited:true,rootReleased:true});
+  if(latestPreview)Object.assign(previewEvidence,{fixtureExited:true,rootReleased:true});
   await writeFile(`${evidence}-result.json`,JSON.stringify(previewEvidence,null,2)+'\n');
-  console.log(protectedExport?'PASS official Codex app-server protected export on the original ended synthetic SSH generation.'
+  console.log(protectedExec?'PASS official Codex app-server protected Single Exec on the original synthetic SSH generation.'
+    :protectedExport?'PASS official Codex app-server protected export on the original ended synthetic SSH generation.'
     :'PASS official Codex app-server, ordinary v11 preview, 29 discovered, protected bounded read and literal wait on the shared synthetic SSH generation.');
 }
