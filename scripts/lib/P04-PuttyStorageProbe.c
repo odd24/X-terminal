@@ -22,22 +22,81 @@ typedef struct {
     bool timed_out;
 } Probe;
 
+#ifdef P04_TRUST_PROBE
+int p04_trust_port;
+static const char *fixture_fingerprint;
+static unsigned trust_calls, auth_calls;
+static void (*trust_continuation)(void *, SeatPromptResult);
+static void *trust_ctx;
+static DWORD trust_owner;
+
+static void reject_trust(void *unused)
+{
+    (void)unused;
+    if (GetCurrentThreadId() != trust_owner || !trust_continuation)
+        exit(28);
+    void (*cb)(void *, SeatPromptResult) = trust_continuation;
+    trust_continuation = NULL;
+    cb(trust_ctx, SPR_USER_ABORT);
+    puts("P04_HOST_REJECTED");
+}
+
+static SeatPromptResult fixture_host_key(
+    Seat *seat, const char *host, int port, const char *type, char *key,
+    SeatDialogText *text, HelpCtx help,
+    void (*cb)(void *, SeatPromptResult), void *ctx)
+{
+    (void)seat; (void)key; (void)help;
+    if (!fixture_fingerprint || GetCurrentThreadId() != trust_owner ||
+        ++trust_calls != 1 || port != p04_trust_port ||
+        strcmp(host, "127.0.0.1") || strcmp(type, "rsa") || !cb || !text)
+        return SPR_SW_ABORT("unexpected test host challenge");
+    for (size_t i = 0; i < text->nitems; i++) {
+        if (text->items[i].type == SDT_DISPLAY &&
+            !strcmp(text->items[i].text, fixture_fingerprint)) {
+            trust_continuation = cb;
+            trust_ctx = ctx;
+            queue_toplevel_callback(reject_trust, &trust_ctx);
+            puts("P04_HOST_CHALLENGE_MATCHED");
+            return SPR_INCOMPLETE;
+        }
+    }
+    return SPR_SW_ABORT("test host fingerprint mismatch");
+}
+
+static SeatPromptResult fixture_password(Seat *seat, prompts_t *p)
+{
+    (void)seat; (void)p;
+    ++auth_calls;
+    return SPR_SW_ABORT("authentication outside this test");
+}
+#endif
+
 static const struct SeatVtable probe_seat = {
     .output = nullseat_output,
     .eof = nullseat_eof,
     .sent = nullseat_sent,
     .banner = nullseat_banner,
+#ifdef P04_TRUST_PROBE
+    .get_userpass_input = fixture_password,
+    .confirm_ssh_host_key = fixture_host_key,
+#else
     .get_userpass_input = nullseat_get_userpass_input,
+    .confirm_ssh_host_key = nullseat_confirm_ssh_host_key,
+#endif
     .notify_session_started = nullseat_notify_session_started,
     .notify_remote_exit = nullseat_notify_remote_exit,
     .notify_remote_disconnect = nullseat_notify_remote_disconnect,
     .connection_fatal = nullseat_connection_fatal,
     .update_specials_menu = nullseat_update_specials_menu,
-    .confirm_ssh_host_key = nullseat_confirm_ssh_host_key,
     .prompt_descriptions = nullseat_prompt_descriptions,
     .set_busy_status = nullseat_set_busy_status,
     .verbose = nullseat_verbose_no,
     .interactive = nullseat_interactive_no,
+    .set_trust_status = nullseat_set_trust_status,
+#ifdef P04_TRUST_PROBE
+    .can_set_trust_status = nullseat_can_set_trust_status_no,
+#endif
 };
 
 static bool before_wait(void *ctx, const HANDLE **handles, size_t *count)
@@ -75,6 +134,10 @@ static int loopback(const BackendVtable *vt, const char *port_text)
     if (*end || port < 1 || port > 65535)
         return 5;
     Probe probe = { .owner = GetCurrentThreadId() };
+#ifdef P04_TRUST_PROBE
+    p04_trust_port = fixture_fingerprint ? (int)port : 0;
+    trust_owner = probe.owner;
+#endif
     probe.deadline = CreateWaitableTimerW(NULL, TRUE, NULL);
     if (!probe.deadline)
         return 6;
@@ -110,6 +173,11 @@ static int loopback(const BackendVtable *vt, const char *port_text)
         cli_main_loop(before_wait, after_wait, &probe);
     if (GetCurrentThreadId() != probe.owner)
         exit(27);
+#ifdef P04_TRUST_PROBE
+    delete_callbacks_for_context(&trust_ctx);
+    if (fixture_fingerprint && (trust_calls != 1 || auth_calls != 0 || trust_continuation))
+        probe.timed_out = true;
+#endif
     if (probe.backend)
         backend_free(probe.backend);
     sfree(error);
@@ -136,6 +204,12 @@ int main(int argc, char **argv)
         return 3;
     if (argc == 3 && strcmp(argv[1], "loopback") == 0)
         return loopback(backend, argv[2]);
+#ifdef P04_TRUST_PROBE
+    if (argc == 4 && strcmp(argv[1], "trust") == 0) {
+        fixture_fingerprint = argv[3];
+        return loopback(backend, argv[2]);
+    }
+#endif
     if (argc != 1)
         return 2;
     if (open_settings_r("synthetic") != NULL)
