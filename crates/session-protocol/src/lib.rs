@@ -320,6 +320,8 @@ pub enum Reply {
     Pong {
         service_id: Uuid,
         uptime_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ssh1_preview: Option<bool>,
     },
     Sessions(Vec<ConnectionInfo>),
     Connection(ConnectionInfo),

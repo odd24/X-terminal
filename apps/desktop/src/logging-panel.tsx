@@ -37,7 +37,7 @@ export function LoggingPanel({ connection, open, close, onStatus }: { connection
       try {
         const reply = await logging({ op: 'list', connection: target });
         if (disposed) return;
-        if (reply.result !== 'list' || reply.logs.some(log => log.connection.connection_id !== target.connection_id || log.connection.generation !== target.generation)) throw new Error('日志状态目标不匹配');
+        if (reply.result !== 'list' || reply.logs.some(log => log.protocol !== connection?.protocol || log.connection.connection_id !== target.connection_id || log.connection.generation !== target.generation)) throw new Error('日志状态目标不匹配');
         setLogs(reply.logs); setMonitorError('');
         onStatus({ connection: target, text: summary(reply.logs) });
       } catch { if (!disposed) { setMonitorError('日志状态暂不可用；未重新启动记录。'); onStatus({ connection: target, text: '状态暂不可用；未重新启动记录' }); } }
@@ -59,7 +59,7 @@ export function LoggingPanel({ connection, open, close, onStatus }: { connection
     setBusy(true); setMessage('');
     try {
       const reply = await logging(action === 'start' ? { op: 'start', connection: frozen, request_id: requestId(), limits: { segment_bytes: Math.round(size * 1024 * 1024), segments } } : { op: action, connection: frozen, log_id: logId! });
-      if (reply.result !== 'info' || reply.connection.connection_id !== frozen.connection_id || reply.connection.generation !== frozen.generation || (action !== 'start' && reply.log_id !== logId)) throw new Error('日志响应目标或状态不匹配；请查询原目标，未自动重试。');
+      if (reply.result !== 'info' || reply.protocol !== target.protocol || reply.connection.connection_id !== frozen.connection_id || reply.connection.generation !== frozen.generation || (action !== 'start' && reply.log_id !== logId)) throw new Error('日志响应目标或状态不匹配；请查询原目标，未自动重试。');
       if (mounted.current && current.current?.connection_id === frozen.connection_id && current.current.generation === frozen.generation && reply.result === 'info') {
         setSelected(reply.log_id); setLogs(old => [reply, ...old.filter(log => log.log_id !== reply.log_id)]);
         onStatus({ connection: frozen, text: summary([reply]) });

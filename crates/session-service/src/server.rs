@@ -542,6 +542,9 @@ impl Runtime {
             Request::Ping {} => Ok(Reply::Pong {
                 service_id: self.service_id,
                 uptime_ms: now,
+                ssh1_preview: (store.pairing.require_desktop(identity, now).is_ok()
+                    && crate::ssh::legacy::configured())
+                .then_some(true),
             }),
             Request::List {} => Ok(Reply::Sessions(
                 store

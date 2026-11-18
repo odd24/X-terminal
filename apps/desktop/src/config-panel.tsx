@@ -89,7 +89,7 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
   const filtered = profiles.filter(profile => (filter === '*' || (profile.folder_id ?? '') === filter) && profile.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <section className="config-panel" aria-label="连接配置">
     <div className="config-heading"><h2>连接配置</h2><button onClick={() => { clearSecrets(); close(); }}>关闭配置</button></div>
-    <p className="config-notice">保存配置不会建立连接。已保存的 UTF-8 SSH2 配置可在“SSH2 连接”面板手动连接。SSH1/串口入口继续实施。</p>
+    <p className="config-notice">保存配置不会建立连接。可在会话树选择保存项，再明确连接。SSH1 需要启用旧协议的本机预览。</p>
     <div className="config-message" role="status" aria-label="配置状态">{message}</div>
     {deletion&&<section className="notice-error" aria-label="删除保存配置确认"><strong>删除保存配置“{deletion.profile.name}”？</strong><p>{deletion.profile.settings.protocol.toUpperCase()} · {'host' in deletion.profile.settings?`${deletion.profile.settings.host}:${deletion.profile.settings.port}`:deletion.profile.settings.port}</p><small>仅删除此配置（ID：{deletion.profile.id}）。不关闭现有连接，不删除日志或共享凭据记录。</small><div className="config-actions">{deletion.uncertain?<button ref={deleteControl} disabled={busy} onClick={()=>void checkDeletion()}>只读核对删除结果</button>:<button ref={deleteControl} disabled={busy} onClick={()=>void deleteSelected()}>确认删除此配置</button>}<button disabled={busy} onClick={()=>setDeletion(undefined)}>取消删除</button></div></section>}
     <div hidden={!!deletion}><div className="config-layout">
@@ -119,7 +119,7 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
               <label>端口<input aria-label="端口" type="number" required min={1} max={65535} value={draft.port} onChange={event => change('port', Number(event.target.value))} /></label>
               <label>用户名<input aria-label="用户名" required maxLength={128} autoComplete="off" value={draft.username} onChange={event => change('username', event.target.value)} /></label>
               {draft.protocol === 'ssh2' && <label>认证方式<select aria-label="认证方式" value={draft.auth} onChange={event => { clearSecrets(); change('auth', event.target.value as Auth); }}><option value="password">密码</option><option value="public_key">私钥与口令</option><option value="keyboard_interactive">交互认证</option></select></label>}
-              {draft.protocol === 'ssh1' && <label className="check"><input aria-label="显式开启SSH1" type="checkbox" required checked={draft.ssh1} onChange={event => change('ssh1', event.target.checked)} />明确启用 SSH1；不从 SSH2 自动降级</label>}
+              {draft.protocol === 'ssh1' && <label className="check"><input aria-label="显式开启SSH1" type="checkbox" required checked={draft.ssh1} onChange={event => change('ssh1', event.target.checked)} />明确启用可能不安全的旧协议 SSH1</label>}
             </> : <>
               <label>串口标识<input aria-label="串口标识" required pattern="[Cc][Oo][Mm][0-9]+" value={draft.serialPort} placeholder="COM89" onChange={event => change('serialPort', event.target.value)} /></label>
               <label>波特率<input aria-label="波特率" required type="number" min={1} max={4294967295} value={draft.baud} onChange={event => change('baud', Number(event.target.value))} /></label>
@@ -132,7 +132,8 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
             </>}
           </div>
           {draft.protocol !== 'serial' && <fieldset><legend>凭据</legend><p>{current?.credential_missing ? '此配置的凭据记录缺失，请重新输入或移除引用。恢复配置不会恢复密码或私钥。' : current?.credential_ref ? '此配置有保存的凭据引用；不会回填秘密。' : '此配置没有保存的凭据引用。'}</p>
-            <label>凭据操作<select aria-label="凭据操作" value={credential} onChange={event => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential(event.target.value as typeof credential); }}><option value="keep">保留现有引用 / 暂不保存</option><option value="clear">移除此配置的凭据引用</option><option value="replace">保存新凭据</option></select></label>
+            <label>凭据操作<select aria-label="凭据操作" value={credential} onChange={event => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential(event.target.value as typeof credential); }}><option value="keep">保留现有引用 / 暂不保存</option><option value="clear">移除此配置的凭据引用</option><option value="replace" disabled={draft.protocol==='ssh1'}>保存新凭据</option></select></label>
+            {draft.protocol==='ssh1' && <small>此预览的 SSH1 连接只使用本次输入的临时密码。</small>}
             {credential === 'replace' && (draft.protocol === 'ssh2' && draft.auth === 'public_key' ? <><label>本地私钥文件<input aria-label="本地私钥文件" required autoComplete="off" placeholder="C:\keys\id_ed25519" value={keyPath} onChange={event => setKeyPath(event.target.value)} /><small>仅本地盘的普通文件，服务读取并加密保存；文件内容不进入页面。</small></label><label>私钥口令<input aria-label="私钥口令" type="password" autoComplete="new-password" value={passphrase} onChange={event => setPassphrase(event.target.value)} /></label></> : <label>新密码<input aria-label="新密码" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /><small>允许显式保存空密码。</small></label>)}
             <small>移除引用不删除其他配置或备份可能使用的密文。保存、切换或关闭后清空新输入。</small>
           </fieldset>}

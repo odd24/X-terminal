@@ -5,7 +5,7 @@ use child::Managed;
 use tokio::time::{Instant, sleep_until};
 use transport_ssh1::{self as wire, Event, Request};
 
-pub(super) fn configured() -> bool {
+pub(crate) fn configured() -> bool {
     child::image_pin().is_some()
 }
 

@@ -54,6 +54,7 @@ pub struct Status {
     pub(crate) service_id: Uuid,
     pid: u32,
     fixture: bool,
+    ssh1_preview: bool,
     exit_policy: &'static str,
     previous_close: crate::close_receipt::Previous,
 }
@@ -240,11 +241,22 @@ impl Service {
     }
 
     pub async fn status(&mut self) -> Result<Status, String> {
-        self.request(Request::Ping {}).await?;
+        let Reply::Pong {
+            service_id,
+            ssh1_preview,
+            ..
+        } = self.request(Request::Ping {}).await?
+        else {
+            return Err("INVALID_REPLY".into());
+        };
+        if service_id != self.service_id {
+            return Err("INVALID_REPLY".into());
+        }
         Ok(Status {
             service_id: self.service_id,
             pid: self.child.id().ok_or("SERVICE_UNAVAILABLE")?,
             fixture: self.fixture,
+            ssh1_preview: ssh1_preview == Some(true),
             exit_policy: "stop_on_desktop_exit",
             previous_close: self.previous_close.clone(),
         })

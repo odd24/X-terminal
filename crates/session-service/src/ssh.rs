@@ -3,7 +3,7 @@ mod disconnect;
 mod exec;
 mod forget;
 mod history;
-mod legacy;
+pub(crate) mod legacy;
 mod reconnect;
 #[cfg(test)]
 mod reconnect_tests;

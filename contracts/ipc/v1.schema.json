@@ -7836,6 +7836,12 @@
                     "format": "uuid",
                     "type": "string"
                   },
+                  "ssh1_preview": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "uptime_ms": {
                     "format": "uint64",
                     "minimum": 0,

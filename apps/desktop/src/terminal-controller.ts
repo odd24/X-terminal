@@ -78,7 +78,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       const target = current.connection;
       const protocol = current.protocol;
       const writing='text' in action||'bytes' in action;
-      if (!target || !['SSH2','SERIAL'].includes(protocol) || !current.writable || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&!active()) return false;
+      if (!target || !['SSH1','SSH2','SERIAL'].includes(protocol) || protocol==='SSH1'&&!writing || !current.writable || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&!active()) return false;
       const epoch=deps.selection().epoch;
       const inputOwner=owner;
       const id = requestId();
@@ -119,7 +119,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       const accepted=pacing?queue.enqueue(async()=>{
         try{await pacing.run(part=>dispatch({text:part}),()=>!disposed&&owner===inputOwner&&current.protocol===protocol&&bound(target)&&active()&&deps.selection().epoch===epoch&&deps.selection().connection?.state==='CONNECTED'&&current.writable);}
         finally{if(pacedCompose===pacing)pacedCompose=undefined;}
-      }):keyboard&&protocol==='SSH2'&&'text' in action?queue.enqueueKeyboard(action.text,`${owner}/${target.connection_id}/${target.generation}/${epoch}`,async text=>{await dispatch({text});}):queue.enqueue(run);
+      }):keyboard&&(protocol==='SSH1'||protocol==='SSH2')&&'text' in action?queue.enqueueKeyboard(action.text,`${owner}/${target.connection_id}/${target.generation}/${epoch}`,async text=>{await dispatch({text});}):queue.enqueue(run);
       // Error text can resize the terminal, enqueueing another resize against a
       // stopped queue. Keep the original dispatch failure visible.
       if (!accepted) setInputFailure(previous => previous || '输入队列已满或已停止；此次输入未发送。');
@@ -166,10 +166,10 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         if (new TextEncoder().encode(data).length > 65536) { setInputFailure('单次输入超过 64 KiB；此次输入未发送'); return false; }
         setLastInput('串口键盘输入已收到，内容不显示；Enter 按终端 CR 发送'); return submit({ text: data });
       }
-      if (current.protocol === 'SSH2') {
+      if (current.protocol === 'SSH1' || current.protocol === 'SSH2') {
         if (!current.writable || !bound(current.connection)) { setLastInput('连接当前不可写；此次输入未发送'); return false; }
         if (/[\uD800-\uDFFF]/u.test(data)) { setInputFailure('输入包含不完整 Unicode 字符；此次输入未发送'); return false; }
-        if (new TextEncoder().encode(data).length > 196608) { setInputFailure('单次文本超过输入上限；此次输入未发送'); return false; }
+        if (new TextEncoder().encode(data).length > (current.protocol === 'SSH1' ? 16384 : 196608)) { setInputFailure('单次文本超过输入上限；此次输入未发送'); return false; }
         setLastInput('SSH 键盘输入已收到，按连接编码发送；内容不显示');
         return submit({ text: data },keyboard);
       }
@@ -219,8 +219,8 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           current.writable=false;pacedCompose?.cancel();queue.close();queue=newQueue();lastSize='';clearTimeout(resizeTimer);
           deps.invalidateDrafts();clip.invalidate();update({renderedTarget:undefined});current.writer.close();
           let encoding='utf8';
-          if(connection&&['SSH2','SERIAL'].includes(connection.protocol)){
-            const metadata=await invoke<SshReply|SerialStatus>(connection.protocol==='SSH2'?'ssh_request':'serial_request',{request:{op:'status',connection:{connection_id:connection.connection_id,generation:connection.generation}}});
+          if(connection&&['SSH1','SSH2','SERIAL'].includes(connection.protocol)){
+            const metadata=await invoke<SshReply|SerialStatus>(connection.protocol==='SERIAL'?'serial_request':'ssh_request',{request:{op:'status',connection:{connection_id:connection.connection_id,generation:connection.generation}}});
             if(disposed)return;if(!same(selection)){timer=window.setTimeout(()=>void poll(),0);return;}
             if(metadata.result!=='status'||metadata.connection.connection_id!==connection.connection_id||metadata.connection.generation!==connection.generation||metadata.connection.protocol!==connection.protocol)throw new Error('Invalid encoding status');
             encoding=metadata.encoding;

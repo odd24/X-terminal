@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Auth, HostKeySummary, Settings } from './config-api';
+import { requestId } from './request-id';
 export type Connection = { connection_id: string; generation: number; protocol: string; state: string };
 export type ConnectionRef = Pick<Connection, 'connection_id' | 'generation'>;
 export type Challenge =
@@ -19,6 +20,9 @@ type Request =
   | { op: 'exec_status' | 'exec_cancel'; connection: ConnectionRef; task_id: string }
   | { op: 'exec_read'; connection: ConnectionRef; task_id: string; cursor: number; max_bytes: number }
   | { op: 'start'; profile_id: string; request_id: string; cols: number; rows: number }
+  | { op: 'start_fixed'; profile_id: string; revision: string; request_id: string; cols: number; rows: number }
+  | { op: 'connect_status'; profile_id: string; revision: string; request_id: string }
+  | { op: 'disconnect'; connection: ConnectionRef; request_id: string }
   | { op: 'reconnect'; connection: ConnectionRef; request_id: string; cols: number; rows: number }
   | { op: 'status' | 'close' | 'forget'; connection: ConnectionRef }
   | { op: 'answer_host'; connection: ConnectionRef; challenge_id: string; approve: boolean }
@@ -28,7 +32,7 @@ type Request =
   | { op: 'write'; connection: ConnectionRef; request_id: string; bytes: number[] }
   | { op: 'resize'; connection: ConnectionRef; request_id: string; cols: number; rows: number }
   | { op: 'input_status'; connection: ConnectionRef; request_id: string };
-export type SshReply = ({ result: 'exec' } & TaskStatus) | { result: 'exec_output'; connection: ConnectionRef; task_id: string; output: ExecPage } | { result: 'started'; connection: Connection } | ({ result: 'status' } & SshStatus) | ({ result: 'input' } & Receipt) | { result: 'accepted' };
+export type SshReply = ({ result: 'exec' } & TaskStatus) | { result: 'exec_output'; connection: ConnectionRef; task_id: string; output: ExecPage } | { result: 'started'; connection: Connection } | {result:'connect_receipt'; profile_id:string; revision:string; request_id:string; connection:Connection} | {result:'disconnect'; connection:ConnectionRef; request_id:string; state:'REQUESTED'|'TRANSPORT_ENDED'} | ({ result: 'status' } & SshStatus) | ({ result: 'input' } & Receipt) | { result: 'accepted' };
 export class SshRequestError extends Error { constructor(readonly code:string,message:string){super(message);} }
 export async function ssh(request: Request): Promise<SshReply> {
   try { return await invoke<SshReply>('ssh_request', { request }); }
@@ -49,6 +53,14 @@ export async function ssh(request: Request): Promise<SshReply> {
 }
 export function reference(connection: Connection): ConnectionRef {
   return { connection_id: connection.connection_id, generation: connection.generation };
+}
+export async function disconnectSsh1(connection: ConnectionRef) {
+  const request_id = requestId();
+  const reply = await ssh({ op: 'disconnect', connection, request_id });
+  if (reply.result !== 'disconnect' || reply.request_id !== request_id
+    || reply.connection.connection_id !== connection.connection_id || reply.connection.generation !== connection.generation) {
+    throw new Error('SSH1 关闭回执与原请求不匹配。');
+  }
 }
 export function dimensions(cols: number, rows: number) {
   return { cols: Math.max(2, Math.min(500, cols)), rows: Math.max(1, Math.min(200, rows)) };
