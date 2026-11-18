@@ -29,11 +29,13 @@ static unsigned trust_calls, auth_calls;
 static void (*trust_continuation)(void *, SeatPromptResult);
 static void *trust_ctx;
 static DWORD trust_owner;
-static bool approve_fixture, resize_fixture, approved, password_ready, auth_completed;
+static bool approve_fixture, resize_fixture, pty_resize_fixture;
+static bool approved, password_ready, auth_completed;
 static bool session_started, remote_exit, bad_output;
 static prompts_t *pending_password;
 static char fixture_secret[64];
-static const char expected_output[] = "P04_PTY_OK\r\n";
+static const char *expected_output = "P04_PTY_OK\r\n";
+static size_t resize_ready_length, expected_output_length;
 static size_t output_received;
 
 static void finish_trust(void *unused)
@@ -124,7 +126,7 @@ static size_t fixture_output(Seat *seat, SeatOutputType type,
         return nullseat_output(seat, type, data, len);
     if (GetCurrentThreadId() != trust_owner || !session_started ||
         type != SEAT_OUTPUT_STDOUT ||
-        len > sizeof(expected_output) - 1 - output_received ||
+        len > expected_output_length - output_received ||
         memcmp(expected_output + output_received, data, len)) {
         bad_output = true;
     } else {
@@ -201,14 +203,15 @@ static bool after_wait(void *ctx, size_t index)
         return false;
 #ifdef P04_TRUST_PROBE
     if (approve_fixture) {
-        /* The fixed TTY command emits the marker before waiting for a line. */
+        /* The remote fixture prints its first line after becoming ready. */
         if (resize_fixture && !probe->resized && !bad_output &&
-            output_received == sizeof(expected_output) - 1 &&
+            output_received == resize_ready_length &&
             backend_sendok(probe->backend)) {
             backend_size(probe->backend, 137, 41);
             probe->resized = true;
             puts("P04_OWNER_RESIZE_AFTER_PTY 137x41");
-            backend_send(probe->backend, "\n", 1);
+            if (!pty_resize_fixture)
+                backend_send(probe->backend, "\n", 1);
         }
         return true;
     }
@@ -259,7 +262,11 @@ static int loopback(const BackendVtable *vt, const char *port_text)
     if (approve_fixture) {
         conf_set_str(conf, CONF_username, "p04-fixture");
         conf_set_bool(conf, CONF_nopty, false);
-        if (resize_fixture) {
+        if (pty_resize_fixture) {
+            conf_set_int(conf, CONF_width, 80);
+            conf_set_int(conf, CONF_height, 24);
+            conf_set_str(conf, CONF_remote_cmd, "exec ./p04-pty-size");
+        } else if (resize_fixture) {
             conf_set_str_str(conf, CONF_ttymodes, "ECHO", "V0");
             conf_set_str(conf, CONF_remote_cmd,
                          "test -t 0 && test -t 1 && printf 'P04_PTY_OK\\n' "
@@ -294,7 +301,7 @@ static int loopback(const BackendVtable *vt, const char *port_text)
         int status = initialized ? backend_exitcode(probe.backend) : -1;
         verified = approved && trust_calls == 1 && !trust_continuation &&
             auth_completed && auth_calls == 1 && !pending_password &&
-            session_started && !bad_output && output_received == sizeof(expected_output) - 1 &&
+            session_started && !bad_output && output_received == expected_output_length &&
             (!resize_fixture || probe.resized) && remote_exit && status == 0;
         if (verified)
             puts("P04_PTY_OUTPUT_MATCHED_AND_REMOTE_EXIT_0");
@@ -335,9 +342,18 @@ int main(int argc, char **argv)
         return loopback(backend, argv[2]);
     }
     if (argc == 4 && (strcmp(argv[1], "approve-fixture") == 0 ||
-                      strcmp(argv[1], "resize-fixture") == 0)) {
+                      strcmp(argv[1], "resize-fixture") == 0 ||
+                      strcmp(argv[1], "pty-resize-fixture") == 0)) {
         fixture_fingerprint = argv[3];
-        resize_fixture = strcmp(argv[1], "resize-fixture") == 0;
+        pty_resize_fixture = strcmp(argv[1], "pty-resize-fixture") == 0;
+        resize_fixture = pty_resize_fixture || strcmp(argv[1], "resize-fixture") == 0;
+        if (pty_resize_fixture) {
+            expected_output = "P04_PTY_INITIAL 24 80\r\nP04_PTY_SIGWINCH 41 137\r\n";
+            resize_ready_length = strlen("P04_PTY_INITIAL 24 80\r\n");
+        } else {
+            resize_ready_length = strlen(expected_output);
+        }
+        expected_output_length = strlen(expected_output);
         setvbuf(stdout, NULL, _IONBF, 0);
         if (!fgets(fixture_secret, sizeof(fixture_secret), stdin))
             return 8;

@@ -7,9 +7,11 @@ import { createInterface } from 'node:readline';
 
 const [directory, root, mode = 'trust', source] = process.argv.slice(2);
 assert.ok(directory && /^\/tmp\/P04-ssh1\.[A-Za-z0-9]+$/.test(root));
-assert.ok(mode === 'trust' || (source && ['approve-fixture', 'resize-fixture'].includes(mode)));
+assert.ok(mode === 'trust' || (source &&
+  ['approve-fixture', 'resize-fixture', 'pty-resize-fixture'].includes(mode)));
 const approve = mode !== 'trust';
-const resize = mode === 'resize-fixture';
+const ptyResize = mode === 'pty-resize-fixture';
+const resize = ptyResize || mode === 'resize-fixture';
 const map = readFileSync(path.join(directory, 'storage-probe.map'), 'utf8');
 assert.doesNotMatch(map, /\bsettings:storage\.c\.obj\b/i);
 for (const symbol of ['check_stored_host_key', 'store_host_key']) {
@@ -145,6 +147,9 @@ try {
     windowsLoopbackOwner: process.pid, wslNetworkNamespace: 'private', authPromptCount: approve ? 1 : 0,
     ...(approve ? { ptyOutput: 'matched', remoteExitStatus: 0, exitConfirmations } : {}),
     ...(resize ? { sizeEvents, wireRowsColsPixels: sizeBeforeExit } : {}),
+    ...(ptyResize ? {
+      ptyInitialRowsCols: [24, 80], ptyRowsColsAfterSigwinch: [41, 137],
+    } : {}),
   }));
 } finally {
   clearTimeout(deadline);

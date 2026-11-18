@@ -1,0 +1,10 @@
+--- a/ssh/connection1-server.c
++++ b/ssh/connection1-server.c
+@@ -194,1 +194,1 @@
+-        /* P04 fixture only: observe the packet without applying a resize. */
++        /* P04 fixture only: send the decoded size to the session PTY. */
+@@ -201,2 +201,4 @@
+                          height, width, pixwidth, pixheight);
++            chan_change_window_size(
++                s->mainchan_chan, width, height, pixwidth, pixheight);
+         }
