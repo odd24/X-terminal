@@ -5035,6 +5035,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "transport-ssh1"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "session-core",
+ "session-protocol",
+ "tokio",
+ "uuid",
+ "windows-sys 0.61.2",
+ "zeroize",
+]
+
+[[package]]
 name = "transport-ssh2"
 version = "0.1.0"
 dependencies = [

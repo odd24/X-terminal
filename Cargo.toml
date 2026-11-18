@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop/src-tauri", "crates/session-core", "crates/terminal-log", "crates/transport-ssh2", "crates/transport-serial", "crates/mcp-bridge", "crates/session-protocol", "crates/session-service", "crates/config-store", "crates/credential-vault", "crates/config-model"]
+members = ["apps/desktop/src-tauri", "crates/session-core", "crates/terminal-log", "crates/transport-ssh1", "crates/transport-ssh2", "crates/transport-serial", "crates/mcp-bridge", "crates/session-protocol", "crates/session-service", "crates/config-store", "crates/credential-vault", "crates/config-model"]
 resolver = "2"
 exclude = ["vendor/russh", "vendor/vt100"]
 

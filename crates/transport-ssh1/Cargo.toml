@@ -1,0 +1,29 @@
+[package]
+name = "transport-ssh1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+native-helper = []
+
+[[bin]]
+name = "ssh1-helper"
+path = "src/main.rs"
+required-features = ["native-helper"]
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+session-core = { path = "../session-core" }
+session-protocol = { path = "../session-protocol" }
+uuid = { version = "=1.29.0", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+tokio = { version = "=1.54.1", features = ["rt", "io-std"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Threading"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+tokio = { version = "=1.54.1", features = ["macros", "net", "process", "time"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_System_JobObjects"] }
+zeroize = "=1.9.1"
