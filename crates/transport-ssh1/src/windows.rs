@@ -103,7 +103,7 @@ fn valid_fingerprint(fingerprint: &str) -> bool {
 }
 
 impl Owner {
-    fn challenge(&self, kind: ChallengeKind, fingerprint: Option<String>) -> bool {
+    fn challenge(&self, kind: ChallengeKind, host: Option<(String, String)>) -> bool {
         if self.pending.borrow().is_some() {
             return false;
         }
@@ -112,12 +112,14 @@ impl Owner {
             id: Uuid::new_v4(),
             kind,
         };
-        let event = match &fingerprint {
-            Some(value) => Event::HostChallenge {
+        let fingerprint = host.as_ref().map(|(value, _)| value.clone());
+        let event = match host {
+            Some((fingerprint, key)) => Event::HostChallenge {
                 challenge: target,
                 endpoint: self.endpoint.clone(),
                 algorithm: "rsa1".into(),
-                fingerprint: value.clone(),
+                fingerprint,
+                key,
             },
             None => Event::PasswordChallenge { challenge: target },
         };
@@ -140,6 +142,32 @@ impl Owner {
 
 // PuTTY only calls these entry points on its owner thread and never retains data pointers.
 #[unsafe(no_mangle)]
+unsafe extern "C" fn p13_emit_host(
+    context: *const c_void,
+    fingerprint: *const u8,
+    fingerprint_len: usize,
+    key: *const u8,
+    key_len: usize,
+) -> bool {
+    if fingerprint.is_null() || key.is_null() || fingerprint_len > 64 || key_len > MAX_DATA {
+        return false;
+    }
+    let fingerprint =
+        str::from_utf8(unsafe { slice::from_raw_parts(fingerprint, fingerprint_len) });
+    let key = str::from_utf8(unsafe { slice::from_raw_parts(key, key_len) });
+    let (Ok(fingerprint), Ok(key)) = (fingerprint, key) else {
+        return false;
+    };
+    let owner = unsafe { &*context.cast::<Owner>() };
+    valid_fingerprint(fingerprint)
+        && transport_ssh1::valid_rsa1_key(key)
+        && owner.challenge(
+            ChallengeKind::HostTrust,
+            Some((fingerprint.into(), key.into())),
+        )
+}
+
+#[unsafe(no_mangle)]
 unsafe extern "C" fn p13_emit(
     context: *const c_void,
     event: i32,
@@ -149,14 +177,6 @@ unsafe extern "C" fn p13_emit(
 ) -> bool {
     let owner = unsafe { &*context.cast::<Owner>() };
     match event {
-        1 if !data.is_null() && len <= 64 => {
-            let bytes = unsafe { slice::from_raw_parts(data, len) };
-            let Ok(fingerprint) = str::from_utf8(bytes) else {
-                return false;
-            };
-            valid_fingerprint(fingerprint)
-                && owner.challenge(ChallengeKind::HostTrust, Some(fingerprint.into()))
-        }
         2 => owner.challenge(ChallengeKind::Password, None),
         3 => owner
             .outgoing
@@ -210,11 +230,32 @@ unsafe extern "C" fn p13_dispatch(context: *const c_void, native: *mut c_void) -
             owner.pending.take();
             unsafe { p13_password(native, bytes.as_ptr(), bytes.len()) }
         }
-        Request::Input { session, bytes } if session == owner.session => {
+        Request::Input {
+            session,
+            request_id,
+            bytes,
+        } if session == owner.session => {
             let bytes = bytes.expose();
-            !bytes.is_empty()
-                && bytes.len() <= MAX_DATA
-                && unsafe { p13_input(native, bytes.as_ptr(), bytes.len()) }
+            if request_id.is_nil()
+                || bytes.is_empty()
+                || bytes.len() > MAX_DATA
+                || !unsafe { p13_input(native, bytes.as_ptr(), bytes.len()) }
+            {
+                return 3;
+            }
+            return if owner
+                .outgoing
+                .try_send(Event::InputAccepted {
+                    session,
+                    request_id,
+                    bytes: bytes.len(),
+                })
+                .is_ok()
+            {
+                0
+            } else {
+                2
+            };
         }
         Request::Resize {
             session,

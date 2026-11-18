@@ -89,6 +89,9 @@ impl Manager {
                 None
             };
             let info = store.sessions.info(connection)?;
+            if info.protocol == Protocol::Ssh1 {
+                return Err(ErrorCode::Unsupported);
+            }
             if !matches!(info.state, State::Disconnected | State::Failed) {
                 return Err(ErrorCode::InvalidState);
             }

@@ -15,6 +15,10 @@ mod logging_cases;
 mod presentation_cases;
 #[path = "support/rpc_audit_cases.rs"]
 mod rpc_audit_cases;
+#[path = "support/ssh1_cases.rs"]
+mod ssh1_cases;
+#[path = "../../transport-ssh1/examples/windows/fixture.rs"]
+mod ssh1_fixture;
 use session_core::{PROTOCOL_VERSION, pairing::SecretToken, session::*};
 use session_protocol::*;
 use session_service::{client::Client, security::pipe_name};
@@ -53,8 +57,24 @@ impl Fixture {
         directory: Option<&std::path::Path>,
         extra: &[&str],
     ) -> Self {
+        Self::launch(
+            std::path::Path::new(env!("CARGO_BIN_EXE_session-service")),
+            instance,
+            fixture,
+            directory,
+            extra,
+        )
+        .await
+    }
+    async fn launch(
+        binary: &std::path::Path,
+        instance: String,
+        fixture: bool,
+        directory: Option<&std::path::Path>,
+        extra: &[&str],
+    ) -> Self {
         let token = SecretToken::generate();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_session-service"));
+        let mut command = Command::new(binary);
         command.args(["--instance", &instance]);
         if fixture {
             command.arg("--test-fixture");

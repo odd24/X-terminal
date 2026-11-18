@@ -32,13 +32,15 @@ impl Manager {
     ) -> Result<ssh::Reply, ErrorCode> {
         let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-        let owner =
-            Self::start_owner(&store, Some(identity))?.ok_or(ErrorCode::PermissionDenied)?;
+        let owner = Self::start_owner(&store, Some(identity))?;
         let Some((start, connection)) = inner.requests.get(&request_id) else {
             inner.request_window.check(request_id)?;
             return Err(ErrorCode::PermissionDenied);
         };
-        if start.owner != Some(owner) || start.revision.is_none() {
+        if start.owner != owner
+            || start.revision.is_none()
+            || (owner.is_none() && connection.protocol != Protocol::Ssh1)
+        {
             return Err(ErrorCode::PermissionDenied);
         }
         if start.profile_id != profile_id || start.revision != Some(revision) {
@@ -122,9 +124,6 @@ impl Manager {
             let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
             let now = store.now();
             let owner = Self::start_owner(&store, identity)?;
-            if revision.is_some() && owner.is_none() {
-                return Err(ErrorCode::PermissionDenied);
-            }
             let start = Start {
                 temporary: temporary_settings.clone(),
                 owner,
@@ -203,17 +202,46 @@ impl Manager {
             };
         }
         Self::check_start(&mut store, identity, authority.as_ref(), false)?;
+        if revision.is_some()
+            && start.owner.is_none()
+            && !matches!(
+                &lookup,
+                Ok(Value::Profile(Profile {
+                    settings: Settings::Ssh1 {
+                        explicitly_enabled: true,
+                        ..
+                    },
+                    ..
+                }))
+            )
+        {
+            return Err(ErrorCode::PermissionDenied);
+        }
         let Value::Profile(profile) = lookup.map_err(|_| ErrorCode::InvalidArgument)? else {
             return Err(ErrorCode::InvalidState);
         };
-        if !matches!(profile.settings, Settings::Ssh2 { .. }) {
-            return Err(ErrorCode::Unsupported);
-        }
+        let (protocol, host) = match &profile.settings {
+            Settings::Ssh2 { host, .. } => (Protocol::Ssh2, host.clone()),
+            Settings::Ssh1 {
+                host,
+                explicitly_enabled: true,
+                ..
+            } => {
+                if start.owner.is_some() {
+                    return Err(ErrorCode::PermissionDenied);
+                }
+                if identity.is_none() || revision.is_none() || !legacy::configured() {
+                    return Err(ErrorCode::Unsupported);
+                }
+                (Protocol::Ssh1, host.clone())
+            }
+            _ => return Err(ErrorCode::Unsupported),
+        };
         if inner.entries.len() >= MAX_CONNECTIONS {
             return Err(ErrorCode::CapacityExceeded);
         }
         inner.reserve_start(request_id)?;
-        let initial = store.sessions.create(Protocol::Ssh2)?;
+        let initial = store.sessions.create(protocol)?;
         let connection = store.sessions.begin_connect(initial.reference())?;
         configure_output(
             &mut store.sessions,
@@ -223,13 +251,11 @@ impl Manager {
             cols,
         )?;
         let cancel = Cancellation::default();
+        let legacy_released = (protocol == Protocol::Ssh1).then(|| Arc::new(AtomicBool::new(true)));
         inner.entries.insert(
             connection.connection_id,
             Entry {
-                server_host: match &profile.settings {
-                    Settings::Ssh2 { host, .. } => host.clone(),
-                    _ => return Err(ErrorCode::Unsupported),
-                },
+                server_host: host,
                 temporary,
                 reference: connection.reference(),
                 restart_gate: Arc::new(tokio::sync::Mutex::new(())),
@@ -246,7 +272,7 @@ impl Manager {
                 exit: None,
                 signal: None,
                 task: None,
-                transport: None,
+                transport: legacy_released.clone().map(TransportCleanup::Ssh1),
             },
         );
         let reply = start.reply(request_id, connection.clone());
@@ -262,9 +288,15 @@ impl Manager {
         };
         let identity_owned = identity.cloned();
         let task = tokio::spawn(async move {
-            let result = actor
-                .run_as(profile, cols, rows, identity_owned, authority)
-                .await;
+            let result = if let Some(released) = legacy_released {
+                actor
+                    .run_legacy(profile, cols, rows, request_id, identity_owned, released)
+                    .await
+            } else {
+                actor
+                    .run_as(profile, cols, rows, identity_owned, authority)
+                    .await
+            };
             actor.finish(result);
         });
         inner

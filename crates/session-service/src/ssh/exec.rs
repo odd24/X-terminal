@@ -129,6 +129,9 @@ impl Manager {
             None
         };
         let info = store.sessions.info(connection)?;
+        if info.protocol == Protocol::Ssh1 {
+            return Err(ErrorCode::Unsupported);
+        }
         let total = inner
             .entries
             .values()

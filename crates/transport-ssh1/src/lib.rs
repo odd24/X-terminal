@@ -4,9 +4,20 @@ use session_core::session::ConnectionRef;
 use session_protocol::SensitiveBytes;
 use uuid::Uuid;
 
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 pub const MAX_DATA: usize = 16 * 1024;
 pub const MAX_PASSWORD: usize = 8192;
+
+pub fn valid_rsa1_key(key: &str) -> bool {
+    key.len() <= 16 * 1024
+        && key.split_once(',').is_some_and(|(exponent, modulus)| {
+            [exponent, modulus].into_iter().all(|value| {
+                value.strip_prefix("0x").is_some_and(|hex| {
+                    !hex.is_empty() && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+            })
+        })
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -66,6 +77,7 @@ pub enum Request {
     },
     Input {
         session: Session,
+        request_id: Uuid,
         bytes: SensitiveBytes,
     },
     Resize {
@@ -100,6 +112,7 @@ pub enum Event {
         endpoint: Endpoint,
         algorithm: String,
         fingerprint: String,
+        key: String,
     },
     PasswordChallenge {
         challenge: Challenge,
@@ -111,6 +124,11 @@ pub enum Event {
         session: Session,
         stderr: bool,
         bytes: SensitiveBytes,
+    },
+    InputAccepted {
+        session: Session,
+        request_id: Uuid,
+        bytes: usize,
     },
     Ended {
         session: Session,

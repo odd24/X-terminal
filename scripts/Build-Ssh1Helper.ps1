@@ -1,6 +1,7 @@
 param(
     [string] $Archive,
-    [string] $VisualStudio
+    [string] $VisualStudio,
+    [switch] $WithService
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +33,7 @@ function Invoke-Build([scriptblock] $Action) {
 }
 
 $previousNative = $env:SSH1_NATIVE_DIR
+$previousPin = $env:P13_SSH1_HELPER_SHA256
 Push-Location -LiteralPath $directory
 try {
     Invoke-Build { tar.exe -xzf $Archive }
@@ -61,7 +63,22 @@ try {
         throw 'SSH1 helper host storage link guard failed'
     }
     Write-Output "SSH1_HELPER=$directory/ssh1-helper.exe"
+    if ($WithService) {
+        $env:P13_SSH1_HELPER_SHA256 = (Get-FileHash -LiteralPath "$directory/ssh1-helper.exe" -Algorithm SHA256).Hash
+        $serviceArgs = @('build', '--manifest-path', "$repo/Cargo.toml", '--locked', '--target',
+            'x86_64-pc-windows-msvc', '--target-dir', "$repo/target", '-p', 'session-service',
+            '--features', 'ssh1-with-helper', '--bin', 'session-service')
+        Push-Location -LiteralPath $repo
+        try {
+            Invoke-Build { cargo @serviceArgs }
+        } finally {
+            Pop-Location
+        }
+        Copy-Item -LiteralPath "$repo/target/x86_64-pc-windows-msvc/debug/session-service.exe" -Destination $directory
+        Write-Output "SSH1_SERVICE=$directory/session-service.exe"
+    }
 } finally {
     $env:SSH1_NATIVE_DIR = $previousNative
+    $env:P13_SSH1_HELPER_SHA256 = $previousPin
     Pop-Location
 }

@@ -27,6 +27,20 @@ impl Store {
     pub(crate) fn now(&self) -> u64 {
         self.started.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
+    fn require_ssh1_desktop(
+        &self,
+        identity: &Identity,
+        connection: ConnectionRef,
+    ) -> Result<(), ErrorCode> {
+        if self
+            .sessions
+            .info(connection)
+            .is_ok_and(|info| info.protocol == Protocol::Ssh1)
+        {
+            self.pairing.require_desktop(identity, self.now())?;
+        }
+        Ok(())
+    }
 }
 #[cfg(test)]
 impl Store {
@@ -175,16 +189,19 @@ impl Runtime {
                             ErrorCode::InvalidState
                         }
                     })?;
+                    let crate::config::Value::Profile(profile) = profile else {
+                        return Err(ErrorCode::InvalidState);
+                    };
+                    if matches!(profile.settings, config_store::Settings::Ssh1 { .. }) {
+                        return Err(ErrorCode::Unsupported);
+                    }
                     if let Some(operation) = request.operation() {
                         let descriptor =
                             operation.descriptor().ok_or(ErrorCode::InvalidArgument)?;
-                        let protocol = match profile {
-                            crate::config::Value::Profile(profile) => match profile.settings {
-                                config_store::Settings::Ssh2 { .. } => Protocol::Ssh2,
-                                config_store::Settings::Serial { .. } => Protocol::Serial,
-                                _ => return Err(ErrorCode::Unsupported),
-                            },
-                            _ => return Err(ErrorCode::InvalidState),
+                        let protocol = match profile.settings {
+                            config_store::Settings::Ssh2 { .. } => Protocol::Ssh2,
+                            config_store::Settings::Serial { .. } => Protocol::Serial,
+                            _ => return Err(ErrorCode::Unsupported),
                         };
                         if protocol != descriptor.protocol {
                             return Err(ErrorCode::InvalidArgument);
@@ -250,7 +267,7 @@ impl Runtime {
                 .ok()
                 .map(|c| c.protocol);
             match protocol {
-                Some(Protocol::Ssh2) => match self
+                Some(Protocol::Ssh1 | Protocol::Ssh2) => match self
                     .ssh
                     .handle(ssh::Request::Status {
                         connection: *connection,
@@ -326,6 +343,27 @@ impl Runtime {
                 )
             {
                 store.pairing.require_desktop(identity, self.now())?;
+            }
+            use ssh::Request as S;
+            match &request {
+                S::Reconnect { connection, .. }
+                | S::ReconnectStatus { connection, .. }
+                | S::ForgetStart { connection, .. }
+                | S::ForgetStatus { connection, .. }
+                | S::Disconnect { connection, .. }
+                | S::DisconnectStatus { connection, .. }
+                | S::Resize { connection, .. }
+                | S::Write { connection, .. }
+                | S::WriteText { connection, .. }
+                | S::InputStatus { connection, .. }
+                | S::Exec { connection, .. }
+                | S::ExecStatus { connection, .. }
+                | S::ExecCancel { connection, .. }
+                | S::ExecRead { connection, .. }
+                | S::ExecReadProtected { connection, .. } => {
+                    store.require_ssh1_desktop(identity, *connection)?
+                }
+                _ => {}
             }
         }
         let identity = self.operation_identity(identity, || operation::ssh_key(&request))?;
@@ -422,6 +460,9 @@ impl Runtime {
                         for scope in scopes {
                             if let Some(connection) = scope.target.connection() {
                                 let info = store.sessions.info(connection)?;
+                                if info.protocol == Protocol::Ssh1 {
+                                    return Err(ErrorCode::Unsupported);
+                                }
                                 if let Some(operation) = request.operation()
                                     && operation
                                         .descriptor()
@@ -462,6 +503,7 @@ impl Runtime {
                         connection,
                         lifetime_ms,
                     } => {
+                        store.require_ssh1_desktop(identity, connection)?;
                         store.pairing.can_acquire(identity, connection, now)?;
                         store.sessions.info(connection)?;
                         R::Lease(Some(store.pairing.acquire_lease(
@@ -475,12 +517,14 @@ impl Runtime {
                         connection,
                         lease_id,
                     } => {
+                        store.require_ssh1_desktop(identity, connection)?;
                         store
                             .pairing
                             .release_lease(identity, connection, lease_id, now)?;
                         R::Ok
                     }
                     A::Lease { connection } => {
+                        store.require_ssh1_desktop(identity, connection)?;
                         R::Lease(store.pairing.lease(identity, connection, now)?)
                     }
                     A::Takeover { connection } => {
@@ -506,9 +550,12 @@ impl Runtime {
                     .into_iter()
                     .filter(|info| {
                         store
-                            .pairing
-                            .can_observe(identity, info.reference(), now)
+                            .require_ssh1_desktop(identity, info.reference())
                             .is_ok()
+                            && store
+                                .pairing
+                                .can_observe(identity, info.reference(), now)
+                                .is_ok()
                     })
                     .collect(),
             )),
@@ -517,6 +564,7 @@ impl Runtime {
                 window,
                 view,
             } => {
+                store.require_ssh1_desktop(identity, connection)?;
                 store.pairing.require_unfiltered_output(identity, now)?;
                 store
                     .pairing
@@ -530,6 +578,7 @@ impl Runtime {
                 cursor,
                 max_bytes,
             } => {
+                store.require_ssh1_desktop(identity, connection)?;
                 store.pairing.require_unfiltered_output(identity, now)?;
                 store.pairing.can_read(identity, connection, now)?;
                 Ok(Reply::Output(
@@ -541,6 +590,7 @@ impl Runtime {
                 cursor,
                 max_bytes,
             } => {
+                store.require_ssh1_desktop(identity, connection)?;
                 store.pairing.require_unfiltered_output(identity, now)?;
                 store.pairing.can_read(identity, connection, now)?;
                 Ok(Reply::Text(
@@ -548,6 +598,7 @@ impl Runtime {
                 ))
             }
             Request::Screen { connection } => {
+                store.require_ssh1_desktop(identity, connection)?;
                 store.pairing.require_unfiltered_output(identity, now)?;
                 store.pairing.can_read(identity, connection, now)?;
                 Ok(Reply::Screen(store.sessions.screen(connection)?))
@@ -557,6 +608,7 @@ impl Runtime {
                 window,
                 view,
             } => {
+                store.require_ssh1_desktop(identity, connection)?;
                 match window {
                     Some(window) => store
                         .pairing
@@ -581,7 +633,9 @@ impl Runtime {
                         lifetime_ms,
                     } => {
                         for scope in &scopes {
-                            store.sessions.info(*scope)?;
+                            if store.sessions.info(*scope)?.protocol == Protocol::Ssh1 {
+                                return Err(ErrorCode::Unsupported);
+                            }
                         }
                         let expires = now
                             .checked_add(lifetime_ms)

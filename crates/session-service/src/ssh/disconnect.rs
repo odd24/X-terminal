@@ -11,7 +11,7 @@ impl Inner {
                     && entry
                         .transport
                         .as_ref()
-                        .is_none_or(|weak| weak.strong_count() == 0)
+                        .is_none_or(TransportCleanup::released)
             })
         {
             self.disconnects.transport_ended(connection);
@@ -27,7 +27,7 @@ impl Manager {
         &self,
         connection: ConnectionRef,
     ) -> Result<(), ErrorCode> {
-        let weak = {
+        let cleanup = {
             let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
             inner
                 .entries
@@ -38,7 +38,10 @@ impl Manager {
                 .clone()
         };
         timeout(Duration::from_secs(2), async {
-            while weak.as_ref().is_some_and(|weak| weak.strong_count() != 0) {
+            while cleanup
+                .as_ref()
+                .is_some_and(|transport| !transport.released())
+            {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
@@ -90,7 +93,8 @@ impl Manager {
             None
         };
         let info = store.sessions.info(connection)?;
-        if info.protocol != Protocol::Ssh2 {
+        if info.protocol != Protocol::Ssh2 && !(info.protocol == Protocol::Ssh1 && owner.is_none())
+        {
             return Err(ErrorCode::InvalidArgument);
         }
         let entry = inner

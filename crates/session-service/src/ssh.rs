@@ -3,6 +3,7 @@ mod disconnect;
 mod exec;
 mod forget;
 mod history;
+mod legacy;
 mod reconnect;
 #[cfg(test)]
 mod reconnect_tests;
@@ -24,7 +25,10 @@ use session_protocol::{
 };
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -64,7 +68,20 @@ struct Entry {
     exit: Option<u32>,
     signal: Option<String>,
     task: Option<JoinHandle<()>>,
-    transport: Option<std::sync::Weak<Ssh2Session>>,
+    transport: Option<TransportCleanup>,
+}
+#[derive(Clone)]
+enum TransportCleanup {
+    Ssh2(std::sync::Weak<Ssh2Session>),
+    Ssh1(Arc<AtomicBool>),
+}
+impl TransportCleanup {
+    fn released(&self) -> bool {
+        match self {
+            Self::Ssh2(transport) => transport.strong_count() == 0,
+            Self::Ssh1(exited) => exited.load(Ordering::Acquire),
+        }
+    }
 }
 impl Manager {
     /// Issuance-only lookup; operation retries never depend on this live entry.
@@ -79,7 +96,16 @@ impl Manager {
         }
         // A temporary target is never a saved Profile/revision grant target,
         // even if a Desktop later creates a saved UUID with the same value.
-        if entry.temporary.is_some() {
+        if entry.temporary.is_some()
+            || self
+                .store
+                .lock()
+                .map_err(|_| ErrorCode::InvalidState)?
+                .sessions
+                .info(connection)?
+                .protocol
+                == Protocol::Ssh1
+        {
             return Err(ErrorCode::Unsupported);
         }
         Ok(entry.profile_id)
@@ -191,7 +217,7 @@ impl Manager {
                     inner.request_window.check(request_id)?;
                     return Err(ErrorCode::NotFound);
                 };
-                if start.owner.is_some() {
+                if start.owner.is_some() || start.revision.is_some() {
                     return Err(ErrorCode::PermissionDenied);
                 }
                 Ok(ssh::Reply::Started {
@@ -645,10 +671,17 @@ impl Manager {
         };
         let info = store.sessions.info(connection)?;
         if owner.is_some()
-            && matches!(&input, Input::Resize { .. })
-            && info.protocol != Protocol::Ssh2
+            && (info.protocol == Protocol::Ssh1
+                || (matches!(&input, Input::Resize { .. }) && info.protocol != Protocol::Ssh2))
         {
             return Err(ErrorCode::PermissionDenied);
+        }
+        if info.protocol == Protocol::Ssh1 {
+            match &input {
+                Input::Write(bytes) if bytes.expose().len() <= transport_ssh1::MAX_DATA => {}
+                Input::Write(_) => return Err(ErrorCode::InvalidArgument),
+                _ => return Err(ErrorCode::Unsupported),
+            }
         }
         let entry = inner
             .entries
@@ -699,11 +732,25 @@ impl Manager {
         answer: Answer,
     ) -> Result<ssh::Reply, ErrorCode> {
         let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
-        self.store
+        let info = self
+            .store
             .lock()
             .map_err(|_| ErrorCode::InvalidState)?
             .sessions
             .info(connection)?;
+        if info.protocol == Protocol::Ssh1
+            && let Answer::Credentials {
+                use_saved,
+                password,
+            } = &answer
+            && (*use_saved
+                || password.as_ref().is_none_or(|value| {
+                    value.expose().len() > transport_ssh1::MAX_PASSWORD
+                        || value.expose().contains('\0')
+                }))
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
         let entry = inner
             .entries
             .get_mut(&connection.connection_id)
@@ -831,6 +878,14 @@ impl Actor {
         key: transport::ServerKey,
         endpoint: &HostEndpoint,
     ) -> Result<bool, Failure> {
+        self.host_key(HostKey {
+            endpoint: endpoint.clone(),
+            algorithm: key.algorithm,
+            key: key.bytes,
+        })
+        .await
+    }
+    async fn host_key(&self, candidate: HostKey) -> Result<bool, Failure> {
         if let Ok(inner) = self.inner.lock()
             && let Some(entry) = inner
                 .entries
@@ -839,11 +894,6 @@ impl Actor {
         {
             entry.writable.send_replace(false);
         }
-        let candidate = HostKey {
-            endpoint: endpoint.clone(),
-            algorithm: key.algorithm,
-            key: key.bytes,
-        };
         let Value::Review(review) = self.config(Internal::Review(candidate.clone())).await? else {
             return Err(Failure::Configuration);
         };
@@ -1148,7 +1198,7 @@ impl Actor {
                 .get_mut(&self.reference.connection_id)
                 .filter(|entry| entry.reference == self.reference)
                 .ok_or(Failure::Transport)?;
-            entry.transport = Some(Arc::downgrade(&session));
+            entry.transport = Some(TransportCleanup::Ssh2(Arc::downgrade(&session)));
         }
         tokio::select! {
             result=self.read_shell(&mut receiver,&endpoint,&mut shell.reader)=>result,
@@ -1362,12 +1412,10 @@ fn configure_output(
     rows: u32,
     cols: u32,
 ) -> Result<(), ErrorCode> {
-    let Settings::Ssh2 { encoding, .. } = &profile.settings else {
-        return Err(ErrorCode::Unsupported);
-    };
+    let encoding = profile_encoding(profile)?;
     sessions.configure_output(
         reference,
-        crate::encoding_label(encoding),
+        crate::encoding_label(&encoding),
         rows as u16,
         cols as u16,
     )
@@ -1386,7 +1434,7 @@ fn map_error(error: transport::Error) -> Failure {
 
 fn profile_encoding(profile: &Profile) -> Result<config_store::Encoding, ErrorCode> {
     match &profile.settings {
-        Settings::Ssh2 { encoding, .. } => Ok(encoding.clone()),
+        Settings::Ssh2 { encoding, .. } | Settings::Ssh1 { encoding, .. } => Ok(encoding.clone()),
         _ => Err(ErrorCode::Unsupported),
     }
 }

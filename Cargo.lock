@@ -4031,6 +4031,7 @@ dependencies = [
  "terminal-log",
  "tokio",
  "transport-serial",
+ "transport-ssh1",
  "transport-ssh2",
  "uuid",
  "windows-sys 0.61.2",

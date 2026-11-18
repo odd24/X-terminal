@@ -5,13 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { HOST = 1, PASSWORD, READY, OUTPUT };
+enum { PASSWORD = 2, READY, OUTPUT };
 enum {
     RUNNING, CLOSED, CONTROL_LOST, INVALID_CONTROL, HOST_DECLINED,
     AUTH_FAILED, TIMED_OUT, PEER_CLOSED, BACKEND_EXIT, BACKEND_FAILED
 };
 
 extern bool p13_emit(const void *, int, const void *, size_t, bool);
+extern bool p13_emit_host(const void *, const char *, size_t, const char *, size_t);
 extern int p13_dispatch(const void *, void *);
 
 const bool share_can_be_downstream = false;
@@ -68,17 +69,17 @@ static SeatPromptResult host_challenge(
     SeatDialogText *text, HelpCtx help,
     void (*cb)(void *, SeatPromptResult), void *ctx)
 {
-    (void)key; (void)help;
+    (void)help;
     Owner *owner = container_of(seat, Owner, seat);
     if (owner->thread != GetCurrentThreadId() || owner->host_seen ||
         port != owner->port || strcmp(host, owner->host) ||
-        strcmp(keytype, "rsa") || !text || !cb)
+        strcmp(keytype, "rsa") || !key || !text || !cb)
         return SPR_SW_ABORT("unexpected SSH1 host challenge");
     for (size_t i = 0; i < text->nitems; i++) {
         if (text->items[i].type != SDT_DISPLAY)
             continue;
         const char *fingerprint = text->items[i].text;
-        if (!p13_emit(owner->context, HOST, fingerprint, strlen(fingerprint), false))
+        if (!p13_emit_host(owner->context, fingerprint, strlen(fingerprint), key, strlen(key)))
             continue;
         owner->host_seen = true;
         owner->trust = cb;

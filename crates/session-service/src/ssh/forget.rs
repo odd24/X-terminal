@@ -77,7 +77,7 @@ impl Manager {
             || entry
                 .transport
                 .as_ref()
-                .is_some_and(|weak| weak.strong_count() != 0)
+                .is_some_and(|transport| !transport.released())
         {
             return Err(ErrorCode::InvalidState);
         }
