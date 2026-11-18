@@ -1,0 +1,14 @@
+--- a/ssh/connection1-server.c
++++ b/ssh/connection1-server.c
+@@ -193,2 +193,11 @@
+       case SSH1_CMSG_WINDOW_SIZE:
++        /* P04 fixture only: observe the packet without applying a resize. */
++        if (get_avail(pktin) == 16) {
++            unsigned height = get_uint32(pktin);
++            unsigned width = get_uint32(pktin);
++            unsigned pixwidth = get_uint32(pktin);
++            unsigned pixheight = get_uint32(pktin);
++            ppl_logevent("P04 SSH1_CMSG_WINDOW_SIZE %u %u %u %u",
++                         height, width, pixwidth, pixheight);
++        }
+         return true;

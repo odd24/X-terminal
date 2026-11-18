@@ -29,7 +29,7 @@ static unsigned trust_calls, auth_calls;
 static void (*trust_continuation)(void *, SeatPromptResult);
 static void *trust_ctx;
 static DWORD trust_owner;
-static bool approve_fixture, approved, password_ready, auth_completed;
+static bool approve_fixture, resize_fixture, approved, password_ready, auth_completed;
 static bool session_started, remote_exit, bad_output;
 static prompts_t *pending_password;
 static char fixture_secret[64];
@@ -200,8 +200,18 @@ static bool after_wait(void *ctx, size_t index)
     if (!backend_connected(probe->backend))
         return false;
 #ifdef P04_TRUST_PROBE
-    if (approve_fixture)
+    if (approve_fixture) {
+        /* The fixed TTY command emits the marker before waiting for a line. */
+        if (resize_fixture && !probe->resized && !bad_output &&
+            output_received == sizeof(expected_output) - 1 &&
+            backend_sendok(probe->backend)) {
+            backend_size(probe->backend, 137, 41);
+            probe->resized = true;
+            puts("P04_OWNER_RESIZE_AFTER_PTY 137x41");
+            backend_send(probe->backend, "\n", 1);
+        }
         return true;
+    }
 #endif
     if (!probe->resized) {
         backend_size(probe->backend, 137, 41);
@@ -249,8 +259,15 @@ static int loopback(const BackendVtable *vt, const char *port_text)
     if (approve_fixture) {
         conf_set_str(conf, CONF_username, "p04-fixture");
         conf_set_bool(conf, CONF_nopty, false);
-        conf_set_str(conf, CONF_remote_cmd,
-                     "test -t 0 && test -t 1 && printf 'P04_PTY_OK\\n'");
+        if (resize_fixture) {
+            conf_set_str_str(conf, CONF_ttymodes, "ECHO", "V0");
+            conf_set_str(conf, CONF_remote_cmd,
+                         "test -t 0 && test -t 1 && printf 'P04_PTY_OK\\n' "
+                         "&& IFS= read -r p04_resize_gate");
+        } else {
+            conf_set_str(conf, CONF_remote_cmd,
+                         "test -t 0 && test -t 1 && printf 'P04_PTY_OK\\n'");
+        }
     }
 #endif
     /* Port forwarding and local proxy commands have no source in this Conf. */
@@ -278,7 +295,7 @@ static int loopback(const BackendVtable *vt, const char *port_text)
         verified = approved && trust_calls == 1 && !trust_continuation &&
             auth_completed && auth_calls == 1 && !pending_password &&
             session_started && !bad_output && output_received == sizeof(expected_output) - 1 &&
-            remote_exit && status == 0;
+            (!resize_fixture || probe.resized) && remote_exit && status == 0;
         if (verified)
             puts("P04_PTY_OUTPUT_MATCHED_AND_REMOTE_EXIT_0");
         else
@@ -317,8 +334,10 @@ int main(int argc, char **argv)
         fixture_fingerprint = argv[3];
         return loopback(backend, argv[2]);
     }
-    if (argc == 4 && strcmp(argv[1], "approve-fixture") == 0) {
+    if (argc == 4 && (strcmp(argv[1], "approve-fixture") == 0 ||
+                      strcmp(argv[1], "resize-fixture") == 0)) {
         fixture_fingerprint = argv[3];
+        resize_fixture = strcmp(argv[1], "resize-fixture") == 0;
         setvbuf(stdout, NULL, _IONBF, 0);
         if (!fgets(fixture_secret, sizeof(fixture_secret), stdin))
             return 8;
