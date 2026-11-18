@@ -3,9 +3,12 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 
-const [directory, root] = process.argv.slice(2);
+const [directory, root, mode = 'trust', source] = process.argv.slice(2);
 assert.ok(directory && /^\/tmp\/P04-ssh1\.[A-Za-z0-9]+$/.test(root));
+assert.ok(mode === 'trust' || (mode === 'approve-fixture' && source));
+const approve = mode === 'approve-fixture';
 const map = readFileSync(path.join(directory, 'storage-probe.map'), 'utf8');
 assert.doesNotMatch(map, /\bsettings:storage\.c\.obj\b/i);
 for (const symbol of ['check_stored_host_key', 'store_host_key']) {
@@ -18,7 +21,29 @@ const fingerprint = execFileSync('wsl.exe', [...wsl, '/bin/cat', 'fingerprint.tx
 }).trim();
 assert.match(fingerprint, /^2048 (?:[\da-f]{2}:){15}[\da-f]{2}$/);
 
-let serverChild, client, peer, stdout = '', stderr = '', serverClosed;
+function readFixturePassword() {
+  const bytes = readFileSync(source);
+  try {
+    const declaration = Buffer.from('const char *PHONY_GOOD_PASSWORD = "');
+    const start = bytes.indexOf(declaration);
+    assert.ok(start >= 0 && bytes.indexOf(declaration, start + declaration.length) < 0);
+    const valueStart = start + declaration.length;
+    const end = bytes.indexOf('";', valueStart);
+    const value = bytes.subarray(valueStart, end);
+    assert.ok(end > valueStart && value.length < 63 &&
+      value.every(byte => byte >= 0x61 && byte <= 0x7a));
+    const line = Buffer.alloc(value.length + 1, 0x0a);
+    value.copy(line);
+    return line;
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+const deniedMethods = ['none', 'publickey', 'kbdint', 'tis', 'cryptocard'];
+if (!approve) deniedMethods.push('password');
+let serverChild, client, peer, stdout = '', stderr = '', serverClosed, peerEnded = false;
+let exitConfirmations = 0, fixtureStdoutEnded = false;
 const closeResult = child => new Promise((resolve, reject) => {
   child.once('error', reject);
   child.once('close', (code, signal) => resolve({ code, signal }));
@@ -29,16 +54,22 @@ const bridge = createServer(socket => {
     return;
   }
   peer = socket;
+  socket.once('end', () => { peerEnded = true; });
   bridge.close(); // Claim one connection only.
   serverChild = spawn('wsl.exe', [...wsl, '/usr/bin/timeout', '--kill-after=1s', '8s', '/usr/bin/unshare',
     '--user', '--map-current-user', '--net', '/usr/bin/env', '-i',
-    `HOME=${root}/home`, `XDG_CONFIG_HOME=${root}/home`, 'PATH=/usr/bin:/bin',
+    `HOME=${root}/home`, `XDG_CONFIG_HOME=${root}/home`, 'PATH=/usr/bin:/bin', 'SHELL=/bin/sh',
     './out/uppity', '--hostkey', 'fixture.rsa1', '--sessiondir', root,
-    ...['none', 'password', 'publickey', 'kbdint', 'tis', 'cryptocard'].flatMap(method => ['--deny-auth', method]),
+    ...deniedMethods.flatMap(method => ['--deny-auth', method]),
+    ...(approve ? ['--allow-auth', 'password', '--verbose'] : []),
   ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   serverClosed = closeResult(serverChild);
   serverClosed.catch(() => socket.destroy());
-  serverChild.stderr.resume();
+  const events = createInterface({ input: serverChild.stderr });
+  events.on('line', line => {
+    if (/^conn#\d+: Client sent exit confirmation$/.test(line)) exitConfirmations++;
+  });
+  serverChild.stdout.once('end', () => { fixtureStdoutEnded = true; });
   serverChild.stdin.on('error', () => socket.destroy());
   socket.on('error', () => socket.destroy());
   socket.pipe(serverChild.stdin);
@@ -52,12 +83,17 @@ await new Promise((resolve, reject) => {
 });
 const { address, port } = bridge.address();
 assert.equal(address, '127.0.0.1');
-let deadline;
+let deadline, password;
 try {
+  if (approve) password = readFixturePassword();
   client = spawn(path.join(path.resolve(directory), 'P04-PuttyStorageProbe.exe'),
-    ['trust', String(port), fingerprint],
-    { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    [mode, String(port), fingerprint],
+    { windowsHide: true, stdio: [approve ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
   const done = closeResult(client);
+  if (password) {
+    client.stdin.on('error', () => client.kill());
+    client.stdin.end(password, () => password.fill(0));
+  }
   client.stdout.on('data', chunk => {
     stdout += chunk.toString('utf8');
     if (stdout.length > 4096) client.kill();
@@ -72,16 +108,25 @@ try {
   assert.equal(stderr, '');
   const lines = stdout.trim().replaceAll('\r', '').split('\n');
   assert.deepEqual(lines.filter(line => line !== 'P04_OWNER_RESIZE 137x41'),
-    ['P04_HOST_CHALLENGE_MATCHED', 'P04_HOST_REJECTED', 'P04_OWNER_FREE']);
+    approve ? [
+      'P04_HOST_CHALLENGE_MATCHED', 'P04_HOST_APPROVED_ONCE',
+      'P04_PASSWORD_SUBMITTED_ONCE', 'P04_SESSION_STARTED',
+      'P04_PTY_OUTPUT_MATCHED_AND_REMOTE_EXIT_0', 'P04_OWNER_FREE',
+    ] : ['P04_HOST_CHALLENGE_MATCHED', 'P04_HOST_REJECTED', 'P04_OWNER_FREE']);
   const fixtureExit = await serverClosed;
   assert.ok(fixtureExit.signal === null && [0, 124].includes(fixtureExit.code), JSON.stringify(fixtureExit));
+  if (approve)
+    assert.equal(exitConfirmations, 1, JSON.stringify({ peerEnded, fixtureStdoutEnded, fixtureExit }));
   console.log(JSON.stringify({
-    result: 'PASS', hostChallenge: 'matched and rejected', clientExit: 0,
-    fixtureExit: fixtureExit.code, fixtureDeadline: fixtureExit.code === 124,
-    windowsLoopbackOwner: process.pid, wslNetworkNamespace: 'private', authPromptCount: 0,
+    result: 'PASS', hostChallenge: approve ? 'matched and approved once' : 'matched and rejected',
+    clientExit: 0, peerEnded,
+    fixtureExit: fixtureExit.code, fixtureDeadline: fixtureExit.code === 124, fixtureStdoutEnded,
+    windowsLoopbackOwner: process.pid, wslNetworkNamespace: 'private', authPromptCount: approve ? 1 : 0,
+    ...(approve ? { ptyOutput: 'matched', remoteExitStatus: 0, exitConfirmations } : {}),
   }));
 } finally {
   clearTimeout(deadline);
+  password?.fill(0);
   peer?.destroy();
   serverChild?.stdin.end();
   if (bridge.listening) bridge.close();
