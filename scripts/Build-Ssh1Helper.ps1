@@ -32,12 +32,25 @@ function Invoke-Build([scriptblock] $Action) {
     if ($LASTEXITCODE -ne 0) { throw "SSH1 helper build exited $LASTEXITCODE while running $Action" }
 }
 
+function Copy-VerifiedFile([string] $Source, [string] $Destination) {
+    $hash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash.ToLowerInvariant()
+    Copy-Item -LiteralPath $Source -Destination $Destination
+    if ((Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash -ne $hash) {
+        throw 'Staged SSH1 file hash mismatch'
+    }
+    return $hash
+}
+
 $previousNative = $env:SSH1_NATIVE_DIR
 $previousPin = $env:P13_SSH1_HELPER_SHA256
 Push-Location -LiteralPath $directory
 try {
     Invoke-Build { tar.exe -xzf $Archive }
     $source = Join-Path $directory 'putty-0.85'
+    $licence = Copy-VerifiedFile (Join-Path $source 'LICENCE') (Join-Path $directory 'PuTTY-LICENCE.txt')
+    if ($licence -ne '3b02f87e0063430289d9681727a98818c844fc8a4d79b24b76047fa061e77f13') {
+        throw 'PuTTY 0.85 licence hash mismatch'
+    }
     Invoke-Build { & $cmake -S putty-0.85 -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPUTTY_GSSAPI=OFF }
     Invoke-Build { & $cmake --build build --target plink --parallel 2 *> putty-build.log }
     $includes = @("/I$source", "/I$source/windows", "/I$directory/build/generated")
@@ -55,7 +68,8 @@ try {
     } finally {
         Pop-Location
     }
-    Copy-Item -LiteralPath "$repo/target/x86_64-pc-windows-msvc/release/ssh1-helper.exe" -Destination $directory
+    $helper = Join-Path $directory 'ssh1-helper.exe'
+    $pin = Copy-VerifiedFile "$repo/target/x86_64-pc-windows-msvc/release/ssh1-helper.exe" $helper
     $map = Get-Content -Raw -LiteralPath (Join-Path $directory 'ssh1-helper.map')
     if ($map -match '\bsettings:storage\.c\.obj\b' -or
         $map -notmatch '(?m)^\s+\S+\s+check_stored_host_key\s+[^\r\n]+\bowner\.obj\s*$' -or
@@ -64,7 +78,7 @@ try {
     }
     Write-Output "SSH1_HELPER=$directory/ssh1-helper.exe"
     if ($WithService) {
-        $env:P13_SSH1_HELPER_SHA256 = (Get-FileHash -LiteralPath "$directory/ssh1-helper.exe" -Algorithm SHA256).Hash
+        $env:P13_SSH1_HELPER_SHA256 = $pin
         $serviceArgs = @('build', '--manifest-path', "$repo/Cargo.toml", '--locked', '--target',
             'x86_64-pc-windows-msvc', '--target-dir', "$repo/target", '-p', 'session-service',
             '--features', 'ssh1-with-helper', '--bin', 'session-service')
@@ -74,7 +88,19 @@ try {
         } finally {
             Pop-Location
         }
-        Copy-Item -LiteralPath "$repo/target/x86_64-pc-windows-msvc/debug/session-service.exe" -Destination $directory
+        $service = Copy-VerifiedFile "$repo/target/x86_64-pc-windows-msvc/debug/session-service.exe" (Join-Path $directory 'session-service.exe')
+        if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash -ne $pin) {
+            throw 'Paired SSH1 helper no longer matches the pinned build'
+        }
+        @{
+            version = 1
+            archive_sha256 = $expected
+            files = @{
+                'session-service.exe' = $service
+                'ssh1-helper.exe' = $pin
+                'PuTTY-LICENCE.txt' = $licence
+            }
+        } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $directory 'ssh1-build-manifest.json') -Encoding utf8
         Write-Output "SSH1_SERVICE=$directory/session-service.exe"
     }
 } finally {

@@ -22,7 +22,7 @@ const manifest = JSON.parse(await readFile('artifacts/P13-ssh1-preview.json', 'u
 assert.equal(manifest.result, 'PASS');
 assert.equal(path.dirname(path.resolve(manifest.directory)), path.resolve('artifacts'));
 assert.deepEqual(manifest.files.map(file => file.name).sort(), [
-  'session-service.exe', 'shared-terminal-desktop.exe', 'ssh1-helper.exe', 'terminal-mcp.exe',
+  'PuTTY-LICENCE.txt', 'session-service.exe', 'shared-terminal-desktop.exe', 'ssh1-helper.exe', 'terminal-mcp.exe',
 ]);
 for (const file of manifest.files) {
   const data = await readFile(path.join(manifest.directory, file.name));

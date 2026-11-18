@@ -12,21 +12,36 @@ const auditGrantFeedback=process.argv.includes('--audit-grant-feedback');
 const ssh1Option=process.argv.indexOf('--ssh1-service');
 const ssh1Service=ssh1Option<0?undefined:process.argv[ssh1Option+1];
 if(ssh1Option>=0)assert.ok(ssh1Service&&path.isAbsolute(ssh1Service)&&path.basename(ssh1Service)==='session-service.exe','paired SSH1 service required');
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const pairedFiles = ['session-service.exe', 'ssh1-helper.exe', 'PuTTY-LICENCE.txt'];
+let pairing;
+if (ssh1Service) {
+  pairing = JSON.parse(await readFile(path.join(path.dirname(ssh1Service), 'ssh1-build-manifest.json'), 'utf8'));
+  assert.equal(pairing.version, 1);
+  assert.equal(pairing.archive_sha256, '13fd4db2936d03b73812a7bcc2a658e4dd29cc776a56c3670a7fc6f1a0ee8af8');
+  assert.deepEqual(Object.keys(pairing.files).sort(), [...pairedFiles].sort());
+  assert.ok(Object.values(pairing.files).every(hash => typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash)));
+  assert.equal(pairing.files['PuTTY-LICENCE.txt'], '3b02f87e0063430289d9681727a98818c844fc8a4d79b24b76047fa061e77f13');
+}
 await mkdir('artifacts',{recursive:true});
 const destination=path.resolve('artifacts',`shared-terminal-preview-${randomUUID()}`);
 await mkdir(destination,{recursive:false});
 const files=[];
-for(const name of ['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe',...(ssh1Service?['ssh1-helper.exe']:[])]){
-  const source=ssh1Service&&['session-service.exe','ssh1-helper.exe'].includes(name)?path.join(path.dirname(ssh1Service),name):path.resolve('target/debug',name);
+for(const name of ['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe',...(ssh1Service?['ssh1-helper.exe','PuTTY-LICENCE.txt']:[])]){
+  const paired = ssh1Service && pairedFiles.includes(name);
+  const source = paired ? path.join(path.dirname(ssh1Service), name) : path.resolve('target/debug', name);
+  const expected = digest(await readFile(source));
+  if (paired) assert.equal(expected, pairing.files[name], `SSH1 staging hash mismatch for ${name}`);
   const target=path.join(destination,name);
   await copyFile(source,target);const data=await readFile(target);
+  assert.equal(digest(data), expected, `preview copy hash mismatch for ${name}`);
   if(name==='shared-terminal-desktop.exe'){
     assert.equal(data.toString('ascii',0,2),'MZ');
     const pe=data.readUInt32LE(0x3c);
     assert.equal(data.toString('ascii',pe,pe+4),'PE\0\0');
     assert.equal(data.readUInt16LE(pe+24+68),2,'direct-launch desktop must use Windows GUI subsystem, including debug previews');
   }
-  files.push({name,bytes:data.length,sha256:createHash('sha256').update(data).digest('hex')});
+  files.push({name,bytes:data.length,sha256:expected});
 }
 await copyFile('docs/LOCAL_PREVIEW.md',path.join(destination,'README.md'));
 let ui,directory;

@@ -22,7 +22,7 @@
 
 ### 显式 SSH1 本机预览
 
-专用 `scripts/Build-Ssh1Preview.ps1` 生成四件套。在同目录保留上述三个可执行文件和此构建配对的 `ssh1-helper.exe`。可在 `artifacts/P13-ssh1-preview.json` 核对文件和位置。普通三件套的会话树禁用 SSH1 连接。
+专用 `scripts/Build-Ssh1Preview.ps1` 打包四个可执行文件及 `PuTTY-LICENCE.txt`。在本地卷的普通目录内保留上述三个可执行文件和此构建配对的 `ssh1-helper.exe`，目录及祖先须为普通目录。可在 `artifacts/P13-ssh1-preview.json` 核对文件、哈希和位置。普通三件套的会话树禁用 SSH1 连接。
 
 从「连接配置」选择 SSH1 并勾选显式启用。可在同一页选择「保存新凭据」，密码保存在 Windows 保护存储中。保存后，从「会话导航」选择该保存项，核对旧协议提示并确认本次连接。出现主机指纹时，先通过可信渠道核对。到密码提示后，可以输入临时密码，或明确点击「使用已保存密码」。密码提交被拒绝时，请关闭窗口后另行连接。
 

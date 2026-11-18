@@ -2,13 +2,14 @@ use session_protocol::{read_frame, write_frame};
 use sha2::{Digest, Sha256};
 use std::{
     ffi::OsString,
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::{self, Read},
     os::windows::{
         ffi::OsStringExt,
         fs::{MetadataExt, OpenOptionsExt},
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
     },
+    path::{Component, Path, PathBuf, Prefix},
     process::{ExitStatus, Stdio},
     ptr,
     sync::atomic::{AtomicBool, Ordering},
@@ -23,7 +24,8 @@ use tokio::{
 use transport_ssh1::{Event, Request};
 use windows_sys::Win32::{
     Storage::FileSystem::{
-        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_READ, GetVolumeNameForVolumeMountPointW,
     },
     System::{JobObjects::*, SystemInformation::GetSystemWindowsDirectoryW},
 };
@@ -48,6 +50,58 @@ pub(super) fn image_pin() -> Option<&'static str> {
     }
     option_env!("P13_SSH1_HELPER_SHA256")
         .filter(|value| value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+fn pinned_directory(path: &Path) -> io::Result<(PathBuf, Vec<File>)> {
+    let invalid = || io::Error::new(io::ErrorKind::InvalidInput, "invalid SSH1 helper directory");
+    let mut components = path.components();
+    let drive = match components.next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => letter,
+            _ => return Err(invalid()),
+        },
+        _ => return Err(invalid()),
+    };
+    if components.next() != Some(Component::RootDir) {
+        return Err(invalid());
+    }
+    let mount = [u16::from(drive), u16::from(b':'), u16::from(b'\\'), 0];
+    let mut volume = [0u16; 64];
+    if unsafe {
+        GetVolumeNameForVolumeMountPointW(mount.as_ptr(), volume.as_mut_ptr(), volume.len() as u32)
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let end = volume.iter().position(|&c| c == 0).ok_or_else(invalid)?;
+    let mut directory = PathBuf::from(OsString::from_wide(&volume[..end]));
+    if !directory.is_absolute() {
+        return Err(invalid());
+    }
+    for component in components {
+        let Component::Normal(name) = component else {
+            return Err(invalid());
+        };
+        directory.push(name);
+    }
+
+    // Keep each plain ancestor open, from the volume root to the service
+    // directory, until the volume-qualified executable has been opened by Windows.
+    let ancestors = directory.ancestors().collect::<Vec<_>>();
+    let mut guards = Vec::with_capacity(ancestors.len());
+    for path in ancestors.into_iter().rev() {
+        let guard = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let meta = guard.metadata()?;
+        if !meta.is_dir() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(invalid());
+        }
+        guards.push(guard);
+    }
+    Ok((directory, guards))
 }
 
 pub(super) struct Managed {
@@ -83,9 +137,10 @@ fn job() -> io::Result<OwnedHandle> {
 impl Managed {
     pub(super) async fn spawn(pin: &str, released: &AtomicBool) -> io::Result<Self> {
         let current = std::env::current_exe()?;
-        let directory = current
+        let service_directory = current
             .parent()
             .ok_or_else(|| io::Error::other("service location"))?;
+        let (directory, guards) = pinned_directory(service_directory)?;
         let path = directory.join("ssh1-helper.exe");
         // Deny writes and replacement between hashing the executable and CreateProcess.
         let mut image = OpenOptions::new()
@@ -127,7 +182,7 @@ impl Managed {
             .env_clear()
             // Windows networking uses this system value even with no proxy or profile.
             .env("SystemRoot", system_root()?)
-            .current_dir(directory)
+            .current_dir(&directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -136,6 +191,7 @@ impl Managed {
             .spawn()?;
         released.store(false, Ordering::Release);
         drop(image);
+        drop(guards);
         let assigned = process.raw_handle().is_some_and(|handle| unsafe {
             AssignProcessToJobObject(job.as_raw_handle(), handle) != 0
         });
@@ -205,5 +261,27 @@ impl Managed {
 impl Drop for Managed {
     fn drop(&mut self) {
         self.reader.abort();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helper_directory_requires_a_plain_local_directory() {
+        let binary = std::env::current_exe().unwrap();
+        let original = binary.parent().unwrap();
+        let (directory, guards) = pinned_directory(original).unwrap();
+        assert!(directory.to_string_lossy().starts_with(r"\\?\Volume{"));
+        assert_eq!(guards.len(), original.ancestors().count());
+        assert!(guards.iter().all(|file| file.metadata().unwrap().is_dir()));
+        drop(guards);
+        for invalid in [Path::new("relative"), Path::new(r"\\server\share"), &binary] {
+            assert_eq!(
+                pinned_directory(invalid).unwrap_err().kind(),
+                io::ErrorKind::InvalidInput
+            );
+        }
     }
 }
