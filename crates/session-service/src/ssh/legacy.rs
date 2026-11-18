@@ -48,7 +48,7 @@ impl Actor {
             username,
             explicitly_enabled: true,
             ..
-        } = profile.settings
+        } = &profile.settings
         else {
             return Err(Failure::Configuration);
         };
@@ -62,7 +62,10 @@ impl Actor {
             connection: self.reference,
             start_id,
         };
-        let endpoint = wire::Endpoint { host, port };
+        let endpoint = wire::Endpoint {
+            host: host.clone(),
+            port: *port,
+        };
         let result = async {
             self.authorize_legacy(&identity)?;
             helper
@@ -71,13 +74,13 @@ impl Actor {
                     protocol: wire::Protocol::Ssh1,
                     session,
                     endpoint: endpoint.clone(),
-                    username,
+                    username: username.clone(),
                     cols: cols as u16,
                     rows: rows as u16,
                 })
                 .await
                 .map_err(|_| Failure::Transport)?;
-            self.legacy_handshake(&mut helper, session, endpoint)
+            self.legacy_handshake(&mut helper, session, endpoint, &profile, &identity)
                 .await?;
             self.legacy_terminal(&mut helper, session).await
         }
@@ -141,6 +144,8 @@ impl Actor {
         helper: &mut Managed,
         session: wire::Session,
         endpoint: wire::Endpoint,
+        profile: &Profile,
+        identity: &Identity,
     ) -> Result<(), Failure> {
         let Event::HostChallenge {
             challenge,
@@ -218,17 +223,39 @@ impl Actor {
                 self.ask(Challenge::Credentials {
                     id: password.id,
                     auth: Auth::Password,
-                    stored_available: false,
+                    stored_available: profile.credential_ref.is_some(),
                 }),
             )
             .await?;
-        let Answer::Credentials {
-            use_saved: false,
-            password: Some(value),
-        } = answer
-        else {
-            return Err(Failure::CredentialUnavailable);
+        let value = match answer {
+            Answer::Credentials {
+                use_saved: false,
+                password: Some(value),
+            } => value,
+            Answer::Credentials {
+                use_saved: true,
+                password: None,
+            } => {
+                self.legacy_approval(helper, session, async {
+                    match self
+                        .config
+                        .request(Internal::Credential(profile.clone()))
+                        .await
+                    {
+                        Ok(Value::Credential(bundle)) => {
+                            bundle.password.ok_or(Failure::CredentialUnavailable)
+                        }
+                        Err(session_protocol::config::ConfigError::Conflict) => {
+                            Err(Failure::CredentialConfigurationChanged)
+                        }
+                        _ => Err(Failure::CredentialUnavailable),
+                    }
+                })
+                .await?
+            }
+            _ => return Err(Failure::CredentialUnavailable),
         };
+        self.authorize_legacy(identity)?;
         let password_bytes =
             session_protocol::SensitiveBytes::new(value.expose().as_bytes().to_vec());
         drop(value);

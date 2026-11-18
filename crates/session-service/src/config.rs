@@ -611,8 +611,14 @@ impl State {
 }
 fn validate_credential(settings: &Settings, value: &CredentialBundle) -> Result<(), ConfigError> {
     let valid = match settings {
-        Settings::Ssh1 { .. }
-        | Settings::Ssh2 {
+        Settings::Ssh1 { .. } => {
+            value.password.as_ref().is_some_and(|password| {
+                let text = password.expose();
+                text.len() <= transport_ssh1::MAX_PASSWORD && !text.contains('\0')
+            }) && value.private_key.is_none()
+                && value.passphrase.is_none()
+        }
+        Settings::Ssh2 {
             auth: Auth::Password,
             ..
         } => value.password.is_some() && value.private_key.is_none() && value.passphrase.is_none(),

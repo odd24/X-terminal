@@ -459,6 +459,7 @@ pub enum Failure {
     TransportTimeout,
     AuthenticationRejected,
     CredentialUnavailable,
+    CredentialConfigurationChanged,
     Transport,
     Cancelled,
     ProtocolLimit,

@@ -761,11 +761,14 @@ impl Manager {
                 use_saved,
                 password,
             } = &answer
-            && (*use_saved
-                || password.as_ref().is_none_or(|value| {
+            && (if *use_saved {
+                password.is_some()
+            } else {
+                password.as_ref().is_none_or(|value| {
                     value.expose().len() > transport_ssh1::MAX_PASSWORD
                         || value.expose().contains('\0')
-                }))
+                })
+            })
         {
             return Err(ErrorCode::InvalidArgument);
         }
@@ -781,6 +784,25 @@ impl Manager {
             .as_ref()
             .filter(|challenge| challenge.id() == id)
             .ok_or(ErrorCode::InvalidState)?;
+        if info.protocol == Protocol::Ssh1
+            && matches!(
+                &answer,
+                Answer::Credentials {
+                    use_saved: true,
+                    ..
+                }
+            )
+            && !matches!(
+                challenge,
+                Challenge::Credentials {
+                    auth: Auth::Password,
+                    stored_available: true,
+                    ..
+                }
+            )
+        {
+            return Err(ErrorCode::InvalidState);
+        }
         if !matches!(
             (challenge, &answer),
             (Challenge::HostKey { .. }, Answer::Host(_))

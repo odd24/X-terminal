@@ -183,7 +183,7 @@ async fn positive(client: &mut Client, connection: ConnectionRef, source: &Path)
                 password: None,
             },
         },
-        ErrorCode::InvalidArgument,
+        ErrorCode::InvalidState,
     )
     .await;
     let synthetic = ssh1_fixture::password(source).unwrap();

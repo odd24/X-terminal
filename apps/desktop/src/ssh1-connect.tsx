@@ -16,7 +16,9 @@ const failures: Record<string, string> = {
   HOST_KEY_REJECTED: '已拒绝 SSH1 主机指纹，本次未提交密码。',
   HOST_KEY_CONFLICT: '主机信任记录已变化，请重新打开连接并核对指纹。',
   CONFIGURATION: '配对的 SSH1 helper 不可用，请检查本机预览构建。',
-  AUTHENTICATION_REJECTED: '服务器未接受本次密码。',
+  AUTHENTICATION_REJECTED: '服务器拒绝本次密码。请关闭窗口，重新打开连接并选择本次密码。',
+  CREDENTIAL_UNAVAILABLE: '无法使用此配置的已保存密码。请核对凭据，或关闭窗口后重新连接并输入临时密码。',
+  CREDENTIAL_CONFIGURATION_CHANGED: '原保存配置已变化，本次未提交密码。请关闭窗口并重新核对配置。',
   APPROVAL_TIMEOUT: '本次确认超时，请重新打开该保存配置。',
   TRANSPORT_TIMEOUT: 'SSH1 连接超时。',
 };
@@ -152,19 +154,19 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
     && candidate.endpoint.host.toLowerCase() === host.toLowerCase()
     && candidate.endpoint.port === port && candidate.algorithm === 'rsa1'
     && /^SHA256:[A-Za-z0-9+/]{43}$/.test(candidate.fingerprint);
-  const waitingPassword = challenge?.kind === 'credentials' && challenge.auth === 'password' && !challenge.stored_available;
+  const waitingPassword = challenge?.kind === 'credentials' && challenge.auth === 'password';
   useEffect(() => { if (waitingPassword) password.current?.focus(); }, [waitingPassword, challenge?.id]);
 
-  async function replyTo(challenge: Challenge, approval?: boolean, value?: string) {
+  async function replyTo(challenge: Challenge, answer: { approve: boolean } | { use_saved: true; password: null } | { use_saved: false; password: string }) {
     if (!target || !ownerMatches() || flight.current || submitted === challenge.id || latest.current?.challenge?.id !== challenge.id) return;
     flight.current = true;
     setSubmitted(challenge.id);
     setError('');
     try {
       const request = { connection: target, challenge_id: challenge.id };
-      const reply = approval !== undefined
-        ? await ssh({ op: 'answer_host', ...request, approve: approval })
-        : await ssh({ op: 'authenticate', ...request, use_saved: false, password: value ?? '' });
+      const reply = 'approve' in answer
+        ? await ssh({ op: 'answer_host', ...request, ...answer })
+        : await ssh({ op: 'authenticate', ...request, ...answer });
       if (reply.result !== 'accepted') throw new Error('invalid approval reply');
     } catch {
       if (live.current && ownerMatches()) setError('审批结果未确认。请查看当前连接，未重复提交。');
@@ -180,7 +182,7 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
       setError('本次密码超过 8 KiB 或含无效字符。');
       return;
     }
-    void replyTo(challenge, undefined, value);
+    void replyTo(challenge, { use_saved: false, password: value });
   }
 
   const failure = status?.failure;
@@ -200,11 +202,17 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
       <p>{challenge.review.status === 'changed' ? '保存的 SSH1 主机指纹已变化。' : '此 SSH1 主机尚未受信任。'}</p>
       <code className="fingerprint">{candidate.fingerprint}</code>
       <label className="check"><input aria-label="已核对 SSH1 主机指纹" type="checkbox" checked={verified === challenge.id} onChange={event => setVerified(event.target.checked ? challenge.id : '')} />已通过可信渠道核对完整指纹</label>
-      <div className="config-actions"><button disabled={verified !== challenge.id} onClick={() => void replyTo(challenge, true)}>信任 SSH1 主机并继续</button><button onClick={() => void replyTo(challenge, false)}>拒绝 SSH1 主机</button></div>
+      <div className="config-actions"><button disabled={verified !== challenge.id} onClick={() => void replyTo(challenge, { approve: true })}>信任 SSH1 主机并继续</button><button onClick={() => void replyTo(challenge, { approve: false })}>拒绝 SSH1 主机</button></div>
     </fieldset>}
     {waitingPassword && <form onSubmit={sendPassword}>
       <Field label="临时密码"><input ref={password} aria-label="SSH1 登录密码" autoComplete="off" type="password" maxLength={8192} disabled={submitted === challenge.id} /></Field>
       <button type="submit" disabled={submitted === challenge.id}>提交本次 SSH1 密码</button>
+      {challenge.stored_available
+        ? <button type="button" disabled={submitted === challenge.id} onClick={() => {
+          if (password.current) password.current.value = '';
+          void replyTo(challenge, { use_saved: true, password: null });
+        }}>使用已保存密码</button>
+        : <p>此连接没有已保存密码引用，可以输入临时密码。</p>}
     </form>}
     {challenge && !validHost && !waitingPassword && <ErrorNotice>SSH1 审批与原目标不匹配，审批已禁用。</ErrorNotice>}
     {(error || failure) && <ErrorNotice>{failure ? failures[failure] ?? 'SSH1 会话未完成，请核对本次目标。' : error}</ErrorNotice>}

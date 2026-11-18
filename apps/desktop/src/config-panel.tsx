@@ -22,7 +22,7 @@ function settings(draft: Draft): Settings {
   const common = { host: draft.host.trim(), port: draft.port, username: draft.username, encoding: draft.encoding };
   return draft.protocol === 'ssh2' ? { ...common, protocol: 'ssh2', auth: draft.auth } : { ...common, protocol: 'ssh1', explicitly_enabled: draft.ssh1 };
 }
-export function ConfigPanel({ close, onRestored, initialProfileId, initialAction, onChanged }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; initialAction?:'edit'|'delete'; onChanged?():void }) {
+export function ConfigPanel({ close, onRestored, initialProfileId, initialAction, onChanged, ssh1Preview }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; initialAction?:'edit'|'delete'; onChanged?():void; ssh1Preview: boolean }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [filter, setFilter] = useState('*');
@@ -71,6 +71,16 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
   async function save(event: FormEvent) {
     event.preventDefault();
     const value = settings(draft);
+    if (value.protocol === 'ssh1' && credential === 'replace') {
+      if (!ssh1Preview || !value.explicitly_enabled) {
+        setMessage('请先在配对预览中显式启用 SSH1，再保存密码。');
+        return;
+      }
+      if (password.includes('\0') || new TextEncoder().encode(password).length > 8192) {
+        setMessage('SSH1 密码超过 8 KiB 或含无效字符。');
+        return;
+      }
+    }
     const editCredential: CredentialEdit = value.protocol === 'serial' ? { action: 'clear' } : credential === 'replace'
       ? { action: 'replace', value: { password: value.protocol === 'ssh2' && value.auth === 'public_key' ? null : password, private_key: null, passphrase: value.protocol === 'ssh2' && value.auth === 'public_key' ? passphrase : null } }
       : { action: credential };
@@ -132,8 +142,8 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
             </>}
           </div>
           {draft.protocol !== 'serial' && <fieldset><legend>凭据</legend><p>{current?.credential_missing ? '此配置的凭据记录缺失，请重新输入或移除引用。恢复配置不会恢复密码或私钥。' : current?.credential_ref ? '此配置有保存的凭据引用；不会回填秘密。' : '此配置没有保存的凭据引用。'}</p>
-            <label>凭据操作<select aria-label="凭据操作" value={credential} onChange={event => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential(event.target.value as typeof credential); }}><option value="keep">保留现有引用 / 暂不保存</option><option value="clear">移除此配置的凭据引用</option><option value="replace" disabled={draft.protocol==='ssh1'}>保存新凭据</option></select></label>
-            {draft.protocol==='ssh1' && <small>此预览的 SSH1 连接只使用本次输入的临时密码。</small>}
+            <label>凭据操作<select aria-label="凭据操作" value={credential} onChange={event => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential(event.target.value as typeof credential); }}><option value="keep">保留现有引用 / 暂不保存</option><option value="clear">移除此配置的凭据引用</option><option value="replace" disabled={draft.protocol==='ssh1'&&(!ssh1Preview||!draft.ssh1)}>保存新凭据</option></select></label>
+            {draft.protocol==='ssh1' && <small>在配对预览中显式启用 SSH1 后可保存密码。每次连接仍需在主机核验后明确选择使用。</small>}
             {credential === 'replace' && (draft.protocol === 'ssh2' && draft.auth === 'public_key' ? <><label>本地私钥文件<input aria-label="本地私钥文件" required autoComplete="off" placeholder="C:\keys\id_ed25519" value={keyPath} onChange={event => setKeyPath(event.target.value)} /><small>仅本地盘的普通文件，服务读取并加密保存；文件内容不进入页面。</small></label><label>私钥口令<input aria-label="私钥口令" type="password" autoComplete="new-password" value={passphrase} onChange={event => setPassphrase(event.target.value)} /></label></> : <label>新密码<input aria-label="新密码" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /><small>允许显式保存空密码。</small></label>)}
             <small>移除引用不删除其他配置或备份可能使用的密文。保存、切换或关闭后清空新输入。</small>
           </fieldset>}

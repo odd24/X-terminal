@@ -9,11 +9,13 @@ import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, desktopKeyboard, terminalInput } from './lib/DesktopKeyboard.mjs';
 import { observeDesktopSsh1Sizes, verifyDesktopSsh1Resize } from './lib/DesktopSsh1Resize.mjs';
 import { verifyDesktopSsh1Reconnect } from './lib/DesktopSsh1Reconnect.mjs';
+import { verifyDesktopSsh1Vault } from './lib/DesktopSsh1Vault.mjs';
 
 const [fixture, source, mode] = process.argv.slice(2);
-assert.ok(mode === undefined || mode === '--resize' || mode === '--reconnect');
+assert.ok(mode === undefined || mode === '--resize' || mode === '--reconnect' || mode === '--vault');
 const resizeOnly = mode === '--resize';
 const reconnectOnly = mode === '--reconnect';
+const vaultOnly = mode === '--vault';
 assert.match(fixture, /^\/tmp\/P04-ssh1\.[A-Za-z0-9]{8}$/);
 assert.ok(source && path.isAbsolute(source));
 const manifest = JSON.parse(await readFile('artifacts/P13-ssh1-preview.json', 'utf8'));
@@ -28,6 +30,12 @@ for (const file of manifest.files) {
   assert.equal(createHash('sha256').update(data).digest('hex'), file.sha256);
 }
 const wsl = ['-d', 'Ubuntu-24.04', '--cd', fixture, '--exec'];
+if (vaultOnly) {
+  const digest = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity'], {
+    windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  assert.equal(digest.trim().split(/\s+/)[0], '75372440919774ec12b9bb9058fca289e4d542ad992d29080aa1d421230c6fd1');
+}
 if (reconnectOnly) {
   const installed = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity', './p13-reconnect-pty'], {
     windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
@@ -58,25 +66,25 @@ function publicFingerprint(file) {
     .digest('base64').replace(/=+$/, '');
 }
 const fingerprint = publicFingerprint('public-key.txt');
-const replacementFingerprint = reconnectOnly ? publicFingerprint('replacement-public-key.txt') : undefined;
+const replacementFingerprint = reconnectOnly || vaultOnly ? publicFingerprint('replacement-public-key.txt') : undefined;
 
-async function typeFixturePassword(keyboard) {
+async function withFixturePassword(use, kind = 'GOOD') {
   const sourceBytes = await readFile(source);
   try {
-    const declaration = Buffer.from('const char *PHONY_GOOD_PASSWORD = "');
+    const declaration = Buffer.from(`const char *PHONY_${kind}_PASSWORD = "`);
     const offset = sourceBytes.indexOf(declaration);
     assert.ok(offset >= 0 && sourceBytes.indexOf(declaration, offset + declaration.length) < 0);
     const start = offset + declaration.length;
     const end = sourceBytes.indexOf('";', start);
     assert.ok(end > start && end - start <= 63 && sourceBytes.subarray(start, end).every(byte => byte >= 97 && byte <= 122));
-    await keyboard.type(sourceBytes.toString('ascii', start, end));
+    await use(sourceBytes.toString('ascii', start, end));
   } finally { sourceBytes.fill(0); }
 }
+const typeFixturePassword = keyboard => withFixturePassword(text => keyboard.type(text));
 
 const peers = [];
-async function listen() {
+async function listen(limit = 1) {
   const peer = { accepted: 0, trials: [] };
-  const limit = reconnectOnly ? 2 : 1;
   const server = createServer(socket => {
     if (peer.accepted >= limit || socket.localAddress !== '127.0.0.1' || socket.remoteAddress !== '127.0.0.1') {
       socket.destroy();
@@ -95,11 +103,14 @@ async function listen() {
       ...(resizeOnly ? ['/bin/bash', '-c',
         'exec "$@" 2> >(/usr/bin/grep -aE --line-buffered "^conn#[0-9]+: (P04 SSH1_CMSG_WINDOW_SIZE [0-9]{1,10} [0-9]{1,10} [0-9]{1,10} [0-9]{1,10}|Client sent exit confirmation)$" >&2)',
         'filtered-fixture'] : []),
+      ...(vaultOnly ? ['/bin/bash', '-c',
+        'exec "$@" 2> >(/usr/bin/grep -aE --line-buffered "^P13 SSH1_PASSWORD_(ACCEPTED|REJECTED)$" >&2)',
+        'filtered-vault-fixture'] : []),
       './out/uppity', ...(resizeOnly ? ['--verbose'] : []),
-      '--hostkey', reconnectOnly && peer.accepted === 2 ? 'replacement.rsa1' : 'fixture.rsa1',
+      '--hostkey', peer.accepted === 2 ? 'replacement.rsa1' : 'fixture.rsa1',
       '--sessiondir', fixture, '--allow-auth', 'password',
       ...['none', 'publickey', 'kbdint', 'tis', 'cryptocard'].flatMap(method => ['--deny-auth', method]),
-    ], { windowsHide: true, stdio: ['pipe', 'pipe', resizeOnly ? 'pipe' : 'ignore'] });
+    ], { windowsHide: true, stdio: ['pipe', 'pipe', resizeOnly || vaultOnly ? 'pipe' : 'ignore'] });
     child.stderr?.on('data', chunk => {
       if (trial.wire.length < 4096) trial.wire += chunk.toString('utf8').replaceAll('\0', '');
     });
@@ -137,7 +148,8 @@ const rendered = ref => `.terminal-pane[data-active="true"][data-rendered-id="${
 const createRef = ({ connection_id, generation }) => ({ connection_id, generation });
 
 async function run() {
-  const positive = await listen(), negative = resizeOnly || reconnectOnly ? undefined : await listen();
+  const positive = await listen(reconnectOnly || vaultOnly ? 2 : 1);
+  const negative = mode === undefined ? await listen() : undefined;
   const executable = path.join(manifest.directory, 'shared-terminal-desktop.exe');
   ui = await launchDesktop(data, { executable });
   const status = await ui.invoke('service_status');
@@ -163,11 +175,18 @@ async function run() {
   assert.equal(await ui.evaluate(`${el('[aria-label="显式开启SSH1"]')}.checked`), false);
   assert.equal(await ui.evaluate(`${el('[aria-label="凭据操作"] option[value="replace"]')}.disabled`), true);
   await click('[aria-label="显式开启SSH1"]');
+  if (vaultOnly) {
+    assert.equal(await ui.evaluate(`${el('[aria-label="凭据操作"] option[value="replace"]')}.disabled`), false);
+    await ui.fill('凭据操作', 'replace');
+    await ui.evaluate(`${el('[aria-label="新密码"]')}.focus()`);
+    await typeFixturePassword(keyboard);
+  }
   await ui.click('保存配置');
   await ui.waitFor(`${el('[aria-label="配置状态"]')}?.textContent.includes('配置已保存')`);
   const saved = await findProfile(name);
   assert.equal(saved.settings.explicitly_enabled, true);
-  assert.equal(saved.credential_ref, null);
+  if (vaultOnly) assert.match(saved.credential_ref, /^[0-9a-f-]{36}$/i);
+  else assert.equal(saved.credential_ref, null);
   await ui.click('关闭配置');
   let rejectedProfile;
   if (negative) {
@@ -224,6 +243,11 @@ async function run() {
     return ref;
   }
 
+  if (vaultOnly) {
+    await verifyDesktopSsh1Vault({ ui, keyboard, saved, positive, listen, openSaved, withFixturePassword,
+      preview: manifest.directory, replacementFingerprint, servicePid: status.pid });
+    return;
+  }
   if (resizeOnly) observation = await observeDesktopSsh1Sizes(ui);
   const ref = await openSaved(saved, positive, !resizeOnly && !reconnectOnly);
   await click(hostConsent);
