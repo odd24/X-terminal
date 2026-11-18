@@ -57,6 +57,7 @@ async function startPeer(label) {
 const pinCheck = '[aria-label="快速连接核对指纹"]';
 const password = '[aria-label="SSH登录密码"]';
 const find = '[aria-label="终端查找文字"]';
+const toolsClosed = 'document.querySelector(".tools-menu").open === false';
 const tab = ref => `[role="tab"][data-connection-id="${ref.connection_id}"]`;
 const selectedTab = ref => `${tab(ref)}[aria-selected="true"]`;
 const closeButton = ref => `[aria-label="关闭标签 ${ref.connection_id}"]`;
@@ -92,11 +93,15 @@ try {
   const { key, type, enter, tabTo, recordFocus } = desktopKeyboard(ui, focusTrace);
   async function leaveTerminal(firstTab) {
     assert.ok(await ui.evaluate(active(terminalInput)));
+    assert.ok(await ui.evaluate(toolsClosed), 'search shortcut starts with the tools menu closed');
     await key('F', 'KeyF', 70, { modifiers: 10 });
     await ui.waitFor(active(find));
     await recordFocus('查找快捷键移出终端');
     await key('Escape', 'Escape', 27);
     await ui.waitFor(`!(${exists(find)})`);
+    await recordFocus('关闭查找后焦点');
+    assert.ok(await ui.evaluate(active('.tools-menu > summary')), 'Escape restores focus to the visible tools summary');
+    assert.ok(await ui.evaluate(toolsClosed), 'Escape leaves the tools menu closed');
     await tabTo(active(closeButton(firstTab)), '从查找返回标签区');
   }
 

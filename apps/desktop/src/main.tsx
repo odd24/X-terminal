@@ -593,7 +593,10 @@ function App() {
     <ExecPanel open={execOpen} connection={active} />
     {serialOpen && <SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} />}
     {serialToolsOpen&&active?.protocol==='SERIAL'&&<Dialog label="串口收发详情" close={()=>setSerialToolsOpen(false)}><SerialPanel controlsOnly connection={active} select={selectConnection} closePanel={()=>setSerialToolsOpen(false)}/></Dialog>}
-    {searchOpen && <TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} />}
+    {searchOpen && <TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} closeFromKeyboard={() => {
+      toolsSummary.current?.focus();
+      setSearchOpen(false);
+    }} />}
     {pasteProposal && <section className="config-panel" aria-label="粘贴确认">
       <h2>确认粘贴到终端</h2>
       <small>目标 {pasteProposal.target.protocol} · {pasteProposal.target.connection_id} / 代次 {pasteProposal.target.generation}</small>

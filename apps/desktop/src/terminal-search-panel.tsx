@@ -3,7 +3,11 @@ import { useState } from 'react';
 import type { Terminal } from '@xterm/xterm';
 import { searchTerminal, type TerminalMatch } from './terminal-search';
 
-export function TerminalSearch({ terminal, close }: { terminal: () => Terminal | undefined; close: () => void }) {
+export function TerminalSearch({ terminal, close, closeFromKeyboard }: {
+  terminal: () => Terminal | undefined;
+  close: () => void;
+  closeFromKeyboard: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState('仅搜索当前终端保留的缓冲区；区分大小写，不搜索日志。');
   const [previous, setPrevious] = useState<TerminalMatch>();
@@ -20,7 +24,10 @@ export function TerminalSearch({ terminal, close }: { terminal: () => Terminal |
     setPrevious(match); setMessage(`${index + 1} / ${matches.length}${limited ? '（已达扫描或1000条显示上限）' : ''} · 当前保留缓冲区`);
   }
   return <Panel title="终端查找" closeLabel="关闭查找" close={() => { terminal()?.clearSelection(); close(); terminal()?.focus(); }}>
-    <Field label="查找文字"><input autoFocus aria-label="终端查找文字" maxLength={256} value={query} onChange={event => { setQuery(event.target.value); setPrevious(undefined); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); find(event.shiftKey); } if (event.key === 'Escape') close(); }} /></Field>
+    <Field label="查找文字"><input autoFocus aria-label="终端查找文字" maxLength={256} value={query} onChange={event => { setQuery(event.target.value); setPrevious(undefined); }} onKeyDown={event => {
+      if (event.key === 'Enter') { event.preventDefault(); find(event.shiftKey); }
+      if (event.key === 'Escape') { event.preventDefault(); closeFromKeyboard(); }
+    }} /></Field>
     <div className="config-actions"><button onClick={() => find(true)}>上一个匹配</button><button onClick={() => find(false)}>下一个匹配</button><button onClick={() => { terminal()?.scrollToBottom(); terminal()?.focus(); }}>回到底部</button></div>
     <div role="status" aria-label="终端查找状态">{message}</div>
   </Panel>;
