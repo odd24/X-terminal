@@ -22,6 +22,14 @@ public static class LoadSoakSnapshot
         public uint Length, Load;
         public ulong Total, Available, TotalPage, AvailablePage, TotalVirtual, AvailableVirtual, Extended;
     }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PerformanceInformation
+    {
+        public uint Size;
+        public UIntPtr CommitTotal, CommitLimit, CommitPeak, PhysicalTotal, PhysicalAvailable,
+            SystemCache, KernelTotal, KernelPaged, KernelNonpaged, PageSize;
+        public uint HandleCount, ProcessCount, ThreadCount;
+    }
     public sealed class ProcessRow
     {
         public uint Pid, Parent;
@@ -37,6 +45,16 @@ public static class LoadSoakSnapshot
     private static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
+    [DllImport("kernel32.dll", EntryPoint = "K32GetPerformanceInfo")]
+    private static extern bool GetPerformanceInfo(out PerformanceInformation info, uint size);
+
+    public static ulong[] SystemCommit()
+    {
+        if (!GetPerformanceInfo(out var info, (uint)Marshal.SizeOf<PerformanceInformation>()))
+            return null;
+        var pageSize = info.PageSize.ToUInt64();
+        return new[] { info.CommitTotal.ToUInt64() * pageSize, info.CommitLimit.ToUInt64() * pageSize };
+    }
     public static ulong[] Memory()
     {
         var status = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };

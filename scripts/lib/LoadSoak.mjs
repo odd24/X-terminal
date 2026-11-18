@@ -6,16 +6,23 @@ import { delay } from './DesktopHarness.mjs';
 const GiB = 1024 ** 3;
 const MiB = 1024 ** 2;
 
-export function checkSoakResourceFloor(measured, stage, report) {
+export function checkSoakResourceFloor(measured, stage, report, nodeRssBytes = null) {
   const availableFloor = stage === 'preflight' ? 2 * GiB : GiB;
   const volumeFloor = stage === 'preflight' ? 8 * GiB : 4 * GiB;
   const [data, reports] = measured.free;
   const hasMemory = measured.available >= availableFloor;
   const hasDisk = measured.free.length === 2 && data >= volumeFloor && reports >= volumeFloor;
   if (!hasMemory || !hasDisk) {
+    const owned = measured.processes && Object.values(measured.processes);
     report.resourceLowWater = {
       stage, availableBytes: measured.available, availableFloorBytes: availableFloor,
       freeBytes: { data, reports }, volumeFloorBytes: volumeFloor,
+      systemCommitBytes: measured.systemCommitBytes ?? null,
+      ownedMemoryBytes: owned ? {
+        privateExcludingNode: owned.reduce((sum, p) => sum + p.private, 0),
+        workingSetExcludingNode: owned.reduce((sum, p) => sum + p.working, 0),
+        nodeRss: nodeRssBytes,
+      } : null,
     };
   }
   assert.ok(hasMemory && hasDisk, `Soak resource low water during ${stage}`);
@@ -55,9 +62,9 @@ export async function measureSoak({ directory, ui, fixture, service, sampler, co
   }
   async function sampleResources(index, began) {
       const measure = await sampler.request('sample', { desktop: ui.app.pid, service: service.pid, fixture: fixture.pid });
-      checkSoakResourceFloor(measure, 'sampling', report);
-      if (seconds === 28800) assert.equal(measure.power, 'Online', 'Soak lost AC power');
       const node = process.memoryUsage().rss;
+      checkSoakResourceFloor(measure, 'sampling', report, node);
+      if (seconds === 28800) assert.equal(measure.power, 'Online', 'Soak lost AC power');
       assert.ok(node <= 512 * MiB, 'Soak Node RSS limit');
       const processes = measure.processes;
       for (const [name, p] of Object.entries(processes)) {
@@ -70,6 +77,7 @@ export async function measureSoak({ directory, ui, fixture, service, sampler, co
       assert.equal(audit.rejected_records, '0');
       assert.equal(audit.incomplete_segments, '0');
       const sample = { processes, node, available: measure.available, free: measure.free, latencyMs: performance.now() - began,
+        systemCommitBytes: measure.systemCommitBytes,
         audit, auditBacklog: Number(BigInt(audit.accepted_through) - BigInt(audit.synced_through)) };
       assert.ok(sample.auditBacklog < 1024, 'Soak audit backlog reached the queue capacity');
       const minute = Math.floor(index / 6);

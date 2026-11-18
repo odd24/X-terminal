@@ -153,7 +153,7 @@ try {
   }
 }catch(error){aborted=true;report.passed=false;report.error=error.message;report.firstFailureHost=performance.now();
   if(error.samplerFailure)report.samplerFailure=error.samplerFailure;
-  await writeFile(artifact+'.first-fault.json',JSON.stringify({source,error:report.error,hostAt:report.firstFailureHost,sampleCount:samples.length,completedObserverBatches:observerBatches.length},null,2)+'\n');
+  await writeFile(artifact+'.first-fault.json',JSON.stringify({source,error:report.error,hostAt:report.firstFailureHost,sampleCount:samples.length,completedObserverBatches:observerBatches.length,resourceLowWater:report.resourceLowWater},null,2)+'\n');
   let settleTimer;try{report.taskSettlement=await Promise.race([Promise.allSettled(measurementTasks).then(rows=>rows.map(r=>r.status==='rejected'?{status:r.status,error:r.reason?.message}:{status:r.status})),new Promise(resolve=>{settleTimer=setTimeout(()=>resolve('bounded 11 second settle exceeded; no new input/source retries'),11000);})]);}finally{clearTimeout(settleTimer);}
   report.samples=samples;report.remoteEvents=remoteEvents;report.observerBatches=observerBatches;report.resources=resources;report.audit=audit;try{report.partialTrace=await ui?.evaluate(`({keys:window.__t18?.keys,writes:window.__t18?.writes,inputFailure:document.querySelector('.input-status')?.textContent})`);}catch(e){report.traceFailure=e.message;}
   console.error('T18 measurement failed:',error.message);}

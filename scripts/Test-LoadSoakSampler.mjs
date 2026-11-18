@@ -21,8 +21,22 @@ for (const [stage, availableFloorBytes, volumeFloorBytes] of [
     assert.throws(() => checkSoakResourceFloor({ available, free: [data, reports] }, stage, report), /Soak resource low water/);
     assert.deepEqual(report.resourceLowWater, {
       stage, availableBytes: available, availableFloorBytes, freeBytes: { data, reports }, volumeFloorBytes,
+      systemCommitBytes: null, ownedMemoryBytes: null,
     });
   }
+}
+{
+  const report = {};
+  const systemCommitBytes = { used: 10 * GiB, limit: 20 * GiB };
+  const measured = {
+    available: GiB - 1, free: [4 * GiB, 4 * GiB], systemCommitBytes,
+    processes: { desktop: { private: 100, working: 200 }, service: { private: 300, working: 400 } },
+  };
+  assert.throws(() => checkSoakResourceFloor(measured, 'sampling', report, 500), /Soak resource low water/);
+  assert.deepEqual(report.resourceLowWater.systemCommitBytes, systemCommitBytes);
+  assert.deepEqual(report.resourceLowWater.ownedMemoryBytes, {
+    privateExcludingNode: 400, workingSetExcludingNode: 600, nodeRss: 500,
+  });
 }
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'shared-terminal-soak-sampler-中文-'));
@@ -34,6 +48,8 @@ try {
       assert.ok(sample.memory > sample.available && sample.available > 0);
       assert.equal(sample.free.length, 2);
       assert.equal(sample.acTimers.length, 2);
+      assert.ok(Number.isSafeInteger(sample.systemCommitBytes.used) && sample.systemCommitBytes.used > 0);
+      assert.ok(Number.isSafeInteger(sample.systemCommitBytes.limit) && sample.systemCommitBytes.limit >= sample.systemCommitBytes.used);
     }
   } finally {
     const stopped = await sampler.close();

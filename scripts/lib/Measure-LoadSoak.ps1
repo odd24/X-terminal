@@ -27,8 +27,10 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     if ($request.Count -ne $expected) { throw 'invalid fields' }
     $stage = 'system_snapshot'
     $memory = [LoadSoakSnapshot]::Memory()
+    $commit = [LoadSoakSnapshot]::SystemCommit()
     $report = @{
       available=$memory[1]; memory=$memory[0]; os=[Environment]::OSVersion.VersionString
+      systemCommitBytes=if ($null -ne $commit) { @{ used=$commit[0]; limit=$commit[1] } } else { $null }
       cores=[Environment]::ProcessorCount
       power=[string][System.Windows.Forms.SystemInformation]::PowerStatus.PowerLineStatus
       free=@($DataRoot,$ReportRoot | ForEach-Object {
