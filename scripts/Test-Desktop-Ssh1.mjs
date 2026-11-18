@@ -11,15 +11,17 @@ import { observeDesktopSsh1Sizes, verifyDesktopSsh1Resize } from './lib/DesktopS
 import { verifyDesktopSsh1Reconnect } from './lib/DesktopSsh1Reconnect.mjs';
 import { verifyDesktopSsh1Vault } from './lib/DesktopSsh1Vault.mjs';
 import { verifyDesktopSsh1Fullscreen } from './lib/DesktopSsh1Fullscreen.mjs';
+import { verifyDesktopSsh1Keyboard } from './lib/DesktopSsh1Keyboard.mjs';
 
 const [fixture, source, mode] = process.argv.slice(2);
-assert.ok(mode === undefined || mode === '--resize' || mode === '--reconnect' || mode === '--vault' || mode === '--fullscreen');
+assert.ok(mode === undefined || ['--resize', '--reconnect', '--vault', '--fullscreen', '--keyboard'].includes(mode));
 const resizeOnly = mode === '--resize';
 const reconnectOnly = mode === '--reconnect';
 const vaultOnly = mode === '--vault';
 const fullscreenOnly = mode === '--fullscreen';
+const keyboardOnly = mode === '--keyboard';
 assert.match(fixture, /^\/tmp\/P04-ssh1\.[A-Za-z0-9]{8}$/);
-assert.ok(source && path.isAbsolute(source));
+assert.ok(keyboardOnly ? source === '-' : source && path.isAbsolute(source));
 const manifest = JSON.parse(await readFile('artifacts/P13-ssh1-preview.json', 'utf8'));
 assert.equal(manifest.result, 'PASS');
 assert.equal(path.dirname(path.resolve(manifest.directory)), path.resolve('artifacts'));
@@ -32,6 +34,12 @@ for (const file of manifest.files) {
   assert.equal(createHash('sha256').update(data).digest('hex'), file.sha256);
 }
 const wsl = ['-d', 'Ubuntu-24.04', '--cd', fixture, '--exec'];
+if (keyboardOnly) {
+  const digest = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity'], {
+    windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  assert.equal(digest.trim().split(/\s+/)[0], 'd06d2afda1e09bc322ba6d4eaa8c1ea5aa61fa28662e6283b80db48147a04bbe');
+}
 if (fullscreenOnly) {
   const digest = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity'], {
     windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
@@ -116,7 +124,8 @@ async function listen(limit = 1) {
         'filtered-vault-fixture'] : []),
       './out/uppity', ...(resizeOnly || fullscreenOnly ? ['--verbose'] : []),
       '--hostkey', peer.accepted === 2 ? 'replacement.rsa1' : 'fixture.rsa1',
-      '--sessiondir', fixture, '--allow-auth', 'password',
+      '--sessiondir', fixture,
+      ...(keyboardOnly ? ['--deny-auth', 'password'] : ['--allow-auth', 'password']),
       ...['none', 'publickey', 'kbdint', 'tis', 'cryptocard'].flatMap(method => ['--deny-auth', method]),
     ], { windowsHide: true, stdio: ['pipe', 'pipe', resizeOnly || vaultOnly || fullscreenOnly ? 'pipe' : 'ignore'] });
     child.stderr?.on('data', chunk => {
@@ -207,6 +216,10 @@ async function run() {
   }
   assert.deepEqual(await list(), []);
   assert.equal(positive.accepted + (negative?.accepted ?? 0), 0);
+  if (keyboardOnly) {
+    await verifyDesktopSsh1Keyboard({ ui, saved, peer: positive, executable, fingerprint, servicePid: status.pid });
+    return;
+  }
   if (await ui.evaluate(`${el('.app-bar button')}.getAttribute('aria-expanded')==='false'`)) await ui.click('会话导航');
   await ui.click('刷新会话树');
 
