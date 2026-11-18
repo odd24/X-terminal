@@ -3,6 +3,7 @@ import type { Auth, HostKeySummary, Settings } from './config-api';
 import { requestId } from './request-id';
 export type Connection = { connection_id: string; generation: number; protocol: string; state: string };
 export type ConnectionRef = Pick<Connection, 'connection_id' | 'generation'>;
+export type FixedProfile = { profile_id: string; revision: string };
 export type Challenge =
   | { kind: 'host_key'; id: string; review: { candidate: HostKeySummary; known: HostKeySummary[]; status: 'unknown' | 'known' | 'changed'; revision: string } }
   | { kind: 'credentials'; id: string; auth: Auth; stored_available: boolean }
@@ -24,6 +25,8 @@ type Request =
   | { op: 'connect_status'; profile_id: string; revision: string; request_id: string }
   | { op: 'disconnect'; connection: ConnectionRef; request_id: string }
   | { op: 'reconnect'; connection: ConnectionRef; request_id: string; cols: number; rows: number }
+  | { op: 'reconnect_fixed'; connection: ConnectionRef; profile: FixedProfile; request_id: string; cols: number; rows: number }
+  | { op: 'reconnect_fixed_status'; connection: ConnectionRef; profile: FixedProfile; request_id: string }
   | { op: 'status' | 'close' | 'forget'; connection: ConnectionRef }
   | { op: 'answer_host'; connection: ConnectionRef; challenge_id: string; approve: boolean }
   | { op: 'authenticate'; connection: ConnectionRef; challenge_id: string; use_saved: boolean; password: string | null }
@@ -32,7 +35,7 @@ type Request =
   | { op: 'write'; connection: ConnectionRef; request_id: string; bytes: number[] }
   | { op: 'resize'; connection: ConnectionRef; request_id: string; cols: number; rows: number }
   | { op: 'input_status'; connection: ConnectionRef; request_id: string };
-export type SshReply = ({ result: 'exec' } & TaskStatus) | { result: 'exec_output'; connection: ConnectionRef; task_id: string; output: ExecPage } | { result: 'started'; connection: Connection } | {result:'connect_receipt'; profile_id:string; revision:string; request_id:string; connection:Connection} | {result:'disconnect'; connection:ConnectionRef; request_id:string; state:'REQUESTED'|'TRANSPORT_ENDED'} | ({ result: 'status' } & SshStatus) | ({ result: 'input' } & Receipt) | { result: 'accepted' };
+export type SshReply = ({ result: 'exec' } & TaskStatus) | { result: 'exec_output'; connection: ConnectionRef; task_id: string; output: ExecPage } | { result: 'started'; connection: Connection } | {result:'connect_receipt'; profile_id:string; revision:string; request_id:string; connection:Connection} | { result: 'reconnect_fixed_receipt'; previous: ConnectionRef; profile: FixedProfile; request_id: string; connection: Connection } | {result:'disconnect'; connection:ConnectionRef; request_id:string; state:'REQUESTED'|'TRANSPORT_ENDED'} | ({ result: 'status' } & SshStatus) | ({ result: 'input' } & Receipt) | { result: 'accepted' };
 export class SshRequestError extends Error { constructor(readonly code:string,message:string){super(message);} }
 export async function ssh(request: Request): Promise<SshReply> {
   try { return await invoke<SshReply>('ssh_request', { request }); }

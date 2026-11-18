@@ -39,6 +39,7 @@ impl Manager {
         };
         if start.owner != owner
             || start.revision.is_none()
+            || start.previous.is_some()
             || (owner.is_none() && connection.protocol != Protocol::Ssh1)
         {
             return Err(ErrorCode::PermissionDenied);

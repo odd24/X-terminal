@@ -281,7 +281,22 @@ impl Manager {
             ssh::Request::ReconnectStatus {
                 connection,
                 request_id,
-            } => self.reconnect_status(identity, connection, request_id),
+            } => self.reconnect_status(identity, connection, request_id, None),
+            ssh::Request::ReconnectFixed {
+                connection,
+                profile,
+                request_id,
+                cols,
+                rows,
+            } => {
+                self.reconnect_fixed(identity, connection, profile, request_id, cols, rows)
+                    .await
+            }
+            ssh::Request::ReconnectFixedStatus {
+                connection,
+                profile,
+                request_id,
+            } => self.reconnect_status(identity, connection, request_id, Some(profile)),
             ssh::Request::Disconnect {
                 connection,
                 request_id,
@@ -422,7 +437,9 @@ impl Manager {
             | ssh::Request::StartStatus { .. }
             | ssh::Request::StartFixed { .. }
             | ssh::Request::ConnectStatus { .. }
-            | ssh::Request::ReconnectStatus { .. } => Err(ErrorCode::PermissionDenied),
+            | ssh::Request::ReconnectStatus { .. }
+            | ssh::Request::ReconnectFixed { .. }
+            | ssh::Request::ReconnectFixedStatus { .. } => Err(ErrorCode::PermissionDenied),
             ssh::Request::AuthenticateKey {
                 connection,
                 challenge_id,

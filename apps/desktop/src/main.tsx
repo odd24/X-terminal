@@ -33,7 +33,7 @@ import { ComposeDrafts, type ComposeTarget, type Ending } from './compose-drafts
 import {ComposeHistory} from './compose-history';
 import { SessionTree } from './session-tree';
 import { ConnectionCatalog } from './connection-catalog';
-import { config, type DesktopPreferences, type Profile, type Workspace } from './config-api';
+import { config, readConfiguration, type DesktopPreferences, type Profile, type Workspace } from './config-api';
 import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { QuickConnect, type SavedConnectIntent } from './quick-connect';
@@ -436,6 +436,38 @@ function App() {
     const intent={profile_id:profile.id,request_id:requestId()};savedIntentFlight.current=intent;setSavedIntent(intent);setSshOpen(false);setQuickOpen(true);setTabMessage(`正在连接 ${profile.name}…`);
     if(slot)workspaceLaunch.current={slot,nonce:intent.request_id,owner:service?.service_id??'',protocol:'SSH2'};
   }
+  async function prepareSsh1Reconnect() {
+    if (!active || active.protocol !== 'SSH1' || !['DISCONNECTED', 'FAILED'].includes(active.state)
+      || !activeDetails?.profile_id || !serviceRef.current?.ssh1_preview || serviceStopped.current
+      || ssh1Flight.current || savedIntentFlight.current || quickOpen || serialDialog) return;
+    const owner = serviceRef.current.service_id;
+    const previous = { connection_id: active.connection_id, generation: active.generation };
+    const epoch = panes.current.epoch;
+    const profileId = activeDetails.profile_id;
+    const stillSelected = () => !serviceStopped.current && serviceRef.current?.service_id === owner
+      && panes.current.epoch === epoch && selectedRef.current === previous.connection_id
+      && liveConnections.current.some(c => c.protocol === 'SSH1' && c.connection_id === previous.connection_id
+        && c.generation === previous.generation && ['DISCONNECTED', 'FAILED'].includes(c.state));
+    ssh1Flight.current = true;
+    let prepared = false;
+    try {
+      const snapshot = await readConfiguration();
+      if (!stillSelected()) return;
+      const profile = snapshot.profiles.find(p => p.id === profileId);
+      if (profile?.settings.protocol !== 'ssh1' || !profile.settings.explicitly_enabled) {
+        setTabMessage('原保存配置已删除、改变协议或停用 SSH1，未重连。');
+        return;
+      }
+      setTabMessage('');
+      setSsh1Intent({ profile: { ...profile, settings: { ...profile.settings } }, revision: snapshot.revision,
+        owner, request_id: requestId(), previous });
+      prepared = true;
+    } catch {
+      if (stillSelected()) setTabMessage('无法读取原 SSH1 保存配置，未重连。');
+    } finally {
+      if (!prepared) ssh1Flight.current = false;
+    }
+  }
   function closeSerial(){if(workspaceLaunch.current?.protocol==='SERIAL')workspaceLaunch.current=undefined;setSerialDialog(false);}
   function finishWorkspace(connection:Ref,profileId:string,protocol:'SSH2'|'SERIAL',nonce:string){const pending=workspaceLaunch.current;if(!pending||pending.protocol!==protocol||pending.nonce!==nonce)return;
     const target={...connection,protocol,state:'CONNECTED'};if(pending.owner===service?.service_id&&workspaceSession.current.bind(pending.owner,pending.slot,profileId,target)){workspacePlacements.current.set(pending.slot,{owner:pending.owner,connection:target});setWorkspaceEpoch(v=>v+1);}else {cancelWorkspaceSplit();setTabMessage('本次参数或布局已改变，连接作为独立会话保留，布局引用未改变。');}workspaceLaunch.current=undefined;
@@ -506,6 +538,9 @@ function App() {
     {panes.current.slots.length===2&&<div className="split-tools"><span>{panes.current.direction==='horizontal'?'左右分屏':'上下分屏'} · F6切换输入窗格</span><button onClick={()=>collapseSplit()}>收起分屏，保留连接</button></div>}
     <div className={`terminal-grid ${panes.current.direction}`} aria-label="终端窗格布局">{panes.current.slots.map(slot=>{const c=slot.binding&&connections.find(c=>c.connection_id===slot.binding!.connection_id&&c.generation===slot.binding!.generation&&c.protocol===slot.binding!.protocol);const view=paneViews[slot.key]??initialTerminalView();return <TerminalPane context={(pane,value)=>setTerminalMenu({...value,pane,title:c?tabName(c):value.target.protocol})} key={slot.key} rendered={view.renderedTarget} id={slot.key} split={panes.current.slots.length===2} active={panes.current.active===slot.key} label={c?tabName(c):slot.binding?'原会话已结束或变化':'尚无连接'} detail={slot.binding?`${slot.binding.protocol} · ${c?.state??'已变化'} · ${slot.binding.connection_id} / ${slot.binding.generation}`:''} preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} collapse={id=>collapseSplit(panes.current.slots.find(s=>s.key!==id)?.key)} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.status}/>;})}</div>
     {active?.protocol==='SERIAL'&&<SerialPanel summaryOnly connection={active} select={selectConnection} tools={()=>setSerialToolsOpen(true)}/>}
+    {active?.protocol==='SSH1'&&['DISCONNECTED','FAILED'].includes(active.state)&&service?.ssh1_preview&&
+      <div className="status"><button disabled={!activeDetails?.profile_id||!!ssh1Intent||quickOpen||serialDialog||!!serviceFailure}
+        onClick={()=>void prepareSsh1Reconnect()}>显式重连 SSH1</button></div>}
     <div className="status" role="status">{failure || inputFailure || status}</div>
     {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}
     <div className="input-status">{active?.protocol === 'SSH1' || active?.protocol === 'SSH2' ? `${active.protocol} 输入` : active?.protocol === 'SERIAL' ? '串口输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>
@@ -514,7 +549,7 @@ function App() {
     </section>
     <aside className="auxiliary-panels" aria-label="辅助工具">
     {quickOpen && <Dialog label="连接服务器" close={closeQuick}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SSH2',savedIntent?.request_id??'');focusAfterConnect.current=true;closeQuick();}} close={closeQuick} /></Dialog>}
-    {ssh1Intent&&<Dialog label="连接 SSH1 保存配置" close={closeSsh1}><Ssh1Connect
+    {ssh1Intent&&<Dialog label={ssh1Intent.previous?'显式重连 SSH1':'连接 SSH1 保存配置'} close={closeSsh1}><Ssh1Connect
       key={ssh1Intent.request_id} intent={ssh1Intent} close={closeSsh1}
       ownerMatches={()=>!serviceStopped.current&&serviceRef.current?.service_id===ssh1Intent.owner}
       size={()=>dimensions(runtime.current?.term.cols??80,runtime.current?.term.rows??24)}

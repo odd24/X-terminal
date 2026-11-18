@@ -404,6 +404,11 @@ fn ssh_descriptor(r: &ssh::Request) -> Descriptor {
             connection,
             request_id,
             ..
+        }
+        | S::ReconnectFixed {
+            connection,
+            request_id,
+            ..
         } => conn(
             Area::Ssh2,
             Verb::Reconnect,
@@ -432,6 +437,11 @@ fn ssh_descriptor(r: &ssh::Request) -> Descriptor {
         | S::ReconnectStatus {
             connection,
             request_id,
+        }
+        | S::ReconnectFixedStatus {
+            connection,
+            request_id,
+            ..
         }
         | S::ForgetStatus {
             connection,

@@ -1,14 +1,31 @@
 use super::*;
+
+impl Start {
+    fn matches_reconnect(&self, previous: ConnectionRef, fixed: Option<ssh::FixedProfile>) -> bool {
+        self.previous == Some(previous)
+            && match fixed {
+                Some(profile) => {
+                    self.profile_id == profile.profile_id && self.revision == Some(profile.revision)
+                }
+                None => self.revision.is_none(),
+            }
+    }
+}
+
 impl Manager {
     pub(super) fn reconnect_status(
         &self,
         identity: &Identity,
         previous: ConnectionRef,
         request_id: Uuid,
+        fixed: Option<ssh::FixedProfile>,
     ) -> Result<ssh::Reply, ErrorCode> {
         let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         let owner = Self::start_owner(&store, Some(identity))?;
+        if fixed.is_some() && owner.is_some() {
+            return Err(ErrorCode::PermissionDenied);
+        }
         let Some((start, connection)) = inner.requests.get(&request_id) else {
             inner.request_window.check(request_id)?;
             return Err(if owner.is_some() {
@@ -17,11 +34,24 @@ impl Manager {
                 ErrorCode::NotFound
             });
         };
-        if start.owner != owner || start.previous.is_none() {
+        if start.owner != owner
+            || start.previous.is_none()
+            || start.revision.is_some() != fixed.is_some()
+        {
             return Err(ErrorCode::PermissionDenied);
         }
-        if start.previous != Some(previous) {
+        if !start.matches_reconnect(previous, fixed) {
             return Err(ErrorCode::InvalidArgument);
+        }
+        if let Some(profile) = fixed {
+            return Ok(ssh::Reply::ReconnectFixedReceipt(
+                ssh::ReconnectFixedReceipt {
+                    request_id,
+                    previous,
+                    profile,
+                    connection: connection.clone(),
+                },
+            ));
         }
         Ok(ssh::Reply::ReconnectReceipt(ssh::ReconnectReceipt {
             request_id,
@@ -37,16 +67,24 @@ impl Manager {
         id: Uuid,
         cols: u32,
         rows: u32,
-    ) -> Result<Option<ConnectionInfo>, ErrorCode> {
+        fixed: Option<ssh::FixedProfile>,
+    ) -> Result<Option<ssh::Reply>, ErrorCode> {
         let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
         let owner = Self::start_owner(&store, identity)?;
         match inner.requests.get(&id) {
             Some((old, _)) if old.owner != owner => Err(ErrorCode::PermissionDenied),
             Some((old, result))
-                if old.previous == Some(connection) && old.cols == cols && old.rows == rows =>
+                if old.matches_reconnect(connection, fixed)
+                    && old.cols == cols
+                    && old.rows == rows =>
             {
-                Ok(Some(result.clone()))
+                Ok(Some(Self::reconnect_reply(
+                    connection,
+                    id,
+                    fixed,
+                    result.clone(),
+                )))
             }
             Some(_) => Err(ErrorCode::InvalidArgument),
             None => {
@@ -63,8 +101,57 @@ impl Manager {
         cols: u32,
         rows: u32,
     ) -> Result<ssh::Reply, ErrorCode> {
-        if let Some(result) = self.reconnect_duplicate(identity, connection, id, cols, rows)? {
-            return Ok(ssh::Reply::Started { connection: result });
+        self.reconnect_from(identity, connection, id, cols, rows, None)
+            .await
+    }
+
+    pub(super) async fn reconnect_fixed(
+        &self,
+        identity: &Identity,
+        connection: ConnectionRef,
+        profile: ssh::FixedProfile,
+        id: Uuid,
+        cols: u32,
+        rows: u32,
+    ) -> Result<ssh::Reply, ErrorCode> {
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            store.pairing.require_desktop(identity, store.now())?;
+        }
+        self.reconnect_from(Some(identity), connection, id, cols, rows, Some(profile))
+            .await
+    }
+
+    fn reconnect_reply(
+        previous: ConnectionRef,
+        request_id: Uuid,
+        fixed: Option<ssh::FixedProfile>,
+        connection: ConnectionInfo,
+    ) -> ssh::Reply {
+        match fixed {
+            Some(profile) => ssh::Reply::ReconnectFixedReceipt(ssh::ReconnectFixedReceipt {
+                request_id,
+                previous,
+                profile,
+                connection,
+            }),
+            None => ssh::Reply::Started { connection },
+        }
+    }
+
+    async fn reconnect_from(
+        &self,
+        identity: Option<&Identity>,
+        connection: ConnectionRef,
+        id: Uuid,
+        cols: u32,
+        rows: u32,
+        fixed: Option<ssh::FixedProfile>,
+    ) -> Result<ssh::Reply, ErrorCode> {
+        if let Some(reply) =
+            self.reconnect_duplicate(identity, connection, id, cols, rows, fixed)?
+        {
+            return Ok(reply);
         }
         let (gate, owner, restart, authority, profile_id, temporary) = {
             let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
@@ -89,7 +176,11 @@ impl Manager {
                 None
             };
             let info = store.sessions.info(connection)?;
-            if info.protocol == Protocol::Ssh1 {
+            if !matches!(
+                (info.protocol, fixed),
+                (Protocol::Ssh2, None) | (Protocol::Ssh1, Some(_))
+            ) || fixed.is_some() && !legacy::configured()
+            {
                 return Err(ErrorCode::Unsupported);
             }
             if !matches!(info.state, State::Disconnected | State::Failed) {
@@ -99,6 +190,11 @@ impl Manager {
                 .entries
                 .get(&connection.connection_id)
                 .ok_or(ErrorCode::NotFound)?;
+            if fixed.is_some_and(|profile| {
+                profile.profile_id != entry.profile_id || entry.temporary.is_some()
+            }) {
+                return Err(ErrorCode::InvalidArgument);
+            }
             if owner.is_some() && entry.temporary.is_some() {
                 return Err(ErrorCode::PermissionDenied);
             }
@@ -131,8 +227,10 @@ impl Manager {
         };
         // Serialize only restarts of this connection; no session/configuration lock is held while awaiting cleanup.
         let _guard = gate.lock().await;
-        if let Some(result) = self.reconnect_duplicate(identity, connection, id, cols, rows)? {
-            return Ok(ssh::Reply::Started { connection: result });
+        if let Some(reply) =
+            self.reconnect_duplicate(identity, connection, id, cols, rows, fixed)?
+        {
+            return Ok(reply);
         }
         {
             let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
@@ -148,9 +246,13 @@ impl Manager {
                 return Err(ErrorCode::InvalidState);
             }
         }
-        let query = authority
-            .as_ref()
-            .and_then(|(_, permit)| permit.profile_revision())
+        let query = fixed
+            .map(|profile| profile.revision)
+            .or_else(|| {
+                authority
+                    .as_ref()
+                    .and_then(|(_, permit)| permit.profile_revision())
+            })
             .map_or(Internal::Profile(profile_id), |revision| {
                 Internal::ProfileRevision {
                     id: profile_id,
@@ -174,7 +276,17 @@ impl Manager {
             // Do not cancel/join the old Actor when configuration lookup failed.
             match &lookup {
                 Ok(Value::Profile(profile))
-                    if matches!(profile.settings, Settings::Ssh2 { .. }) => {}
+                    if matches!(
+                        (fixed, &profile.settings),
+                        (None, Settings::Ssh2 { .. })
+                            | (
+                                Some(_),
+                                Settings::Ssh1 {
+                                    explicitly_enabled: true,
+                                    ..
+                                }
+                            )
+                    ) => {}
                 Ok(Value::Profile(_)) => return Err(ErrorCode::Unsupported),
                 Ok(_) => return Err(ErrorCode::InvalidState),
                 Err(_) => return Err(ErrorCode::InvalidArgument),
@@ -203,10 +315,11 @@ impl Manager {
             if old.owner != owner {
                 return Err(ErrorCode::PermissionDenied);
             }
-            return if old.previous == Some(connection) && old.cols == cols && old.rows == rows {
-                Ok(ssh::Reply::Started {
-                    connection: result.clone(),
-                })
+            return if old.matches_reconnect(connection, fixed)
+                && old.cols == cols
+                && old.rows == rows
+            {
+                Ok(Self::reconnect_reply(connection, id, fixed, result.clone()))
             } else {
                 Err(ErrorCode::InvalidArgument)
             };
@@ -215,6 +328,10 @@ impl Manager {
         Self::check_start(&mut store, identity, authority.as_ref(), false)?;
         let Value::Profile(profile) = lookup.map_err(|_| ErrorCode::InvalidArgument)? else {
             return Err(ErrorCode::InvalidState);
+        };
+        let host = match &profile.settings {
+            Settings::Ssh1 { host, .. } | Settings::Ssh2 { host, .. } => host.clone(),
+            _ => return Err(ErrorCode::Unsupported),
         };
         if !matches!(
             store.sessions.info(connection)?.state,
@@ -238,13 +355,11 @@ impl Manager {
         )?;
         let reference = current.reference();
         let cancel = Cancellation::default();
+        let legacy_released = fixed.map(|_| Arc::new(AtomicBool::new(true)));
         inner.entries.insert(
             connection.connection_id,
             Entry {
-                server_host: match &profile.settings {
-                    Settings::Ssh2 { host, .. } => host.clone(),
-                    _ => return Err(ErrorCode::Unsupported),
-                },
+                server_host: host,
                 temporary,
                 reference,
                 restart_gate: gate.clone(),
@@ -261,7 +376,7 @@ impl Manager {
                 exit: None,
                 signal: None,
                 task: None,
-                transport: None,
+                transport: legacy_released.clone().map(TransportCleanup::Ssh1),
             },
         );
         inner.requests.insert(
@@ -272,7 +387,7 @@ impl Manager {
                     owner,
                     previous: Some(connection),
                     profile_id,
-                    revision: None,
+                    revision: fixed.map(|profile| profile.revision),
                     cols,
                     rows,
                 },
@@ -288,9 +403,15 @@ impl Manager {
         };
         let identity_owned = identity.cloned();
         let task = tokio::spawn(async move {
-            let result = actor
-                .run_as(profile, cols, rows, identity_owned, authority)
-                .await;
+            let result = if let Some(released) = legacy_released {
+                actor
+                    .run_legacy(profile, cols, rows, id, identity_owned, released)
+                    .await
+            } else {
+                actor
+                    .run_as(profile, cols, rows, identity_owned, authority)
+                    .await
+            };
             actor.finish(result);
         });
         inner
@@ -298,8 +419,6 @@ impl Manager {
             .get_mut(&reference.connection_id)
             .unwrap()
             .task = Some(task);
-        Ok(ssh::Reply::Started {
-            connection: current,
-        })
+        Ok(Self::reconnect_reply(connection, id, fixed, current))
     }
 }

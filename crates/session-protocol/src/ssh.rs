@@ -1,4 +1,4 @@
-//! Desktop SSH2 control. Secret/configuration resolution remains private to the service.
+//! SSH control. Secret/configuration resolution remains private to the service.
 use crate::Sensitive;
 use config_model::{Auth, HostKeyReview};
 use schemars::JsonSchema;
@@ -64,6 +64,18 @@ pub enum Request {
     },
     ReconnectStatus {
         connection: ConnectionRef,
+        request_id: Uuid,
+    },
+    ReconnectFixed {
+        connection: ConnectionRef,
+        profile: FixedProfile,
+        request_id: Uuid,
+        cols: u32,
+        rows: u32,
+    },
+    ReconnectFixedStatus {
+        connection: ConnectionRef,
+        profile: FixedProfile,
         request_id: Uuid,
     },
     Exec {
@@ -165,6 +177,24 @@ impl Request {
                 connection,
                 request_id,
             } => valid(*connection) && !request_id.is_nil(),
+            Self::ReconnectFixed {
+                connection,
+                profile,
+                request_id,
+                cols,
+                rows,
+            } => {
+                valid(*connection)
+                    && profile.valid()
+                    && !request_id.is_nil()
+                    && (2..=500).contains(cols)
+                    && (1..=200).contains(rows)
+            }
+            Self::ReconnectFixedStatus {
+                connection,
+                profile,
+                request_id,
+            } => valid(*connection) && profile.valid() && !request_id.is_nil(),
             Self::QuickStart {
                 settings,
                 request_id,
@@ -451,6 +481,7 @@ pub struct Status {
 pub enum Reply {
     ConnectReceipt(ConnectReceipt),
     ReconnectReceipt(ReconnectReceipt),
+    ReconnectFixedReceipt(ReconnectFixedReceipt),
     ExecProtectedOutput {
         connection: ConnectionRef,
         task_id: Uuid,
@@ -486,6 +517,28 @@ pub struct ConnectReceipt {
 pub struct ReconnectReceipt {
     pub request_id: Uuid,
     pub previous: ConnectionRef,
+    pub connection: ConnectionInfo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FixedProfile {
+    pub profile_id: Uuid,
+    pub revision: Uuid,
+}
+
+impl FixedProfile {
+    fn valid(self) -> bool {
+        !self.profile_id.is_nil() && !self.revision.is_nil()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReconnectFixedReceipt {
+    pub request_id: Uuid,
+    pub previous: ConnectionRef,
+    pub profile: FixedProfile,
     pub connection: ConnectionInfo,
 }
 

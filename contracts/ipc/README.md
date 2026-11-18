@@ -52,6 +52,8 @@ P09 exec 增量：exec、exec_status、exec_read、exec_cancel。启动输入 co
 
 P09 reconnect 增量仅从 DISCONNECTED/FAILED 接受当前 connection_id/generation/request_id/尺寸；活动连接先显式 Close。保持 connection_id，generation+1，并重建输出/挑战/输入/任务，不重放。读取当时的最新 Profile 快照，新端点或变化主机需重新确认，认证须新回答；旧票据不自动获得新代次。
 
+P13 SSH1 显式重连在独立的 `reconnect_fixed` 与 `reconnect_fixed_status` 上绑定原连接代次、原编号和 `profile { profile_id, revision }`。旧代次需已结束，原保存配置需在该固定库版本显式启用 SSH1。两种请求只接受 Desktop 身份，返回 `reconnect_fixed_receipt`，包括原代次、配置版本与新代次创建时的连接快照。查询不会启动 helper。实时状态通过新代次的 `status` 获取。
+
 相同 Reconnect 来源和参数/request_id 返回原 Started 结果，并发只迁移一次；参数/动作冲突拒绝。同源不同 request_id 竞争只能一个成功，另一方 StaleGeneration。重复响应中的 state 是原始响应而非当前状态，应另查 Status。Profile 已删除或改为其他协议则拒绝，不递增代次；当前表不迁移旧任务/输出历史，旧代次查询明确拒绝。详见 [ADR-017](../../docs/decisions/ADR-017.md)，GUI/审计/长期容量仍待后续。
 
 后续容量增量以 [ADR-020](../../docs/decisions/ADR-020.md)/[ADR-021](../../docs/decisions/ADR-021.md)/[ADR-022](../../docs/decisions/ADR-022.md) 为准：输入/结束任务/结束建连回执的有序退休水位替代满额后的永久拒绝，旧不透明 ID 仍不可回收，RequestExpired 不表示动作从未执行，不自动换 ID 重发。

@@ -8,9 +8,10 @@ export type Ssh1Intent = {
   revision: string;
   request_id: string;
   owner: string;
+  previous?: ConnectionRef;
 };
 
-const knownStartErrors = new Set(['InvalidArgument', 'PermissionDenied', 'CapacityExceeded', 'Unsupported', 'INVALID_SSH_REQUEST']);
+const knownStartErrors = new Set(['InvalidArgument', 'InvalidState', 'StaleGeneration', 'PermissionDenied', 'CapacityExceeded', 'Unsupported', 'INVALID_SSH_REQUEST']);
 const failures: Record<string, string> = {
   HOST_KEY_REJECTED: '已拒绝 SSH1 主机指纹，本次未提交密码。',
   HOST_KEY_CONFLICT: '主机信任记录已变化，请重新打开连接并核对指纹。',
@@ -45,6 +46,11 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
   const handedOff = useRef(false);
   const retired = useRef(false);
   const scope = { profile_id: intent.profile.id, revision: intent.revision, request_id: intent.request_id };
+  const previous = intent.previous;
+  const fixed = previous && { connection: previous, profile: { profile_id: scope.profile_id, revision: scope.revision }, request_id: scope.request_id };
+  const lookup = () => fixed
+    ? ssh({ op: 'reconnect_fixed_status', ...fixed })
+    : ssh({ op: 'connect_status', ...scope });
 
   function retire(ref: ConnectionRef) {
     if (retired.current || !ownerMatches()) return;
@@ -52,9 +58,14 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
     void disconnectSsh1(ref).catch(() => {});
   }
   function accept(reply: SshReply) {
-    if (reply.result !== 'connect_receipt'
-      || reply.profile_id !== scope.profile_id || reply.revision !== scope.revision
-      || reply.request_id !== scope.request_id || reply.connection.protocol !== 'SSH1'
+    if (reply.result !== 'connect_receipt' && reply.result !== 'reconnect_fixed_receipt') throw new Error('invalid SSH1 receipt');
+    const matches = previous
+      ? reply.result === 'reconnect_fixed_receipt' && reply.profile.profile_id === scope.profile_id
+        && reply.profile.revision === scope.revision && reply.previous.connection_id === previous.connection_id
+        && reply.previous.generation === previous.generation && reply.connection.connection_id === previous.connection_id
+        && reply.connection.generation === previous.generation + 1
+      : reply.result === 'connect_receipt' && reply.profile_id === scope.profile_id && reply.revision === scope.revision;
+    if (!matches || reply.request_id !== scope.request_id || reply.connection.protocol !== 'SSH1'
       || !reply.connection.connection_id || !Number.isSafeInteger(reply.connection.generation)
       || reply.connection.generation < 1 || !ownerMatches()) throw new Error('invalid SSH1 receipt');
     const ref = reference(reply.connection);
@@ -72,7 +83,7 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
       live.current = false;
       if (handedOff.current || !ownerMatches()) return;
       if (accepted.current) retire(accepted.current);
-      else if (attempted.current) void ssh({ op: 'connect_status', ...scope }).then(accept).catch(() => {});
+      else if (attempted.current) void lookup().then(accept).catch(() => {});
     };
   }, []);
 
@@ -83,13 +94,18 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
     setStarting(true);
     setError('');
     try {
-      accept(await ssh(query ? { op: 'connect_status', ...scope } : { op: 'start_fixed', ...scope, ...size() }));
+      const reply = query ? await lookup() : fixed
+        ? await ssh({ op: 'reconnect_fixed', ...fixed, ...size() })
+        : await ssh({ op: 'start_fixed', ...scope, ...size() });
+      accept(reply);
     } catch (reason) {
       if (!live.current || !ownerMatches()) return;
       const known = !query && reason instanceof SshRequestError && knownStartErrors.has(reason.code);
       setUnknown(!known);
       setError(known
-        ? '未接受本次 SSH1 启动。请关闭窗口，刷新会话树并核对预览与配置版本。'
+        ? previous
+          ? '未接受本次 SSH1 重连。请关闭窗口，核对旧会话状态和已保存配置。'
+          : '未接受本次 SSH1 启动。请关闭窗口，刷新会话树并核对预览与配置版本。'
         : '连接结果不明。只查询原编号，未再次创建连接。');
     } finally {
       flight.current = false;
@@ -162,14 +178,15 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
   }
 
   const failure = status?.failure;
-  return <Panel title="连接 SSH1 保存配置" close={close} closeLabel="关闭 SSH1 连接窗口">
+  return <Panel title={previous ? '显式重连 SSH1' : '连接 SSH1 保存配置'} close={close} closeLabel="关闭 SSH1 连接窗口">
     <p><strong>{intent.profile.name}</strong> · {username}@{host}:{port} · {encoding}</p>
     <p className="config-notice">SSH1 是可能不安全的旧协议。请仅用于明确需要 SSH1 的端点。</p>
+    {previous && <p aria-label="SSH1 重连范围">{previous.connection_id} · 旧代次 {previous.generation} · 配置版本 {intent.revision}。需要重新登录。</p>}
     {!target && <>
       <label className="check"><input type="checkbox" aria-label="本次允许使用 SSH1" checked={allowed} disabled={attempted.current} onChange={event => setAllowed(event.target.checked)} />本次明确选择 SSH1</label>
       {unknown
         ? <button disabled={starting} onClick={() => void start(true)}>仅查询原 SSH1 编号</button>
-        : <button disabled={!allowed || starting || attempted.current} onClick={() => void start(false)}>连接此 SSH1 配置</button>}
+        : <button disabled={!allowed || starting || attempted.current} onClick={() => void start(false)}>{previous ? '重连此 SSH1 会话' : '连接此 SSH1 配置'}</button>}
     </>}
     {target && <p aria-label="SSH1 连接身份">{target.connection_id} · 代次 {target.generation} · {status?.connection.state ?? '正在连接'}</p>}
     {challenge?.kind === 'host_key' && validHost && <fieldset disabled={submitted === challenge.id}>

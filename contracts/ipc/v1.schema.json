@@ -1041,6 +1041,24 @@
         ],
         "type": "string"
       },
+      "FixedProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "revision"
+        ],
+        "type": "object"
+      },
       "Flow": {
         "enum": [
           "none",
@@ -2293,6 +2311,70 @@
               "request_id",
               "cols",
               "rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cols": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "reconnect_fixed",
+                "type": "string"
+              },
+              "profile": {
+                "$ref": "#/$defs/FixedProfile"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "rows": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "profile",
+              "request_id",
+              "cols",
+              "rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "op": {
+                "const": "reconnect_fixed_status",
+                "type": "string"
+              },
+              "profile": {
+                "$ref": "#/$defs/FixedProfile"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "connection",
+              "profile",
+              "request_id"
             ],
             "type": "object"
           },
@@ -6011,6 +6093,24 @@
         ],
         "type": "string"
       },
+      "FixedProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "profile_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revision": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "revision"
+        ],
+        "type": "object"
+      },
       "Flow": {
         "enum": [
           "none",
@@ -9418,6 +9518,36 @@
               "connection",
               "task_id",
               "output"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "connection": {
+                "$ref": "#/$defs/ConnectionInfo"
+              },
+              "previous": {
+                "$ref": "#/$defs/ConnectionRef"
+              },
+              "profile": {
+                "$ref": "#/$defs/FixedProfile"
+              },
+              "request_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "result": {
+                "const": "reconnect_fixed_receipt",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "request_id",
+              "previous",
+              "profile",
+              "connection"
             ],
             "type": "object"
           },

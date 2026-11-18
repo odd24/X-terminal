@@ -8,10 +8,12 @@ import path from 'node:path';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, desktopKeyboard, terminalInput } from './lib/DesktopKeyboard.mjs';
 import { observeDesktopSsh1Sizes, verifyDesktopSsh1Resize } from './lib/DesktopSsh1Resize.mjs';
+import { verifyDesktopSsh1Reconnect } from './lib/DesktopSsh1Reconnect.mjs';
 
 const [fixture, source, mode] = process.argv.slice(2);
-assert.ok(mode === undefined || mode === '--resize');
+assert.ok(mode === undefined || mode === '--resize' || mode === '--reconnect');
 const resizeOnly = mode === '--resize';
+const reconnectOnly = mode === '--reconnect';
 assert.match(fixture, /^\/tmp\/P04-ssh1\.[A-Za-z0-9]{8}$/);
 assert.ok(source && path.isAbsolute(source));
 const manifest = JSON.parse(await readFile('artifacts/P13-ssh1-preview.json', 'utf8'));
@@ -26,6 +28,16 @@ for (const file of manifest.files) {
   assert.equal(createHash('sha256').update(data).digest('hex'), file.sha256);
 }
 const wsl = ['-d', 'Ubuntu-24.04', '--cd', fixture, '--exec'];
+if (reconnectOnly) {
+  const installed = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity', './p13-reconnect-pty'], {
+    windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const shellSource = (await readFile('scripts/lib/P13-ReconnectPtyFixture.sh', 'utf8')).replaceAll('\r\n', '\n');
+  assert.deepEqual(installed.trim().split(/\r?\n/).map(line => line.split(/\s+/)[0]), [
+    'd06d2afda1e09bc322ba6d4eaa8c1ea5aa61fa28662e6283b80db48147a04bbe',
+    createHash('sha256').update(shellSource).digest('hex'),
+  ]);
+}
 if (resizeOnly) {
   const verify = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity', './p04-pty-size'], {
     windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
@@ -35,14 +47,18 @@ if (resizeOnly) {
     '7b47b103bcd9340f4b3075af05e9882574b43f4c2cf1b88154c78767cd3d230f',
   ]);
 }
-const publicKey = execFileSync('wsl.exe', [...wsl, '/bin/cat', 'public-key.txt'], {
-  windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
-});
-const key = /^2048 (\d+) (\d+) [^\r\n]+\r?\n?$/.exec(publicKey);
-assert.ok(key, 'public RSA1 key required');
-const fingerprint = 'SHA256:' + createHash('sha256')
-  .update(`0x${BigInt(key[1]).toString(16)},0x${BigInt(key[2]).toString(16)}`)
-  .digest('base64').replace(/=+$/, '');
+function publicFingerprint(file) {
+  const text = execFileSync('wsl.exe', [...wsl, '/bin/cat', file], {
+    windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const key = /^2048 (\d+) (\d+) [^\r\n]+\r?\n?$/.exec(text);
+  assert.ok(key, 'public RSA1 key required');
+  return 'SHA256:' + createHash('sha256')
+    .update(`0x${BigInt(key[1]).toString(16)},0x${BigInt(key[2]).toString(16)}`)
+    .digest('base64').replace(/=+$/, '');
+}
+const fingerprint = publicFingerprint('public-key.txt');
+const replacementFingerprint = reconnectOnly ? publicFingerprint('replacement-public-key.txt') : undefined;
 
 async function typeFixturePassword(keyboard) {
   const sourceBytes = await readFile(source);
@@ -59,33 +75,39 @@ async function typeFixturePassword(keyboard) {
 
 const peers = [];
 async function listen() {
-  const peer = { accepted: 0, wire: '' };
+  const peer = { accepted: 0, trials: [] };
+  const limit = reconnectOnly ? 2 : 1;
   const server = createServer(socket => {
-    if (peer.accepted || socket.localAddress !== '127.0.0.1' || socket.remoteAddress !== '127.0.0.1') {
+    if (peer.accepted >= limit || socket.localAddress !== '127.0.0.1' || socket.remoteAddress !== '127.0.0.1') {
       socket.destroy();
       return;
     }
-    peer.socket = socket;
+    const trial = { socket, wire: '' };
+    peer.trials.push(trial);
     peer.accepted++;
-    server.close();
-    const child = spawn('wsl.exe', [...wsl, '/usr/bin/timeout', '--kill-after=1s', '12s',
+    if (peer.accepted === limit) server.close();
+    const child = spawn('wsl.exe', [...wsl, '/usr/bin/timeout', '--kill-after=1s', reconnectOnly ? '22s' : '12s',
       '/usr/bin/unshare', '--user', '--map-current-user', '--net', '/usr/bin/env', '-i',
-      `HOME=${fixture}/home`, `XDG_CONFIG_HOME=${fixture}/home`, 'PATH=/usr/bin:/bin', 'SHELL=/bin/sh',
+      `HOME=${fixture}/home`, `XDG_CONFIG_HOME=${fixture}/home`, 'PATH=/usr/bin:/bin',
+      ...(reconnectOnly
+        ? [`SHELL=${fixture}/p13-reconnect-pty`, `P13_RECONNECT_TRIAL=${peer.accepted === 1 ? 'first' : 'second'}`]
+        : ['SHELL=/bin/sh']),
       ...(resizeOnly ? ['/bin/bash', '-c',
         'exec "$@" 2> >(/usr/bin/grep -aE --line-buffered "^conn#[0-9]+: (P04 SSH1_CMSG_WINDOW_SIZE [0-9]{1,10} [0-9]{1,10} [0-9]{1,10} [0-9]{1,10}|Client sent exit confirmation)$" >&2)',
         'filtered-fixture'] : []),
       './out/uppity', ...(resizeOnly ? ['--verbose'] : []),
-      '--hostkey', 'fixture.rsa1', '--sessiondir', fixture, '--allow-auth', 'password',
+      '--hostkey', reconnectOnly && peer.accepted === 2 ? 'replacement.rsa1' : 'fixture.rsa1',
+      '--sessiondir', fixture, '--allow-auth', 'password',
       ...['none', 'publickey', 'kbdint', 'tis', 'cryptocard'].flatMap(method => ['--deny-auth', method]),
     ], { windowsHide: true, stdio: ['pipe', 'pipe', resizeOnly ? 'pipe' : 'ignore'] });
     child.stderr?.on('data', chunk => {
-      if (peer.wire.length < 4096) peer.wire += chunk.toString('utf8').replaceAll('\0', '');
+      if (trial.wire.length < 4096) trial.wire += chunk.toString('utf8').replaceAll('\0', '');
     });
-    peer.done = new Promise((resolve, reject) => {
+    trial.done = new Promise((resolve, reject) => {
       child.once('error', reject);
       child.once('close', (code, signal) => resolve({ code, signal }));
     });
-    peer.done.catch(() => socket.destroy());
+    trial.done.catch(() => socket.destroy());
     child.stdin.on('error', () => socket.destroy());
     socket.on('error', () => socket.destroy());
     socket.pipe(child.stdin);
@@ -115,7 +137,7 @@ const rendered = ref => `.terminal-pane[data-active="true"][data-rendered-id="${
 const createRef = ({ connection_id, generation }) => ({ connection_id, generation });
 
 async function run() {
-  const positive = await listen(), negative = resizeOnly ? undefined : await listen();
+  const positive = await listen(), negative = resizeOnly || reconnectOnly ? undefined : await listen();
   const executable = path.join(manifest.directory, 'shared-terminal-desktop.exe');
   ui = await launchDesktop(data, { executable });
   const status = await ui.invoke('service_status');
@@ -203,18 +225,27 @@ async function run() {
   }
 
   if (resizeOnly) observation = await observeDesktopSsh1Sizes(ui);
-  const ref = await openSaved(saved, positive, !resizeOnly);
+  const ref = await openSaved(saved, positive, !resizeOnly && !reconnectOnly);
   await click(hostConsent);
   await ui.click('信任 SSH1 主机并继续');
   await ui.waitFor(`${active(password)} && !document.activeElement.disabled`);
+  const firstChallenge = reconnectOnly
+    ? (await ui.invoke('ssh_request', { request: { op: 'status', connection: ref } })).challenge
+    : undefined;
   await typeFixturePassword(keyboard);
   await keyboard.enter();
   await ui.waitFor(`!(${exists(dialog)}) && ${active(`${rendered(ref)} ${terminalInput}`)}`);
   const tab = `[role="tab"][data-connection-id="${ref.connection_id}"]`;
   assert.match(await ui.evaluate(`${el(tab)}.textContent`), /SSH1.*127\.0\.0\.1/);
   if (resizeOnly) {
-    await verifyDesktopSsh1Resize({ ui, keyboard, ref, executable, peer: positive, servicePid: status.pid,
+    await verifyDesktopSsh1Resize({ ui, keyboard, ref, executable, peer: positive.trials[0], servicePid: status.pid,
       preview: manifest.directory, terminal: `${rendered(ref)} ${terminalInput}`, observation });
+    return;
+  }
+  if (reconnectOnly) {
+    await verifyDesktopSsh1Reconnect({ ui, keyboard, previous: ref, saved, peer: positive, wsl,
+      firstChallenge, fingerprint, replacementFingerprint, typePassword: () => typeFixturePassword(keyboard),
+      preview: manifest.directory, servicePid: status.pid });
     return;
   }
   await ui.click('终端日志');
@@ -275,7 +306,7 @@ async function run() {
   const refusal = await ui.invoke('ssh_request', { request: { op: 'status', connection: refused } });
   assert.equal(refusal.failure, 'HOST_KEY_REJECTED');
   await ui.click('关闭 SSH1 连接窗口');
-  const exits = await Promise.all(peers.map(peer => peer.done));
+  const exits = await Promise.all(peers.flatMap(peer => peer.trials.map(trial => trial.done)));
   assert.ok(exits.every(exit => exit.signal === null && [0, 124].includes(exit.code)));
   assert.equal(execFileSync('pwsh', ['-NoProfile', '-Command',
     `@(Get-CimInstance Win32_Process -Filter "ParentProcessId=${status.pid} AND Name='ssh1-helper.exe'").Count`],
@@ -294,9 +325,11 @@ finally {
   }
   finally {
     for (const peer of peers) {
-      peer.socket?.destroy();
       if (peer.server.listening) peer.server.close();
-      await peer.done?.catch(() => {});
+      for (const trial of peer.trials) {
+        trial.socket.destroy();
+        await trial.done.catch(() => {});
+      }
     }
     assert.equal(path.dirname(data), path.resolve(tmpdir()));
     assert.ok(path.basename(data).startsWith(prefix));
