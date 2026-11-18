@@ -10,12 +10,14 @@ import { active, desktopKeyboard, terminalInput } from './lib/DesktopKeyboard.mj
 import { observeDesktopSsh1Sizes, verifyDesktopSsh1Resize } from './lib/DesktopSsh1Resize.mjs';
 import { verifyDesktopSsh1Reconnect } from './lib/DesktopSsh1Reconnect.mjs';
 import { verifyDesktopSsh1Vault } from './lib/DesktopSsh1Vault.mjs';
+import { verifyDesktopSsh1Fullscreen } from './lib/DesktopSsh1Fullscreen.mjs';
 
 const [fixture, source, mode] = process.argv.slice(2);
-assert.ok(mode === undefined || mode === '--resize' || mode === '--reconnect' || mode === '--vault');
+assert.ok(mode === undefined || mode === '--resize' || mode === '--reconnect' || mode === '--vault' || mode === '--fullscreen');
 const resizeOnly = mode === '--resize';
 const reconnectOnly = mode === '--reconnect';
 const vaultOnly = mode === '--vault';
+const fullscreenOnly = mode === '--fullscreen';
 assert.match(fixture, /^\/tmp\/P04-ssh1\.[A-Za-z0-9]{8}$/);
 assert.ok(source && path.isAbsolute(source));
 const manifest = JSON.parse(await readFile('artifacts/P13-ssh1-preview.json', 'utf8'));
@@ -30,6 +32,12 @@ for (const file of manifest.files) {
   assert.equal(createHash('sha256').update(data).digest('hex'), file.sha256);
 }
 const wsl = ['-d', 'Ubuntu-24.04', '--cd', fixture, '--exec'];
+if (fullscreenOnly) {
+  const digest = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity'], {
+    windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  assert.equal(digest.trim().split(/\s+/)[0], '8334402b83169bf9a41c6ec93ccc17dff4c51ac7ede8c9d414f05924bc407ce3');
+}
 if (vaultOnly) {
   const digest = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity'], {
     windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
@@ -94,23 +102,23 @@ async function listen(limit = 1) {
     peer.trials.push(trial);
     peer.accepted++;
     if (peer.accepted === limit) server.close();
-    const child = spawn('wsl.exe', [...wsl, '/usr/bin/timeout', '--kill-after=1s', reconnectOnly ? '22s' : '12s',
+    const child = spawn('wsl.exe', [...wsl, '/usr/bin/timeout', '--kill-after=1s', reconnectOnly || fullscreenOnly ? '22s' : '12s',
       '/usr/bin/unshare', '--user', '--map-current-user', '--net', '/usr/bin/env', '-i',
       `HOME=${fixture}/home`, `XDG_CONFIG_HOME=${fixture}/home`, 'PATH=/usr/bin:/bin',
       ...(reconnectOnly
         ? [`SHELL=${fixture}/p13-reconnect-pty`, `P13_RECONNECT_TRIAL=${peer.accepted === 1 ? 'first' : 'second'}`]
         : ['SHELL=/bin/sh']),
-      ...(resizeOnly ? ['/bin/bash', '-c',
+      ...(resizeOnly || fullscreenOnly ? ['/bin/bash', '-c',
         'exec "$@" 2> >(/usr/bin/grep -aE --line-buffered "^conn#[0-9]+: (P04 SSH1_CMSG_WINDOW_SIZE [0-9]{1,10} [0-9]{1,10} [0-9]{1,10} [0-9]{1,10}|Client sent exit confirmation)$" >&2)',
         'filtered-fixture'] : []),
       ...(vaultOnly ? ['/bin/bash', '-c',
         'exec "$@" 2> >(/usr/bin/grep -aE --line-buffered "^P13 SSH1_PASSWORD_(ACCEPTED|REJECTED)$" >&2)',
         'filtered-vault-fixture'] : []),
-      './out/uppity', ...(resizeOnly ? ['--verbose'] : []),
+      './out/uppity', ...(resizeOnly || fullscreenOnly ? ['--verbose'] : []),
       '--hostkey', peer.accepted === 2 ? 'replacement.rsa1' : 'fixture.rsa1',
       '--sessiondir', fixture, '--allow-auth', 'password',
       ...['none', 'publickey', 'kbdint', 'tis', 'cryptocard'].flatMap(method => ['--deny-auth', method]),
-    ], { windowsHide: true, stdio: ['pipe', 'pipe', resizeOnly || vaultOnly ? 'pipe' : 'ignore'] });
+    ], { windowsHide: true, stdio: ['pipe', 'pipe', resizeOnly || vaultOnly || fullscreenOnly ? 'pipe' : 'ignore'] });
     child.stderr?.on('data', chunk => {
       if (trial.wire.length < 4096) trial.wire += chunk.toString('utf8').replaceAll('\0', '');
     });
@@ -248,8 +256,8 @@ async function run() {
       preview: manifest.directory, replacementFingerprint, servicePid: status.pid });
     return;
   }
-  if (resizeOnly) observation = await observeDesktopSsh1Sizes(ui);
-  const ref = await openSaved(saved, positive, !resizeOnly && !reconnectOnly);
+  if (resizeOnly || fullscreenOnly) observation = await observeDesktopSsh1Sizes(ui);
+  const ref = await openSaved(saved, positive, !resizeOnly && !reconnectOnly && !fullscreenOnly);
   await click(hostConsent);
   await ui.click('信任 SSH1 主机并继续');
   await ui.waitFor(`${active(password)} && !document.activeElement.disabled`);
@@ -261,6 +269,11 @@ async function run() {
   await ui.waitFor(`!(${exists(dialog)}) && ${active(`${rendered(ref)} ${terminalInput}`)}`);
   const tab = `[role="tab"][data-connection-id="${ref.connection_id}"]`;
   assert.match(await ui.evaluate(`${el(tab)}.textContent`), /SSH1.*127\.0\.0\.1/);
+  if (fullscreenOnly) {
+    await verifyDesktopSsh1Fullscreen({ ui, keyboard, ref, executable, peer: positive.trials[0], servicePid: status.pid,
+      preview: manifest.directory, pane: rendered(ref), wsl, observation });
+    return;
+  }
   if (resizeOnly) {
     await verifyDesktopSsh1Resize({ ui, keyboard, ref, executable, peer: positive.trials[0], servicePid: status.pid,
       preview: manifest.directory, terminal: `${rendered(ref)} ${terminalInput}`, observation });
