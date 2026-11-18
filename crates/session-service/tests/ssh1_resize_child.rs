@@ -3,7 +3,12 @@
 fn main() {}
 
 #[cfg(windows)]
+#[path = "ssh1_resize_child/challenges.rs"]
+mod challenges;
+
+#[cfg(windows)]
 mod probe {
+    use super::challenges;
     use serde::{Deserialize, Serialize};
     use session_core::session::{ConnectionId, ConnectionRef};
     use session_protocol::{read_frame, write_frame};
@@ -23,14 +28,14 @@ mod probe {
     use windows_sys::Win32::System::JobObjects::*;
 
     const LIMIT: Duration = Duration::from_secs(5);
-    const CONNECTION: ConnectionRef = ConnectionRef {
+    pub(super) const CONNECTION: ConnectionRef = ConnectionRef {
         connection_id: ConnectionId(Uuid::from_u128(1)),
         generation: 1,
     };
 
     #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
     #[serde(deny_unknown_fields)]
-    struct Resize {
+    pub(super) struct Resize {
         connection: ConnectionRef,
         request_id: Uuid,
         cols: u16,
@@ -48,18 +53,52 @@ mod probe {
 
     #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     #[serde(deny_unknown_fields)]
-    struct Ack {
+    pub(super) struct Ack {
         request_id: Uuid,
         status: Status,
         callbacks: u32,
         size: Option<(u16, u16)>,
     }
 
-    fn backend(mut requests: mpsc::Receiver<(Resize, oneshot::Sender<Ack>)>) {
+    #[derive(Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) enum Request {
+        Resize(Resize),
+        Challenges,
+        Answer(challenges::Answer),
+        Application,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) enum Reply {
+        Resize(Ack),
+        Challenges(challenges::Issued),
+        Answer(challenges::Ack),
+        Application(Vec<u8>),
+    }
+
+    fn backend(mut requests: mpsc::Receiver<(Request, oneshot::Sender<Reply>)>) {
         let mut first = None;
         let mut size = None;
         let mut callbacks = 0;
+        let mut challenges = challenges::Backend::new();
         while let Some((request, reply)) = requests.blocking_recv() {
+            let request = match request {
+                Request::Resize(request) => request,
+                Request::Challenges => {
+                    let _ = reply.send(Reply::Challenges(challenges.issued()));
+                    continue;
+                }
+                Request::Answer(answer) => {
+                    let _ = reply.send(Reply::Answer(challenges.answer(answer)));
+                    continue;
+                }
+                Request::Application => {
+                    let _ = reply.send(Reply::Application(b"synthetic terminal output".to_vec()));
+                    continue;
+                }
+            };
             let status = if request.connection != CONNECTION {
                 Status::StaleConnection
             } else if !(2..=500).contains(&request.cols) || !(1..=200).contains(&request.rows) {
@@ -79,12 +118,12 @@ mod probe {
                 first = Some(request);
                 Status::Applied
             };
-            let _ = reply.send(Ack {
+            let _ = reply.send(Reply::Resize(Ack {
                 request_id: request.request_id,
                 status,
                 callbacks,
                 size,
-            });
+            }));
         }
     }
 
@@ -181,10 +220,12 @@ mod probe {
             (valid, Status::Applied, 1),
             (conflict, Status::ConflictingRequest, 1),
         ] {
-            write_frame(&mut input, &request).await?;
-            let ack = read_frame::<_, Ack>(&mut output).await?;
+            write_frame(&mut input, &Request::Resize(request)).await?;
+            let Some(Reply::Resize(ack)) = read_frame(&mut output).await? else {
+                return Err(io::Error::other("expected resize reply"));
+            };
             if ack
-                != Some(Ack {
+                != (Ack {
                     request_id: request.request_id,
                     status,
                     callbacks,
@@ -196,6 +237,7 @@ mod probe {
                 )));
             }
         }
+        challenges::exercise(&mut input, &mut output).await?;
         drop(input);
         if output.read(&mut [0]).await? != 0 || !child.wait().await?.success() {
             return Err(io::Error::other("child did not close cleanly"));
@@ -227,7 +269,7 @@ mod probe {
         result?;
         assert!(child.try_wait()?.is_some(), "child must be reaped");
         println!(
-            "PASS P04 local resize dispatch: 137x41, one callback, original ACKs, child exit 0"
+            "PASS P04 local resize and challenge dispatch: one resize callback, bound one-shot answers, isolated application data, child exit 0"
         );
         Ok(())
     }
