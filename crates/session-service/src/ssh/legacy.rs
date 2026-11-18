@@ -5,6 +5,12 @@ use child::Managed;
 use tokio::time::{Instant, sleep_until};
 use transport_ssh1::{self as wire, Event, Request};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LegacyAcceptance {
+    Input(usize),
+    Resize { cols: u16, rows: u16 },
+}
+
 pub(crate) fn configured() -> bool {
     child::image_pin().is_some()
 }
@@ -261,12 +267,13 @@ impl Actor {
         self.transition(State::Connected)?;
         let mut in_flight = None;
         loop {
-            let (id, expected, deadline) =
-                in_flight.unwrap_or_else(|| (Uuid::nil(), 0, Instant::now()));
+            let deadline = in_flight.map_or_else(Instant::now, |(_, _, deadline)| deadline);
             tokio::select! { biased;
                 _=self.cancel.cancelled()=>return Err(Failure::Cancelled),
                 _=sleep_until(deadline),if in_flight.is_some()=> {
-                    self.legacy_receipt(id, Err(InputFailure::Timeout))?;
+                    if let Some((id, _, _)) = in_flight {
+                        self.legacy_receipt(id, Err(InputFailure::Timeout))?;
+                    }
                     return Err(Failure::TransportTimeout);
                 }
                 event=helper.events.recv()=>match event.ok_or(Failure::Transport)? {
@@ -280,9 +287,20 @@ impl Actor {
                             .map_err(|_| Failure::Transport)?;
                     }
                     Event::InputAccepted { session: original, request_id, bytes }
-                        if original == session && request_id == id && bytes == expected && in_flight.is_some() =>
+                        if original == session && in_flight.is_some_and(|(id, expected, _)|
+                            request_id == id && expected == LegacyAcceptance::Input(bytes)) =>
                     {
-                        self.legacy_receipt(id, Ok(Some(bytes)))?;
+                        self.legacy_receipt(request_id, Ok(Some(bytes)))?;
+                        in_flight = None;
+                    }
+                    Event::ResizeAccepted { session: original, request_id, cols, rows }
+                        if original == session && in_flight.is_some_and(|(id, expected, _)|
+                            request_id == id && expected == (LegacyAcceptance::Resize { cols, rows })) =>
+                    {
+                        self.store.lock().map_err(|_| Failure::Transport)?
+                            .sessions.resize_screen(self.reference, rows, cols)
+                            .map_err(|_| Failure::Transport)?;
+                        self.legacy_receipt(request_id, Ok(None))?;
                         in_flight = None;
                     }
                     Event::Ended { session: original, reason: wire::EndReason::BackendExit, .. } if original == session =>
@@ -292,7 +310,7 @@ impl Actor {
                     _=>return Err(Failure::Transport),
                 },
                 command=commands.recv(), if in_flight.is_none()=>{
-                    let QueuedInput { id, input: Input::Write(bytes), authority: None } =
+                    let QueuedInput { id, input, authority: None } =
                         command.ok_or(Failure::Cancelled)?
                     else { return Err(Failure::Transport) };
                     {
@@ -307,9 +325,20 @@ impl Actor {
                             return Err(Failure::Transport);
                         }
                     }
-                    let expected = bytes.expose().len();
-                    helper.send(&Request::Input { session, request_id: id, bytes })
-                        .await.map_err(|_| Failure::Transport)?;
+                    let (request, expected) = match input {
+                        Input::Write(bytes) => {
+                            let expected = LegacyAcceptance::Input(bytes.expose().len());
+                            (Request::Input { session, request_id: id, bytes }, expected)
+                        }
+                        Input::Resize { cols, rows } => {
+                            let cols = cols as u16;
+                            let rows = rows as u16;
+                            (Request::Resize { session, request_id: id, cols, rows },
+                                LegacyAcceptance::Resize { cols, rows })
+                        }
+                        _ => return Err(Failure::Transport),
+                    };
+                    helper.send(&request).await.map_err(|_| Failure::Transport)?;
                     in_flight = Some((id, expected, Instant::now() + Duration::from_secs(2)));
                 }
             }

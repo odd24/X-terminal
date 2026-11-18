@@ -78,13 +78,16 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       const target = current.connection;
       const protocol = current.protocol;
       const writing='text' in action||'bytes' in action;
-      if (!target || !['SSH1','SSH2','SERIAL'].includes(protocol) || protocol==='SSH1'&&!writing || !current.writable || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&!active()) return false;
-      const epoch=deps.selection().epoch;
+      const ssh1Resize = protocol === 'SSH1' && !writing;
+      const selection = deps.selection();
+      if (!target || !['SSH1','SSH2','SERIAL'].includes(protocol) || !current.writable || !bound(target) || selection.connection?.state!=='CONNECTED' || (writing||ssh1Resize)&&!selection.active || ssh1Resize&&selection.suspended) return false;
+      const epoch=selection.epoch;
       const inputOwner=owner;
       const id = requestId();
       const dispatch = async (action:InputAction) => {
         // A selection change drops unsent input rather than retargeting it.
-        if (disposed || owner!==inputOwner || current.protocol!==protocol || !bound(target) || deps.selection().connection?.state!=='CONNECTED' || writing&&(!active()||deps.selection().epoch!==epoch)) return false;
+        const route = deps.selection();
+        if (disposed || owner!==inputOwner || current.protocol!==protocol || !bound(target) || route.connection?.state!=='CONNECTED' || (writing||ssh1Resize)&&(!route.active||route.epoch!==epoch) || ssh1Resize&&route.suspended) return false;
         const dispatchId=pacing?requestId():id;
         if (protocol === 'SERIAL') {
           if (!('text' in action)) return false;
@@ -99,7 +102,12 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           ? { op: 'write_text', connection: target, request_id: dispatchId, text: action.text }
           : 'bytes' in action
           ? { op: 'write', connection: target, request_id: dispatchId, bytes: action.bytes }
-          : { op: 'resize', connection: target, request_id: dispatchId, ...action });
+          : { op: 'resize', connection: target, request_id: dispatchId, ...action }
+        ).catch(async error => {
+          if (!ssh1Resize || !bound(target)) throw error;
+          try { return await ssh({ op: 'input_status', connection: target, request_id: dispatchId }); }
+          catch { throw error; }
+        });
         if (reply.result !== 'input'||reply.request_id!==dispatchId) throw new Error('receipt');
         let receipt: Receipt = reply;
         const deadline = Date.now() + 17000;let waitMs=4;
@@ -112,7 +120,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           if(receipt.state==='PENDING'||receipt.state==='DISPATCHING'){await new Promise(resolve=>setTimeout(resolve,waitMs));waitMs=Math.min(50,waitMs*2);}
         }
         if (receipt.state !== 'PIPELINE_QUEUED') throw new Error('unknown');
-        if (!disposed && bound(target)) setLastInput('已进入 SSH 发送管线；不代表远端已执行');
+        if (!disposed && bound(target)) setLastInput(ssh1Resize ? 'SSH1 尺寸已进入发送管线；远端尺寸待核对' : '已进入 SSH 发送管线；不代表远端已执行');
         return true;
       };
       const run=async()=>{await dispatch(action);};
@@ -193,15 +201,23 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       return receiveInput(text, true);
     };
     const input = term.onData(data => receiveInput(data,false,true));
+    const sizeKey = ({cols, rows}: {cols: number; rows: number}) => `${cols}:${rows}`;
+    function submitViewport() {
+      const size = dimensions(term.cols, term.rows);
+      const key = sizeKey(size);
+      if (lastSize !== key && submit(size)) lastSize = key;
+    }
     const resize = term.onResize(({ cols, rows }) => {
       setViewport({ cols, rows });
       clearTimeout(resizeTimer);
       const resized=current.connection&&{...current.connection};
+      const origin = deps.selection();
       resizeTimer = window.setTimeout(() => {
-        if(!resized||!bound(resized))return;
-        const size = dimensions(term.cols, term.rows);
-        const key = `${size.cols}:${size.rows}`;
-        if (lastSize !== key && current.protocol === 'SSH2' && current.writable) { if(submit(size))lastSize = key; }
+        if(!resized||!bound(resized)||!current.writable)return;
+        if (current.protocol === 'SSH2' ||
+            current.protocol === 'SSH1' && lastSize && origin.active && !origin.suspended && same(origin) && deps.selection().epoch === origin.epoch) {
+          submitViewport();
+        }
       }, 150);
     });
     const observer = new ResizeObserver(() => fit.fit());
@@ -235,6 +251,11 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         current.writable=connection?.state==='CONNECTED';
         if(!current.writable)clip.invalidate();
         if(current.protocol==='SSH2'&&current.writable&&!lastSize){const size=dimensions(term.cols,term.rows);if(submit(size))lastSize=`${size.cols}:${size.rows}`;}
+        if (current.protocol === 'SSH1' && current.writable && !lastSize) {
+          // The connection dialog supplied the initial PTY size. Send only
+          // fresh fit changes, so returning to a tab cannot replay its resize.
+          lastSize = sizeKey(dimensions(term.cols, term.rows));
+        }
         if(current.connection){
           const page=await invoke<Page>('service_read',{connection:current.connection,cursor});
           if(disposed)return;if(!same(selection)){timer=window.setTimeout(()=>void poll(),0);return;}

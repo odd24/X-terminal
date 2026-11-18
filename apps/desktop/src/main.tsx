@@ -560,7 +560,7 @@ function App() {
       <div className="connection-summary" aria-label="活动连接摘要">
         <span title={active ? `${active.connection_id} / ${active.generation}` : undefined}>{active ? `${connectionLabel(active)} · ${active.state} · 代次 ${active.generation}` : '尚无活动连接'}</span>
         <span aria-label="活动编码">编码：{activeDetails?.encoding === 'utf8' ? 'UTF-8' : activeDetails?.encoding.toUpperCase() ?? (active?.protocol === 'FIXTURE' ? 'UTF-8（合成）' : active ? '读取中' : '—')}</span>
-        <span aria-label="终端视口尺寸" title={active?.protocol==='SSH1'?'SSH1 远端 PTY 使用启动时尺寸，此处显示本地视口。':'本地终端列×行；SSH PTY请求有上限，串口没有远端PTY'}>视口：{viewport.cols}×{viewport.rows}</span>
+        <span aria-label="终端视口尺寸" title={active?.protocol==='SSH1'?'本地终端列×行。SSH1 尺寸请求进入发送管线后，远端 PTY 尺寸仍可在远端核对。':'本地终端列×行；SSH PTY请求有上限，串口没有远端PTY'}>视口：{viewport.cols}×{viewport.rows}</span>
         <span aria-label="日志状态" role="status">日志：{activeLog}</span>
         <span aria-label="权限状态">{failure || inputFailure ? '桌面输入已停止' : inputReady && ['SSH1', 'SSH2', 'SERIAL'].includes(active?.protocol ?? '') ? '桌面输入可用' : inputReady && active?.protocol === 'FIXTURE' ? '合成输入（仅测试）' : '桌面输入未就绪'} · {active?.protocol==='SSH1'?'SSH1 仅桌面可用':'Agent 授权可管理，MCP需独立配对'}</span>
       </div>

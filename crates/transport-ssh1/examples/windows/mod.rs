@@ -157,10 +157,12 @@ async fn exercise(
         matches!(next(output).await?, Event::Ready { session: actual } if actual == session),
         "SSH1 input readiness",
     )?;
+    let resize_id = Uuid::new_v4();
     write_frame(
         input,
         &Request::Resize {
             session,
+            request_id: resize_id,
             cols: 137,
             rows: 41,
         },
@@ -178,6 +180,7 @@ async fn exercise(
     .await?;
     let mut printed = Vec::new();
     let mut accepted = false;
+    let mut resized = false;
     loop {
         match next(output).await? {
             Event::Output {
@@ -220,11 +223,29 @@ async fn exercise(
                 )?;
                 accepted = true;
             }
+            Event::ResizeAccepted {
+                session: actual,
+                request_id,
+                cols,
+                rows,
+            } => {
+                ensure(
+                    !resized
+                        && !accepted
+                        && actual == session
+                        && request_id == resize_id
+                        && cols == 137
+                        && rows == 41,
+                    "resize acknowledgement binding",
+                )?;
+                resized = true;
+            }
             _ => return Err(io::Error::other("unexpected frame after SSH1 input")),
         }
     }
     ensure(
-        accepted
+        resized
+            && accepted
             && printed
                 .windows(OUTPUT_MARKER.len())
                 .any(|bytes| bytes == OUTPUT_MARKER),

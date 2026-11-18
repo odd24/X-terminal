@@ -4,7 +4,7 @@ use session_core::session::ConnectionRef;
 use session_protocol::SensitiveBytes;
 use uuid::Uuid;
 
-pub const VERSION: u16 = 2;
+pub const VERSION: u16 = 3;
 pub const MAX_DATA: usize = 16 * 1024;
 pub const MAX_PASSWORD: usize = 8192;
 
@@ -82,6 +82,7 @@ pub enum Request {
     },
     Resize {
         session: Session,
+        request_id: Uuid,
         cols: u16,
         rows: u16,
     },
@@ -129,6 +130,12 @@ pub enum Event {
         session: Session,
         request_id: Uuid,
         bytes: usize,
+    },
+    ResizeAccepted {
+        session: Session,
+        request_id: Uuid,
+        cols: u16,
+        rows: u16,
     },
     Ended {
         session: Session,

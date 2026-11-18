@@ -7,8 +7,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, desktopKeyboard, terminalInput } from './lib/DesktopKeyboard.mjs';
+import { observeDesktopSsh1Sizes, verifyDesktopSsh1Resize } from './lib/DesktopSsh1Resize.mjs';
 
-const [fixture, source] = process.argv.slice(2);
+const [fixture, source, mode] = process.argv.slice(2);
+assert.ok(mode === undefined || mode === '--resize');
+const resizeOnly = mode === '--resize';
 assert.match(fixture, /^\/tmp\/P04-ssh1\.[A-Za-z0-9]{8}$/);
 assert.ok(source && path.isAbsolute(source));
 const manifest = JSON.parse(await readFile('artifacts/P13-ssh1-preview.json', 'utf8'));
@@ -23,6 +26,15 @@ for (const file of manifest.files) {
   assert.equal(createHash('sha256').update(data).digest('hex'), file.sha256);
 }
 const wsl = ['-d', 'Ubuntu-24.04', '--cd', fixture, '--exec'];
+if (resizeOnly) {
+  const verify = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity', './p04-pty-size'], {
+    windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  assert.deepEqual(verify.trim().split(/\r?\n/).map(line => line.split(/\s+/)[0]), [
+    '8334402b83169bf9a41c6ec93ccc17dff4c51ac7ede8c9d414f05924bc407ce3',
+    '7b47b103bcd9340f4b3075af05e9882574b43f4c2cf1b88154c78767cd3d230f',
+  ]);
+}
 const publicKey = execFileSync('wsl.exe', [...wsl, '/bin/cat', 'public-key.txt'], {
   windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
 });
@@ -47,7 +59,7 @@ async function typeFixturePassword(keyboard) {
 
 const peers = [];
 async function listen() {
-  const peer = { accepted: 0 };
+  const peer = { accepted: 0, wire: '' };
   const server = createServer(socket => {
     if (peer.accepted || socket.localAddress !== '127.0.0.1' || socket.remoteAddress !== '127.0.0.1') {
       socket.destroy();
@@ -59,9 +71,16 @@ async function listen() {
     const child = spawn('wsl.exe', [...wsl, '/usr/bin/timeout', '--kill-after=1s', '12s',
       '/usr/bin/unshare', '--user', '--map-current-user', '--net', '/usr/bin/env', '-i',
       `HOME=${fixture}/home`, `XDG_CONFIG_HOME=${fixture}/home`, 'PATH=/usr/bin:/bin', 'SHELL=/bin/sh',
-      './out/uppity', '--hostkey', 'fixture.rsa1', '--sessiondir', fixture, '--allow-auth', 'password',
+      ...(resizeOnly ? ['/bin/bash', '-c',
+        'exec "$@" 2> >(/usr/bin/grep -aE --line-buffered "^conn#[0-9]+: (P04 SSH1_CMSG_WINDOW_SIZE [0-9]{1,10} [0-9]{1,10} [0-9]{1,10} [0-9]{1,10}|Client sent exit confirmation)$" >&2)',
+        'filtered-fixture'] : []),
+      './out/uppity', ...(resizeOnly ? ['--verbose'] : []),
+      '--hostkey', 'fixture.rsa1', '--sessiondir', fixture, '--allow-auth', 'password',
       ...['none', 'publickey', 'kbdint', 'tis', 'cryptocard'].flatMap(method => ['--deny-auth', method]),
-    ], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+    ], { windowsHide: true, stdio: ['pipe', 'pipe', resizeOnly ? 'pipe' : 'ignore'] });
+    child.stderr?.on('data', chunk => {
+      if (peer.wire.length < 4096) peer.wire += chunk.toString('utf8').replaceAll('\0', '');
+    });
     peer.done = new Promise((resolve, reject) => {
       child.once('error', reject);
       child.once('close', (code, signal) => resolve({ code, signal }));
@@ -85,6 +104,7 @@ async function listen() {
 const prefix = 'shared-terminal-ssh1-preview-中文-';
 const data = await mkdtemp(path.join(tmpdir(), prefix));
 let ui;
+let observation;
 const exists = selector => `!!document.querySelector(${JSON.stringify(selector)})`;
 const el = selector => `document.querySelector(${JSON.stringify(selector)})`;
 const dialog = 'dialog[aria-label="连接 SSH1 保存配置"]';
@@ -94,9 +114,10 @@ const password = '[aria-label="SSH1 登录密码"]';
 const rendered = ref => `.terminal-pane[data-active="true"][data-rendered-id="${ref.connection_id}"][data-rendered-generation="${ref.generation}"]`;
 const createRef = ({ connection_id, generation }) => ({ connection_id, generation });
 
-try {
-  const positive = await listen(), negative = await listen();
-  ui = await launchDesktop(data, { executable: path.join(manifest.directory, 'shared-terminal-desktop.exe') });
+async function run() {
+  const positive = await listen(), negative = resizeOnly ? undefined : await listen();
+  const executable = path.join(manifest.directory, 'shared-terminal-desktop.exe');
+  ui = await launchDesktop(data, { executable });
   const status = await ui.invoke('service_status');
   assert.equal(status.fixture, false);
   assert.equal(status.ssh1_preview, true);
@@ -126,14 +147,17 @@ try {
   assert.equal(saved.settings.explicitly_enabled, true);
   assert.equal(saved.credential_ref, null);
   await ui.click('关闭配置');
-  const rejectedProfile = { id: randomUUID(), folder_id: null, name: 'SSH1 拒绝夹具',
-    settings: { ...saved.settings, port: negative.port } };
-  const savedRejection = await configuration({
-    op: 'save_profile', profile: rejectedProfile, credential: { action: 'clear' },
-  });
-  assert.equal(savedRejection.result, 'saved_profile');
+  let rejectedProfile;
+  if (negative) {
+    rejectedProfile = { id: randomUUID(), folder_id: null, name: 'SSH1 拒绝夹具',
+      settings: { ...saved.settings, port: negative.port } };
+    const savedRejection = await configuration({
+      op: 'save_profile', profile: rejectedProfile, credential: { action: 'clear' },
+    });
+    assert.equal(savedRejection.result, 'saved_profile');
+  }
   assert.deepEqual(await list(), []);
-  assert.equal(positive.accepted + negative.accepted, 0);
+  assert.equal(positive.accepted + (negative?.accepted ?? 0), 0);
   if (await ui.evaluate(`${el('.app-bar button')}.getAttribute('aria-expanded')==='false'`)) await ui.click('会话导航');
   await ui.click('刷新会话树');
 
@@ -178,7 +202,8 @@ try {
     return ref;
   }
 
-  const ref = await openSaved(saved, positive, true);
+  if (resizeOnly) observation = await observeDesktopSsh1Sizes(ui);
+  const ref = await openSaved(saved, positive, !resizeOnly);
   await click(hostConsent);
   await ui.click('信任 SSH1 主机并继续');
   await ui.waitFor(`${active(password)} && !document.activeElement.disabled`);
@@ -187,6 +212,11 @@ try {
   await ui.waitFor(`!(${exists(dialog)}) && ${active(`${rendered(ref)} ${terminalInput}`)}`);
   const tab = `[role="tab"][data-connection-id="${ref.connection_id}"]`;
   assert.match(await ui.evaluate(`${el(tab)}.textContent`), /SSH1.*127\.0\.0\.1/);
+  if (resizeOnly) {
+    await verifyDesktopSsh1Resize({ ui, keyboard, ref, executable, peer: positive, servicePid: status.pid,
+      preview: manifest.directory, terminal: `${rendered(ref)} ${terminalInput}`, observation });
+    return;
+  }
   await ui.click('终端日志');
   await ui.waitFor(`${el('[aria-label="日志目标"]')}?.textContent.includes('SSH1')`);
   await ui.click('开始记录终端');
@@ -254,8 +284,14 @@ try {
     logProtocol: stopped.protocol, logDurable: stopped.durable, fixtureExit: exits.map(exit => exit.code) };
   await writeFile('artifacts/P13-desktop-ssh1.json', JSON.stringify(evidence, null, 2) + '\n');
   console.log('PASS SSH1 saved-profile Desktop preview, native UI approval and PTY, log and close');
-} finally {
-  try { await ui?.close(); }
+}
+
+try { await run(); }
+finally {
+  try {
+    try { await observation?.restore(); }
+    finally { await ui?.close(); }
+  }
   finally {
     for (const peer of peers) {
       peer.socket?.destroy();

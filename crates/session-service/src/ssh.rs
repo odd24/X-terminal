@@ -680,6 +680,7 @@ impl Manager {
             match &input {
                 Input::Write(bytes) if bytes.expose().len() <= transport_ssh1::MAX_DATA => {}
                 Input::Write(_) => return Err(ErrorCode::InvalidArgument),
+                Input::Resize { .. } => {}
                 _ => return Err(ErrorCode::Unsupported),
             }
         }

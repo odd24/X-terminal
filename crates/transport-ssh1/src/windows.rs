@@ -259,10 +259,30 @@ unsafe extern "C" fn p13_dispatch(context: *const c_void, native: *mut c_void) -
         }
         Request::Resize {
             session,
+            request_id,
             cols,
             rows,
         } if session == owner.session => {
-            valid_size(cols, rows) && unsafe { p13_resize(native, cols, rows) }
+            if request_id.is_nil()
+                || !valid_size(cols, rows)
+                || !unsafe { p13_resize(native, cols, rows) }
+            {
+                return 3;
+            }
+            return if owner
+                .outgoing
+                .try_send(Event::ResizeAccepted {
+                    session,
+                    request_id,
+                    cols,
+                    rows,
+                })
+                .is_ok()
+            {
+                0
+            } else {
+                2
+            };
         }
         Request::Close { session } if session == owner.session => return 1,
         _ => false,
