@@ -41,10 +41,13 @@ export async function verifyDesktopSsh1Keyboard({ ui, saved, peer, executable, f
         bounds.left+bounds.width/2, bounds.top+bounds.height/2));
       const sections = dialog ? [dialog, ...dialog.querySelectorAll('*')].filter(node =>
         node.clientHeight && node.scrollHeight > node.clientHeight && /auto|scroll/.test(getComputedStyle(node).overflowY)) : [];
+      const summary = item.closest('.profile-summary');
       return { tag:item.tagName, label:item.getAttribute('aria-label') ?? (item.matches('button') ? item.textContent.trim() : null),
         focusVisible:item.matches(':focus-visible'), hit, outlineFits, outline:style.outlineStyle, outlineWidth:style.outlineWidth,
         bounds:bounds.toJSON(), clip, modal:dialog?.matches(':modal') ?? false,
         scroll:sections.map(node=>({tag:node.tagName, top:node.scrollTop, height:node.clientHeight, extent:node.scrollHeight})),
+        summaryScroll:summary ? { top:summary.scrollTop, height:summary.clientHeight, extent:summary.scrollHeight } : null,
+        pageScroll:[scrollX, scrollY],
         passwordPresent:!!${query(password)} };
     })()`);
     evidence.snapshots[step] = view;
@@ -135,6 +138,7 @@ export async function verifyDesktopSsh1Keyboard({ ui, saved, peer, executable, f
     const returned = await snapshot('return');
     check(returned.label === opener, 'Escape did not restore focus to the saved profile opener');
     checkFocus(returned, 'return to opener');
+    assert.deepEqual(returned.pageScroll, evidence.snapshots.opener.pageScroll);
     await ui.screenshot(`${artifact}-return.png`);
 
     const fixture = evidence.fixtureExit = await peer.trials[0].done;

@@ -31,7 +31,7 @@ import {broadcastTargetReady,sendBroadcastTarget,queryBroadcastTarget} from './b
 import {sameQuickContext,type QuickContext} from './quick-commands';
 import { ComposeDrafts, type ComposeTarget, type Ending } from './compose-drafts';
 import {ComposeHistory} from './compose-history';
-import { SessionTree } from './session-tree';
+import { revealProfileConnectionFocus, SessionTree } from './session-tree';
 import { ConnectionCatalog } from './connection-catalog';
 import { config, readConfiguration, type DesktopPreferences, type Profile, type Workspace } from './config-api';
 import { ConfigPanel } from './config-panel';
@@ -559,7 +559,7 @@ function App() {
     </section>
     <aside className="auxiliary-panels" aria-label="辅助工具">
     {quickOpen && <Dialog label="连接服务器" close={closeQuick}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SSH2',savedIntent?.request_id??'');focusAfterConnect.current=true;closeQuick();}} close={closeQuick} /></Dialog>}
-    {ssh1Intent&&<Dialog label={ssh1Intent.previous?'显式重连 SSH1':'连接 SSH1 保存配置'} close={closeSsh1}><Ssh1Connect
+    {ssh1Intent&&<Dialog label={ssh1Intent.previous?'显式重连 SSH1':'连接 SSH1 保存配置'} close={closeSsh1} focusRestored={revealProfileConnectionFocus}><Ssh1Connect
       key={ssh1Intent.request_id} intent={ssh1Intent} close={closeSsh1}
       ownerMatches={()=>!serviceStopped.current&&serviceRef.current?.service_id===ssh1Intent.owner}
       size={()=>dimensions(runtime.current?.term.cols??80,runtime.current?.term.rows??24)}
