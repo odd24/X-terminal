@@ -11,7 +11,8 @@ import { active, activeText, desktopKeyboard, terminalInput as terminal } from '
 const authRecovery = process.argv.includes('--auth-recovery');
 const artifact = authRecovery ? 'P12.1-auth-recovery-keyboard' : 'P12.1-direct-ssh-keyboard';
 const manifest = authRecovery ? 'P12-compact-config-dpi-preview' : 'P22-audit-grant-feedback-preview';
-const preview = JSON.parse(await readFile(`artifacts/${manifest}.json`, 'utf8'));
+const manifestPath = process.argv.find(arg => arg.startsWith('--manifest='))?.slice('--manifest='.length);
+const preview = JSON.parse(await readFile(manifestPath ?? `artifacts/${manifest}.json`, 'utf8'));
 assert.equal(preview.result, 'PASS');
 assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
 assert.deepEqual(preview.files.map(file => file.name).sort(),

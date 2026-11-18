@@ -2,6 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { readConfiguration, type Folder, type Profile } from './config-api';
 import { ContextMenu } from './ui';
 
+function revealProfileConnectionFocus(button: HTMLButtonElement) {
+  requestAnimationFrame(() => {
+    const summary = button.parentElement;
+    if (!summary?.matches('.profile-summary') || document.activeElement !== button || !button.matches(':focus-visible')) return;
+    const style = getComputedStyle(button);
+    const margin = parseFloat(style.outlineWidth) + Math.max(0, parseFloat(style.outlineOffset));
+    const bounds = button.getBoundingClientRect();
+    const top = summary.getBoundingClientRect().top + summary.clientTop;
+    const bottom = top + summary.clientHeight;
+    // Browser focus scrolling can expose the button while leaving its outline outside the clip.
+    if (bounds.top - margin < top) summary.scrollTop -= Math.ceil(top - bounds.top + margin);
+    else if (bounds.bottom + margin > bottom) summary.scrollTop += Math.ceil(bounds.bottom + margin - bottom);
+  });
+}
+
 export function SessionTree({ revision, connect, configure, loaded, connecting=false, ssh1Preview }: { revision: number; connect(profile: Profile, configRevision: string): void; configure(id?:string,action?:'edit'|'delete'): void; loaded(profiles: Profile[]): void; connecting?:boolean; ssh1Preview:boolean }) {
   const [configRevision, setConfigRevision] = useState('');
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -43,7 +58,7 @@ export function SessionTree({ revision, connect, configure, loaded, connecting=f
     <label className="tree-search">搜索<input aria-label="搜索会话配置" value={query} onChange={event => {setQuery(event.target.value);setExpanded({});}} placeholder="名称、协议或主机" /></label>
     <div className="tree-scroll" aria-label="会话配置树"><small className="tree-root-label">根目录</small>{branch(null)}{!profiles.length && <p>尚无配置。<button onClick={()=>configure()}>新建连接配置</button></p>}</div>
     {message && <p role="status">{message}</p>}
-    <section className="profile-summary" aria-label="配置详情"><h2>配置详情</h2>{profile ? <><strong>{profile.name}</strong><p>{profile.settings.protocol.toUpperCase()} · {'host' in profile.settings ? `${profile.settings.host}:${profile.settings.port}` : profile.settings.port}</p>{profile.settings.protocol === 'ssh1' ? <small>{ssh1Preview ? 'SSH1 是可能不安全的旧协议，每次连接均需明确选择。' : '当前构建未启用 SSH1 本机预览。'}</small> : <small>单击只选中；双击或右键“连接”会新建独立会话，快速重复操作只发起一次。</small>}<button disabled={!canConnect(profile)} onClick={() => openProfile(profile)}>连接选中配置</button></> : <p>单击配置查看详情；双击或右键连接。</p>}</section>
+    <section className="profile-summary" aria-label="配置详情"><h2>配置详情</h2>{profile ? <><strong>{profile.name}</strong><p>{profile.settings.protocol.toUpperCase()} · {'host' in profile.settings ? `${profile.settings.host}:${profile.settings.port}` : profile.settings.port}</p>{profile.settings.protocol === 'ssh1' ? <small>{ssh1Preview ? 'SSH1 是可能不安全的旧协议，每次连接均需明确选择。' : '当前构建未启用 SSH1 本机预览。'}</small> : <small>单击只选中；双击或右键“连接”会新建独立会话，快速重复操作只发起一次。</small>}<button disabled={!canConnect(profile)} onFocus={event => revealProfileConnectionFocus(event.currentTarget)} onClick={() => openProfile(profile)}>连接选中配置</button></> : <p>单击配置查看详情；双击或右键连接。</p>}</section>
     {menu&&menuProfile&&<ContextMenu x={menu.x} y={menu.y} anchor={menu.anchor} close={()=>setMenu(undefined)}><small>{menuProfile.name}</small><button role="menuitem" disabled={!canConnect(menuProfile)} onClick={()=>{setMenu(undefined);openProfile(menuProfile);}}>连接</button><button role="menuitem" onClick={()=>{setMenu(undefined);configure(menuProfile.id,'edit');}}>编辑</button><button role="menuitem" onClick={()=>{setMenu(undefined);configure(menuProfile.id,'delete');}}>删除</button></ContextMenu>}
   </>;
 }

@@ -23,6 +23,7 @@ export async function verifyDesktopSsh1Keyboard({ ui, saved, peer, executable, f
   const check = (condition, failure) => { if (!condition) evidence.failures.push(failure); };
 
   async function snapshot(step) {
+    await ui.evaluate('new Promise(resolve=>requestAnimationFrame(()=>resolve()))');
     const view = await ui.evaluate(`(() => {
       const dialog = ${query(dialog)}, item = document.activeElement, bounds = item.getBoundingClientRect();
       const clip = {left:0, top:0, right:innerWidth, bottom:innerHeight};
@@ -108,8 +109,9 @@ export async function verifyDesktopSsh1Keyboard({ ui, saved, peer, executable, f
     assert.equal(await ui.evaluate(`${query(hostConsent)}.checked`), false);
     assert.equal(await ui.evaluate(`${inDialog(trust)}.disabled`), true);
     const initialHost = await snapshot('hostInitial');
-    check(initialHost.modal && initialHost.tag !== 'BODY' && initialHost.hit && initialHost.focusVisible,
-      'host challenge appeared without visible keyboard focus');
+    check(initialHost.modal && initialHost.label === '已核对 SSH1 主机指纹',
+      'host challenge did not restore focus to the fingerprint checkbox');
+    checkFocus(initialHost, 'initial host fingerprint checkbox');
     await ui.screenshot(`${artifact}-host.png`);
     await tabTo(active(hostConsent), '核对 SSH1 主机指纹');
     checkFocus(await snapshot('hostCheckbox'), 'host fingerprint checkbox');

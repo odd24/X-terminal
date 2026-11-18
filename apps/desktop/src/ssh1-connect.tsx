@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Panel, Field, ErrorNotice } from './ui';
 import type { Profile, Settings } from './config-api';
 import { dimensions, disconnectSsh1, reference, ssh, SshRequestError, type Challenge, type ConnectionRef, type SshReply, type SshStatus } from './ssh-api';
@@ -40,6 +40,7 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
   const [submitted, setSubmitted] = useState('');
   const [error, setError] = useState('');
   const password = useRef<HTMLInputElement>(null);
+  const hostConfirmation = useRef<HTMLInputElement>(null);
   const live = useRef(true);
   const attempted = useRef(false);
   const initialSize = useRef<ReturnType<typeof dimensions> | undefined>(undefined);
@@ -154,6 +155,16 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
     && candidate.endpoint.host.toLowerCase() === host.toLowerCase()
     && candidate.endpoint.port === port && candidate.algorithm === 'rsa1'
     && /^SHA256:[A-Za-z0-9+/]{43}$/.test(candidate.fingerprint);
+  const hostChallengeId = challenge?.kind === 'host_key' && validHost ? challenge.id : undefined;
+  useLayoutEffect(() => {
+    if (!target || !hostChallengeId || !ownerMatches()) return;
+    const checkbox = hostConfirmation.current;
+    const modal = checkbox?.closest('dialog:modal');
+    if (!checkbox || !modal || checkbox.checked || checkbox.matches(':disabled')) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== modal && active.getClientRects().length) return;
+    checkbox.focus();
+  }, [target, hostChallengeId]);
   const waitingPassword = challenge?.kind === 'credentials' && challenge.auth === 'password';
   useEffect(() => { if (waitingPassword) password.current?.focus(); }, [waitingPassword, challenge?.id]);
 
@@ -201,7 +212,7 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
       <legend>核对 SSH1 主机</legend>
       <p>{challenge.review.status === 'changed' ? '保存的 SSH1 主机指纹已变化。' : '此 SSH1 主机尚未受信任。'}</p>
       <code className="fingerprint">{candidate.fingerprint}</code>
-      <label className="check"><input aria-label="已核对 SSH1 主机指纹" type="checkbox" checked={verified === challenge.id} onChange={event => setVerified(event.target.checked ? challenge.id : '')} />已通过可信渠道核对完整指纹</label>
+      <label className="check"><input ref={hostConfirmation} aria-label="已核对 SSH1 主机指纹" type="checkbox" checked={verified === challenge.id} onChange={event => setVerified(event.target.checked ? challenge.id : '')} />已通过可信渠道核对完整指纹</label>
       <div className="config-actions"><button disabled={verified !== challenge.id} onClick={() => void replyTo(challenge, { approve: true })}>信任 SSH1 主机并继续</button><button onClick={() => void replyTo(challenge, { approve: false })}>拒绝 SSH1 主机</button></div>
     </fieldset>}
     {waitingPassword && <form onSubmit={sendPassword}>
