@@ -183,6 +183,7 @@ function App() {
   const savedIntentFlight=useRef<SavedConnectIntent|undefined>(undefined);
   const [ssh1Intent,setSsh1Intent]=useState<Ssh1Intent>();
   const ssh1Flight=useRef(false);
+  const firstSsh1Fit = useRef<{ owner: string; connection: Ref; pane: PaneKey; epoch: number; size: ReturnType<typeof dimensions> } | undefined>(undefined);
   function closeSsh1(){ssh1Flight.current=false;setSsh1Intent(undefined);}
   function closeQuick(){if(workspaceLaunch.current?.protocol==='SSH2')workspaceLaunch.current=undefined;savedIntentFlight.current=undefined;setSavedIntent(undefined);setQuickOpen(false);setTabMessage(previous=>previous.startsWith('正在连接 ')?'':previous);}
   const focusAfterConnect = useRef(false);
@@ -285,7 +286,7 @@ function App() {
   const [splitSource,setSplitSource]=useState<{owner:string;first:PaneLive;nonce:string}>();
   const splitNonce=useRef('');
   function syncRoute(){const current=panes.current.current;selectedRef.current=current.requested;setSelected(current.requested);const c=controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
-  function routeChanged(){setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
+  function routeChanged(){firstSsh1Fit.current=undefined;setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
   function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard)controllers.current.get(key)?.runtime.term.focus();}
   function cancelWorkspaceSplit(){workspaceSession.current.cancelSplit();restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);}
   function collapseSplit(keep?:PaneKey){cancelWorkspaceSplit();panes.current.collapse(keep);routeChanged();}
@@ -300,7 +301,16 @@ function App() {
   }
   function paneSelection(key:PaneKey):PaneSelection{const slot=panes.current.slots.find(p=>p.key===key),binding=slot?.binding;
     const live=binding&&liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation&&c.protocol===binding.protocol);
-    return {owner:serviceStopped.current?'':serviceRef.current?.service_id??'',connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:!!binding&&(!!slot?.retired||!!slot?.pending)};
+    const owner=serviceStopped.current?'':serviceRef.current?.service_id??'';
+    const pending=firstSsh1Fit.current;
+    const initialSsh1Fit=pending&&pending.owner===owner&&pending.pane===key&&pending.epoch===panes.current.epoch
+      && binding?.protocol==='SSH1'&&binding.connection_id===pending.connection.connection_id&&binding.generation===pending.connection.generation
+      ? { size: pending.size, take: () => {
+        if(firstSsh1Fit.current!==pending)return false;
+        firstSsh1Fit.current=undefined;
+        return true;
+      } } : undefined;
+    return {owner,connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:!!binding&&(!!slot?.retired||!!slot?.pending),initialSsh1Fit};
   }
   function registerPane(key:PaneKey,c?:TerminalController){if(c)controllers.current.set(key,c);else controllers.current.delete(key);if(panes.current.active===key){runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;}}
   useEffect(()=>{let disposed=false,timer=0;
@@ -553,7 +563,12 @@ function App() {
       key={ssh1Intent.request_id} intent={ssh1Intent} close={closeSsh1}
       ownerMatches={()=>!serviceStopped.current&&serviceRef.current?.service_id===ssh1Intent.owner}
       size={()=>dimensions(runtime.current?.term.cols??80,runtime.current?.term.rows??24)}
-      connected={ref=>{selectConnection(ref.connection_id,ref);focusAfterConnect.current=true;closeSsh1();}} /></Dialog>}
+      connected={(ref,size)=>{
+        selectConnection(ref.connection_id,ref);
+        firstSsh1Fit.current={owner:ssh1Intent.owner,connection:ref,pane:panes.current.active,epoch:panes.current.epoch,size};
+        focusAfterConnect.current=true;
+        closeSsh1();
+      }} /></Dialog>}
     {serialDialog&&<Dialog label="连接串口设备" close={closeSerial}><QuickSerial key={serialNonce} requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined} select={selectConnection} close={closeSerial} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SERIAL',serialNonce);focusAfterConnect.current=true;closeSerial();}} /></Dialog>}
     {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
     {splitSource&&<Dialog label="设置分屏" close={closeSplitPanel}><SplitPanel first={splitSource.first} connections={connections} label={connectionLabel} apply={applySplit} close={closeSplitPanel}/></Dialog>}

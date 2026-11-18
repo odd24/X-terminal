@@ -17,7 +17,8 @@ import type { ComposePacing } from './compose-pacing';
 export type PaneConnection=ComposeTarget&{state:string};
 type Ref=Pick<PaneConnection,'connection_id'|'generation'>;
 type Page={connection:Ref;events:{seq:number;bytes:number[];gap_bytes?:number}[];next_cursor:number;available_from:number;truncated:boolean;disconnected:boolean};
-export type PaneSelection={owner:string;connection?:PaneConnection;active:boolean;epoch:number;fixture:boolean;suspended?:boolean};
+export type PaneSelection={owner:string;connection?:PaneConnection;active:boolean;epoch:number;fixture:boolean;suspended?:boolean;
+  initialSsh1Fit?: { size: ReturnType<typeof dimensions>; take(): boolean }};
 export type TerminalView={status:string;inputFailure:string;failure:string;lastInput:string;decodeWarning:string;viewport:{cols:number;rows:number};renderedTarget?:ComposeTarget};
 export const initialTerminalView=():TerminalView=>({status:'正在连接会话服务',inputFailure:'',failure:'',lastInput:'尚无输入',decodeWarning:'',viewport:{cols:80,rows:24}});
 type Deps={activate():void;context(value:TerminalMenuCapture):void;selection():PaneSelection;preferences():DesktopPreferences;state(view:TerminalView):void;invalidateDrafts():void;input():void;search():void;proposal(p?:PasteProposal):void;message(text:string):void;reset():void};
@@ -84,6 +85,10 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       const epoch=selection.epoch;
       const inputOwner=owner;
       const id = requestId();
+      const resizeRouteMatches = () => {
+        const route = deps.selection();
+        return owner === inputOwner && current.protocol === protocol && bound(target) && route.active && !route.suspended && route.epoch === epoch;
+      };
       const dispatch = async (action:InputAction) => {
         // A selection change drops unsent input rather than retargeting it.
         const route = deps.selection();
@@ -104,7 +109,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           ? { op: 'write', connection: target, request_id: dispatchId, bytes: action.bytes }
           : { op: 'resize', connection: target, request_id: dispatchId, ...action }
         ).catch(async error => {
-          if (!ssh1Resize || !bound(target)) throw error;
+          if (!ssh1Resize || !resizeRouteMatches()) throw error;
           try { return await ssh({ op: 'input_status', connection: target, request_id: dispatchId }); }
           catch { throw error; }
         });
@@ -112,7 +117,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         let receipt: Receipt = reply;
         const deadline = Date.now() + 17000;let waitMs=4;
         while (receipt.state === 'PENDING' || receipt.state === 'DISPATCHING') {
-          if (disposed || !bound(target)) return false;
+          if (disposed || !bound(target) || ssh1Resize && !resizeRouteMatches()) return false;
           if (Date.now() > deadline) throw new Error('unknown');
           const result = await ssh({ op: 'input_status', connection: target, request_id: dispatchId });
           if (result.result !== 'input'||result.request_id!==dispatchId) throw new Error('receipt');
@@ -120,10 +125,13 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           if(receipt.state==='PENDING'||receipt.state==='DISPATCHING'){await new Promise(resolve=>setTimeout(resolve,waitMs));waitMs=Math.min(50,waitMs*2);}
         }
         if (receipt.state !== 'PIPELINE_QUEUED') throw new Error('unknown');
-        if (!disposed && bound(target)) setLastInput(ssh1Resize ? 'SSH1 尺寸已进入发送管线；远端尺寸待核对' : '已进入 SSH 发送管线；不代表远端已执行');
+        if (!disposed && bound(target) && (!ssh1Resize || resizeRouteMatches())) setLastInput(ssh1Resize ? 'SSH1 尺寸已进入发送管线；远端尺寸待核对' : '已进入 SSH 发送管线；不代表远端已执行');
         return true;
       };
-      const run=async()=>{await dispatch(action);};
+      const run=async()=>{
+        try { await dispatch(action); }
+        catch(error) { if (!ssh1Resize || resizeRouteMatches()) throw error; }
+      };
       const accepted=pacing?queue.enqueue(async()=>{
         try{await pacing.run(part=>dispatch({text:part}),()=>!disposed&&owner===inputOwner&&current.protocol===protocol&&bound(target)&&active()&&deps.selection().epoch===epoch&&deps.selection().connection?.state==='CONNECTED'&&current.writable);}
         finally{if(pacedCompose===pacing)pacedCompose=undefined;}
@@ -207,15 +215,29 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       const key = sizeKey(size);
       if (lastSize !== key && submit(size)) lastSize = key;
     }
+    function syncInitialSsh1Fit(selection: PaneSelection) {
+      const route = deps.selection();
+      const pending = route.initialSsh1Fit;
+      if (!pending || current.protocol !== 'SSH1' || !current.writable || !route.active
+        || route.epoch !== selection.epoch || !bound(current.connection) || !same(selection)
+        || document.visibilityState !== 'visible' || document.querySelector('dialog:modal')
+        || element.clientWidth === 0 || element.clientHeight === 0 || !fit.proposeDimensions()
+        || !pending.take()) return;
+      lastSize = sizeKey(pending.size);
+      fit.fit();
+      submitViewport();
+    }
     const resize = term.onResize(({ cols, rows }) => {
       setViewport({ cols, rows });
       clearTimeout(resizeTimer);
+      if (current.protocol === 'SSH1' && document.querySelector('dialog:modal')) return;
       const resized=current.connection&&{...current.connection};
       const origin = deps.selection();
       resizeTimer = window.setTimeout(() => {
         if(!resized||!bound(resized)||!current.writable)return;
         if (current.protocol === 'SSH2' ||
-            current.protocol === 'SSH1' && lastSize && origin.active && !origin.suspended && same(origin) && deps.selection().epoch === origin.epoch) {
+            current.protocol === 'SSH1' && lastSize && origin.active && !origin.suspended && same(origin)
+            && deps.selection().epoch === origin.epoch && !deps.selection().initialSsh1Fit && !document.querySelector('dialog:modal')) {
           submitViewport();
         }
       }, 150);
@@ -252,8 +274,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         if(!current.writable)clip.invalidate();
         if(current.protocol==='SSH2'&&current.writable&&!lastSize){const size=dimensions(term.cols,term.rows);if(submit(size))lastSize=`${size.cols}:${size.rows}`;}
         if (current.protocol === 'SSH1' && current.writable && !lastSize) {
-          // The connection dialog supplied the initial PTY size. Send only
-          // fresh fit changes, so returning to a tab cannot replay its resize.
+          // Only the original connection handoff can request initial synchronization.
           lastSize = sizeKey(dimensions(term.cols, term.rows));
         }
         if(current.connection){
@@ -266,7 +287,9 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           if(page.disconnected&&page.events.length===0)display(decoder.finish());
           if(page.events.length)interactiveUntil=Date.now()+500;
           cursor=page.next_cursor;await current.writer.drain();if(disposed)return;
-          if(same(selection)){if(view.renderedTarget?.connection_id!==current.connection.connection_id||view.renderedTarget.generation!==current.connection.generation||view.renderedTarget.protocol!==current.protocol)update({renderedTarget:{...current.connection,protocol:current.protocol}});if(!gap)setStatus(page.disconnected?'会话已断开':'服务输出已同步');}
+          if(same(selection)){if(view.renderedTarget?.connection_id!==current.connection.connection_id||view.renderedTarget.generation!==current.connection.generation||view.renderedTarget.protocol!==current.protocol)update({renderedTarget:{...current.connection,protocol:current.protocol}});if(!gap)setStatus(page.disconnected?'会话已断开':'服务输出已同步');
+            if (!page.disconnected) syncInitialSsh1Fit(selection);
+          }
         }else setStatus('服务就绪 · 尚无活动连接');
         if(!disposed)timer=window.setTimeout(()=>void poll(),Date.now()<interactiveUntil?16:100);
       }catch(error){

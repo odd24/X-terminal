@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Panel, Field, ErrorNotice } from './ui';
 import type { Profile, Settings } from './config-api';
-import { disconnectSsh1, reference, ssh, SshRequestError, type Challenge, type ConnectionRef, type SshReply, type SshStatus } from './ssh-api';
+import { dimensions, disconnectSsh1, reference, ssh, SshRequestError, type Challenge, type ConnectionRef, type SshReply, type SshStatus } from './ssh-api';
 
 export type Ssh1Intent = {
   profile: Profile & { settings: Extract<Settings, { protocol: 'ssh1' }> };
@@ -24,8 +24,8 @@ const failures: Record<string, string> = {
 export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
   intent: Ssh1Intent;
   ownerMatches(): boolean;
-  size(): { cols: number; rows: number };
-  connected(connection: ConnectionRef): void;
+  size(): ReturnType<typeof dimensions>;
+  connected(connection: ConnectionRef, initialSize: ReturnType<typeof dimensions>): void;
   close(): void;
 }) {
   const { host, port, username, encoding } = intent.profile.settings;
@@ -40,6 +40,7 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
   const password = useRef<HTMLInputElement>(null);
   const live = useRef(true);
   const attempted = useRef(false);
+  const initialSize = useRef<ReturnType<typeof dimensions> | undefined>(undefined);
   const flight = useRef(false);
   const accepted = useRef<ConnectionRef | undefined>(undefined);
   const latest = useRef<SshStatus | undefined>(undefined);
@@ -94,10 +95,14 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
     setStarting(true);
     setError('');
     try {
-      const reply = query ? await lookup() : fixed
-        ? await ssh({ op: 'reconnect_fixed', ...fixed, ...size() })
-        : await ssh({ op: 'start_fixed', ...scope, ...size() });
-      accept(reply);
+      if (query) accept(await lookup());
+      else {
+        const requestedSize = size();
+        initialSize.current = requestedSize;
+        accept(fixed
+          ? await ssh({ op: 'reconnect_fixed', ...fixed, ...requestedSize })
+          : await ssh({ op: 'start_fixed', ...scope, ...requestedSize }));
+      }
     } catch (reason) {
       if (!live.current || !ownerMatches()) return;
       const known = !query && reason instanceof SshRequestError && knownStartErrors.has(reason.code);
@@ -126,8 +131,9 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
         latest.current = reply;
         setStatus(reply);
         if (reply.connection.state === 'CONNECTED') {
+          if (!initialSize.current) throw new Error('missing SSH1 start dimensions');
           handedOff.current = true;
-          connected(ref);
+          connected(ref, initialSize.current);
           return;
         }
         if (['FAILED', 'DISCONNECTED'].includes(reply.connection.state)) return;
