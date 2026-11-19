@@ -187,17 +187,36 @@ export async function measureSoak({ directory, ui, fixture, service, sampler, co
   }
 }
 
-export async function closeSoakDesktop(ui, directory, service) {
+export async function closeSoakDesktop(ui, directory, service, evidence) {
+  evidence.stage = 'request';
   await ui.evaluate(`(() => { const menu=document.querySelector('details.tools-menu');
-    if(!menu.open)menu.querySelector('summary').click(); return true; })()`);
-  await ui.click('退出桌面');
-  await ui.evaluate(`setTimeout(() => Array.from(document.querySelectorAll('button'))
-    .find(b=>b.textContent==='确认退出并停止服务')?.click(), 250); true`).catch(error => {
-    if (ui.app.exitCode === null) throw error;
+    if(!menu.open)menu.querySelector('summary').click();
+    const button=Array.from(menu.querySelectorAll('button')).find(b=>b.textContent==='退出桌面');
+    if(!button || button.disabled)return false;
+    setTimeout(()=>button.click(),50); return true; })()`).then(requested => assert.equal(requested, true));
+  evidence.stage = 'confirmation';
+  await ui.waitFor(`!!Array.from(document.querySelectorAll('[aria-label="退出桌面确认"] button'))
+    .find(b=>b.textContent==='确认退出并停止服务' && !b.disabled)`);
+  evidence.confirmationVisible = true;
+  const scheduled = await ui.evaluate(`(() => {
+    const button=Array.from(document.querySelectorAll('[aria-label="退出桌面确认"] button'))
+      .find(b=>b.textContent==='确认退出并停止服务' && !b.disabled);
+    if(!button)return false;
+    setTimeout(()=>button.click(),50); return true; })()`);
+  assert.equal(scheduled, true);
+  evidence.stage = 'exit';
+  for (let i = 0; i < 160 && ui.app.exitCode === null && ui.app.signalCode === null; i++) await delay(50);
+  evidence.desktopExitCode = ui.app.exitCode;
+  evidence.desktopSignal = ui.app.signalCode;
+  const receiptPath = path.join(directory, 'desktop-close-receipts-v1', `${service.service_id}.json`);
+  const receipt = await readFile(receiptPath, 'utf8').then(JSON.parse, error => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
   });
-  for (let i = 0; i < 160 && ui.app.exitCode === null; i++) await delay(50);
+  evidence.receipt = receipt;
   assert.equal(ui.app.exitCode, 0);
-  const receipt = JSON.parse(await readFile(path.join(directory, 'desktop-close-receipts-v1', `${service.service_id}.json`), 'utf8'));
+  evidence.stage = 'receipt';
+  assert.ok(receipt, 'Owned service close receipt missing');
   assert.equal(receipt.service_id, service.service_id);
   assert.equal(receipt.owned_pid, service.pid);
   assert.equal(receipt.shutdown_ack, 'ACKNOWLEDGED');
@@ -206,5 +225,6 @@ export async function closeSoakDesktop(ui, directory, service) {
   assert.equal(receipt.kill_requested, false);
   assert.equal(receipt.reader.diagnostic.outcome, 'CLOSED');
   assert.equal(receipt.reader.diagnostic.accepted, receipt.reader.diagnostic.synced);
+  evidence.stage = 'verified';
   return receipt;
 }
