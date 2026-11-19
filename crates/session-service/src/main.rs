@@ -12,7 +12,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    let timeline = args.iter().any(|arg| arg == "--t19-timeline-fixture");
+    let timeline = args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "--t19-timeline-fixture" | "--t19-concurrent-sync-fixture"
+        )
+    });
     if timeline && !cfg!(feature = "t19-timeline-fixture") {
         return Err("T19_TIMELINE_FIXTURE_DISABLED".into());
     }
@@ -22,18 +27,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             [flag, instance, fixture, timeline_flag]
                 if flag == "--instance"
                     && fixture == "--test-fixture"
-                    && timeline_flag == "--t19-timeline-fixture"
+                    && matches!(
+                        timeline_flag.as_str(),
+                        "--t19-timeline-fixture" | "--t19-concurrent-sync-fixture"
+                    )
                     && uuid::Uuid::parse_str(instance).is_ok_and(|id| {
                         id.get_version_num() == 4 && id.to_string() == *instance
                     }) => {}
             _ => return Err("T19_TIMELINE_FIXTURE_ARGUMENTS_REJECTED".into()),
         }
-        args.pop();
+        let concurrent = args.pop().as_deref() == Some("--t19-concurrent-sync-fixture");
         Some(
             session_service::t19_timeline_fixture::Root::open(
                 directory
                     .as_deref()
                     .ok_or("T19_TIMELINE_FIXTURE_ROOT_REQUIRED")?,
+                concurrent,
             )
             .map_err(|_| "T19_TIMELINE_FIXTURE_ROOT_REJECTED")?,
         )

@@ -267,8 +267,8 @@ trait Journal: Send {
         std::time::Duration::ZERO
     }
 
-    #[cfg(test)]
-    fn test_periodic_checkpoint(&mut self, sync: bool) -> io::Result<()> {
+    #[cfg(any(test, all(windows, feature = "log-timeline-fixture")))]
+    fn periodic_checkpoint(&mut self, sync: bool) -> io::Result<()> {
         self.checkpoint(sync)
     }
 
@@ -417,9 +417,12 @@ impl Logger {
                             }
                             if flushed.elapsed() >= std::time::Duration::from_millis(100) {
                                 let sync = synced.elapsed() >= std::time::Duration::from_secs(1);
-                                #[cfg(test)]
-                                journal.test_periodic_checkpoint(sync)?;
-                                #[cfg(not(test))]
+                                #[cfg(any(test, all(windows, feature = "log-timeline-fixture")))]
+                                journal.periodic_checkpoint(sync)?;
+                                #[cfg(not(any(
+                                    test,
+                                    all(windows, feature = "log-timeline-fixture")
+                                )))]
                                 journal.checkpoint(sync)?;
                                 state.lock().unwrap().status.readable = journal.readable();
                                 flushed = std::time::Instant::now();

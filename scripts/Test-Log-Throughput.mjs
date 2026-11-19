@@ -7,10 +7,12 @@ import {createHash,randomUUID} from 'node:crypto';
 import {launchDesktop} from './lib/DesktopHarness.mjs';
 
 const args=process.argv.slice(2);
-assert.ok(args.every(v=>v==='--calibrate'||v==='--d-tmp'||v==='--timeline'),'unknown throughput option');
+assert.ok(args.every(v=>['--calibrate','--d-tmp','--timeline','--compare-sync'].includes(v)),'unknown throughput option');
 const calibration=args.includes('--calibrate'),candidate=args.includes('--d-tmp'),timeline=args.includes('--timeline');
+const compare=args.includes('--compare-sync');
+assert.ok(!compare||timeline,'sync comparison requires the timeline fixture');
 assert.ok(!timeline||candidate,'timeline requires the D candidate');
-assert.ok(!candidate||(calibration&&args.length===(timeline?3:2)),'D candidate is limited to one fixed short calibration');
+assert.ok(!candidate||(calibration&&args.length===(timeline?3+Number(compare):2)),'D candidate is limited to fixed short calibration');
 const build=args=>{const result=spawnSync('cargo',args,{windowsHide:true,stdio:'inherit'});if(result.error)throw result.error;assert.equal(result.status,0,'measurement build/ordinary restoration must actually succeed');};
 const binaries=['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe'];
 const hashes=async()=>Object.fromEntries(await Promise.all(binaries.map(async name=>[name,createHash('sha256').update(await readFile(path.resolve('target/debug',name))).digest('hex')])));
@@ -32,6 +34,7 @@ let resultCode,ordinary=false;
 let candidateAvailableMemory;
 let smokeId;
 let ordinaryBeforeMeasurement;
+let syncComparison;
 const rejectSwitch=(executable,args,code)=>{
   const result=spawnSync(executable,args,{windowsHide:true,encoding:'utf8',timeout:10000});
   if(result.error)throw result.error;
@@ -50,6 +53,12 @@ try {
     rejectSwitch(timelineService,['--instance',randomUUID(),'--t19-timeline-fixture'],'T19_TIMELINE_FIXTURE_ARGUMENTS_REJECTED');
     rejectSwitch(timelineService,fixtureArgs(),'T19_TIMELINE_FIXTURE_ROOT_REQUIRED');
     rejectSwitch(timelineService,[...fixtureArgs(),'--data-dir',path.resolve('artifacts')],'T19_TIMELINE_FIXTURE_ROOT_REJECTED');
+    if (compare) {
+      const concurrentArgs = [...fixtureArgs().slice(0,3),'--t19-concurrent-sync-fixture'];
+      rejectSwitch(service, concurrentArgs, 'T19_TIMELINE_FIXTURE_DISABLED');
+      rejectSwitch(timelineService, concurrentArgs, 'T19_TIMELINE_FIXTURE_ROOT_REQUIRED');
+      rejectSwitch(timelineService, [...concurrentArgs,'--data-dir',path.resolve('artifacts')], 'T19_TIMELINE_FIXTURE_ROOT_REJECTED');
+    }
   }else{
     build(['build','-p','session-service','--example','log_throughput','--locked']);
   }
@@ -71,6 +80,25 @@ try {
     if(timeline)assert.ok(candidateAvailableMemory>=1536*1024*1024,'available memory below the combined existing service/harness budgets');
   }
   resultCode=await run([root,calibration?'32':'1800',calibration?'1':'100',...(candidate?[timeline?'--d-tmp-timeline':'--d-tmp-calibrate']:[])]);
+  if (compare) {
+    const baseline = JSON.parse(await readFile(`${evidence}.json`, 'utf8'));
+    assert.equal(baseline.periodic_sync, 'serial');
+    syncComparison = { baseline: id, baselineExitCode: resultCode, baselineFirstFault: baseline.timeline?.first_fault?.kind ?? null,
+      candidate: null, disposition: 'BASELINE_QUEUE_FULL_NOT_REPRODUCED' };
+    if (baseline.owned_service_clean_exit === true && baseline.timeline?.workers_closed === true
+        && baseline.timeline.first_fault?.kind === 'queue_full') {
+      const memory = os.freemem();
+      assert.ok(memory >= 1536*1024*1024, 'memory below service and harness budgets before candidate');
+      const pairedId = randomUUID();
+      const pairedRoot = candidatePath(pairedId);
+      console.log(`CONCURRENT_ROOT ${pairedRoot}`);
+      const exitCode = await run([pairedRoot, '32', '1', '--d-tmp-concurrent-sync']);
+      const paired = JSON.parse(await readFile(path.resolve(`artifacts/P22-throughput-d-tmp-${pairedId}.json`), 'utf8'));
+      assert.equal(paired.periodic_sync, 'concurrent');
+      syncComparison.candidate = { id: pairedId, exitCode, passed: paired.passed, firstFault: paired.timeline?.first_fault?.kind ?? null };
+      syncComparison.disposition = paired.passed ? 'CANDIDATE_CALIBRATION_PASS' : 'CANDIDATE_CALIBRATION_FAIL';
+    }
+  }
 } finally {
   build(['build','-p','session-service','--locked']);
   if(timeline)rejectOrdinary();
@@ -95,7 +123,8 @@ try {
     ...(candidate?{candidate_root:root,available_memory_before_measurement:candidateAvailableMemory,ordinary_probe:'headless Named Pipe'}:{}),
     ...(timeline?{timeline_fixture:true,timeline_smoke_id:smokeId,ordinary_timeline_switch_denied:true,ordinary_before_measurement:ordinaryBeforeMeasurement}:{}),
     platform:os.platform(),os_release:os.release(),arch:os.arch(),logical_cpus:os.cpus().length,cpu_model:os.cpus()[0].model,total_memory:os.totalmem(),
-    before,after:await hashes(),ordinary_build_restored:true,ordinary_runtime_fixture_denied:ordinary,measurement_exit_code:resultCode},null,2)+'\n');
+    before,after:await hashes(),ordinary_build_restored:true,ordinary_runtime_fixture_denied:ordinary,measurement_exit_code:resultCode,
+    ...(compare?{syncComparison}:{})},null,2)+'\n');
 }
 assert.equal(resultCode,0,`actual measurement failed; preserve ${root}`);
 if(candidate)await assert.rejects(lstat(root),{code:'ENOENT'});

@@ -914,7 +914,9 @@ pub async fn serve_t19_timeline_fixture(
         bootstrap,
         true,
         Some(root.path.clone()),
-        Some(Default::default()),
+        Some(terminal_log::timeline_fixture::Timeline::for_owned_probe(
+            root.concurrent,
+        )),
     )
     .await
 }

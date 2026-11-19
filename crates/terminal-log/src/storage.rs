@@ -187,22 +187,32 @@ impl FileJournal {
         )
     }
 
-    #[cfg(all(test, windows))]
+    #[cfg(all(windows, any(test, feature = "log-timeline-fixture")))]
     pub(crate) fn probe_concurrent_sync(
         &mut self,
         clock: std::time::Instant,
     ) -> io::Result<[[u64; 2]; 3]> {
         let live = self.live.as_mut().unwrap();
         live.checkpoint(false)?;
-        let call = |file: &File| -> io::Result<[u64; 2]> {
-            let start = clock.elapsed().as_nanos().try_into().unwrap();
-            file.sync_all()?;
-            Ok([start, clock.elapsed().as_nanos().try_into().unwrap()])
-        };
+        #[cfg(feature = "log-timeline-fixture")]
+        let context = crate::timeline_fixture::logger_context();
+        #[cfg(feature = "log-timeline-fixture")]
+        let written = self.timeline_written_records;
+        macro_rules! call {
+            ($op:ident, $file:expr) => {{
+                #[cfg(feature = "log-timeline-fixture")]
+                let _scope = crate::timeline_fixture::install(context.clone());
+                let start = clock.elapsed().as_nanos().try_into().unwrap();
+                timeline_io!($op, Some(written), ($file).sync_all())
+                    .map(|()| [start, clock.elapsed().as_nanos().try_into().unwrap()])
+            }};
+        }
         let ranges = std::thread::scope(|scope| {
-            let raw = scope.spawn(|| call(self.raw.as_ref().unwrap()));
-            let jsonl = scope.spawn(|| call(self.text.as_ref().unwrap()));
-            let live = call(live.probe_sync_file());
+            let raw_file = self.raw.as_ref().unwrap();
+            let jsonl_file = self.text.as_ref().unwrap();
+            let raw = scope.spawn(|| call!(RawSync, raw_file));
+            let jsonl = scope.spawn(|| call!(JsonlSync, jsonl_file));
+            let live = call!(LiveSync, live.probe_sync_file());
             let raw = raw.join().unwrap();
             let jsonl = jsonl.join().unwrap();
             Ok::<_, io::Error>([live?, raw?, jsonl?])
@@ -253,6 +263,16 @@ impl FileJournal {
     }
 }
 impl Journal for FileJournal {
+    #[cfg(all(windows, feature = "log-timeline-fixture"))]
+    fn periodic_checkpoint(&mut self, sync: bool) -> io::Result<()> {
+        if sync && self.live.is_some() && crate::timeline_fixture::concurrent_sync() {
+            return self
+                .probe_concurrent_sync(std::time::Instant::now())
+                .map(|_| ());
+        }
+        self.checkpoint(sync)
+    }
+
     fn checkpoint(&mut self, sync: bool) -> io::Result<()> {
         if let Some(live) = &mut self.live {
             live.checkpoint(sync)?;

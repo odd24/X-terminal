@@ -11,16 +11,18 @@ use terminal_log::timeline_fixture::{Summary, Timeline};
 
 pub struct Root {
     pub(crate) path: PathBuf,
+    pub(crate) concurrent: bool,
     _root: File,
     _parent: Parent,
 }
 
 impl Root {
-    pub fn open(path: &Path) -> io::Result<Self> {
+    pub fn open(path: &Path, concurrent: bool) -> io::Result<Self> {
         let parent = Parent::open()?;
         let (root, path) = parent.pin_empty(path)?;
         Ok(Self {
             path,
+            concurrent,
             _root: root,
             _parent: parent,
         })

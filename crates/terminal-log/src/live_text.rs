@@ -283,12 +283,12 @@ impl LiveText {
         self.output.get_ref().try_clone()
     }
 
-    #[cfg(all(test, windows))]
+    #[cfg(all(windows, any(test, feature = "log-timeline-fixture")))]
     pub(crate) fn probe_sync_file(&self) -> &File {
         self.output.get_ref()
     }
 
-    #[cfg(all(test, windows))]
+    #[cfg(all(windows, any(test, feature = "log-timeline-fixture")))]
     pub(crate) fn probe_publish_synced(&mut self) {
         self.status.synced_records = self.status.flushed_records;
         self.status.synced_bytes = self.status.flushed_bytes;

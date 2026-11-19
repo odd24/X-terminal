@@ -68,7 +68,7 @@ impl Journal for Phased {
         Ok(())
     }
 
-    fn test_periodic_checkpoint(&mut self, sync: bool) -> io::Result<()> {
+    fn periodic_checkpoint(&mut self, sync: bool) -> io::Result<()> {
         let start_ns = ns(self.clock);
         let file_ranges = if sync && self.concurrent_sync {
             let ranges = self.journal.probe_concurrent_sync(self.clock)?;

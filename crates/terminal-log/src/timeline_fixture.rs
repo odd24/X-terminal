@@ -98,24 +98,30 @@ struct Capture {
 }
 
 #[derive(Clone)]
-pub struct Timeline(Arc<Mutex<Capture>>);
+pub struct Timeline(Arc<Mutex<Capture>>, bool);
 
 impl Default for Timeline {
     fn default() -> Self {
-        Self(Arc::new(Mutex::new(Capture {
-            epoch: Instant::now(),
-            events: VecDeque::with_capacity(BEFORE_FAULT + 1 + AFTER_FAULT),
-            first_fault: None,
-            evicted: 0,
-            omitted: 0,
-            remaining: AFTER_FAULT,
-            observed: 0,
-            taken: false,
-        })))
+        Self(
+            Arc::new(Mutex::new(Capture {
+                epoch: Instant::now(),
+                events: VecDeque::with_capacity(BEFORE_FAULT + 1 + AFTER_FAULT),
+                first_fault: None,
+                evicted: 0,
+                omitted: 0,
+                remaining: AFTER_FAULT,
+                observed: 0,
+                taken: false,
+            })),
+            false,
+        )
     }
 }
 
 impl Timeline {
+    pub fn for_owned_probe(concurrent: bool) -> Self {
+        Self(Self::default().0, concurrent)
+    }
     /// Call around creation of one owned logger. Assign each logger a unique index.
     pub fn with_logger<T>(&self, index: u8, start: impl FnOnce() -> T) -> T {
         assert!(index < 8, "synthetic logger index outside T19 source bound");
@@ -228,6 +234,11 @@ pub(crate) fn logger_context() -> Option<Context> {
             .filter(|context| matches!(context.source, Source::Logger(_)))
             .cloned()
     })
+}
+
+#[cfg(windows)]
+pub(crate) fn concurrent_sync() -> bool {
+    logger_context().is_some_and(|context| context.timeline.1)
 }
 
 #[cfg(windows)]

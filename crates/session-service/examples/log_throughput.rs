@@ -937,7 +937,8 @@ mod instrument_tests {
 async fn execute() -> Result<()> {
     let args: Vec<_> = std::env::args_os().collect();
     let mode = args.get(4).and_then(|value| value.to_str());
-    let timeline = matches!(mode, Some("--d-tmp-timeline" | "--check-timeline"));
+    let concurrent = mode == Some("--d-tmp-concurrent-sync");
+    let timeline = concurrent || matches!(mode, Some("--d-tmp-timeline" | "--check-timeline"));
     let timeline_smoke = mode == Some("--check-timeline");
     let candidate_mode =
         timeline || matches!(mode, Some("--d-tmp-calibrate" | "--check-d-tmp-root"));
@@ -1027,7 +1028,11 @@ async fn execute() -> Result<()> {
         command.arg("--test-fixture");
     }
     let stderr = if timeline {
-        command.arg("--t19-timeline-fixture");
+        command.arg(if concurrent {
+            "--t19-concurrent-sync-fixture"
+        } else {
+            "--t19-timeline-fixture"
+        });
         let id = candidate.as_ref().unwrap().id;
         File::create_new(workspace.join(format!("P22-throughput-d-tmp-{id}-service-stderr.txt")))?
     } else {
@@ -1186,6 +1191,9 @@ async fn execute() -> Result<()> {
     }
     if candidate.is_some() {
         report["candidate_free_bytes_at_start"] = json!(initial_free);
+    }
+    if timeline {
+        report["periodic_sync"] = json!(if concurrent { "concurrent" } else { "serial" });
     }
     let clean = report["owned_service_clean_exit"] == true;
     serde_json::to_writer_pretty(File::create(root.join("result.json"))?, &report)?;
