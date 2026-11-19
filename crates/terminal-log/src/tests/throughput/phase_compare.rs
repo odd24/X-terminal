@@ -1,4 +1,4 @@
-//! One owned-file pair. The only worker schedule change is the first sync seed.
+//! Bounded comparisons of periodic sync on owned files.
 use super::*;
 use serde_json::{Value, json};
 use std::{io::BufReader, path::Path, sync::Barrier};
@@ -11,6 +11,7 @@ const MAX_RECORDS: usize = 100;
 struct Checkpoint {
     start_ns: u64,
     end_ns: u64,
+    file_ranges: Option<[[u64; 2]; 3]>,
 }
 
 #[derive(Default)]
@@ -24,6 +25,7 @@ struct Phased {
     journal: storage::FileJournal,
     clock: Instant,
     advance: Duration,
+    concurrent_sync: bool,
     observed: Arc<Observed>,
 }
 
@@ -68,13 +70,24 @@ impl Journal for Phased {
 
     fn test_periodic_checkpoint(&mut self, sync: bool) -> io::Result<()> {
         let start_ns = ns(self.clock);
-        self.checkpoint(sync)?;
+        let file_ranges = if sync && self.concurrent_sync {
+            let ranges = self.journal.probe_concurrent_sync(self.clock)?;
+            let status = self.journal.readable().unwrap();
+            assert_eq!(status.flushed_records, status.written_records);
+            assert_eq!(status.synced_records, status.flushed_records);
+            assert_eq!(status.synced_bytes, status.flushed_bytes);
+            Some(ranges)
+        } else {
+            self.checkpoint(sync)?;
+            None
+        };
         if sync {
             let mut calls = self.observed.checkpoints.lock().unwrap();
             assert!(calls.len() < 8);
             calls.push(Checkpoint {
                 start_ns,
                 end_ns: ns(self.clock),
+                file_ranges,
             });
         }
         Ok(())
@@ -154,7 +167,7 @@ fn verify(directory: &Path, index: usize, meta: &Metadata, offered: u64, status:
     );
 }
 
-fn group(directory: &Path, phased: bool) -> Value {
+fn group(directory: &Path, phased: bool, concurrent_sync: bool) -> Value {
     fs::create_dir(directory).unwrap();
     let managed = ManagedRoot::open(directory).unwrap();
     let audit = crate::audit::Writer::open(directory, Uuid::new_v4()).unwrap();
@@ -187,6 +200,7 @@ fn group(directory: &Path, phased: bool) -> Value {
                 journal: journal?,
                 clock,
                 advance: Duration::from_millis(advance_ms),
+                concurrent_sync,
                 observed,
             }))
         })
@@ -265,6 +279,7 @@ fn group(directory: &Path, phased: bool) -> Value {
         let anchor_ns = observed.anchor_ns.load(Ordering::Relaxed);
         let checkpoints = observed.checkpoints.lock().unwrap();
         let mut periodic_syncs = vec![];
+        let mut file_syncs = vec![];
         let mut earliest = anchor_ns + (1000 - advance_ms) * 1_000_000;
         for call in checkpoints.iter().filter(|call| call.start_ns < end_ns) {
             assert!(
@@ -274,6 +289,14 @@ fn group(directory: &Path, phased: bool) -> Value {
             // The test observes the end just before the production clock is reset.
             earliest = call.end_ns + 1_000_000_000;
             periodic_syncs.push([call.start_ns - begin_ns, call.end_ns - begin_ns]);
+            if let Some(ranges) = call.file_ranges {
+                assert!(
+                    ranges
+                        .iter()
+                        .all(|[a, b]| call.start_ns <= *a && a <= b && *b <= call.end_ns)
+                );
+                file_syncs.push(ranges.map(|[a, b]| [a - begin_ns, b - begin_ns]));
+            }
         }
         if let Some(&first) = periodic_syncs.first() {
             first_syncs.push(first);
@@ -284,6 +307,7 @@ fn group(directory: &Path, phased: bool) -> Value {
             "rejected":status.rejected_records,"queue_full":status.failure.is_some(),
             "max_pending_consumer_pause_ns":max_busy_ns,
             "periodic_syncs_ns_from_offer":periodic_syncs,
+            "live_raw_jsonl_syncs_ns_from_offer":file_syncs,
             "max_periodic_sync_ns":periodic_syncs.iter().map(|[a,b]| (*b).min(end_ns-begin_ns)-a).max(),
             "flushed":status.readable.as_ref().unwrap().flushed_records,
             "synced":status.readable.as_ref().unwrap().synced_records,
@@ -306,7 +330,7 @@ fn group(directory: &Path, phased: bool) -> Value {
         })
         .max();
     json!({
-        "phased":phased,"sources":stream_reports,"offered_bytes":SLOTS*4*BLOCK as u64,
+        "phased":phased,"concurrent_sync":concurrent_sync,"sources":stream_reports,"offered_bytes":SLOTS*4*BLOCK as u64,
         "audit_accepted_and_synced":audit_accepted,"max_offer_lateness_ns":max_late_ns,
         "offering_ns":end_ns-begin_ns,"first_sync_observed_count":first_syncs.len(),
         "first_sync_start_spread_ns":first_spread_ns,"peak_first_sync_overlap":peak_first_sync_overlap,
@@ -327,7 +351,7 @@ fn p22_first_periodic_sync_phase_comparison() {
     let mut reports = vec![];
     for (name, phased) in [("same-phase", false), ("fixed-phase", true)] {
         let directory = root.join(name);
-        reports.push(group(&directory, phased));
+        reports.push(group(&directory, phased, false));
         assert_eq!(root.canonicalize().unwrap(), root);
         assert_eq!(directory.canonicalize().unwrap(), directory);
         assert_eq!(directory.parent(), Some(root.as_path()));
@@ -349,4 +373,29 @@ fn p22_first_periodic_sync_phase_comparison() {
     )
     .unwrap();
     println!("P22_SYNC_PHASE_COMPLETE {}", root.display());
+}
+
+#[test]
+#[ignore = "explicit bounded D-volume concurrent file sync comparison; never service load"]
+fn p22_periodic_file_sync_comparison() {
+    let parent = Path::new(r"D:\tmp");
+    let _guards = storage::guards(parent).unwrap();
+    let parent = parent.canonicalize().unwrap();
+    let root = parent.join(format!("P22-file-sync-中文-{}", Uuid::new_v4()));
+    fs::create_dir(&root).unwrap();
+    let mut reports = vec![];
+    for (name, concurrent) in [("serial", false), ("concurrent", true)] {
+        let directory = root.join(name);
+        reports.push(group(&directory, false, concurrent));
+        assert_eq!(root.canonicalize().unwrap(), root);
+        assert_eq!(directory.canonicalize().unwrap(), directory);
+        assert_eq!(directory.parent(), Some(root.as_path()));
+        fs::remove_dir_all(directory).unwrap();
+    }
+    serde_json::to_writer_pretty(
+        File::create_new(root.join("comparison.json")).unwrap(),
+        &reports,
+    )
+    .unwrap();
+    println!("P22_FILE_SYNC_COMPLETE {}", root.display());
 }

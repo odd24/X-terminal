@@ -282,4 +282,17 @@ impl LiveText {
     pub fn guard(&self) -> io::Result<File> {
         self.output.get_ref().try_clone()
     }
+
+    #[cfg(all(test, windows))]
+    pub(crate) fn probe_sync_file(&self) -> &File {
+        self.output.get_ref()
+    }
+
+    #[cfg(all(test, windows))]
+    pub(crate) fn probe_publish_synced(&mut self) {
+        self.status.synced_records = self.status.flushed_records;
+        self.status.synced_bytes = self.status.flushed_bytes;
+        self.status.synced_gap_bytes = self.status.flushed_gap_bytes;
+        self.status.synced_at_ms = now_ms();
+    }
 }

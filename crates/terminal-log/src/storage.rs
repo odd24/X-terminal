@@ -186,6 +186,30 @@ impl FileJournal {
             self.text.as_mut().unwrap().sync_all()
         )
     }
+
+    #[cfg(all(test, windows))]
+    pub(crate) fn probe_concurrent_sync(
+        &mut self,
+        clock: std::time::Instant,
+    ) -> io::Result<[[u64; 2]; 3]> {
+        let live = self.live.as_mut().unwrap();
+        live.checkpoint(false)?;
+        let call = |file: &File| -> io::Result<[u64; 2]> {
+            let start = clock.elapsed().as_nanos().try_into().unwrap();
+            file.sync_all()?;
+            Ok([start, clock.elapsed().as_nanos().try_into().unwrap()])
+        };
+        let ranges = std::thread::scope(|scope| {
+            let raw = scope.spawn(|| call(self.raw.as_ref().unwrap()));
+            let jsonl = scope.spawn(|| call(self.text.as_ref().unwrap()));
+            let live = call(live.probe_sync_file());
+            let raw = raw.join().unwrap();
+            let jsonl = jsonl.join().unwrap();
+            Ok::<_, io::Error>([live?, raw?, jsonl?])
+        })?;
+        live.probe_publish_synced();
+        Ok(ranges)
+    }
     fn segment(&mut self, number: u64, source_cursor: u64, text_cursor: u64) -> io::Result<()> {
         if self.raw.is_some() {
             self.sync()?;
