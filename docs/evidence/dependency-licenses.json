@@ -3200,6 +3200,13 @@
   },
   {
     "ecosystem": "cargo",
+    "name": "transport-ssh1",
+    "version": "0.1.0",
+    "license": "LicenseRef-Proprietary",
+    "source": "workspace"
+  },
+  {
+    "ecosystem": "cargo",
     "name": "transport-ssh2",
     "version": "0.1.0",
     "license": "LicenseRef-Proprietary",

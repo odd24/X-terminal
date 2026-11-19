@@ -442,7 +442,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P22 | 压力与权限边界 | IN_PROGRESS | T17/120秒T18子项及安全关闭诊断已验；旧FAIL/八小时/实机未闭；Desktop关闭回执独立规划 | [记录](records/P22.md) |
 | P23 | 兼容与真实试用 | TODO | 待创建 | — |
 | P24 | 覆盖另存诊断已交付，合成 SSH 中断重连专项通过，完整故障恢复与升级待验 | IN_PROGRESS | [P24](records/P24.md) | Step-ID: P24 |
-| P25 | 安装与发布验收 | TODO | 待创建 | — |
+| P25 | 安装与发布验收 | TODO | [本地分发前置核对](records/P25.md) | 开发预览与许可元数据已盘点，正式安装验收尚未启动 |
 
 ## 阶段门
 
