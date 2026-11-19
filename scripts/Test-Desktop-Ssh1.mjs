@@ -12,14 +12,16 @@ import { verifyDesktopSsh1Reconnect } from './lib/DesktopSsh1Reconnect.mjs';
 import { verifyDesktopSsh1Vault } from './lib/DesktopSsh1Vault.mjs';
 import { verifyDesktopSsh1Fullscreen } from './lib/DesktopSsh1Fullscreen.mjs';
 import { verifyDesktopSsh1Keyboard } from './lib/DesktopSsh1Keyboard.mjs';
+import { verifyDesktopSsh1McpIsolation } from './lib/DesktopSsh1McpIsolation.mjs';
 
 const [fixture, source, mode] = process.argv.slice(2);
-assert.ok(mode === undefined || ['--resize', '--reconnect', '--vault', '--fullscreen', '--keyboard'].includes(mode));
+assert.ok(mode === undefined || ['--resize', '--reconnect', '--vault', '--fullscreen', '--keyboard', '--mcp-isolation'].includes(mode));
 const resizeOnly = mode === '--resize';
 const reconnectOnly = mode === '--reconnect';
 const vaultOnly = mode === '--vault';
 const fullscreenOnly = mode === '--fullscreen';
 const keyboardOnly = mode === '--keyboard';
+const mcpIsolation = mode === '--mcp-isolation';
 assert.match(fixture, /^\/tmp\/P04-ssh1\.[A-Za-z0-9]{8}$/);
 assert.ok(keyboardOnly ? source === '-' : source && path.isAbsolute(source));
 const manifest = JSON.parse(await readFile('artifacts/P13-ssh1-preview.json', 'utf8'));
@@ -34,7 +36,7 @@ for (const file of manifest.files) {
   assert.equal(createHash('sha256').update(data).digest('hex'), file.sha256);
 }
 const wsl = ['-d', 'Ubuntu-24.04', '--cd', fixture, '--exec'];
-if (keyboardOnly) {
+if (keyboardOnly || mcpIsolation) {
   const digest = execFileSync('wsl.exe', [...wsl, '/usr/bin/sha256sum', './out/uppity'], {
     windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
   });
@@ -110,7 +112,7 @@ async function listen(limit = 1) {
     peer.trials.push(trial);
     peer.accepted++;
     if (peer.accepted === limit) server.close();
-    const child = spawn('wsl.exe', [...wsl, '/usr/bin/timeout', '--kill-after=1s', reconnectOnly || fullscreenOnly ? '22s' : '12s',
+    const child = spawn('wsl.exe', [...wsl, '/usr/bin/timeout', '--kill-after=1s', mcpIsolation ? '30s' : reconnectOnly || fullscreenOnly ? '22s' : '12s',
       '/usr/bin/unshare', '--user', '--map-current-user', '--net', '/usr/bin/env', '-i',
       `HOME=${fixture}/home`, `XDG_CONFIG_HOME=${fixture}/home`, 'PATH=/usr/bin:/bin',
       ...(reconnectOnly
@@ -155,6 +157,7 @@ const prefix = 'shared-terminal-ssh1-preview-中文-';
 const data = await mkdtemp(path.join(tmpdir(), prefix));
 let ui;
 let observation;
+let isolationReport;
 const exists = selector => `!!document.querySelector(${JSON.stringify(selector)})`;
 const el = selector => `document.querySelector(${JSON.stringify(selector)})`;
 const dialog = 'dialog[aria-label="连接 SSH1 保存配置"]';
@@ -270,7 +273,7 @@ async function run() {
     return;
   }
   if (resizeOnly || fullscreenOnly) observation = await observeDesktopSsh1Sizes(ui);
-  const ref = await openSaved(saved, positive, !resizeOnly && !reconnectOnly && !fullscreenOnly);
+  const ref = await openSaved(saved, positive, mode === undefined);
   await click(hostConsent);
   await ui.click('信任 SSH1 主机并继续');
   await ui.waitFor(`${active(password)} && !document.activeElement.disabled`);
@@ -282,6 +285,11 @@ async function run() {
   await ui.waitFor(`!(${exists(dialog)}) && ${active(`${rendered(ref)} ${terminalInput}`)}`);
   const tab = `[role="tab"][data-connection-id="${ref.connection_id}"]`;
   assert.match(await ui.evaluate(`${el(tab)}.textContent`), /SSH1.*127\.0\.0\.1/);
+  if (mcpIsolation) {
+    isolationReport = await verifyDesktopSsh1McpIsolation({ ui, keyboard, directory: data, preview: manifest.directory,
+      ssh1: ref, ssh1Peer: positive.trials[0], owner: status });
+    return;
+  }
   if (fullscreenOnly) {
     await verifyDesktopSsh1Fullscreen({ ui, keyboard, ref, executable, peer: positive.trials[0], servicePid: status.pid,
       preview: manifest.directory, pane: rendered(ref), wsl, observation });
@@ -366,7 +374,6 @@ async function run() {
   await writeFile('artifacts/P13-desktop-ssh1.json', JSON.stringify(evidence, null, 2) + '\n');
   console.log('PASS SSH1 saved-profile Desktop preview, native UI approval and PTY, log and close');
 }
-
 try { await run(); }
 finally {
   try {
@@ -385,4 +392,9 @@ finally {
     assert.ok(path.basename(data).startsWith(prefix));
     await rm(data, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+}
+if (isolationReport) {
+  const name = `P13-ssh1-mcp-isolation-${isolationReport.ssh1.connection_id}.json`;
+  await writeFile(`artifacts/${name}`, JSON.stringify({ ...isolationReport, desktopRootRemoved: true }, null, 2) + '\n');
+  console.log(`PASS ${name}`);
 }
