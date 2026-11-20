@@ -1,0 +1,80 @@
+$ErrorActionPreference = 'Stop'
+$repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+Push-Location -LiteralPath $repo
+try {
+    $version = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).version
+    $tauri = Get-Content -LiteralPath 'apps/desktop/src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
+    if ($version -ne '0.1.0' -or $tauri.version -ne $version) { throw 'Version files do not match the release' }
+    $commit = (git rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Cannot resolve source commit' }
+    $triple = 'x86_64-pc-windows-msvc'
+    $artifactName = "SharedTerminal-$version-windows-x64"
+    $source = Join-Path $repo "target/windows-x64-portable/$triple/release"
+    $artifacts = (Resolve-Path -LiteralPath 'artifacts').Path
+    $destinations = @($artifactName, "$artifactName.zip", "$artifactName.zip.sha256", "$artifactName-verification.json")
+    foreach ($name in $destinations) {
+        if (Test-Path -LiteralPath (Join-Path $artifacts $name)) { throw "Delivery path already exists: $name" }
+    }
+    $staging = Join-Path $artifacts ('.windows-portable-'+[Guid]::NewGuid())
+    $candidate = Join-Path $staging $artifactName
+    New-Item -ItemType Directory -Path $candidate | Out-Null
+    $files = @(
+        foreach ($name in @('shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe','README.md')) {
+            $binary = $name.EndsWith('.exe')
+            $inputFile = if ($binary) { Join-Path $source $name } else { Join-Path $repo 'docs/WINDOWS_PORTABLE.md' }
+            $destination = Join-Path $candidate $name
+            Copy-Item -LiteralPath $inputFile -Destination $destination
+            $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($hash -ne (Get-FileHash -LiteralPath $inputFile -Algorithm SHA256).Hash.ToLowerInvariant()) {
+                throw "Copy hash mismatch for $name"
+            }
+            $file = [ordered]@{name=$name;version=$version;bytes=(Get-Item -LiteralPath $destination).Length;sha256=$hash}
+            if ($binary) {
+                $signature = (Get-AuthenticodeSignature -LiteralPath $destination).Status.ToString()
+                if ($signature -ne 'NotSigned') { throw "Unexpected signing status for $name ($signature)" }
+                $file.authenticode = $signature
+            }
+            $file
+        }
+    )
+    $manifest = [ordered]@{
+        format=1;product='Shared Terminal';version=$version;target=$triple;buildProfile='release'
+        distribution='portable';sourceCommit=$commit;identifier=$tauri.identifier
+        signed=$false;files=$files
+    }
+    $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $candidate 'manifest.json') -Encoding utf8
+    $archive = Join-Path $staging "$artifactName.zip"
+    Compress-Archive -LiteralPath $candidate -DestinationPath $archive -CompressionLevel Optimal
+    $extracted = Join-Path $staging 'extracted'
+    Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+    $unpacked = Join-Path $extracted $artifactName
+    $evidence = Join-Path $staging "$artifactName-verification.json"
+    node scripts/Test-Windows-Portable.mjs $unpacked $evidence
+    if ($LASTEXITCODE -ne 0) { throw "Extracted release smoke failed. Candidate: $staging" }
+    node scripts/Test-Desktop-Mcp.mjs --official-client --read-boundaries (Join-Path $unpacked 'manifest.json')
+    if ($LASTEXITCODE -ne 0) { throw "Extracted release MCP read regression failed. Candidate: $staging" }
+    $sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$sha256  $artifactName.zip" | Set-Content -LiteralPath (Join-Path $staging "$artifactName.zip.sha256") -Encoding ascii
+    $verified = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+    $mcp = Get-Content -LiteralPath 'artifacts/windows-x64-release-terminal-read-result.json' -Raw | ConvertFrom-Json
+    if ($verified.result -ne 'PASS' -or $mcp.result -ne 'PASS' -or $mcp.preview -ne $unpacked) { throw 'Release evidence mismatch' }
+    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close}
+    $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
+
+    $resolvedStage = (Resolve-Path -LiteralPath $staging).Path
+    if ((Split-Path -Parent $resolvedStage) -ne $artifacts -or (Split-Path -Leaf $resolvedStage) -notmatch '^\.windows-portable-[0-9a-f-]+$') {
+        throw 'Invalid staging path'
+    }
+    foreach ($name in $destinations) {
+        $from = (Resolve-Path -LiteralPath (Join-Path $resolvedStage $name)).Path
+        $to = Join-Path $artifacts $name
+        if ((Split-Path -Parent $from) -ne $resolvedStage -or (Split-Path -Parent $to) -ne $artifacts -or (Test-Path -LiteralPath $to)) {
+            throw "Invalid delivery path: $name"
+        }
+        Move-Item -LiteralPath $from -Destination $to
+    }
+    Remove-Item -LiteralPath $resolvedStage -Recurse
+    Write-Output "PASS $artifactName | SHA-256 $sha256"
+} finally {
+    Pop-Location
+}

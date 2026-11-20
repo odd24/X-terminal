@@ -26,6 +26,7 @@ import {openCodexMcpClient} from './lib/CodexMcpClient.mjs';
 
 const official=process.argv.includes('--official-client');
 const readBoundaries=process.argv.includes('--read-boundaries');
+const readPackage=readBoundaries&&process.argv[4];
 const serialControl=process.argv.includes('--serial-control');
 const disconnect=process.argv.includes('--disconnect');
 const forget=process.argv.includes('--forget');
@@ -43,10 +44,10 @@ const countedSerial=serialConnect||serialControl||((disconnect||forget||protecte
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
 const suite=silentLink?'P24-ssh-silent-link':serviceInterruption?'P24-service-interruption':interruption?'P24-ssh-interruption':protectedExport?'P15-protected-export-v11':wait?'P15-terminal-wait-v11':sshResize?'P15-wait-impact-resize-v11':serialConnect?'P15-wait-impact-serial-connect-v11':connect?'P15-wait-impact-connect-v11':reconnect?'P15-wait-impact-reconnect-v11':forget?'P15-wait-impact-forget-v11':disconnect?'P15-wait-impact-disconnect-v11':serialControl?'P15-wait-impact-serial-v11':security?'P22-security-v11':exec?'P15-wait-impact-exec-v11':'P15-mcp-v11';
-const evidence=readBoundaries?'P16-terminal-read-metadata':official?'P16-official-'+suite:suite;
+const evidence=readPackage?'windows-x64-release-terminal-read':readBoundaries?'P16-terminal-read-metadata':official?'P16-official-'+suite:suite;
 const observations=[];
 assert.ok(!silentLink||process.argv.length===3,'P24 silent link is an independent case');
-assert.ok(!readBoundaries||official&&!serial&&process.argv.length===4,'read boundaries require the standalone official SSH case');
+assert.ok(!readBoundaries||official&&!serial&&process.argv.length<6,'read boundaries require the standalone official SSH case');
 assert.ok(!(exec||reconnect||connect||sshResize||wait||interruption||serviceInterruption)||!serial,'SSH2 fixture required');
 assert.ok(!(interruption||serviceInterruption)||!(interruption&&serviceInterruption||exec||reconnect||connect||sshResize||wait||protectedExport||disconnect||forget||security),'P24 interruption is an independent case');
 const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
@@ -74,9 +75,12 @@ async function killSshFixture() {
 try {
   if (serial&&!countedSerial) build(true);
   directory=await mkdtemp(path.join(tmpdir(),rootPrefix));
-  const preview=readBoundaries?JSON.parse(await readFile('artifacts/terminal-read-metadata-preview.json','utf8')):
+  const preview=readPackage?{
+    result:'PASS',directory:path.dirname(path.resolve(readPackage)),
+    files:JSON.parse(await readFile(readPackage,'utf8')).files.filter(file=>file.name.endsWith('.exe')),
+  }:readBoundaries?JSON.parse(await readFile('artifacts/terminal-read-metadata-preview.json','utf8')):
     interruption||serviceInterruption||silentLink?JSON.parse(await readFile('artifacts/P24-save-recovery-preview.json','utf8')):undefined;
-  if(preview){assert.equal(preview.result,'PASS');assert.equal(path.dirname(path.resolve(preview.directory)),path.resolve('artifacts'));}
+  if(preview){assert.equal(preview.result,'PASS');if(!readPackage)assert.equal(path.dirname(path.resolve(preview.directory)),path.resolve('artifacts'));}
   if(readBoundaries||serviceInterruption||silentLink){
     assert.deepEqual(preview.files.map(file=>file.name).sort(),['session-service.exe','shared-terminal-desktop.exe','terminal-mcp.exe']);
     for(const file of preview.files){
