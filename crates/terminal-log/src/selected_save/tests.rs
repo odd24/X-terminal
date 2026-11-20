@@ -130,12 +130,17 @@ fn new_namespace_collision_is_not_overwritten_and_failed_restore_reports_backup(
     assert_eq!(fs::read(&path).unwrap(), b"new unrelated file");
     let path = temp.0.join("替换冲突.jsonl");
     fs::write(&path, b"original").unwrap();
+    let original_id = identity(&File::open(&path).unwrap()).unwrap();
     let target = SaveTarget::prepare(&path, &data, Uuid::new_v4()).unwrap();
     let backup = target.backup.clone();
     let staging = target.staging.clone();
+    let mut foreign_id = None;
     let result = target.run(&mut source, &mut || false, |after, path| {
         if after {
-            fs::write(path, b"new unrelated file").unwrap();
+            let mut file = File::create_new(path).unwrap();
+            use std::io::Write;
+            file.write_all(b"new unrelated file").unwrap();
+            foreign_id = Some(identity(&file).unwrap());
         }
     });
     assert_eq!(result.phase, "RECOVERY_REQUIRED");
@@ -145,7 +150,141 @@ fn new_namespace_collision_is_not_overwritten_and_failed_restore_reports_backup(
     assert!(result.staging.is_none());
     assert!(!staging.exists());
     assert_eq!(fs::read(&path).unwrap(), b"new unrelated file");
+    assert_eq!(
+        Some(identity(&File::open(&path).unwrap()).unwrap()),
+        foreign_id
+    );
+    assert_ne!(foreign_id, Some(original_id));
+    assert_eq!(
+        identity(&File::open(&backup).unwrap()).unwrap(),
+        original_id
+    );
     assert_eq!(fs::read(result.backup.unwrap()).unwrap(), b"original");
+}
+
+fn publish_fault_with_empty_target(cleanup_blocked: bool) {
+    use windows_sys::Win32::Foundation::ERROR_WRITE_FAULT;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO, FileBasicInfo,
+    };
+
+    let temp = Temp::new();
+    let (data, mut source) = source(&temp);
+    let path = temp.0.join("可恢复的原目标.jsonl");
+    fs::write(&path, b"original before replacement").unwrap();
+    let original_id = identity(&File::open(&path).unwrap()).unwrap();
+    let id = Uuid::new_v4();
+    let target = SaveTarget::prepare(&path, &data, id).unwrap();
+    let backup = target.backup.clone();
+    let stage = target.staging.clone();
+    let mut checkpoints = Vec::new();
+    let mut staging_id = None;
+    let mut staging_permissions = None;
+    let mut attempts = 0;
+
+    let report = target.run_checked(
+        &mut source,
+        &mut || false,
+        |after, destination, staged| {
+            if !after {
+                return Ok(());
+            }
+            attempts += 1;
+            assert!(
+                destination
+                    .symlink_metadata()
+                    .is_err_and(|e| e.kind() == io::ErrorKind::NotFound)
+            );
+            assert_eq!(
+                identity(&File::open(&backup).unwrap()).unwrap(),
+                original_id
+            );
+            assert_eq!(fs::read(&backup).unwrap(), b"original before replacement");
+            staging_id = Some(identity(staged).unwrap());
+            if cleanup_blocked {
+                staging_permissions = Some(staged.metadata().unwrap().permissions());
+                let basic = FILE_BASIC_INFO {
+                    FileAttributes: FILE_ATTRIBUTE_READONLY,
+                    ..Default::default()
+                };
+                assert_ne!(
+                    unsafe {
+                        SetFileInformationByHandle(
+                            staged.as_raw_handle(),
+                            FileBasicInfo,
+                            (&raw const basic).cast(),
+                            std::mem::size_of_val(&basic) as u32,
+                        )
+                    },
+                    0,
+                    "set read-only on the already-open staging handle"
+                );
+                assert!(staged.metadata().unwrap().permissions().readonly());
+            }
+            Err(io::Error::from_raw_os_error(ERROR_WRITE_FAULT as i32))
+        },
+        || true,
+        Some(Tracking {
+            root: &data,
+            observe: &mut |point| checkpoints.push(point),
+        }),
+    );
+    // Reset only the attribute imposed on our staging file, after observing the
+    // actual deletion result and before Temp removes this self-created root.
+    let staged_after = if cleanup_blocked && stage.exists() {
+        let file = File::open(&stage).unwrap();
+        let info = file.metadata().unwrap();
+        let id = identity(&file).unwrap();
+        drop(file);
+        fs::set_permissions(&stage, staging_permissions.unwrap()).unwrap();
+        Some((id, info.permissions().readonly(), fs::read(&stage).unwrap()))
+    } else {
+        None
+    };
+
+    assert_eq!(attempts, 1);
+    assert!(matches!(
+        checkpoints.as_slice(),
+        [SaveCheckpoint::IntentSynced, SaveCheckpoint::BackupMoved]
+    ));
+    assert_eq!(report.phase, "FAILED");
+    assert_eq!(report.failure, Some("PUBLISH"));
+    assert_eq!(report.os_code, Some(ERROR_WRITE_FAULT as i32));
+    assert_eq!(report.diagnostic_issue, None);
+    assert!(report.backup.is_none());
+    assert!(!backup.exists());
+    assert_eq!(identity(&File::open(&path).unwrap()).unwrap(), original_id);
+    assert_eq!(fs::read(&path).unwrap(), b"original before replacement");
+    let expected = if cleanup_blocked {
+        assert_eq!(report.staging.as_ref(), Some(&stage));
+        assert_eq!(
+            staged_after,
+            Some((staging_id.unwrap(), true, b"synthetic bytes\n".to_vec()))
+        );
+        save_recovery::Phase::Preserve
+    } else {
+        assert!(report.staging.is_none());
+        assert!(!stage.exists());
+        save_recovery::Phase::NotPublished
+    };
+    for _ in 0..2 {
+        let diagnostic = save_recovery::read(&data).unwrap();
+        assert_eq!(diagnostic.len(), 1);
+        assert_eq!(diagnostic[0].save_id, id);
+        assert_eq!(diagnostic[0].phase, expected);
+        assert_eq!(identity(&File::open(&path).unwrap()).unwrap(), original_id);
+        assert_eq!(stage.exists(), cleanup_blocked);
+    }
+}
+
+#[test]
+fn publish_fault_restores_original_identity_when_name_is_empty() {
+    publish_fault_with_empty_target(false);
+}
+
+#[test]
+fn cleanup_failure_preserves_only_owned_staging_after_original_name_is_restored() {
+    publish_fault_with_empty_target(true);
 }
 #[test]
 fn application_data_unknown_attempts_and_nonplain_targets_are_rejected() {

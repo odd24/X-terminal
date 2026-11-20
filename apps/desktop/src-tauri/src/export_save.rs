@@ -1003,5 +1003,31 @@ mod tests {
         assert!(manager.status(&scope, id).unwrap().confirmation.is_none());
         manager.confirm(&scope, id, nonce).unwrap();
         assert!(receiver.try_recv().is_err());
+
+        set_phase(&manager.registry, id, "FAILED", Some("PUBLISH"), Some(29));
+        let retained = manager.status(&scope, id).unwrap();
+        assert_eq!(retained.failure.as_deref(), Some("PUBLISH"));
+        assert_eq!(retained.os_code, Some(29));
+        assert!(retained.confirmation.is_none());
+        for repeated in [
+            manager.confirm(&scope, id, nonce).unwrap(),
+            manager
+                .start(
+                    scope.clone(),
+                    id,
+                    0,
+                    ExportFingerprint {
+                        bytes: 1,
+                        sha256: [0; 32],
+                    },
+                )
+                .unwrap(),
+        ] {
+            assert_eq!(
+                serde_json::to_value(repeated).unwrap(),
+                serde_json::to_value(&retained).unwrap()
+            );
+        }
+        assert!(receiver.try_recv().is_err());
     }
 }

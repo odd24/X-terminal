@@ -269,7 +269,13 @@ impl SaveTarget {
         mut cancelled: impl FnMut() -> bool,
         authorize_commit: impl FnOnce() -> bool,
     ) -> SaveReport {
-        self.run_checked(source, &mut cancelled, |_, _| {}, authorize_commit, None)
+        self.run_checked(
+            source,
+            &mut cancelled,
+            |_, _, _| Ok(()),
+            authorize_commit,
+            None,
+        )
     }
     pub fn save_tracked(
         self,
@@ -282,7 +288,7 @@ impl SaveTarget {
         self.run_checked(
             source,
             &mut cancelled,
-            |_, _| {},
+            |_, _, _| Ok(()),
             authorize_commit,
             Some(Tracking {
                 root,
@@ -300,15 +306,24 @@ impl SaveTarget {
         self,
         source: &mut VerifiedExport,
         cancelled: &mut impl FnMut() -> bool,
-        hook: impl FnMut(bool, &Path),
+        mut hook: impl FnMut(bool, &Path),
     ) -> SaveReport {
-        self.run_checked(source, cancelled, hook, || true, None)
+        self.run_checked(
+            source,
+            cancelled,
+            |after, path, _| {
+                hook(after, path);
+                Ok(())
+            },
+            || true,
+            None,
+        )
     }
     fn run_checked(
         self,
         source: &mut VerifiedExport,
         cancelled: &mut impl FnMut() -> bool,
-        mut hook: impl FnMut(bool, &Path),
+        mut hook: impl FnMut(bool, &Path, &File) -> io::Result<()>,
         authorize_commit: impl FnOnce() -> bool,
         mut tracking: Option<Tracking<'_>>,
     ) -> SaveReport {
@@ -354,7 +369,7 @@ impl SaveTarget {
                 }
                 file.sync_all().map_err(|e| ("SYNC", e))?;
             }
-            hook(false, &self.path);
+            hook(false, &self.path, file).map_err(|e| ("STAGING", e))?;
             if cancelled() {
                 return Err((
                     "CANCELLED",
@@ -408,7 +423,7 @@ impl SaveTarget {
                     (tracking.observe)(SaveCheckpoint::BackupMoved);
                 }
             }
-            hook(true, &self.path);
+            hook(true, &self.path, file).map_err(|e| ("PUBLISH", e))?;
             rename(file, &self.path).map_err(|e| ("PUBLISH", e))?;
             if intent.is_some()
                 && let Some(tracking) = tracking.as_mut()
