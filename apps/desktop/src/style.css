@@ -67,8 +67,8 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 
 /* Terminal-first shell. Auxiliary tools scroll independently of the live terminal. */
 html, body, #root { height: 100%; overflow: hidden; }
-main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-sizing: border-box; height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: var(--space-2); }
-.app-bar { min-width: 0; display: flex; align-items: center; gap: var(--space-2); }
+main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-sizing: border-box; height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: var(--space-2); }
+.app-bar { min-width: 0; display: flex; align-items: end; gap: var(--space-1); }
 .primary-action:not(:disabled) { border-color: var(--accent); background: var(--accent); color: var(--page); font-weight: var(--weight-heading); }
 .primary-action:hover:not(:disabled) { background: var(--accent-text); }
 .app-dialog { box-sizing: border-box; width: min(var(--dialog-width), calc(100vw - var(--space-8))); max-width: none; max-height: var(--dialog-max-height); margin: auto; padding: 0; color: var(--text); background: var(--surface); border: var(--border-width) solid var(--border); border-radius: var(--radius-panel); }
@@ -94,8 +94,9 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
   border-radius: var(--radius-control); list-style: none;
 }
 .app-bar > details[open] > summary, .app-bar > details > summary:hover { background: var(--control-hover); }
-.desktop-shell nav { position: relative; flex-wrap: nowrap; margin: 0; padding: var(--space-1); white-space: nowrap; }
+.desktop-shell nav { position: relative; flex-wrap: nowrap; flex: 0 0 auto; margin: 0; padding: 0 var(--space-1) 0 0; white-space: nowrap; background: var(--surface); border-radius: var(--radius-control) var(--radius-control) 0 0; }
 .desktop-shell nav > * { flex-shrink: 0; }
+.app-bar > button, .app-bar > details { margin-bottom: var(--space-1); }
 .app-bar > button, .connection-tab button { min-height: var(--control-height); padding-block: 0; }
 .sidebar-toggle { font-size: var(--text-heading); }
 .app-bar > .tab-tools { flex: 1 1 0%; margin: 0; }
@@ -107,20 +108,21 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .desktop-body.sidebar-hidden { grid-template-columns: minmax(0, 1fr); }
 .desktop-body.sidebar-hidden:has(.auxiliary-panels:not(:empty)) { grid-template-columns: minmax(0, 1fr) minmax(0, var(--auxiliary-width)); }
 .sidebar-hidden .session-sidebar, .auxiliary-panels:empty { display: none; }
-.session-sidebar { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); background: var(--surface); padding: var(--space-3); border: var(--border-width) solid var(--border-subtle); overflow: auto; max-width: 100%; }
+.session-sidebar { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); background: var(--surface); padding: var(--space-2); border: var(--border-width) solid var(--border-subtle); overflow: auto; max-width: 100%; }
 .sidebar-divider {
   position: absolute; z-index: 3; top: 0; bottom: 0; left: calc(var(--navigation-width) - var(--space-1));
   width: var(--space-2); cursor: col-resize; touch-action: none;
 }
 .sidebar-divider:hover, .sidebar-divider:focus-visible { background: var(--accent); }
-.session-sidebar h2 { font-size: var(--text-body); }
-.session-sidebar .config-heading { gap: var(--space-1); }
+.session-sidebar h2 { font-size: var(--text-body); margin-block: var(--space-1); }
+.session-sidebar .config-heading { gap: var(--space-1); align-items: center; }
+.session-sidebar .config-heading button, .tree-search input { min-height: 27px; padding: 2px var(--space-2); }
 .tree-search { display: flex; flex-direction: column; gap: var(--space-1); }
-.tree-search input { width: 100%; min-width: 0; }
+.tree-search input { box-sizing: border-box; width: 100%; min-width: 0; }
 .tree-scroll { flex: 1; min-height: var(--control-height); overflow: auto; padding: calc(var(--focus-width) + var(--focus-offset)); scroll-padding-block: calc(var(--focus-width) + var(--focus-offset)); }
 .session-tree-list { list-style: none; padding: 0 0 0 var(--space-3); margin: 0; }
 .tree-scroll > .session-tree-list { padding-left: 0; }
-.session-tree-list button { width: 100%; text-align: left; margin-block: var(--space-1); overflow-wrap: anywhere; background: transparent; border-color: transparent; }
+.session-tree-list button { width: 100%; min-height: 26px; padding: 1px var(--space-2); text-align: left; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: transparent; border-color: transparent; }
 .session-tree-list small { display: block; color: var(--text-muted); }
 .session-tree-list .selected { background: var(--control-hover); border-color: var(--accent); }
 .profile-summary { border-top: var(--border-width) solid var(--border); padding-top: var(--space-3); overflow-wrap: anywhere; }
@@ -136,16 +138,17 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .terminal-workspace .terminal { flex: 1; height: auto; min-height: 0; border-radius: var(--radius-control); }
 .terminal-workspace :is(.status, .input-status) { margin-block: var(--space-1); }
 .tab-tools { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin-bottom: var(--space-2); }
-[role="tablist"] { display: flex; flex: 1; overflow-x: auto; scrollbar-width: thin; min-width: 0; gap: var(--space-1); padding: var(--space-1); }
-.connection-tab { display: flex; flex-shrink: 0; border-radius: var(--radius-control); }
-.connection-tab:has([aria-selected="true"]) { background: var(--control-hover); }
+[role="tablist"] { display: flex; flex: 1; overflow-x: auto; scrollbar-width: none; min-width: 0; gap: var(--space-1); padding-top: var(--space-1); }
+.connection-tab { display: flex; flex-shrink: 0; border: var(--border-width) solid transparent; border-bottom: 0; border-radius: var(--radius-control) var(--radius-control) 0 0; }
+.connection-tab:has([aria-selected="true"]) { background: var(--terminal-background); border-color: var(--border-subtle); color: var(--terminal-foreground); }
 .connection-tab button { border-color: transparent; background: transparent; }
+.connection-tab:has([aria-selected="true"]) button { color: inherit; }
+.connection-tab button:focus-visible { outline-offset: -2px; }
 .tab-group-marker { display: flex; align-items: center; flex-shrink: 0; padding-inline: var(--space-2); border-inline-start: var(--border-width) solid var(--border); color: var(--text-muted); font-size: var(--text-sm); }
 .workspace-strip { display: flex; flex-shrink: 0; gap: var(--space-2); align-items: center; overflow-x: auto; padding-block: var(--space-1); font-size: var(--text-sm); }
 .workspace-strip > * { flex-shrink: 0; }
 .connection-tab [role="tab"] { max-width: var(--tab-max-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.connection-tab small { display: block; color: var(--text-muted); font-size: var(--text-xs); }
-.connection-tab [aria-selected="true"] { border-color: var(--accent); background: var(--control-hover); }
+.connection-tab [aria-selected="true"]:hover { background: transparent; }
 .tab-tools > button { flex-shrink: 0; padding: var(--space-1); font-size: var(--text-xs); }
 .terminal-empty { flex: 1; display: grid; align-content: center; justify-items: center; gap: var(--space-4); padding: var(--space-4); background: var(--surface); border-radius: var(--radius-panel); }
 .empty-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: center; }
@@ -154,7 +157,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .auxiliary-panels { min-height: 0; min-width: 0; overflow: auto; background: var(--page); }
 .auxiliary-panels > .config-panel { padding: var(--space-3); margin-bottom: var(--space-3); }
 .auxiliary-panels .config-layout { grid-template-columns: minmax(0, 1fr); }
-.desktop-shell footer { margin: 0; max-height: calc(var(--line-height) * var(--text-sm) * 4); overflow: auto; }
+.desktop-shell footer { margin: 0; }
 .connection-summary { display: flex; flex-wrap: wrap; column-gap: var(--space-4); row-gap: var(--space-1); }
 .connection-details summary { padding-block: var(--space-1); }
 @media (max-width: 1100px) {
@@ -166,7 +169,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
   .desktop-body:has(.auxiliary-panels:not(:empty)), .desktop-body.sidebar-hidden:has(.auxiliary-panels:not(:empty)) { grid-template-columns: minmax(0, 1fr); }
   .desktop-body:has(.auxiliary-panels:not(:empty)) .session-sidebar { display: none; }
   .auxiliary-panels:not(:empty) { position: absolute; inset: 0 auto 0 0; width: min(85%, var(--navigation-width)); z-index: 2; }
-  .session-sidebar { box-sizing: border-box; gap: var(--space-2); padding: var(--space-2); }
+  .session-sidebar { box-sizing: border-box; }
   .sidebar-divider { left: calc(min(var(--navigation-width), 38%) - var(--space-1)); }
   .session-sidebar .profile-summary:has(> strong) {
     max-block-size: clamp(calc(var(--control-height) + var(--space-4)), 20%, var(--list-height));
@@ -184,7 +187,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .pane-heading,.split-tools { display: flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); min-width: 0; }
 .pane-heading { padding: var(--space-1); }
 .pane-heading .pane-focus { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
-.pane-status { overflow-wrap: anywhere; padding: var(--space-1); font-size: var(--text-xs); }
+.pane-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--danger); padding: var(--space-1); font-size: var(--text-xs); }
 .split-tools { padding-block: var(--space-1); }
 
 .tree-root-label, .tree-folder-hint { color: var(--text-muted); }
@@ -228,7 +231,33 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .context-menu { box-shadow: var(--float-shadow); }
 .log-menu-target { font-weight: var(--weight-heading); }
 .clipboard-feedback, .tab-feedback { position: fixed; bottom: 3rem; left: 50%; transform: translateX(-50%); z-index: 71; padding: var(--space-2) var(--space-3); background: var(--surface-raised); border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-control); box-shadow: var(--float-shadow); pointer-events: none; }
-.connection-summary { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; }
-.connection-summary span { flex-shrink: 0; }
+
 
 .tab-feedback { left:auto; right:var(--space-4); bottom:3rem; transform:none; max-width:min(34rem, 80vw); }
+
+
+.terminal-workspace .terminal-grid.single .terminal { border-block-start: 0; border-start-start-radius: 0; border-start-end-radius: 0; }
+.terminal .xterm .composition-view {
+  color: var(--preedit-foreground);
+  background-color: var(--preedit-background);
+  outline: 1px solid var(--preedit-outline);
+  outline-offset: -1px;
+  box-shadow: inset 0 -2px var(--preedit-outline);
+}
+.terminal-footer {
+  position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between;
+  min-height: 24px; gap: var(--space-2); margin: 0; padding-inline: var(--space-2);
+  border-block-start: var(--border-width) solid var(--border-subtle);
+}
+.footer-summary { display: flex; align-items: center; min-width: 0; gap: var(--space-2); white-space: nowrap; }
+.footer-summary > span { overflow: hidden; text-overflow: ellipsis; }
+.footer-target { max-width: 32ch; }
+.footer-attention { color: var(--danger); font-weight: var(--weight-heading); }
+.connection-details { flex: 0 0 auto; }
+.connection-details summary { white-space: nowrap; padding-block: 0; }
+.connection-details-content {
+  position: absolute; right: 0; bottom: calc(100% + var(--space-1)); box-sizing: border-box;
+  width: min(45rem, 100%); max-height: min(60dvh, 24rem); overflow: auto;
+  padding: var(--space-3); color: var(--text); background: var(--surface-raised);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-panel); box-shadow: var(--float-shadow);
+}

@@ -7,12 +7,15 @@ import path from 'node:path';
 import { requestId } from '../apps/desktop/src/request-id.ts';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 let directory,ui,fixture;
+const baseline=process.argv.includes('--visual-baseline');
+const visual=baseline||process.argv.includes('--visual-refresh');
+const executable=baseline?path.resolve((JSON.parse(await readFile('artifacts/CR-022-preview.json','utf8'))).directory,'shared-terminal-desktop.exe'):undefined;
 const wait=async(test,label)=>{for(let i=0;i<300;i++){if(await test())return;await delay(100);}throw new Error(`Timed out: ${label}`);};
 try{
  directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-navigation-ui-中文-'));
  fixture=spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'),[directory],{windowsHide:true,stdio:['pipe','pipe','pipe']});const lines=createInterface({input:fixture.stdout})[Symbol.asyncIterator]();
  const next=async()=>{let timer;try{return await Promise.race([lines.next().then(x=>JSON.parse(x.value)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('fixture timeout')),10000);})]);}finally{clearTimeout(timer);}};const server=await next();const control=async r=>{fixture.stdin.write(JSON.stringify(r)+'\n');return next();};
- ui=await launchDesktop(directory,{fixture:true});
+ ui=await launchDesktop(directory,{fixture:true,executable});
  const config=request=>ui.invoke('config_request',{request}),ssh=request=>ui.invoke('ssh_request',{request}),list=()=>ui.invoke('service_list');
  const ref=c=>({connection_id:c.connection_id,generation:c.generation});
  const profile=(name,host='127.0.0.1',auth='password')=>({id:crypto.randomUUID(),folder_id:null,name,settings:{protocol:'ssh2',host,port:server.port,username:'synthetic',auth,encoding:'utf8'}});
@@ -32,14 +35,14 @@ try{
  await ui.waitFor(`Number(document.querySelector('.sidebar-divider').getAttribute('aria-valuenow'))>280`);
  await ui.screenshot('CR-022-S1-library.png');
  await ui.click('会话导航');
- await ui.close();ui=await launchDesktop(directory,{fixture:true});
+ await ui.close();ui=await launchDesktop(directory,{fixture:true,executable});
  assert.equal(await ui.evaluate(`${sidebar}.getAttribute('aria-expanded')`),'false');
  await ui.command('Page.bringToFront');
  await ui.evaluate(`${sidebar}.focus()`);
  await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:' ',code:'Space',windowsVirtualKeyCode:32});
  await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:' ',code:'Space',windowsVirtualKeyCode:32});
  await ui.waitFor(`${sidebar}.getAttribute('aria-expanded')==='true'`);
- await ui.close();ui=await launchDesktop(directory,{fixture:true});
+ await ui.close();ui=await launchDesktop(directory,{fixture:true,executable});
  assert.equal(await ui.evaluate(`${sidebar}.getAttribute('aria-expanded')`),'true');
  await ui.click('刷新会话树');
  const tree=p=>`Array.from(document.querySelectorAll('.session-tree-list button')).find(b=>b.firstChild.textContent===${JSON.stringify(p.name)})`;
@@ -54,6 +57,67 @@ try{
  await ui.waitFor(`!!(${tree(a)})`);await ui.evaluate(`(${tree(a)}).click()`);assert.equal((await list()).length,0,'single click only selects');
  const startHeld=await ui.interceptIpc({command:'ssh_request',op:'start',mode:'hold'});await double(a,3);await wait(async()=>await startHeld.count()===1,'single held Start');assert.equal((await list()).length,1);assert.equal((await control({op:'metrics'})).attempts,0);await startHeld.restore();await trust();const first=await connected();
  await double(a);const second=await connected();assert.notEqual(first.connection_id,second.connection_id);assert.equal((await list()).length,2,'a later deliberate activation creates an independent instance');
+ if(visual){
+   const metrics={};
+   const target=ref(second);
+   const raw=async()=>Buffer.from((await ui.invoke('service_read',{connection:target,cursor:1})).events.flatMap(event=>event.bytes));
+   for(const theme of ['dark','light']){
+     await ui.click('外观');await ui.fill('应用主题',theme);await ui.fill('终端配色','follow_theme');await ui.click('关闭外观');
+     await ui.waitFor(`document.documentElement.dataset.theme==='${theme}'&&document.documentElement.dataset.terminalPalette==='follow_theme'`);
+     await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
+     await ui.waitFor(`document.activeElement.classList.contains('xterm-helper-textarea')`);
+     await delay(300);
+     const before=await raw();
+     await ui.command('Input.imeSetComposition',{text:'zhong wen',selectionStart:9,selectionEnd:9});
+     await ui.waitFor(`document.querySelector('.composition-view.active')?.textContent==='zhong wen'`);
+     assert.deepEqual(await raw(),before,'uncommitted preedit never reaches the service');
+     metrics[theme]=await ui.evaluate(`(()=>{
+       const e=q=>document.querySelector(q),r=q=>e(q).getBoundingClientRect().toJSON();
+       const c=q=>getComputedStyle(e(q));
+       const p=r('.composition-view.active'),t=r('.terminal');
+       return {window:[innerWidth,innerHeight,devicePixelRatio],terminal:t,tab:r('.tab-tools'),
+         activeTab:r('.connection-tab:has([aria-selected="true"])'),nav:r('.app-bar'),
+         sidebar:r('.session-sidebar'),treeHeader:e('.tree-scroll').getBoundingClientRect().top-e('.session-sidebar').getBoundingClientRect().top,
+         treeRow:r('.session-tree-list [data-profile-id]').height,
+         treePitch:e('.session-tree-list li:nth-child(2)').getBoundingClientRect().top-e('.session-tree-list li').getBoundingClientRect().top,
+         bottom:innerHeight-t.bottom,footer:r('footer').height,dimensions:e('[aria-label="终端视口尺寸"]').textContent,
+         preedit:{rect:p,color:c('.composition-view').color,background:c('.composition-view').backgroundColor,outline:c('.composition-view').outlineColor,outlineStyle:c('.composition-view').outlineStyle},
+         terminalBackground:c('.terminal').backgroundColor,activeTabBackground:c('.connection-tab:has([aria-selected="true"])').backgroundColor};
+     })()`);
+     if(!baseline){
+       const m=metrics[theme];
+       assert.ok(m.activeTab.x>=m.terminal.x-1&&Math.abs(m.activeTab.bottom-m.terminal.top)<=3);
+       assert.equal(m.activeTabBackground,m.terminalBackground);
+       assert.ok(m.treePitch<=30&&m.treeHeader<95&&m.bottom<43);
+       assert.notEqual(m.preedit.background,m.terminalBackground);
+       assert.equal(m.preedit.outlineStyle,'solid');
+       assert.ok(m.preedit.rect.x>=m.terminal.x&&m.preedit.rect.y>=m.terminal.y&&m.preedit.rect.bottom<=m.terminal.bottom);
+     }
+     await ui.screenshot(`CR-022-polish-${baseline?'before':'after'}-${theme}.png`);
+     await ui.command('Input.insertText',{text:'中文'});
+     await ui.waitFor(`!document.querySelector('.composition-view.active')`);
+     await wait(async()=> (await raw()).length>=before.length+6,'committed composition received');
+     assert.deepEqual(await raw(),Buffer.concat([before,Buffer.from('中文')]));
+   }
+   if(!baseline){
+     const details=await ui.evaluate(`(()=>{
+       const before=document.querySelector('.terminal').getBoundingClientRect().height;
+       const summary=document.querySelector('.connection-details summary');
+       summary.click();summary.focus();
+       const pane=document.querySelector('.connection-details-content');
+       return {before,after:document.querySelector('.terminal').getBoundingClientRect().height,visible:pane.getBoundingClientRect().height>0,text:pane.innerText};
+     })()`);
+     assert.equal(details.before,details.after);
+     assert.equal(details.visible,true);assert.match(details.text,/服务输出已同步/);
+     await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+     await ui.waitFor(`!document.querySelector('.connection-details').open`);
+     await ui.click('外观');await ui.fill('应用主题','dark');await ui.click('关闭外观');
+     await ui.waitFor(`document.documentElement.dataset.theme==='dark'`);
+     await ui.screenshot('CR-022-polish-dark-desktop.png');
+   }
+   await writeFile(`artifacts/CR-022-polish-${baseline?'before':'after'}.json`,JSON.stringify(metrics,null,2));
+   console.log('PASS normal dark/light WebView layout and preedit/commit exact bytes');
+ }
  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="标签操作状态"]')?.textContent.startsWith('正在连接 ')??false`),false,'successful or closed progress cannot stay on the terminal');
  await ui.click('标签左移');assert.equal(await ui.evaluate(`document.querySelector('[role="tab"]').dataset.connectionId`),second.connection_id);await ui.fill('搜索会话配置','不存在的名称');assert.equal(await ui.evaluate(`document.querySelectorAll('.session-tree-list button').length`),0);assert.equal((await list()).length,2);await ui.fill('搜索会话配置','');
  await ui.evaluate(`(${tree(a)}).click()`);const selectedBefore=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);await context(b);assert.equal(await ui.evaluate(`(${tree(b)}).getAttribute('aria-pressed')`),'true');assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),selectedBefore);
@@ -64,9 +128,14 @@ try{
  await double(key);const keyed=await connected();assert.equal((await ssh({op:'status',connection:ref(keyed)})).profile_id,key.id);
  const sixTabs=await ui.evaluate(`[...document.querySelectorAll('[role="tab"]')].map(tab=>tab.dataset.connectionId)`);
  assert.equal(sixTabs.length,6);
- const resize=(width,height)=>JSON.parse(execFileSync('pwsh',['-NoProfile','-File','scripts/lib/Resize-TestWindow.ps1','-TargetProcessId',String(ui.app.pid),'-Width',String(width),'-Height',String(height),'-ExpectedExecutable',path.resolve('target/debug/shared-terminal-desktop.exe'),'-PhysicalSize'],{encoding:'utf8',windowsHide:true}));
+ const resize=(width,height)=>JSON.parse(execFileSync('pwsh',['-NoProfile','-File','scripts/lib/Resize-TestWindow.ps1','-TargetProcessId',String(ui.app.pid),'-Width',String(width),'-Height',String(height),'-ExpectedExecutable',executable??path.resolve('target/debug/shared-terminal-desktop.exe'),'-PhysicalSize'],{encoding:'utf8',windowsHide:true}));
  const compact=resize(760,560);
  await ui.waitFor(`innerWidth < 780 && document.querySelector('[role="tablist"]').scrollWidth>document.querySelector('[role="tablist"]').clientWidth`);
+ if(process.argv.includes('--visual-refresh')){
+   const point=await ui.evaluate(`(()=>{const rail=document.querySelector('[role="tablist"]');rail.scrollLeft=0;const r=rail.getBoundingClientRect();return{x:r.x+20,y:r.y+15};})()`);
+   await ui.command('Input.dispatchMouseEvent',{type:'mouseWheel',deltaX:0,deltaY:64,...point});
+   await ui.waitFor(`document.querySelector('[role="tablist"]').scrollLeft>0`);
+ }
  await ui.evaluate(`document.querySelector('[role="tab"][aria-selected="true"]').focus({preventScroll:true})`);
  const toolbar=await ui.evaluate(`[...document.querySelectorAll('.app-bar > *')].map(node=>{const r=node.getBoundingClientRect();return {top:r.top,left:r.left,right:r.right,width:innerWidth};})`);
  assert.ok(Math.max(...toolbar.map(r=>r.top))-Math.min(...toolbar.map(r=>r.top))<12,'toolbar remains on one row');

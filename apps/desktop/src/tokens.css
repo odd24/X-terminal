@@ -30,6 +30,9 @@
   --tracking-eyebrow: 2px;
   --line-height-small: 1.6;
   --content-width: 1400px;
+  --preedit-background: #d9ecff;
+  --preedit-foreground: #102337;
+  --preedit-outline: #2976bb;
   --terminal-height: 390px;
   --navigation-width: 260px;
   --auxiliary-width: 440px;

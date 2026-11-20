@@ -9,7 +9,8 @@ import { launchDesktop } from './lib/DesktopHarness.mjs';
 // Local-only preview. No installer, credentials/config copying, upload or publication.
 const saveRecovery=process.argv.includes('--save-recovery');
 const auditGrantFeedback=process.argv.includes('--audit-grant-feedback');
-const stagePreview=process.argv.includes('--cr-022')?'CR-022-preview'
+const stagePreview=process.argv.includes('--cr-022-polish')?'CR-022-polish-preview'
+  :process.argv.includes('--cr-022')?'CR-022-preview'
   :process.argv.includes('--command-shortcuts')?'P19-command-shortcuts-preview'
   :process.argv.includes('--compact-ssh-auth')?'P12.1-compact-ssh-auth-preview':null;
 const ssh1Option=process.argv.indexOf('--ssh1-service');

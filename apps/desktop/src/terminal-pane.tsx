@@ -13,6 +13,6 @@ export function TerminalPane(props:Props){
  return <section className={`terminal-pane${props.active?' pane-active':''}`} data-pane={props.id} data-active={props.active} data-rendered-id={props.rendered?.connection_id} data-rendered-generation={props.rendered?.generation} aria-label={props.split?`终端窗格 ${props.id==='first'?1:2}`:'单终端窗格'} onPointerDown={()=>latest.current.focus(props.id)} onFocusCapture={()=>latest.current.focus(props.id)}>
   {props.split&&<header className="pane-heading"><button className="pane-focus" title={props.detail} aria-pressed={props.active} onClick={()=>latest.current.focus(props.id,true)}>{props.id==='first'?'1':'2'} · {props.label} · {props.active?'当前输入':'点击输入'}</button><button onClick={()=>props.collapse(props.id)} aria-label={`收起窗格 ${props.id==='first'?1:2}`}>收起此窗格</button></header>}
   <div className="terminal" ref={host} aria-label={props.split?`窗格 ${props.id==='first'?1:2} 服务终端`:'服务终端'} />
-  {props.split&&<small className="pane-status" role="status">{props.status}</small>}
+  {props.split&&props.status&&<small className="pane-status" role="status" title={props.status}>{props.status}</small>}
  </section>;
 }

@@ -80,8 +80,9 @@ try {
   await show();await choose();await ui.evaluate(`document.querySelector('[aria-label="保存UART连接"]').click()`);await click('连接串口');const third=await connected();assert.equal((await config()).profiles.length,1);await end(third);
   await show();await ui.fill('串口已保存连接',(await config()).profiles[0].id);await choose();await click('连接串口');const fourth=await connected();
   // Backend CONNECTED can precede the selected pane and its summary button.
+  await ui.evaluate(`document.querySelector('.connection-details summary').click()`);
   await ui.waitFor(`document.querySelector('[data-pane="first"]')?.dataset.renderedId===${JSON.stringify(fourth.connection_id)}&&document.querySelector('[data-pane="first"]').dataset.renderedGeneration==='${fourth.generation}'&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='发送与接收详情'&&!b.matches(':disabled'))`);
-  assert.equal(await ui.evaluate(`(()=>{const b=Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='发送与接收详情');if(!b||b.matches(':disabled'))return false;b.click();return true;})()`),true,'the exact rendered target has a real details entry');
+  assert.equal(await ui.evaluate(`(()=>{const b=Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='发送与接收详情');if(!b||b.matches(':disabled')||!b.getClientRects().length)return false;b.click();return true;})()`),true,'the exact rendered target has a real details entry');
   await ui.waitFor(`document.querySelector('dialog:modal')?.getAttribute('aria-label')==='串口收发详情'&&document.querySelector('[aria-label="串口状态"]')?.textContent.includes(${JSON.stringify(fourth.connection_id)})`);
   await ui.evaluate(`Array.from(document.querySelectorAll('summary')).find(s=>s.textContent==='发送、HEX与控制线').parentElement.open=true`);
   await ui.fill('串口发送格式','hex');await ui.fill('串口发送换行','cr_lf');await ui.fill('串口发送内容','00 ff');await click('发送串口内容');
