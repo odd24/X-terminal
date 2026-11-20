@@ -43,7 +43,52 @@ pub struct SaveTarget {
     backup: PathBuf,
     original: Option<File>,
     #[cfg(feature = "save-recovery-fixture")]
-    before_replacement_sync: Option<fn(&Path) -> io::Result<()>>,
+    fault: Option<fn(&Path, SaveFaultPoint) -> Option<SaveFixtureFault>>,
+}
+#[cfg(feature = "save-recovery-fixture")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SaveFaultPoint {
+    ReplacementSync,
+    Publication,
+}
+#[cfg(feature = "save-recovery-fixture")]
+pub enum SaveFixtureFault {
+    WriteFault,
+    WriteFaultWithReadOnlyStaging,
+}
+
+#[cfg(any(test, feature = "save-recovery-fixture"))]
+fn make_staging_readonly(file: &File) -> io::Result<()> {
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO, FileBasicInfo,
+    };
+    let basic = FILE_BASIC_INFO {
+        FileAttributes: FILE_ATTRIBUTE_READONLY,
+        ..Default::default()
+    };
+    if unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileBasicInfo,
+            (&raw const basic).cast(),
+            std::mem::size_of_val(&basic) as u32,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "save-recovery-fixture")]
+fn fixture_fault(fault: Option<SaveFixtureFault>, stage: &File) -> io::Result<()> {
+    let Some(fault) = fault else { return Ok(()) };
+    if matches!(fault, SaveFixtureFault::WriteFaultWithReadOnlyStaging) {
+        make_staging_readonly(stage)?;
+    }
+    Err(io::Error::from_raw_os_error(
+        windows_sys::Win32::Foundation::ERROR_WRITE_FAULT as i32,
+    ))
 }
 #[derive(Clone, Copy)]
 pub enum SaveCheckpoint {
@@ -247,7 +292,7 @@ impl SaveTarget {
             backup,
             original,
             #[cfg(feature = "save-recovery-fixture")]
-            before_replacement_sync: None,
+            fault: None,
         })
     }
     pub fn path(&self) -> &Path {
@@ -297,8 +342,11 @@ impl SaveTarget {
         )
     }
     #[cfg(feature = "save-recovery-fixture")]
-    pub fn with_replacement_sync_fixture(mut self, inject: fn(&Path) -> io::Result<()>) -> Self {
-        self.before_replacement_sync = Some(inject);
+    pub fn with_save_fixture(
+        mut self,
+        inject: fn(&Path, SaveFaultPoint) -> Option<SaveFixtureFault>,
+    ) -> Self {
+        self.fault = Some(inject);
         self
     }
     #[cfg(test)]
@@ -364,8 +412,9 @@ impl SaveTarget {
             if let Some(original) = &self.original {
                 copy_dacl(original, file).map_err(|e| ("PERMISSIONS", e))?;
                 #[cfg(feature = "save-recovery-fixture")]
-                if let (Some(inject), Some(tracking)) = (self.before_replacement_sync, &tracking) {
-                    inject(tracking.root).map_err(|e| ("SYNC", e))?;
+                if let (Some(inject), Some(tracking)) = (self.fault, &tracking) {
+                    fixture_fault(inject(tracking.root, SaveFaultPoint::ReplacementSync), file)
+                        .map_err(|e| ("SYNC", e))?;
                 }
                 file.sync_all().map_err(|e| ("SYNC", e))?;
             }
@@ -424,6 +473,11 @@ impl SaveTarget {
                 }
             }
             hook(true, &self.path, file).map_err(|e| ("PUBLISH", e))?;
+            #[cfg(feature = "save-recovery-fixture")]
+            if moved && let (Some(inject), Some(tracking)) = (self.fault, &tracking) {
+                fixture_fault(inject(tracking.root, SaveFaultPoint::Publication), file)
+                    .map_err(|e| ("PUBLISH", e))?;
+            }
             rename(file, &self.path).map_err(|e| ("PUBLISH", e))?;
             if intent.is_some()
                 && let Some(tracking) = tracking.as_mut()

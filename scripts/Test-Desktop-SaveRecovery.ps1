@@ -1,7 +1,9 @@
+param([switch]$PublicationFaults)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/Enter-Toolchain.ps1"
 $root = Split-Path -Parent $PSScriptRoot
 $fixtureDirectory = Join-Path $root 'target/save-recovery-fixture'
+$flags = @(if ($PublicationFaults) { '--publication-faults' })
 try {
     & cargo build -p session-service -p mcp-bridge --locked
     if ($LASTEXITCODE -ne 0) { throw 'save recovery sibling build failed' }
@@ -11,13 +13,15 @@ try {
     foreach ($name in @('shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe')) {
         Copy-Item -LiteralPath (Join-Path $root "target/debug/$name") -Destination $fixtureDirectory -Force
     }
-    & node (Join-Path $PSScriptRoot 'Test-Desktop-SaveRecovery.mjs')
+    & node (Join-Path $PSScriptRoot 'Test-Desktop-SaveRecovery.mjs') @flags
     if ($LASTEXITCODE -ne 0) { throw 'save recovery Desktop fixture checks failed' }
 } finally {
     & npm run desktop:build
     if ($LASTEXITCODE -ne 0) { throw 'ordinary Desktop restoration failed' }
 }
-& node (Join-Path $PSScriptRoot 'Test-Desktop-SaveRecovery.mjs') --ordinary
+& node (Join-Path $PSScriptRoot 'Test-Desktop-SaveRecovery.mjs') --ordinary @flags
 if ($LASTEXITCODE -ne 0) { throw 'ordinary save recovery checks failed' }
-& node (Join-Path $PSScriptRoot 'Test-Desktop-Save.mjs')
-if ($LASTEXITCODE -ne 0) { throw 'ordinary native save regression failed' }
+if (!$PublicationFaults) {
+    & node (Join-Path $PSScriptRoot 'Test-Desktop-Save.mjs')
+    if ($LASTEXITCODE -ne 0) { throw 'ordinary native save regression failed' }
+}

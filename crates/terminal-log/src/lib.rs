@@ -39,6 +39,8 @@ pub use verified_export::{ExportFingerprint, VerifiedExport};
 mod selected_save;
 #[cfg(windows)]
 pub use selected_save::{SaveCheckpoint, SaveReport, SaveTarget};
+#[cfg(all(windows, feature = "save-recovery-fixture"))]
+pub use selected_save::{SaveFaultPoint, SaveFixtureFault};
 mod format;
 mod paired;
 mod recovery;

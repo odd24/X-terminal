@@ -9,10 +9,10 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use terminal_log::SaveCheckpoint;
+use terminal_log::{SaveCheckpoint, SaveFaultPoint, SaveFixtureFault};
 
 static CONFIG: OnceLock<(PathBuf, String)> = OnceLock::new();
-static SYNC_FAULT_USED: AtomicBool = AtomicBool::new(false);
+static FAULT_USED: AtomicBool = AtomicBool::new(false);
 
 pub fn configure(root: &Path, mode: &str, fixture: bool) -> io::Result<()> {
     let root = root.canonicalize()?;
@@ -30,7 +30,13 @@ pub fn configure(root: &Path, mode: &str, fixture: bool) -> io::Result<()> {
         || root.file_name().is_none_or(|name| name != "应用数据")
         || !matches!(
             mode,
-            "intent" | "backup" | "published" | "terminal-failure" | "sync-failure"
+            "intent"
+                | "backup"
+                | "published"
+                | "terminal-failure"
+                | "sync-failure"
+                | "publish-failure"
+                | "publish-cleanup-failure"
         )
     {
         return Err(io::Error::other("SAVE_RECOVERY_TEST_REJECTED"));
@@ -40,17 +46,19 @@ pub fn configure(root: &Path, mode: &str, fixture: bool) -> io::Result<()> {
         .map_err(|_| io::Error::other("SAVE_RECOVERY_TEST_ALREADY_CONFIGURED"))
 }
 
-pub fn before_replacement_sync(root: &Path) -> io::Result<()> {
-    if let Some((configured, mode)) = CONFIG.get()
-        && mode == "sync-failure"
-        && root.canonicalize().ok().as_ref() == Some(configured)
-        && !SYNC_FAULT_USED.swap(true, Ordering::Relaxed)
-    {
-        return Err(io::Error::from_raw_os_error(
-            windows_sys::Win32::Foundation::ERROR_WRITE_FAULT as i32,
-        ));
-    }
-    Ok(())
+pub fn fault(root: &Path, point: SaveFaultPoint) -> Option<SaveFixtureFault> {
+    let (configured, mode) = CONFIG.get()?;
+    let fault = match (point, mode.as_str()) {
+        (SaveFaultPoint::ReplacementSync, "sync-failure")
+        | (SaveFaultPoint::Publication, "publish-failure") => SaveFixtureFault::WriteFault,
+        (SaveFaultPoint::Publication, "publish-cleanup-failure") => {
+            SaveFixtureFault::WriteFaultWithReadOnlyStaging
+        }
+        _ => return None,
+    };
+    (root.canonicalize().ok().as_ref() == Some(configured)
+        && !FAULT_USED.swap(true, Ordering::Relaxed))
+    .then_some(fault)
 }
 
 pub fn checkpoint(root: &Path, point: SaveCheckpoint) {

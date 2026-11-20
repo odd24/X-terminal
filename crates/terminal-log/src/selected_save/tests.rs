@@ -164,9 +164,6 @@ fn new_namespace_collision_is_not_overwritten_and_failed_restore_reports_backup(
 
 fn publish_fault_with_empty_target(cleanup_blocked: bool) {
     use windows_sys::Win32::Foundation::ERROR_WRITE_FAULT;
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO, FileBasicInfo,
-    };
 
     let temp = Temp::new();
     let (data, mut source) = source(&temp);
@@ -203,22 +200,7 @@ fn publish_fault_with_empty_target(cleanup_blocked: bool) {
             staging_id = Some(identity(staged).unwrap());
             if cleanup_blocked {
                 staging_permissions = Some(staged.metadata().unwrap().permissions());
-                let basic = FILE_BASIC_INFO {
-                    FileAttributes: FILE_ATTRIBUTE_READONLY,
-                    ..Default::default()
-                };
-                assert_ne!(
-                    unsafe {
-                        SetFileInformationByHandle(
-                            staged.as_raw_handle(),
-                            FileBasicInfo,
-                            (&raw const basic).cast(),
-                            std::mem::size_of_val(&basic) as u32,
-                        )
-                    },
-                    0,
-                    "set read-only on the already-open staging handle"
-                );
+                make_staging_readonly(staged).unwrap();
                 assert!(staged.metadata().unwrap().permissions().readonly());
             }
             Err(io::Error::from_raw_os_error(ERROR_WRITE_FAULT as i32))
