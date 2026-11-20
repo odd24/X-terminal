@@ -185,13 +185,31 @@ try{
        custom:(${host}).querySelectorAll('.xterm-scrollable-element > .scrollbar.vertical').length};
    })()`),{overflow:'hidden',nativeWidth:0,custom:1});
  }
+ if(scrollbarCheck)await ui.waitFor(`!document.querySelector('[aria-label="日志保存反馈"]')`);
  await ui.screenshot('terminal-one-scrollbar-split.png');
- const wheel=await ui.evaluate(`(()=>{const r=document.querySelector('[data-pane="first"] .xterm-screen').getBoundingClientRect();return {x:r.x+40,y:r.y+40};})()`);
- await ui.command('Input.dispatchMouseEvent',{type:'mouseWheel',deltaX:0,deltaY:-320,...wheel});
- await ui.waitFor(`!document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-84')`);
- await ui.command('Input.dispatchMouseEvent',{type:'mouseWheel',deltaX:0,deltaY:650,...wheel});
- await ui.waitFor(`document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-84')`);
- const scrollbar=await ui.evaluate(`(()=>{const p=document.querySelector('[data-pane="first"]'),s=p.querySelector('.xterm-scrollable-element .scrollbar.vertical .slider').getBoundingClientRect(),r=p.querySelector('.xterm-scrollable-element .scrollbar.vertical').getBoundingClientRect();return{x:s.x+s.width/2,from:s.y+s.height/2,to:r.y+1};})()`);await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x:scrollbar.x,y:scrollbar.from});await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:scrollbar.x,y:scrollbar.to});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:scrollbar.x,y:scrollbar.to});await ui.waitFor(`document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-00')`);
+ const pane=key=>`document.querySelector('[data-pane="${key}"]')`;
+ const includes=(key,marker)=>`${pane(key)}.querySelector('.xterm-rows').textContent.includes(${JSON.stringify(marker)})`;
+ const wheelPoint=key=>ui.evaluate(`(()=>{const r=${pane(key)}.querySelector('.xterm-screen').getBoundingClientRect();return{x:r.x+40,y:r.y+40};})()`);
+ async function wheelPane(key,deltaY){await ui.command('Input.dispatchMouseEvent',{type:'mouseWheel',deltaX:0,deltaY,...await wheelPoint(key)});}
+ async function dragToTop(key){
+   await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...await wheelPoint(key)});
+   await ui.waitFor(`${pane(key)}.querySelector('.xterm-scrollable-element .scrollbar.vertical.visible')!==null`);
+   const scrollbar=await ui.evaluate(`(()=>{const bar=${pane(key)}.querySelector('.xterm-scrollable-element .scrollbar.vertical');const s=bar.querySelector('.slider').getBoundingClientRect();return{x:s.x+s.width/2,from:s.y+s.height/2,to:bar.getBoundingClientRect().y+1};})()`);
+   await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x:scrollbar.x,y:scrollbar.from});
+   await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:scrollbar.x,y:scrollbar.to});
+   await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:scrollbar.x,y:scrollbar.to});
+ }
+ if(scrollbarCheck){
+   await wheelPane('second',-320);await ui.waitFor(`!${includes('second','RIGHT-SCROLL-84')}`);
+   assert.equal(await ui.evaluate(includes('first','VISIBLE-84')),true);
+   await wheelPane('second',650);await ui.waitFor(includes('second','RIGHT-SCROLL-84'));
+   await dragToTop('second');await ui.waitFor(includes('second','RIGHT-SCROLL-0'));
+   assert.equal(await ui.evaluate(includes('first','VISIBLE-84')),true);
+ }
+ await wheelPane('first',-320);await ui.waitFor(`!${includes('first','VISIBLE-84')}`);
+ await wheelPane('first',650);await ui.waitFor(includes('first','VISIBLE-84'));
+ await dragToTop('first');await ui.waitFor(includes('first','VISIBLE-00'));
+ if(scrollbarCheck)assert.equal(await ui.evaluate(includes('second','RIGHT-SCROLL-0')),true);
  const dimensions=await ui.evaluate(`document.querySelector('[aria-label="终端视口尺寸"]').textContent.match(/(\\d+)×(\\d+)/).slice(1).map(Number)`);const [cols,rows]=dimensions;const expected=Buffer.from(Array.from({length:rows},(_,i)=>{const s=i===2?'':`VISIBLE-${String(i).padStart(2,'0')}-中文`;return s+' '.repeat(cols-(i===2?0:s.length+2));}).join('\r\n')+'\r\n');
  await right('first');await one.control({op:'push',text:'LATER-NOT-IN-FROZEN-VIEW\r\n'});await ui.click('只保存当前可见屏幕…');const screenTask=await slot(),screen=await prepared(screenTask);assert.deepEqual(screen.bytes,expected);await finishSave(screenTask,screen.bytes,path.join(output,'实际上滚屏幕.log'));assert.equal(screen.bytes.includes(Buffer.from('LATER-NOT')),false);
  // A stale menu callback cannot operate on another pane.

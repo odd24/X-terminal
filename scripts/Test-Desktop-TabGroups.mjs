@@ -22,7 +22,24 @@ try{
     await wait(async()=>{const s=await ssh({op:'status',connection:c});if(s.connection.state==='FAILED')throw new Error(`synthetic login failed: ${s.failure}`);if(s.challenge&&!answered.has(s.challenge.id)){answered.add(s.challenge.id);if(s.challenge.kind==='host_key'){assert.equal(s.challenge.review.candidate.fingerprint,server.pin);await ssh({op:'answer_host',connection:c,challenge_id:s.challenge.id,approve:true});}else if(s.challenge.kind==='credentials')await ssh({op:'authenticate',connection:c,challenge_id:s.challenge.id,use_saved:false,password:server.password});}return s.connection.state==='CONNECTED';},'synthetic login');return c;};
   const a=await start(),b=await start(),c=await start();
   await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===3&&Array.from(document.querySelectorAll('[role="tab"]')).every(t=>t.querySelector('.tab-label')?.textContent==='127.0.0.1')`);
+  const orderExpression=`[...document.querySelectorAll('[role="tab"]')].map(tab=>tab.dataset.connectionId)`;
+  const order=()=>ui.evaluate(orderExpression);
+  const originalOrder=await order();
   await ui.fill('会话',b.connection_id);const before=(await control({op:'metrics'})).received;
+  if(process.argv.includes('--tabs-scrollbar')){
+    await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
+    await ui.click('外观');
+    await ui.fill('应用主题','dark');
+    await ui.click('关闭外观');
+    const shown=await ui.evaluate(`[...document.querySelectorAll('[role="tab"]')].map(tab=>{
+      const rail=tab.closest('[role="tablist"]').getBoundingClientRect();
+      const rect=tab.getBoundingClientRect();
+      return {id:tab.dataset.connectionId,code:tab.querySelector('.tab-instance').textContent,selected:tab.getAttribute('aria-selected')==='true',visible:rect.left>=rail.left&&rect.right<=rail.right};
+    })`);
+    assert.equal(shown.length,3);
+    for(const tab of shown)assert.deepEqual(tab,{id:tab.id,code:'#'+tab.id.slice(-6).toUpperCase(),selected:tab.id===b.connection_id,visible:true});
+    await ui.screenshot('terminal-distinct-tabs.png');
+  }
   const selected=()=>ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);
   const chooseGroup=value=>ui.evaluate(`(()=>{const select=document.querySelector('select[aria-label="管理标签分组"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,${JSON.stringify(value)});select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   const open=async()=>{await ui.evaluate(`document.querySelector('.tools-menu').open=true`);await ui.click('标签分组');await ui.waitFor(`!!document.querySelector('dialog:modal [aria-label="新分组名称"]')`);};
@@ -34,7 +51,8 @@ try{
   assert.equal(await selected(),b.connection_id,'organizing tabs must not change the active target');
   await ui.fill('修改分组名称','<b>设备</b>');await ui.click('保存分组名称');assert.equal(await ui.evaluate(`document.querySelector('dialog:modal b')!==null`),false,'group names are text, never markup');
   await ui.click('分组前移');await ui.screenshot('P17-tab-groups-dialog.png');await ui.click('关闭分组窗口');
-  const order=()=>ui.evaluate(`Array.from(document.querySelectorAll('[role="tab"]')).map(t=>t.dataset.connectionId)`);
+  const waitForOrder=ids=>ui.waitFor(`JSON.stringify(${orderExpression})===${JSON.stringify(JSON.stringify(ids))}`);
+  await waitForOrder([b.connection_id,c.connection_id,a.connection_id]);
   assert.deepEqual(await order(),[b.connection_id,c.connection_id,a.connection_id]);
   const owner=(await ui.invoke('service_status')).service_id;
   const dragPayload=await ui.evaluate(`(()=>{const source=document.querySelector('[role="tab"][data-connection-id="${c.connection_id}"]').parentElement;const dt=new DataTransfer();source.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));return JSON.parse(dt.getData('application/x-shared-terminal-tab'));})()`);
@@ -43,8 +61,9 @@ try{
   // Real WebView HTML5 drag data, with stale/foreign data held to the same boundary.
   await drop(c,one,{generation:c.generation+1});assert.deepEqual(await order(),[b.connection_id,c.connection_id,a.connection_id]);
   await drop(c,one,{owner:'other-service'});assert.deepEqual(await order(),[b.connection_id,c.connection_id,a.connection_id]);
-  await drop(c,one);assert.deepEqual(await order(),[b.connection_id,a.connection_id,c.connection_id]);assert.equal(await selected(),b.connection_id);
-  await ui.evaluate(`document.querySelector('[role="tab"][data-connection-id="${b.connection_id}"]').focus()`);await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});await ui.waitFor(`document.querySelector('[aria-label="会话"]').value===${JSON.stringify(a.connection_id)}`);
+  const joinedOrder=[b.connection_id,...originalOrder.filter(id=>id!==b.connection_id)];
+  await drop(c,one);await waitForOrder(joinedOrder);assert.equal(await selected(),b.connection_id);
+  await ui.evaluate(`document.querySelector('[role="tab"][data-connection-id="${b.connection_id}"]').focus()`);await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});await ui.waitFor(`document.querySelector('[aria-label="会话"]').value===${JSON.stringify(joinedOrder[1])}`);
   assert.deepEqual((await control({op:'metrics'})).received,before,'grouping and selecting cannot send terminal input');
   assert.equal((await list()).every(t=>t.state==='CONNECTED'),true);
   await ui.evaluate(`document.querySelector('[aria-label="关闭标签 ${c.connection_id}"]').click()`);await ui.waitFor(`!document.querySelector('[role="tab"][data-connection-id="${c.connection_id}"]')`);assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="关闭标签确认"]')`),false);
@@ -56,5 +75,5 @@ try{
   assert.deepEqual((await control({op:'metrics'})).received,before,'reload cannot replay input');
   await writeFile('artifacts/P17-tab-groups-result.json',JSON.stringify({result:'PASS',connections:[a,b,c],persisted:false,drag:'WebView HTML5 DataTransfer events; not a physical mouse/DPI matrix'},null,2));
   console.log('PASS window-only tab groups: same-profile independent sessions, create/rename/order/assign/dissolve, text-only names, stale/foreign drag rejection, keyboard selection, no input/reconnect, close without confirm, reveal ended tab, reload clears groups');
-}catch(e){if(ui){await ui.screenshot('P17-tab-groups-failure.png').catch(()=>{});await writeFile('artifacts/P17-tab-groups-failure.txt',await ui.evaluate('document.body.innerText').catch(String));}throw e;
+}catch(e){if(ui){await ui.screenshot('P17-tab-groups-failure.png').catch(()=>{});await writeFile('artifacts/P17-tab-groups-failure.txt',`${e.stack??e}\n\n${await ui.evaluate('document.body.innerText').catch(String)}`);}throw e;
 }finally{await ui?.close();fixture?.kill();if(fixture&&fixture.exitCode===null&&fixture.signalCode===null)await new Promise(r=>fixture.once('exit',r));if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-tab-groups-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}
