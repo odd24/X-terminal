@@ -88,6 +88,10 @@ try {
     assert.ok(measure.markerColumns.every(Number.isFinite));
     assert.ok(Math.max(...measure.markerColumns)-Math.min(...measure.markerColumns)<=1,'regular, bold, and CJK must align to terminal columns');
     if(pureBlack){
+      const selectedFill=theme==='dark'?'rgb(37, 37, 37)':'rgb(228, 233, 241)';
+      const buttonFill=theme==='dark'?'rgb(17, 17, 17)':'rgb(255, 255, 255)';
+      await ui.waitFor(`getComputedStyle(document.querySelector('.session-tree-list .selected')).backgroundColor===${JSON.stringify(selectedFill)}
+        &&getComputedStyle(document.querySelector('.sidebar-toggle')).backgroundColor===${JSON.stringify(buttonFill)}`);
       measure.workspace=await ui.evaluate(`(()=>{
         const style=selector=>getComputedStyle(document.querySelector(selector));
         return {
@@ -104,7 +108,11 @@ try {
       if(theme==='dark'){
         const black='rgb(0, 0, 0)';
         assert.ok(measure.workspace.surfaces.every(value=>value===black));
-        for(const key of ['selectionFill','selectionBorder','controlFill','tabBorder','separator'])assert.notEqual(measure.workspace[key],black);
+        assert.equal(measure.workspace.selectionFill,'rgb(37, 37, 37)');
+        assert.equal(measure.workspace.controlFill,'rgb(17, 17, 17)');
+        assert.equal(measure.workspace.selectionBorder,'rgb(119, 119, 119)');
+        assert.equal(measure.workspace.tabBorder,'rgb(119, 119, 119)');
+        assert.equal(measure.workspace.separator,'rgb(57, 57, 57)');
         assert.equal(measure.boldColor,'rgb(178, 235, 186)');
       }else{
         assert.equal(measure.workspace.surfaces[0],'rgb(238, 240, 243)');
