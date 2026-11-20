@@ -5,10 +5,11 @@ import path from 'node:path';
 import {launchDesktop} from './lib/DesktopHarness.mjs';
 
 const baseline=process.argv.includes('--baseline');
+const pureBlack=process.argv.includes('--pure-black');
 const previous=baseline?JSON.parse(await readFile('artifacts/log-status-timeout-preview.json','utf8')):undefined;
 const executable=previous&&path.join(previous.directory,'shared-terminal-desktop.exe');
 const directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-typography-ui-中文-'));
-const prefix=baseline?'terminal-font-before':'terminal-font-after';
+const prefix=pureBlack?'terminal-pure-black':baseline?'terminal-font-before':'terminal-font-after';
 let ui;
 try {
   ui=await launchDesktop(directory,{fixture:true,executable});
@@ -16,6 +17,15 @@ try {
   await ui.waitFor("document.querySelector('.status')?.textContent==='服务输出已同步'");
   const [connection]=await ui.invoke('service_list');
   const target={connection_id:connection.connection_id,generation:connection.generation};
+  if(pureBlack){
+    const profile={id:crypto.randomUUID(),folder_id:null,name:'开发终端 · 合成配置',settings:{protocol:'ssh2',host:'127.0.0.1',port:22,username:'synthetic',auth:'password',encoding:'utf8'}};
+    await ui.invoke('config_request',{request:{op:'save_profile',profile,credential:{action:'clear'}}});
+    await ui.click('刷新会话树');
+    const entry=`document.querySelector('[data-profile-id="${profile.id}"]')`;
+    await ui.waitFor(`!!${entry}`);
+    await ui.evaluate(`${entry}.click()`);
+    await ui.waitFor(`${entry}.getAttribute('aria-pressed')==='true'`);
+  }
   const sample=[
     'TTY 目录列表 · 0O 1lI 6789 · /var/log',
     '',
@@ -77,8 +87,50 @@ try {
     assert.notEqual(measure.boldColor,measure.plainColor);
     assert.ok(measure.markerColumns.every(Number.isFinite));
     assert.ok(Math.max(...measure.markerColumns)-Math.min(...measure.markerColumns)<=1,'regular, bold, and CJK must align to terminal columns');
+    if(pureBlack){
+      measure.workspace=await ui.evaluate(`(()=>{
+        const style=selector=>getComputedStyle(document.querySelector(selector));
+        return {
+          surfaces:[':root','.desktop-shell','.session-sidebar','.app-bar','.terminal-workspace','.terminal','.xterm-viewport','.terminal-footer'].map(selector=>style(selector).backgroundColor),
+          weights:['.session-sidebar h2','.profile-summary > strong','.session-tree-list .selected','.connection-tab [role="tab"]','.app-bar .toolbar-log','.app-bar .tools-menu summary','.terminal-footer [role="status"]'].map(selector=>style(selector).fontWeight),
+          selectionFill:style('.session-tree-list .selected').backgroundColor,
+          selectionBorder:style('.session-tree-list .selected').borderTopColor,
+          controlFill:style('.sidebar-toggle').backgroundColor,
+          tabBorder:style('.connection-tab:has([aria-selected="true"])').borderTopColor,
+          separator:style('.terminal-footer').borderTopColor
+        };
+      })()`);
+      assert.ok(measure.workspace.weights.every(value=>value==='400'));
+      if(theme==='dark'){
+        const black='rgb(0, 0, 0)';
+        assert.ok(measure.workspace.surfaces.every(value=>value===black));
+        for(const key of ['selectionFill','selectionBorder','controlFill','tabBorder','separator'])assert.notEqual(measure.workspace[key],black);
+        assert.equal(measure.boldColor,'rgb(178, 235, 186)');
+      }else{
+        assert.equal(measure.workspace.surfaces[0],'rgb(238, 240, 243)');
+        assert.equal(measure.workspace.surfaces[5],'rgb(255, 255, 255)');
+      }
+    }
     measures[theme]=measure;
     await ui.screenshot(`${prefix}-${theme}.png`);
+  }
+  if(pureBlack){
+    await ui.click('外观');await ui.fill('应用主题','dark');await ui.click('关闭外观');
+    await ui.waitFor(`document.documentElement.dataset.theme==='dark'`);
+    await ui.evaluate("document.querySelector('.app-bar .tools-menu summary').focus()");
+    await ui.command('Page.bringToFront');
+    await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+    await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+    assert.ok(await ui.evaluate("document.activeElement.matches(':focus-visible')&&getComputedStyle(document.activeElement).outlineStyle==='solid'"));
+    await ui.evaluate("document.querySelector('.xterm-helper-textarea').focus()");
+    await ui.command('Input.imeSetComposition',{text:'zhong wen',selectionStart:9,selectionEnd:9});
+    await ui.waitFor("document.querySelector('.composition-view.active')?.textContent==='zhong wen'");
+    assert.deepEqual(await ui.evaluate(`(()=>{
+      const style=getComputedStyle(document.querySelector('.composition-view.active'));
+      return [style.color,style.backgroundColor,style.outlineStyle];
+    })()`),['rgb(16, 35, 55)','rgb(217, 236, 255)','solid']);
+    await ui.screenshot('terminal-pure-black-preedit.png');
+    await ui.command('Input.imeSetComposition',{text:'',selectionStart:0,selectionEnd:0});
   }
   assert.deepEqual(await read(),original,'typography preserves service text');
   await writeFile(`artifacts/${prefix}.json`,JSON.stringify(measures,null,2));

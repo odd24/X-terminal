@@ -67,7 +67,7 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 
 /* Terminal-first shell. Auxiliary tools scroll independently of the live terminal. */
 html, body, #root { height: 100%; overflow: hidden; }
-main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-sizing: border-box; height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: var(--space-2); }
+main.desktop-shell { background: var(--page); max-width: none; margin: 0; padding: var(--space-2); box-sizing: border-box; height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: var(--space-2); }
 .app-bar { min-width: 0; display: flex; align-items: end; gap: var(--space-1); }
 .primary-action:not(:disabled) { border-color: var(--accent); background: var(--accent); color: var(--page); font-weight: var(--weight-heading); }
 .primary-action:hover:not(:disabled) { background: var(--accent-text); }
@@ -114,7 +114,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
   width: var(--space-2); cursor: col-resize; touch-action: none;
 }
 .sidebar-divider:hover, .sidebar-divider:focus-visible { background: var(--accent); }
-.session-sidebar h2 { font-size: var(--text-body); margin-block: var(--space-1); }
+.session-sidebar h2 { font-weight: 400; font-size: var(--text-body); margin-block: var(--space-1); }
 .session-sidebar .config-heading { gap: var(--space-1); align-items: center; }
 .session-sidebar .config-heading button, .tree-search input { min-height: 27px; padding: 2px var(--space-2); }
 .tree-search { display: flex; flex-direction: column; gap: var(--space-1); }
@@ -124,7 +124,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .tree-scroll > .session-tree-list { padding-left: 0; }
 .session-tree-list button { width: 100%; min-height: 26px; padding: 1px var(--space-2); text-align: left; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: transparent; border-color: transparent; }
 .session-tree-list small { display: block; color: var(--text-muted); }
-.session-tree-list .selected { background: var(--control-hover); border-color: var(--accent); }
+.session-tree-list .selected { background: var(--control-hover); border-color: var(--selection-border); }
 .profile-summary { border-top: var(--border-width) solid var(--border); padding-top: var(--space-3); overflow-wrap: anywhere; }
 .profile-summary:has(> strong) {
   max-block-size: min(var(--list-height), 25%);
@@ -133,15 +133,16 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
   padding-block-end: calc(var(--focus-width) + var(--focus-offset));
   scroll-padding-block: calc(var(--focus-width) + var(--focus-offset));
 }
+.profile-summary > strong { font-weight: 400; }
 .profile-summary small { display: block; color: var(--text-muted); }
-.terminal-workspace { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.terminal-workspace { background: var(--page); min-height: 0; min-width: 0; display: flex; flex-direction: column; }
 .terminal-workspace .terminal { flex: 1; height: auto; min-height: 0; border-radius: var(--radius-control); }
 .terminal-workspace :is(.status, .input-status) { margin-block: var(--space-1); }
 .tab-tools { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin-bottom: var(--space-2); }
 [role="tablist"] { display: flex; flex: 1; overflow-x: auto; scrollbar-width: none; min-width: 0; gap: var(--space-1); padding-top: var(--space-1); }
 .connection-tab { display: flex; flex-shrink: 0; border: var(--border-width) solid transparent; border-bottom: 0; border-radius: var(--radius-control) var(--radius-control) 0 0; }
-.connection-tab:has([aria-selected="true"]) { background: var(--terminal-background); border-color: var(--border-subtle); color: var(--terminal-foreground); }
-.connection-tab button { border-color: transparent; background: transparent; }
+.connection-tab:has([aria-selected="true"]) { background: var(--terminal-background); border-color: var(--border-subtle); border-top-color: var(--selection-border); color: var(--terminal-foreground); }
+.connection-tab button { font-weight: 400; border-color: transparent; background: transparent; }
 .connection-tab:has([aria-selected="true"]) button { color: inherit; }
 .connection-tab button:focus-visible { outline-offset: -2px; }
 .tab-group-marker { display: flex; align-items: center; flex-shrink: 0; padding-inline: var(--space-2); border-inline-start: var(--border-width) solid var(--border); color: var(--text-muted); font-size: var(--text-sm); }
@@ -229,7 +230,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .toolbar-log { width: 8em; text-overflow: ellipsis; overflow: hidden; }
 .tab-log-badge { color: var(--accent-text); font-size: var(--text-xs); }
 .context-menu { box-shadow: var(--float-shadow); }
-.log-menu-target { font-weight: var(--weight-heading); }
+.log-menu-target, .terminal-log-operation h2 { font-weight: 400; }
 .clipboard-feedback, .tab-feedback { position: fixed; bottom: 3rem; left: 50%; transform: translateX(-50%); z-index: 71; padding: var(--space-2) var(--space-3); background: var(--surface-raised); border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-control); box-shadow: var(--float-shadow); pointer-events: none; }
 
 
@@ -245,6 +246,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
   box-shadow: inset 0 -2px var(--preedit-outline);
 }
 .terminal-footer {
+  background: var(--page);
   position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between;
   min-height: 24px; gap: var(--space-2); margin: 0; padding-inline: var(--space-2);
   border-block-start: var(--border-width) solid var(--border-subtle);

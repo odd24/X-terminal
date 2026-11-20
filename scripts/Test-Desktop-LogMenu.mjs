@@ -10,6 +10,7 @@ import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 const build=fixture=>{const r=spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});if(r.error)throw r.error;assert.equal(r.status,0,'fixture and ordinary restoration must actually succeed');};
 const wait=async(check,label)=>{for(let i=0;i<300;i++){if(await check())return;await delay(20);}throw new Error(`Timeout: ${label}`);};
 const ref=c=>({connection_id:c.connection_id,generation:c.generation});
+const pureBlack=process.argv.includes('--pure-black');
 let directory,output,ui,editorObservationError;const fixtures=[];
 try{
  build(true);directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-log-menu-ui-中文-'));output=await mkdtemp(path.join(tmpdir(),'shared-terminal-save-ui-中文-'));
@@ -50,7 +51,7 @@ try{
  async function finishSave(t,bytes,destination){const fingerprint=createHash('sha256').update(bytes).digest('hex');assert.equal((await native({op:'status',target:t.target,request_id:t.request_id})).sha256,fingerprint);const s=await saveTask(t);assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('[aria-label="终端右键日志操作"] button')).some(b=>b.textContent==='保存日志')`),false);await picker(destination);let info;await wait(async()=>{info=await save({op:'status',scope:s.scope,save_id:s.save_id});return info.phase==='COMPLETED';},'native save completed');assert.deepEqual(await readFile(destination),bytes);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')&&document.querySelector('[aria-label="日志保存反馈"]')?.textContent.includes('日志已保存')`);await ui.waitFor(`document.activeElement===document.querySelector('[data-pane][data-active="true"][data-rendered-id="${t.target.connection.connection_id}"] .xterm-helper-textarea')`);await wait(async()=>(await native({op:'status',target:t.target,request_id:t.request_id})).phase==='REMOVED','only own completed snapshot cleaned');return info;}
  async function exportMenu(key,label,name){const t=await choose(key,label),p=await prepared(t);await finishSave(t,p.bytes,path.join(output,name));return {...p,t};}
  // Legacy automatic right-paste must never run while opening this menu.
- const prefs=await ui.invoke('config_request',{request:{op:'preferences'}});await ui.invoke('config_request',{request:{op:'save_preferences',revision:prefs.revision,preferences:{...prefs.preferences,right_click_paste:true}}});await ui.command('Page.reload');
+ const prefs=await ui.invoke('config_request',{request:{op:'preferences'}});await ui.invoke('config_request',{request:{op:'save_preferences',revision:prefs.revision,preferences:{...prefs.preferences,...(pureBlack?{theme:'dark',terminal_palette:'follow_theme'}:{}),right_click_paste:true}}});await ui.command('Page.reload');
  await split(a,b);await focus('first');
  await ui.screenshot('CR-022-S3-split.png');
  // Create a real selection in the right terminal. Changing active pane must
@@ -104,7 +105,11 @@ try{
  const lbInitial=await active(b);let lb=lbInitial;
  assert.equal((await list(b)).logs.length,1);assert.equal((await list(a)).logs.length,0);assert.equal((await slot()).target.connection.connection_id,b.connection_id);
  const original=await slot();
- await ui.screenshot('log-status-timeout-open.png');
+ assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.terminal-log-operation h2')).fontWeight`),'400');
+ if(pureBlack){
+   assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.app-bar')).backgroundColor`),'rgb(0, 0, 0)');
+   await ui.screenshot('terminal-pure-black-log.png');
+ }else await ui.screenshot('log-status-timeout-open.png');
  const firstDismissal=await dismissalTime(opened);
  await ui.waitFor(`(${badge(b)})?.title==='● 记录中'&&document.querySelector('.toolbar-log').textContent.trim()==='● 记录中'`);
  await right('second');

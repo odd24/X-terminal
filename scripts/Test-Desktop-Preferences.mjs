@@ -46,7 +46,7 @@ try {
   await ui.fill('应用主题','dark');
   assert.equal((await colors()).foreground,'rgb(238, 238, 238)');
   await ui.fill('终端配色','follow_theme');
-  assert.equal((await colors()).background,'rgb(16, 23, 32)');
+  assert.equal((await colors()).background,'rgb(0, 0, 0)');
   await ui.fill('应用主题','light');
   assert.equal((await colors()).background,'rgb(255, 255, 255)');
   await ui.fill('终端配色','black_green');

@@ -9,7 +9,8 @@ import { launchDesktop } from './lib/DesktopHarness.mjs';
 // Local-only preview. No installer, credentials/config copying, upload or publication.
 const saveRecovery=process.argv.includes('--save-recovery');
 const auditGrantFeedback=process.argv.includes('--audit-grant-feedback');
-const stagePreview=process.argv.includes('--terminal-font')?'terminal-font-preview'
+const stagePreview=process.argv.includes('--pure-black')?'pure-black-preview'
+  :process.argv.includes('--terminal-font')?'terminal-font-preview'
   :process.argv.includes('--log-status-timeout')?'log-status-timeout-preview'
   :process.argv.includes('--cr-022-polish')?'CR-022-polish-preview'
   :process.argv.includes('--cr-022')?'CR-022-preview'
