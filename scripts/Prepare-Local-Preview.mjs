@@ -10,7 +10,8 @@ import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 const saveRecovery=process.argv.includes('--save-recovery');
 const auditGrantFeedback=process.argv.includes('--audit-grant-feedback');
 const paletteX=process.argv.includes('--palette-x');
-const stagePreview=process.argv.includes('--terminal-brightness')?'terminal-brightness-preview'
+const stagePreview=process.argv.includes('--tabs-scrollbar')?'tabs-scrollbar-preview'
+  :process.argv.includes('--terminal-brightness')?'terminal-brightness-preview'
   :paletteX?'palette-x-preview'
   :process.argv.includes('--terminal-black-only')?'terminal-black-only-preview'
   :process.argv.includes('--pure-black')?'pure-black-preview'

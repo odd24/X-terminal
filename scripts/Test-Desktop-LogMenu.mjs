@@ -11,6 +11,7 @@ const build=fixture=>{const r=spawnSync('cargo',['build','-p','session-service',
 const wait=async(check,label)=>{for(let i=0;i<300;i++){if(await check())return;await delay(20);}throw new Error(`Timeout: ${label}`);};
 const ref=c=>({connection_id:c.connection_id,generation:c.generation});
 const pureBlack=process.argv.includes('--pure-black');
+const scrollbarCheck=process.argv.includes('--tabs-scrollbar');
 let directory,output,ui,editorObservationError;const fixtures=[];
 try{
  build(true);directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-log-menu-ui-中文-'));output=await mkdtemp(path.join(tmpdir(),'shared-terminal-save-ui-中文-'));
@@ -51,7 +52,7 @@ try{
  async function finishSave(t,bytes,destination){const fingerprint=createHash('sha256').update(bytes).digest('hex');assert.equal((await native({op:'status',target:t.target,request_id:t.request_id})).sha256,fingerprint);const s=await saveTask(t);assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('[aria-label="终端右键日志操作"] button')).some(b=>b.textContent==='保存日志')`),false);await picker(destination);let info;await wait(async()=>{info=await save({op:'status',scope:s.scope,save_id:s.save_id});return info.phase==='COMPLETED';},'native save completed');assert.deepEqual(await readFile(destination),bytes);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')&&document.querySelector('[aria-label="日志保存反馈"]')?.textContent.includes('日志已保存')`);await ui.waitFor(`document.activeElement===document.querySelector('[data-pane][data-active="true"][data-rendered-id="${t.target.connection.connection_id}"] .xterm-helper-textarea')`);await wait(async()=>(await native({op:'status',target:t.target,request_id:t.request_id})).phase==='REMOVED','only own completed snapshot cleaned');return info;}
  async function exportMenu(key,label,name){const t=await choose(key,label),p=await prepared(t);await finishSave(t,p.bytes,path.join(output,name));return {...p,t};}
  // Legacy automatic right-paste must never run while opening this menu.
- const prefs=await ui.invoke('config_request',{request:{op:'preferences'}});await ui.invoke('config_request',{request:{op:'save_preferences',revision:prefs.revision,preferences:{...prefs.preferences,...(pureBlack?{theme:'dark',terminal_palette:'follow_theme'}:{}),right_click_paste:true}}});await ui.command('Page.reload');
+ const prefs=await ui.invoke('config_request',{request:{op:'preferences'}});await ui.invoke('config_request',{request:{op:'save_preferences',revision:prefs.revision,preferences:{...prefs.preferences,...(pureBlack||scrollbarCheck?{theme:'dark',terminal_palette:'follow_theme'}:{}),right_click_paste:true}}});await ui.command('Page.reload');
  await split(a,b);await focus('first');
  await ui.screenshot('CR-022-S3-split.png');
  // Create a real selection in the right terminal. Changing active pane must
@@ -171,7 +172,26 @@ try{
  const full=await exportMenu('first','另存全部已记录日志…','A全部.log');assert.ok(full.bytes.length>65536);assert.ok(full.bytes.includes(Buffer.from('A-FULL-001-')));assert.ok(full.bytes.includes(Buffer.from('A-FULL-140-')));assert.ok(full.info.retained_records>128);assert.equal((await active(a)).log_id,la.log_id);
  console.log('Freeze actual scrolled');
  // Freeze actual scrolled viewport before later output changes it.
- await one.control({op:'push',text:'\x1b[3J\x1b[2J\x1b[H'+Array.from({length:85},(_,i)=>i===2?'':`VISIBLE-${String(i).padStart(2,'0')}-\x1b[31m中文\x1b[0m`).join('\r\n')+'\r\n'});await focus('first');await ui.waitFor(`document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-84')`);const scrollbar=await ui.evaluate(`(()=>{const p=document.querySelector('[data-pane="first"]'),s=p.querySelector('.xterm-scrollable-element .scrollbar.vertical .slider').getBoundingClientRect(),r=p.querySelector('.xterm-scrollable-element .scrollbar.vertical').getBoundingClientRect();return{x:s.x+s.width/2,from:s.y+s.height/2,to:r.y+1};})()`);await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x:scrollbar.x,y:scrollbar.from});await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:scrollbar.x,y:scrollbar.to});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:scrollbar.x,y:scrollbar.to});await ui.waitFor(`document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-00')`);
+ await one.control({op:'push',text:'\x1b[3J\x1b[2J\x1b[H'+Array.from({length:85},(_,i)=>i===2?'':`VISIBLE-${String(i).padStart(2,'0')}-\x1b[31m中文\x1b[0m`).join('\r\n')+'\r\n'});await focus('first');await ui.waitFor(`document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-84')`);await two.control({op:'push',text:Array.from({length:85},(_,i)=>'RIGHT-SCROLL-'+i+'\r\n').join('')});
+ await ui.waitFor(`document.querySelector('[data-pane="second"] .xterm-rows').textContent.includes('RIGHT-SCROLL-84')`);
+ for(const key of ['first','second']){
+   const host=`document.querySelector('[data-pane="${key}"] .terminal:not(.xterm)')`;
+   const cursor=await ui.evaluate(`(()=>{const r=(${host}).getBoundingClientRect();return{x:r.right-30,y:r.top+50};})()`);
+   await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...cursor});
+   await ui.waitFor(`(${host}).querySelector('.xterm-scrollable-element > .scrollbar.vertical.visible')?.getBoundingClientRect().width>0`);
+   assert.deepEqual(await ui.evaluate(`(()=>{
+     const legacy=(${host}).querySelector('.xterm-viewport');
+     return {overflow:getComputedStyle(legacy).overflowY,nativeWidth:legacy.offsetWidth-legacy.clientWidth,
+       custom:(${host}).querySelectorAll('.xterm-scrollable-element > .scrollbar.vertical').length};
+   })()`),{overflow:'hidden',nativeWidth:0,custom:1});
+ }
+ await ui.screenshot('terminal-one-scrollbar-split.png');
+ const wheel=await ui.evaluate(`(()=>{const r=document.querySelector('[data-pane="first"] .xterm-screen').getBoundingClientRect();return {x:r.x+40,y:r.y+40};})()`);
+ await ui.command('Input.dispatchMouseEvent',{type:'mouseWheel',deltaX:0,deltaY:-320,...wheel});
+ await ui.waitFor(`!document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-84')`);
+ await ui.command('Input.dispatchMouseEvent',{type:'mouseWheel',deltaX:0,deltaY:650,...wheel});
+ await ui.waitFor(`document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-84')`);
+ const scrollbar=await ui.evaluate(`(()=>{const p=document.querySelector('[data-pane="first"]'),s=p.querySelector('.xterm-scrollable-element .scrollbar.vertical .slider').getBoundingClientRect(),r=p.querySelector('.xterm-scrollable-element .scrollbar.vertical').getBoundingClientRect();return{x:s.x+s.width/2,from:s.y+s.height/2,to:r.y+1};})()`);await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x:scrollbar.x,y:scrollbar.from});await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:scrollbar.x,y:scrollbar.to});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:scrollbar.x,y:scrollbar.to});await ui.waitFor(`document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('VISIBLE-00')`);
  const dimensions=await ui.evaluate(`document.querySelector('[aria-label="终端视口尺寸"]').textContent.match(/(\\d+)×(\\d+)/).slice(1).map(Number)`);const [cols,rows]=dimensions;const expected=Buffer.from(Array.from({length:rows},(_,i)=>{const s=i===2?'':`VISIBLE-${String(i).padStart(2,'0')}-中文`;return s+' '.repeat(cols-(i===2?0:s.length+2));}).join('\r\n')+'\r\n');
  await right('first');await one.control({op:'push',text:'LATER-NOT-IN-FROZEN-VIEW\r\n'});await ui.click('只保存当前可见屏幕…');const screenTask=await slot(),screen=await prepared(screenTask);assert.deepEqual(screen.bytes,expected);await finishSave(screenTask,screen.bytes,path.join(output,'实际上滚屏幕.log'));assert.equal(screen.bytes.includes(Buffer.from('LATER-NOT')),false);
  // A stale menu callback cannot operate on another pane.

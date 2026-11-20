@@ -11,6 +11,9 @@ export function terminalAppearance(): Pick<ITerminalOptions, 'fontFamily' | 'the
     'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'] as const;
   const theme: ITheme = Object.fromEntries(keys.map(key => [key,
     style.getPropertyValue('--terminal-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())).trim()]));
+  theme.scrollbarSliderBackground = style.getPropertyValue('--border').trim();
+  theme.scrollbarSliderHoverBackground = style.getPropertyValue('--text-subtle').trim();
+  theme.scrollbarSliderActiveBackground = style.getPropertyValue('--text-muted').trim();
   return {
     fontFamily: style.getPropertyValue('--font-terminal').trim(),
     theme,
