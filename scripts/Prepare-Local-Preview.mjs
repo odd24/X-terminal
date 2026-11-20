@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { launchDesktop } from './lib/DesktopHarness.mjs';
+import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 
 // Local-only preview. No installer, credentials/config copying, upload or publication.
 const saveRecovery=process.argv.includes('--save-recovery');
@@ -55,6 +55,12 @@ for(const name of ['shared-terminal-desktop.exe','session-service.exe','terminal
 }
 await copyFile('docs/LOCAL_PREVIEW.md',path.join(destination,'README.md'));
 let ui,directory;
+async function closeSeededPreview(ui){
+  await ui.evaluate("setTimeout(()=>void window.__TAURI_INTERNALS__.invoke('plugin:window|close',{label:'main'}),50);true");
+  for(let i=0;i<200&&ui.app.exitCode===null;i++)await delay(50);
+  assert.equal(ui.app.exitCode,0,'the seeded desktop and service exit normally');
+  await ui.close();
+}
 try{
   directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-preview-ui-中文-'));
   const dataDirectory=paletteX?path.join(destination,'x-data'):directory;
@@ -67,10 +73,11 @@ try{
     const original=await config({op:'preferences'});
     const expected={...original.preferences,terminal_palette:'x'};
     await config({op:'save_preferences',revision:original.revision,preferences:expected});
-    await ui.close();
+    await closeSeededPreview(ui);
     ui=await launch();
     assert.deepEqual((await config({op:'preferences'})).preferences,expected);
     await ui.waitFor("document.documentElement.dataset.terminalPalette==='x'");
+    assert.equal(path.resolve(await ui.invoke('config_directory')).toLowerCase(),dataDirectory.toLowerCase());
     await writeFile(path.join(destination,'Open-X.cmd'),'@echo off\r\nstart "" "%~dp0shared-terminal-desktop.exe" --data-dir "%~dp0x-data"\r\n');
   }
   // Inspect only names/PIDs, never command lines or user terminal contents.
@@ -83,6 +90,7 @@ try{
   assert.equal(path.resolve(broker.executable).toLowerCase(),path.join(destination,'terminal-mcp.exe').toLowerCase(),'native bridge resolves the packaged sibling');
   assert.equal(broker.peer,null);
   await ui.screenshot(stagePreview?`${stagePreview}.png`:ssh1Service?'P13-ssh1-preview.png':auditGrantFeedback ? 'P22-audit-grant-feedback-preview.png' : saveRecovery ? 'P24-save-recovery-preview.png' : process.argv.includes('--mcp-v11') ? 'P15-protected-export-v11-preview.png' : process.argv.includes('--mcp-v10') ? 'P15-terminal-wait-v10-preview.png' : process.argv.includes('--mcp-v9') ? 'P15-ssh-resize-v9-preview.png' : process.argv.includes('--mcp-v8') ? 'P15-serial-connect-v8-preview.png' : process.argv.includes('--mcp-v7') ? 'P15-connect-v7-preview.png' : process.argv.includes('--mcp-v6') ? 'P15-reconnect-v6-preview.png' : process.argv.includes('--mcp-v5') ? 'P15-forget-v5-preview.png' : process.argv.includes('--mcp-v4') ? 'P15-disconnect-v4-preview.png' : 'P16-local-preview.png');
+  if(paletteX)await closeSeededPreview(ui);
 }finally{
   await ui?.close();if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-preview-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
 }
