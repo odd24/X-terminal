@@ -569,6 +569,114 @@ fn system_and_offline_targets_are_rejected_without_changing_their_attributes_or_
     }
 }
 
+fn reject_ntfs_attribute_target(sparse: bool) {
+    use std::io::{Seek, SeekFrom, Write};
+    use std::process::Command;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_SPARSE_FILE, GetCompressedFileSizeW,
+    };
+
+    let temp = Temp::new();
+    let (data, _source) = source(&temp);
+    let path = temp.0.join(if sparse {
+        "稀疏原件.jsonl"
+    } else {
+        "压缩原件.jsonl"
+    });
+    let system_directory =
+        PathBuf::from(std::env::var_os("SystemRoot").expect("Windows root")).join("System32");
+    let tool = |name: &str, args: &[&str]| {
+        let output = Command::new(system_directory.join(name))
+            .args(args)
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name} returned {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+
+    let head = b"original NTFS attribute sentinel\n";
+    let tail = b"end of original bytes\n";
+    let mut expected = vec![0u8; 192 * 1024];
+    let tail_at = expected.len() - tail.len();
+    expected[..head.len()].copy_from_slice(head);
+    expected[tail_at..].copy_from_slice(tail);
+    fs::write(&path, head).unwrap();
+    let original_id = identity(&File::open(&path).unwrap()).unwrap();
+    let regular = fs::metadata(&path).unwrap();
+    let special = FILE_ATTRIBUTE_COMPRESSED | FILE_ATTRIBUTE_SPARSE_FILE;
+    assert_eq!(regular.file_attributes() & special, 0);
+    drop(SaveTarget::prepare(&path, &data, Uuid::new_v4()).unwrap());
+
+    let attribute = if sparse {
+        tool("fsutil.exe", &["sparse", "setflag"]);
+        let mut file = OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(expected.len() as u64).unwrap();
+        file.seek(SeekFrom::Start(tail_at as u64)).unwrap();
+        file.write_all(tail).unwrap();
+        file.sync_all().unwrap();
+        FILE_ATTRIBUTE_SPARSE_FILE
+    } else {
+        fs::write(&path, &expected).unwrap();
+        tool("compact.exe", &["/C", "/Q"]);
+        FILE_ATTRIBUTE_COMPRESSED
+    };
+    let file = File::open(&path).unwrap();
+    let before = file.metadata().unwrap();
+    assert_eq!(before.file_attributes() & special, attribute);
+    assert_eq!(identity(&file).unwrap(), original_id);
+    drop(file);
+    let wide: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let allocated_bytes = || {
+        let mut high = 0;
+        let low = unsafe { GetCompressedFileSizeW(wide.as_ptr(), &mut high) };
+        (u64::from(high) << 32) | u64::from(low)
+    };
+    let allocated = allocated_bytes();
+    assert!(
+        allocated < expected.len() as u64,
+        "the fixture must occupy fewer bytes on disk than its logical size"
+    );
+    assert_eq!(fs::read(&path).unwrap(), expected);
+
+    let directory_before = entries(&temp.0);
+    let error = SaveTarget::prepare(&path, &data, Uuid::new_v4())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    let file = File::open(&path).unwrap();
+    let after = file.metadata().unwrap();
+    assert_eq!(identity(&file).unwrap(), original_id);
+    assert_eq!(after.file_attributes(), before.file_attributes());
+    assert_eq!(after.modified().unwrap(), before.modified().unwrap());
+    assert_eq!(allocated_bytes(), allocated);
+    assert_eq!(fs::read(&path).unwrap(), expected);
+    assert_eq!(entries(&temp.0), directory_before);
+    println!(
+        "NTFS_TARGET sparse={sparse} attributes=0x{:X} logical={} allocated={} rejected={:?}",
+        before.file_attributes(),
+        expected.len(),
+        allocated,
+        error.kind()
+    );
+}
+
+#[test]
+#[ignore = "requires an owned NTFS temporary directory with sparse support"]
+fn ntfs_sparse_save_target_is_rejected_without_mutation() {
+    reject_ntfs_attribute_target(true);
+}
+
+#[test]
+#[ignore = "requires an owned NTFS temporary directory with NTFS compression support"]
+fn ntfs_compressed_save_target_is_rejected_without_mutation() {
+    reject_ntfs_attribute_target(false);
+}
+
 #[test]
 fn cancellation_after_copy_and_sync_keeps_original_and_removes_the_owned_staging() {
     let temp = Temp::new();
