@@ -131,7 +131,7 @@ impl Journal for Timed {
         self.inner.finish(s)
     }
 }
-fn submit_audit_burst(
+pub(super) fn submit_audit_burst(
     sink: &crate::audit::Sink,
     meta: &Metadata,
     slot: u64,

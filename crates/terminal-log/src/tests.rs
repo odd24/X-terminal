@@ -12,6 +12,8 @@ use std::{
 mod archive;
 mod export;
 mod live;
+#[cfg(windows)]
+mod packed_segment;
 mod recovery;
 mod recovery_export;
 #[cfg(windows)]
