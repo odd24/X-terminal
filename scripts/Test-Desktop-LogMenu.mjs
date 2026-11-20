@@ -107,8 +107,8 @@ try{
  const original=await slot();
  assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.terminal-log-operation h2')).fontWeight`),'400');
  if(pureBlack){
-   assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.app-bar')).backgroundColor`),'rgb(0, 0, 0)');
-   await ui.screenshot('terminal-pure-black-log.png');
+   assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.app-bar')).backgroundColor`),'rgb(20, 31, 43)');
+   await ui.screenshot('terminal-black-only-log.png');
  }else await ui.screenshot('log-status-timeout-open.png');
  const firstDismissal=await dismissalTime(opened);
  await ui.waitFor(`(${badge(b)})?.title==='● 记录中'&&document.querySelector('.toolbar-log').textContent.trim()==='● 记录中'`);

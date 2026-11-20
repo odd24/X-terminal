@@ -9,7 +9,7 @@ const pureBlack=process.argv.includes('--pure-black');
 const previous=baseline?JSON.parse(await readFile('artifacts/log-status-timeout-preview.json','utf8')):undefined;
 const executable=previous&&path.join(previous.directory,'shared-terminal-desktop.exe');
 const directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-typography-ui-中文-'));
-const prefix=pureBlack?'terminal-pure-black':baseline?'terminal-font-before':'terminal-font-after';
+const prefix=pureBlack?'terminal-black-only':baseline?'terminal-font-before':'terminal-font-after';
 let ui;
 try {
   ui=await launchDesktop(directory,{fixture:true,executable});
@@ -88,8 +88,8 @@ try {
     assert.ok(measure.markerColumns.every(Number.isFinite));
     assert.ok(Math.max(...measure.markerColumns)-Math.min(...measure.markerColumns)<=1,'regular, bold, and CJK must align to terminal columns');
     if(pureBlack){
-      const selectedFill=theme==='dark'?'rgb(37, 37, 37)':'rgb(228, 233, 241)';
-      const buttonFill=theme==='dark'?'rgb(17, 17, 17)':'rgb(255, 255, 255)';
+      const selectedFill=theme==='dark'?'rgb(48, 70, 94)':'rgb(228, 233, 241)';
+      const buttonFill=theme==='dark'?'rgb(32, 48, 68)':'rgb(255, 255, 255)';
       await ui.waitFor(`getComputedStyle(document.querySelector('.session-tree-list .selected')).backgroundColor===${JSON.stringify(selectedFill)}
         &&getComputedStyle(document.querySelector('.sidebar-toggle')).backgroundColor===${JSON.stringify(buttonFill)}`);
       measure.workspace=await ui.evaluate(`(()=>{
@@ -100,6 +100,7 @@ try {
           selectionFill:style('.session-tree-list .selected').backgroundColor,
           selectionBorder:style('.session-tree-list .selected').borderTopColor,
           controlFill:style('.sidebar-toggle').backgroundColor,
+          activeTabFill:style('.connection-tab:has([aria-selected="true"])').backgroundColor,
           tabBorder:style('.connection-tab:has([aria-selected="true"])').borderTopColor,
           separator:style('.terminal-footer').borderTopColor
         };
@@ -107,12 +108,16 @@ try {
       assert.ok(measure.workspace.weights.every(value=>value==='400'));
       if(theme==='dark'){
         const black='rgb(0, 0, 0)';
-        assert.ok(measure.workspace.surfaces.every(value=>value===black));
-        assert.equal(measure.workspace.selectionFill,'rgb(37, 37, 37)');
-        assert.equal(measure.workspace.controlFill,'rgb(17, 17, 17)');
-        assert.equal(measure.workspace.selectionBorder,'rgb(119, 119, 119)');
-        assert.equal(measure.workspace.tabBorder,'rgb(119, 119, 119)');
-        assert.equal(measure.workspace.separator,'rgb(57, 57, 57)');
+        assert.deepEqual(measure.workspace.surfaces,[
+          'rgb(16, 23, 32)','rgba(0, 0, 0, 0)','rgb(20, 31, 43)','rgb(20, 31, 43)',
+          'rgba(0, 0, 0, 0)',black,black,'rgba(0, 0, 0, 0)'
+        ]);
+        assert.equal(measure.workspace.selectionFill,'rgb(48, 70, 94)');
+        assert.equal(measure.workspace.controlFill,'rgb(32, 48, 68)');
+        assert.equal(measure.workspace.selectionBorder,'rgb(132, 217, 202)');
+        assert.equal(measure.workspace.activeTabFill,'rgb(16, 23, 32)');
+        assert.equal(measure.workspace.tabBorder,'rgb(49, 64, 84)');
+        assert.equal(measure.workspace.separator,'rgb(49, 64, 84)');
         assert.equal(measure.boldColor,'rgb(178, 235, 186)');
       }else{
         assert.equal(measure.workspace.surfaces[0],'rgb(238, 240, 243)');
@@ -137,7 +142,7 @@ try {
       const style=getComputedStyle(document.querySelector('.composition-view.active'));
       return [style.color,style.backgroundColor,style.outlineStyle];
     })()`),['rgb(16, 35, 55)','rgb(217, 236, 255)','solid']);
-    await ui.screenshot('terminal-pure-black-preedit.png');
+    await ui.screenshot('terminal-black-only-preedit.png');
     await ui.command('Input.imeSetComposition',{text:'',selectionStart:0,selectionEnd:0});
   }
   assert.deepEqual(await read(),original,'typography preserves service text');

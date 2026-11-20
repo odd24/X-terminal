@@ -87,7 +87,7 @@ try{
      if(!baseline){
        const m=metrics[theme];
        assert.ok(m.activeTab.x>=m.terminal.x-1&&Math.abs(m.activeTab.bottom-m.terminal.top)<=3);
-       assert.equal(m.activeTabBackground,m.terminalBackground);
+       assert.notEqual(m.activeTabBackground,m.terminalBackground);
        assert.ok(m.treePitch<=30&&m.treeHeader<95&&m.bottom<43);
        assert.notEqual(m.preedit.background,m.terminalBackground);
        assert.equal(m.preedit.outlineStyle,'solid');

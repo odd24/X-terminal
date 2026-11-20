@@ -57,7 +57,7 @@ try {
     assert.ok(actual.snapshots.every(font => font.includes('Consolas')));
   };
   await ui.fill('终端配色','follow_theme');
-  await checkTheme('dark', 'rgb(0, 0, 0)', 'rgb(0, 0, 0)');
+  await checkTheme('dark', 'rgb(16, 23, 32)', 'rgb(0, 0, 0)');
   await ui.screenshot('desktop-appearance-dark-native.png');
   await checkTheme('light', 'rgb(238, 240, 243)', 'rgb(255, 255, 255)');
   await ui.screenshot('desktop-appearance-light-native.png');
