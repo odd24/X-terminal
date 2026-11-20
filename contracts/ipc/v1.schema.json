@@ -4138,7 +4138,8 @@
         "enum": [
           "follow_theme",
           "black_green",
-          "black_white"
+          "black_white",
+          "x"
         ],
         "type": "string"
       },
@@ -10452,7 +10453,8 @@
         "enum": [
           "follow_theme",
           "black_green",
-          "black_white"
+          "black_white",
+          "x"
         ],
         "type": "string"
       },

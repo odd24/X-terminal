@@ -9,7 +9,9 @@ import { launchDesktop } from './lib/DesktopHarness.mjs';
 // Local-only preview. No installer, credentials/config copying, upload or publication.
 const saveRecovery=process.argv.includes('--save-recovery');
 const auditGrantFeedback=process.argv.includes('--audit-grant-feedback');
-const stagePreview=process.argv.includes('--terminal-black-only')?'terminal-black-only-preview'
+const paletteX=process.argv.includes('--palette-x');
+const stagePreview=paletteX?'palette-x-preview'
+  :process.argv.includes('--terminal-black-only')?'terminal-black-only-preview'
   :process.argv.includes('--pure-black')?'pure-black-preview'
   :process.argv.includes('--terminal-font')?'terminal-font-preview'
   :process.argv.includes('--log-status-timeout')?'log-status-timeout-preview'
@@ -55,7 +57,22 @@ await copyFile('docs/LOCAL_PREVIEW.md',path.join(destination,'README.md'));
 let ui,directory;
 try{
   directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-preview-ui-中文-'));
-  ui=await launchDesktop(directory,{executable:path.join(destination,'shared-terminal-desktop.exe'),windowsHide:false});
+  const dataDirectory=paletteX?path.join(destination,'x-data'):directory;
+  const executable=path.join(destination,'shared-terminal-desktop.exe');
+  if(paletteX)await mkdir(dataDirectory);
+  const launch=()=>launchDesktop(dataDirectory,{executable,webviewDirectory:path.join(directory,'webview-ui'),windowsHide:false});
+  ui=await launch();
+  if(paletteX){
+    const config=request=>ui.invoke('config_request',{request});
+    const original=await config({op:'preferences'});
+    const expected={...original.preferences,terminal_palette:'x'};
+    await config({op:'save_preferences',revision:original.revision,preferences:expected});
+    await ui.close();
+    ui=await launch();
+    assert.deepEqual((await config({op:'preferences'})).preferences,expected);
+    await ui.waitFor("document.documentElement.dataset.terminalPalette==='x'");
+    await writeFile(path.join(destination,'Open-X.cmd'),'@echo off\r\nstart "" "%~dp0shared-terminal-desktop.exe" --data-dir "%~dp0x-data"\r\n');
+  }
   // Inspect only names/PIDs, never command lines or user terminal contents.
   const consoleChildren=JSON.parse(execFileSync('pwsh',['-NoProfile','-Command',`$items = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=${ui.app.pid}" | Where-Object { $_.Name -match '^(conhost|OpenConsole|WindowsTerminal|powershell|pwsh)\\.exe$' } | Select-Object Name,ProcessId); ConvertTo-Json -InputObject $items -Compress`],{encoding:'utf8',windowsHide:true}));
   assert.deepEqual(consoleChildren,[],'direct launch must not create a console or shell child');

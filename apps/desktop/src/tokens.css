@@ -155,3 +155,29 @@
   --terminal-foreground: #eeeeee;
   --terminal-cursor: #eeeeee;
 }
+
+/* X reproduces the supplied Xshell palette. The UI theme and composition colors stay separate. */
+:root[data-terminal-palette="x"] {
+  --terminal-background: #000000;
+  --terminal-foreground: #00e600;
+  --terminal-bold-foreground: #ffffff;
+  --terminal-cursor: var(--terminal-foreground);
+  --terminal-cursor-accent: var(--terminal-background);
+  --terminal-selection-background: #354b61;
+  --terminal-black: #000000;
+  --terminal-red: #d50000;
+  --terminal-green: #008000;
+  --terminal-yellow: #999606;
+  --terminal-blue: #0080ff;
+  --terminal-magenta: #800080;
+  --terminal-cyan: #0080c0;
+  --terminal-white: #cfd8d3;
+  --terminal-bright-black: #535755;
+  --terminal-bright-red: #e30000;
+  --terminal-bright-green: #00ff40;
+  --terminal-bright-yellow: #ffff00;
+  --terminal-bright-blue: #0080ff;
+  --terminal-bright-magenta: #ff00ff;
+  --terminal-bright-cyan: #00ffff;
+  --terminal-bright-white: #ffffff;
+}

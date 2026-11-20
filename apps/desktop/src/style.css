@@ -63,6 +63,11 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } }
 @media (max-width: 850px) { main { padding: var(--space-4); } }
 
+/* xterm marks palette and inverse foregrounds with xterm-fg-*; truecolor stays inline. */
+:root[data-terminal-palette="x"] .terminal .xterm-rows .xterm-bold:not([class*="xterm-fg-"], .xterm-dim, .xterm-cursor-block) {
+  color: var(--terminal-bold-foreground);
+}
+
 .terminal .xterm-viewport { background-color: var(--terminal-background); }
 
 /* Terminal-first shell. Auxiliary tools scroll independently of the live terminal. */

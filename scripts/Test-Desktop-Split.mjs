@@ -64,11 +64,52 @@ try{
  await ui.click('收起分屏，保留连接');await ui.click('串口连接');await ui.waitFor(`document.querySelector('[aria-label="UART端口"]')?.options.length===2`);await ui.fill('UART端口',await ui.evaluate(`document.querySelector('[aria-label="UART端口"]').options[1].value`));await ui.click('连接串口');await ui.waitFor(`!document.querySelector('dialog:modal')`);const uart=(await ui.invoke('service_list')).find(c=>c.protocol==='SERIAL');assert.ok(uart);assert.equal((await raw(uart)).length,0);
  const currentA={...renewed,protocol:'SSH2',state:'CONNECTED'};await split(currentA,uart,'horizontal');await ready('first',currentA);await ready('second',uart);await focus('second');await ui.command('Input.insertText',{text:'UART_ONLY'});await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await exact(uart,Buffer.from('UART_ONLY\r'));await ui.waitFor(`document.querySelector('[aria-label="UART连接状态"]')?.textContent.includes('接收 10 字节')`);
  await ui.click('终端日志');await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes(${JSON.stringify(uart.connection_id)})`);await focus('first');await ui.waitFor(`document.querySelector('[aria-label="日志目标"]').textContent.includes(${JSON.stringify(currentA.connection_id)})`);await ui.click('关闭日志面板');await ui.screenshot('P17-split-mixed.png');
+ const paletteX=process.argv.includes('--palette-x');
+ const config=request=>ui.invoke('config_request',{request});
+ let originalPreferences;
+ if(paletteX){
+   originalPreferences=(await config({op:'preferences'})).preferences;
+   await menu('外观');await ui.fill('终端配色','x');await ui.click('保存桌面偏好');
+   await wait(async()=>(await config({op:'preferences'})).preferences.terminal_palette==='x','X preference persisted');
+   await ui.click('关闭外观');
+
+   const normal=['000000','d50000','008000','999606','0080ff','800080','0080c0','cfd8d3'];
+   const bright=['535755','e30000','00ff40','ffff00','0080ff','ff00ff','00ffff','ffffff'];
+   const colors=[
+     ['normal-text','0','00e600'],['bold-text','1','ffffff'],['rgb-text','1;38;2;18;52;86','123456'],
+     ...normal.map((color,i)=>['basic-'+i,String(30+i),color]),
+     ...bright.map((color,i)=>['bright-'+i,String(90+i),color]),
+     ...bright.map((color,i)=>['bold-'+i,'1;'+(30+i),color]),
+   ];
+   const sample='\x1b[2J\x1b[H'+colors.map(([name,sgr])=>'\x1b['+sgr+'m'+name+'\x1b[0m').join('\r\n');
+   const beforeUart=await raw(uart);
+   await one.control({op:'push',text:sample});
+   await focus('second');
+   await ui.invoke('serial_request',{request:{op:'send',connection:ref(uart),request_id:requestId(),content:Buffer.from(sample).toString('hex').match(/../g).join(' '),format:'hex',ending:'none',pace:{chunk_bytes:1024,interval_ms:0}}});
+   await exact(uart,Buffer.concat([beforeUart,Buffer.from(sample)]));
+   const wanted=Object.fromEntries(colors.map(([name,,hex])=>[name,'rgb('+hex.match(/../g).map(byte=>parseInt(byte,16)).join(', ')+')']));
+   for(const key of ['first','second']){
+     const pane='[data-pane="'+key+'"]';
+     await ui.waitFor('document.querySelector('+JSON.stringify(pane+' .xterm-rows')+').textContent.includes("bold-7")');
+     const computed=await ui.evaluate('(()=>{const pane=document.querySelector('+JSON.stringify(pane)+');return {background:getComputedStyle(pane.querySelector(".terminal")).backgroundColor, colors:Object.fromEntries([...pane.querySelectorAll(".xterm-rows > div > span")].filter(span=>'+JSON.stringify(Object.keys(wanted))+'.includes(span.textContent)).map(span=>[span.textContent,getComputedStyle(span).color]))};})()');
+     assert.deepEqual(computed,{background:'rgb(0, 0, 0)',colors:wanted});
+   }
+   assert.equal(await ui.evaluate('getComputedStyle(document.querySelector(".app-bar")).backgroundColor'),'rgb(245, 246, 248)');
+   await ui.screenshot('palette-x-ssh-uart.png');
+   console.log('PASS X actual SSH and UART xterm cells: default, bold, truecolor, 16 ANSI slots and eight SGR bold colors; UI untouched');
+ }
  const exactUART=await raw(uart);await ui.evaluate(`document.querySelector('[aria-label="关闭标签 ${uart.connection_id}"]').click()`);await ui.waitFor(`document.querySelectorAll('[data-pane]').length===1`);assert.equal((await ui.invoke('service_list')).find(c=>c.connection_id===currentA.connection_id).state,'CONNECTED');assert.deepEqual(await raw(uart),exactUART);
  // Same saved Profile remains two actual independent connections in two panes.
  const twin=await connect(one,a.profileId);await split(currentA,twin,'horizontal');const firstKey=await ui.evaluate(`document.querySelector('[data-active="true"][data-pane]').dataset.pane`);const secondKey=firstKey==='first'?'second':'first';await ready(firstKey,currentA);await ready(secondKey,twin);const oldTwin=await raw(twin);await focus(secondKey);await ui.command('Input.insertText',{text:'TWIN_ONLY'});await exact(twin,Buffer.concat([oldTwin,Buffer.from('TWIN_ONLY')]));assert.equal((await raw(currentA)).includes(Buffer.from('TWIN_ONLY')),false);
  await one.control({op:'end'});await wait(async()=>(await ssh({op:'status',connection:ref(twin)})).connection.state==='DISCONNECTED','remote end exact twin');await ui.waitFor(`document.querySelector('[data-pane="${secondKey}"] .pane-status')?.textContent.includes('会话已断开')`);const finalTwin=await raw(twin);await ui.command('Input.insertText',{text:'NEVER_AFTER_REMOTE_END'});await delay(150);assert.deepEqual(await raw(twin),finalTwin);assert.equal((await ui.invoke('service_list')).find(c=>c.connection_id===currentA.connection_id).state,'CONNECTED');
  await ui.command('Page.reload');await ui.waitFor(`document.querySelectorAll('[data-pane]').length===1`);assert.equal((await ui.invoke('service_list')).filter(c=>c.state==='CONNECTED').length,2);assert.deepEqual(await raw(twin),Buffer.concat([oldTwin,Buffer.from('TWIN_ONLY')]));
+ if(paletteX){
+   await ui.waitFor("document.documentElement.dataset.terminalPalette==='x'");
+   assert.deepEqual((await config({op:'preferences'})).preferences,{...originalPreferences,terminal_palette:'x'});
+   await menu('外观');await ui.fill('终端配色',originalPreferences.terminal_palette);await ui.click('保存桌面偏好');
+   await wait(async()=>(await config({op:'preferences'})).preferences.terminal_palette===originalPreferences.terminal_palette,'original palette restored');
+   assert.deepEqual((await config({op:'preferences'})).preferences,originalPreferences);
+ }
  await writeFile('artifacts/P17-split-result.json',JSON.stringify({result:'PASS',identities:{a,b,renewed,uart,twin},realWindow:resized,hardware:'memory serial; no COM'},null,2));
  console.log('PASS native two-pane terminals: horizontal/vertical, actual independent SSH sizes/window resize, focused keyboard/F6, held queue roundtrip drop, paste/compose invalidation, lost write no replay, exact generation freeze/new explicit bind, mixed UART/log target, pane collapse keeps sessions, exact tab close, same-Profile instances, reload single without replay');
 }catch(error){if(ui){await ui.screenshot('P17-split-failure.png').catch(()=>{});await writeFile('artifacts/P17-split-failure.txt',await ui.evaluate('document.body.innerText').catch(String));}throw error;

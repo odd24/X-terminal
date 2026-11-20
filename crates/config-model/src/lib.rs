@@ -280,6 +280,7 @@ pub enum TerminalPalette {
     FollowTheme,
     BlackGreen,
     BlackWhite,
+    X,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
