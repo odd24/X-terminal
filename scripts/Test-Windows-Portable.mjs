@@ -107,7 +107,7 @@ try {
   assert.equal(service.ParentProcessId,release.app.pid);
   assert.equal(service.ExecutablePath.toLowerCase(),serviceExecutable.toLowerCase());
   assert.equal((await page(release)).code,'LOCKED');
-  assert.equal(await release.invoke('fixture_create').then(()=>null,error=>error),'FIXTURE_DISABLED');
+  assert.equal(await release.evaluate("window.__TAURI_INTERNALS__.invoke('fixture_create').then(()=>null,error=>error)"),'FIXTURE_DISABLED');
   assert.deepEqual(await release.invoke('service_list'),[]);
   await closeIdle(owner,ownerStatus);
   owner=undefined;
