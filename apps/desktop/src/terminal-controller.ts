@@ -36,7 +36,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     const setPasteProposal=deps.proposal,setClipboardMessage=deps.message;
     function bound(target?:Ref){const wanted=deps.selection();return !disposed&&owner===wanted.owner&&!!target&&!!wanted.connection&&current.connection?.connection_id===target.connection_id&&current.connection.generation===target.generation&&wanted.connection.connection_id===target.connection_id&&wanted.connection.generation===target.generation&&wanted.connection.protocol===current.protocol;}
     function active(){return deps.selection().active;}
-    const term = new Terminal({ allowProposedApi: true, cursorBlink: true, ...terminalAppearance(), fontSize: 15, scrollback: 512 });
+    const term = new Terminal({ allowProposedApi: true, cursorBlink: true, ...terminalAppearance(), fontSize: deps.preferences().font_size, scrollback: 512 });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(element);
@@ -306,7 +306,10 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     void poll();
     return {runtime:current,clipboard:clip,compose,captureMenu,
       invalidate(){pacedCompose?.cancel();clip.invalidate();update({renderedTarget:undefined});},
-      appearance(){const appearance=terminalAppearance();term.options.theme=appearance.theme;term.options.fontFamily=appearance.fontFamily;term.options.fontSize=deps.preferences().font_size;fit.fit();},
+      appearance(){
+        term.options={...terminalAppearance(),fontSize:deps.preferences().font_size};
+        fit.fit();
+      },
       dispose(){disposed=true;pacedCompose?.cancel();clip.invalidate();element.removeEventListener('paste',paste,true);element.removeEventListener('contextmenu',contextMenu,true);clearTimeout(timer);queue.close();clearTimeout(resizeTimer);resize.dispose();observer.disconnect();input.dispose();current.writer.close();term.dispose();}
     };
 }
