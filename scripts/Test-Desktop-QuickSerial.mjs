@@ -14,7 +14,10 @@ try {
   saveDirectory=await mkdtemp(path.join(tmpdir(),'shared-terminal-save-ui-中文-'));await mkdir(path.join(saveDirectory,'UART日志'));
   ui=await launchDesktop(directory,{fixture:true,windowsHide:false});
   // A click is one action, after the actual visible control is enabled (including fieldsets).
-  const click=async label=>{const lookup=`Array.from(document.querySelectorAll('button')).find(b=>b.textContent===${JSON.stringify(label)}&&b.getClientRects().length>0&&!b.matches(':disabled'))`;await ui.waitFor(`!!(${lookup})`);assert.equal(await ui.evaluate(`(()=>{const b=${lookup};if(!b)return false;b.click();return true;})()`),true,`ready control clicked once: ${label}`);};
+  const click=async label=>{
+    if(label==='串口连接')await ui.evaluate(`(()=>{const m=document.querySelector('.new-menu');if(m)m.open=true;})()`);
+    if(label==='终端日志')await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
+    const lookup=`Array.from(document.querySelectorAll('button')).find(b=>(b.textContent===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)})&&b.getClientRects().length>0&&!b.matches(':disabled'))`;await ui.waitFor(`!!(${lookup})`);assert.equal(await ui.evaluate(`(()=>{const b=${lookup};if(!b)return false;b.click();return true;})()`),true,`ready control clicked once: ${label}`);};
   const rpc=request=>ui.invoke('serial_request',{request});
   const config=()=>ui.invoke('config_request',{request:{op:'page',revision:null,offset:0,folders:false}});
   const show=async()=>{await click('串口连接');await ui.waitFor(`document.querySelector('[aria-label="UART端口"]')?.options.length===2`);};
@@ -29,9 +32,13 @@ try {
   assert.ok(await ui.evaluate(`document.querySelector('[aria-label="UART初始控制线"]').textContent.includes('DTR 低电平')`));
   assert.ok(await ui.evaluate(`document.querySelector('[aria-label="串口快速连接"]').textContent.includes('COM99')`));
   assert.equal(await ui.evaluate(`document.querySelector('dialog:modal').scrollWidth<=document.querySelector('dialog:modal').clientWidth`),true,'serial form must not overflow horizontally');
-  await ui.screenshot('P10.1-serial-dialog.png');
-  await choose();await ui.fill('UART波特率',57600);
-  const terminalWidth=await ui.evaluate(`document.querySelector('.terminal').getBoundingClientRect().width`);
+  await ui.screenshot('CR-022-S2-serial-form.png');
+  await click('连接串口');await ui.waitFor(`document.querySelector('#uart-device-error')&&document.activeElement.getAttribute('aria-label')==='UART端口'`);
+  await choose();await ui.fill('UART波特率',0);
+  await click('连接串口');await ui.waitFor(`!!document.querySelector('#uart-baud-error')`);
+  assert.equal((await ui.invoke('service_list')).length,0);
+  await ui.fill('UART波特率',57600);
+  const terminalWidth=await ui.evaluate(`document.querySelector('.terminal-workspace').getBoundingClientRect().width`);
   await ui.evaluate(`Array.from(document.querySelectorAll('summary')).find(s=>s.textContent==='通信参数与控制线').parentElement.open=true`);
   await ui.fill('UART流控','hardware');assert.equal(await ui.evaluate(`document.querySelector('[aria-label="UART初始RTS"]').disabled`),true);
   await ui.fill('UART流控','none');assert.equal(await ui.evaluate(`document.querySelector('[aria-label="UART初始RTS"]').value`),'false');
@@ -40,7 +47,7 @@ try {
   await wait(async()=>await hold.count()===1,'one held start');assert.equal((await ui.invoke('service_list')).filter(c=>c.protocol==='SERIAL').length,1);
   await hold.release();const first=await connected();await hold.restore();
   assert.equal((await config()).profiles.length,0,'temporary serial must not persist a Profile');
-  assert.equal(await ui.evaluate(`document.querySelector('.terminal').getBoundingClientRect().width`),terminalWidth,'connecting must not add a sidebar or shrink terminal columns');
+  assert.equal(await ui.evaluate(`document.querySelector('.terminal-workspace').getBoundingClientRect().width`),terminalWidth,'connecting must not add a sidebar or shrink terminal columns');
   await wait(async()=>Buffer.from(await raw(first)).toString('utf8').includes('Android启动 log'),'passive receive without a send');
   await ui.waitFor(`document.activeElement?.classList.contains('xterm-helper-textarea')`);
   // Passive fixture rejects any attempted writes: initial receive/logging cannot rely on echo.

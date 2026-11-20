@@ -813,6 +813,12 @@ fn preferences_restart_directory_isolation_backup_digest_and_transactional_resto
     let path = temp.path("first.sqlite");
     let mut store = Store::open(&path).unwrap();
     let original = store.image().unwrap();
+    let expected_fresh = DesktopPreferences {
+        theme: ThemeChoice::Light,
+        terminal_palette: TerminalPalette::BlackWhite,
+        ..DesktopPreferences::default()
+    };
+    assert_eq!(original.preferences, expected_fresh);
     let changed = DesktopPreferences {
         theme: ThemeChoice::Light,
         terminal_font: TerminalFont::Cascadia,
@@ -832,7 +838,7 @@ fn preferences_restart_directory_isolation_backup_digest_and_transactional_resto
             .unwrap()
             .preferences()
             .unwrap(),
-        DesktopPreferences::default()
+        expected_fresh
     );
     // Portable connection exchange excludes desktop preferences.
     assert!(
@@ -854,7 +860,7 @@ fn preferences_restart_directory_isolation_backup_digest_and_transactional_resto
             &temp.path("安全.sqlite"),
         )
         .unwrap();
-    assert_eq!(store.preferences().unwrap(), DesktopPreferences::default());
+    assert_eq!(store.preferences().unwrap(), expected_fresh);
     assert_eq!(
         Store::read_backup(&temp.path("安全.sqlite"))
             .unwrap()
@@ -872,13 +878,14 @@ fn preferences_restart_directory_isolation_backup_digest_and_transactional_resto
         Err(Error::Conflict)
     ));
     assert!(!temp.path("未创建.sqlite").exists());
-    assert_eq!(store.preferences().unwrap(), DesktopPreferences::default());
+    assert_eq!(store.preferences().unwrap(), expected_fresh);
 }
 #[test]
 fn invalid_corrupt_missing_and_external_newer_preferences_do_not_silently_reset() {
     let temp = Temp::new();
     let path = temp.path("config.sqlite");
     let mut store = Store::open(&path).unwrap();
+    let original = store.preferences().unwrap();
     for size in [0, 9, 29, 255] {
         assert!(
             store
@@ -888,7 +895,7 @@ fn invalid_corrupt_missing_and_external_newer_preferences_do_not_silently_reset(
                 })
                 .is_err()
         );
-        assert_eq!(store.preferences().unwrap(), DesktopPreferences::default());
+        assert_eq!(store.preferences().unwrap(), original);
     }
     let sql = Connection::open(&path).unwrap();
     sql.execute_batch("PRAGMA user_version=99").unwrap();

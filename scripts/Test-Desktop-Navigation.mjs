@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn,execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,7 +19,26 @@ try{
  const a=profile('已保存 A'),b=profile('右键目标 B','localhost'),missing=profile('缺少凭据 C','localhost'),wrong=profile('错误凭据 D'),key=profile('加密密钥 E','127.0.0.1','public_key');
  for(const p of [a,b,missing,wrong])assert.equal((await config({op:'save_profile',profile:p,credential:p===missing?{action:'clear'}:{action:'replace',value:{password:p===wrong?'wrong-synthetic':server.password,private_key:null,passphrase:null}}})).result,'saved_profile');
  assert.equal((await config({op:'save_profile_key_file',profile:key,key_path:server.key_path,passphrase:server.password})).result,'saved_profile');
- await ui.click('会话导航');await ui.click('刷新会话树');
+ const sidebar='document.querySelector(".sidebar-toggle")';
+ assert.equal(await ui.evaluate(`${sidebar}.getAttribute('aria-expanded')`),'true');
+ assert.equal(await ui.evaluate(`[...document.querySelectorAll('.empty-actions button')].map(b=>b.textContent).join('|')`),'新建 SSH|新建串口');
+ const grip=await ui.evaluate(`(()=>{const r=document.querySelector('.sidebar-divider').getBoundingClientRect();const x=r.x+r.width/2,y=r.y+60;if(!document.elementFromPoint(x,y)?.matches('.sidebar-divider'))throw Error('divider is covered');return{x,y};})()`);
+ await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...grip});
+ await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:grip.x+36,y:grip.y});
+ await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:grip.x+36,y:grip.y});
+ await ui.waitFor(`Number(document.querySelector('.sidebar-divider').getAttribute('aria-valuenow'))>280`);
+ await ui.screenshot('CR-022-S1-library.png');
+ await ui.click('会话导航');
+ await ui.close();ui=await launchDesktop(directory,{fixture:true});
+ assert.equal(await ui.evaluate(`${sidebar}.getAttribute('aria-expanded')`),'false');
+ await ui.command('Page.bringToFront');
+ await ui.evaluate(`${sidebar}.focus()`);
+ await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:' ',code:'Space',windowsVirtualKeyCode:32});
+ await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:' ',code:'Space',windowsVirtualKeyCode:32});
+ await ui.waitFor(`${sidebar}.getAttribute('aria-expanded')==='true'`);
+ await ui.close();ui=await launchDesktop(directory,{fixture:true});
+ assert.equal(await ui.evaluate(`${sidebar}.getAttribute('aria-expanded')`),'true');
+ await ui.click('刷新会话树');
  const tree=p=>`Array.from(document.querySelectorAll('.session-tree-list button')).find(b=>b.firstChild.textContent===${JSON.stringify(p.name)})`;
  const double=async(p,count=1)=>{await ui.waitFor(`!!(${tree(p)})`);await ui.evaluate(`(()=>{const b=${tree(p)};for(let i=0;i<${count};i++)b.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));})()`);};
  const context=async p=>{const point=await ui.evaluate(`(()=>{const b=${tree(p)};b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...point});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...point});await ui.waitFor(`!!document.querySelector('[role="menu"][aria-label="会话配置菜单"]')`);};
@@ -40,6 +59,26 @@ try{
  await context(missing);await chooseContext();await ui.waitFor(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='提交本次登录信息')`);const missingAttempts=(await control({op:'metrics'})).attempts;await delay(300);assert.equal((await control({op:'metrics'})).attempts,missingAttempts,'no blank or guessed credential dispatch');await ui.fill('SSH登录密码',server.password);await ui.click('提交本次登录信息');await connected();
  const beforeWrong=(await control({op:'metrics'})).attempts;await double(wrong);await ui.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('未被服务器接受')`);await delay(350);assert.equal((await control({op:'metrics'})).attempts,beforeWrong+1,'rejected stored credential is never looped');await ui.fill('SSH登录密码',server.password);await ui.click('提交本次登录信息');await connected();
  await double(key);const keyed=await connected();assert.equal((await ssh({op:'status',connection:ref(keyed)})).profile_id,key.id);
+ const sixTabs=await ui.evaluate(`[...document.querySelectorAll('[role="tab"]')].map(tab=>tab.dataset.connectionId)`);
+ assert.equal(sixTabs.length,6);
+ const resize=(width,height)=>JSON.parse(execFileSync('pwsh',['-NoProfile','-File','scripts/lib/Resize-TestWindow.ps1','-TargetProcessId',String(ui.app.pid),'-Width',String(width),'-Height',String(height),'-ExpectedExecutable',path.resolve('target/debug/shared-terminal-desktop.exe'),'-PhysicalSize'],{encoding:'utf8',windowsHide:true}));
+ const compact=resize(760,560);
+ await ui.waitFor(`innerWidth < 780 && document.querySelector('[role="tablist"]').scrollWidth>document.querySelector('[role="tablist"]').clientWidth`);
+ await ui.evaluate(`document.querySelector('[role="tab"][aria-selected="true"]').focus({preventScroll:true})`);
+ const toolbar=await ui.evaluate(`[...document.querySelectorAll('.app-bar > *')].map(node=>{const r=node.getBoundingClientRect();return {top:r.top,left:r.left,right:r.right,width:innerWidth};})`);
+ assert.ok(Math.max(...toolbar.map(r=>r.top))-Math.min(...toolbar.map(r=>r.top))<12,'toolbar remains on one row');
+ assert.ok(toolbar.every(r=>r.left>=0&&r.right<=r.width),'toolbar controls remain within the actual client');
+ console.log('CR-022 compact window',JSON.stringify(compact));
+ const visited=new Set();
+ for(let i=0;i<6;i++){
+   visited.add(await ui.evaluate(`document.activeElement.dataset.connectionId`));
+   await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+   await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+ }
+ assert.deepEqual([...visited].sort(),sixTabs.sort());
+ await ui.screenshot('CR-022-S3-six-tabs-compact.png');
+ resize(1100,760);
+ await ui.waitFor(`innerWidth > 900`);
  // Exact ref close, same-turn dedup, then reconnect while its real response is held.
  const closeHeld=await ui.interceptIpc({command:'ssh_request',op:'close',mode:'hold'});await ui.evaluate(`(()=>{const b=${closeButton(first)};b.click();b.click();})()`);await wait(async()=>await closeHeld.count()===1,'one close dispatch');assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="关闭标签确认"]')`),false);await wait(async()=>['DISCONNECTED','FAILED'].includes((await list()).find(c=>c.connection_id===first.connection_id).state),'old transport ended');
  const restarted=await ssh({op:'reconnect',connection:ref(first),request_id:requestId(),cols:80,rows:24});assert.equal(restarted.result,'started');const newer=restarted.connection;await ui.waitFor(`(${tab(first)})?.title.includes(${JSON.stringify('/ '+newer.generation)})`);await closeHeld.restore();await delay(200);assert.ok(await ui.evaluate(`!!(${tab(newer)})`),'late old close cannot hide new generation');assert.ok(!['FAILED','DISCONNECTED'].includes((await list()).find(c=>c.connection_id===newer.connection_id).state));

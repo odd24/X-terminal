@@ -152,15 +152,21 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       if (event.clipboardData) void clip.paste(event.clipboardData.getData('text/plain'));
       else setClipboardMessage('剪贴板没有可读取文字；未发送');
     };
-    const contextMenu = (event: MouseEvent) => {
-      event.preventDefault();event.stopImmediatePropagation();deps.activate();
+    function captureMenu(anchor:HTMLElement,x:number,y:number):TerminalMenuCapture|undefined {
       const selection=deps.selection();
-      if(!current.connection||!selection.connection||!bound(current.connection)||selection.suspended){setClipboardMessage('请先明确选择当前会话，再打开终端菜单。');return;}
+      if(!current.connection||!selection.connection||!bound(current.connection)||selection.suspended)return;
       let viewport,buffer,warning='';
       try{viewport=freezeDisplay(term.buffer.active,term.cols,term.rows,true);}catch(error){warning=error instanceof Error?error.message:'可见屏幕无法冻结。';}
       try{buffer=freezeDisplay(term.buffer.active,term.cols,term.rows,false);}catch(error){warning=error instanceof Error?error.message:'保留缓冲无法冻结。';}
+      return {target:{service_id:selection.owner,protocol:current.protocol,connection:{...current.connection}},epoch:selection.epoch,x,y,anchor,viewport,buffer,warning,selected:term.hasSelection(),writable:current.writable&&selection.connection.state==='CONNECTED'};
+    }
+    const contextMenu = (event: MouseEvent) => {
+      event.preventDefault();event.stopImmediatePropagation();deps.activate();
+      if(term.hasSelection()){void clip.copy();return;}
       const rect=element.getBoundingClientRect();
-      deps.context({target:{service_id:selection.owner,protocol:current.protocol,connection:{...current.connection}},epoch:selection.epoch,x:event.clientX||rect.left+12,y:event.clientY||rect.top+12,anchor:term.textarea??element,viewport,buffer,warning,selected:term.hasSelection(),writable:current.writable&&selection.connection.state==='CONNECTED'});
+      const captured=captureMenu(term.textarea??element,event.clientX||rect.left+12,event.clientY||rect.top+12);
+      if(captured)deps.context(captured);
+      else setClipboardMessage('请先明确选择当前会话，再打开终端菜单。');
     };
     element.addEventListener('paste', paste, true);
     element.addEventListener('contextmenu', contextMenu, true);
@@ -298,7 +304,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       }finally{polling=false;}
     }
     void poll();
-    return {runtime:current,clipboard:clip,compose,
+    return {runtime:current,clipboard:clip,compose,captureMenu,
       invalidate(){pacedCompose?.cancel();clip.invalidate();update({renderedTarget:undefined});},
       appearance(){const appearance=terminalAppearance();term.options.theme=appearance.theme;term.options.fontFamily=appearance.fontFamily;term.options.fontSize=deps.preferences().font_size;fit.fit();},
       dispose(){disposed=true;pacedCompose?.cancel();clip.invalidate();element.removeEventListener('paste',paste,true);element.removeEventListener('contextmenu',contextMenu,true);clearTimeout(timer);queue.close();clearTimeout(resizeTimer);resize.dispose();observer.disconnect();input.dispose();current.writer.close();term.dispose();}

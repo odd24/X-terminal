@@ -39,7 +39,7 @@ try {
   const [connection]=await ui.invoke('service_list'); const ref={connection_id:connection.connection_id,generation:connection.generation};
   const originalText=await ui.invoke('service_read_text',{connection:ref,cursor:1});
   const colors = () => ui.evaluate(`(()=>{const s=getComputedStyle(document.documentElement);const probe=document.createElement('span');probe.style.color=s.getPropertyValue('--terminal-foreground');document.body.append(probe);const foreground=getComputedStyle(probe).color;probe.remove();return {background:getComputedStyle(document.querySelector('.terminal')).backgroundColor,foreground,ui:s.backgroundColor,viewport:getComputedStyle(document.querySelector('.xterm-scrollable-element')).backgroundColor};})()`);
-  assert.deepEqual(await colors(),{background:'rgb(0, 0, 0)',foreground:'rgb(128, 255, 128)',ui:'rgb(243, 245, 248)',viewport:'rgb(0, 0, 0)'});
+  assert.deepEqual(await colors(),{background:'rgb(0, 0, 0)',foreground:'rgb(128, 255, 128)',ui:'rgb(238, 240, 243)',viewport:'rgb(0, 0, 0)'});
   const originalScreen=await ui.invoke('service_screen',{connection:ref});
   await ui.click('外观');await ui.fill('终端配色','black_white');
   assert.equal((await colors()).foreground,'rgb(238, 238, 238)');
@@ -69,6 +69,9 @@ try {
   try { await key('v'); await bytes(Buffer.from('中文宽字')); assert.equal(await readHook.count(),1); } finally { await readHook.restore(); }
   await ui.click('关闭查找');
   const terminal=await ui.evaluate(`(()=>{const r=document.querySelector('.terminal').getBoundingClientRect();return{x:r.x+30,y:r.y+30};})()`);
+  // Click once to clear the search selection before testing the menu path.
+  await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...terminal});
+  await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...terminal});
   await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...terminal});
   await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...terminal});
   await ui.waitFor(`!!document.querySelector('[aria-label="终端日志菜单"]')`);assert.equal((await read(cursor)).events.length,0);await ui.click('粘贴');await bytes(Buffer.from('中文宽字'));
@@ -143,7 +146,7 @@ try {
   assert.equal((await ui.invoke('service_list')).length,0,'service restart restores preferences without recreating sessions');
   await ui.close();ui=null;
   const second=await mkdtemp(path.join(tmpdir(),'shared-terminal-preferences-ui-中文-'));roots.push(second);
-  await open(second);assert.equal(await ui.evaluate('document.documentElement.dataset.theme'),'dark');
+  await open(second);assert.equal(await ui.evaluate('document.documentElement.dataset.theme'),'light');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'15');
   console.log('PASS native preferences: explicit save/read, reload and service restart, directory isolation, Ctrl+C/Shift+C/V/Shift+V and right click exact bytes, consent invalidation, stale revision, real lost response hit once/no retry; synthetic only');
 } catch(error) {

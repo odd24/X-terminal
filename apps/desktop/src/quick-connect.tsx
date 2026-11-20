@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { Panel, Field, ErrorNotice } from './ui';
+import { Panel, Field, ErrorNotice, keepCompositionInField } from './ui';
 import { config, ConfigRequestError, readConfiguration, type Auth, type Profile, type Settings } from './config-api';
 import { ssh, SshRequestError, reference, type Connection, type ConnectionRef, type SshStatus } from './ssh-api';
 import { requestId } from './request-id';
@@ -19,12 +19,14 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
   const [password,setPassword]=useState(''),[key,setKey]=useState(''),[passphrase,setPassphrase]=useState('');
   const [save,setSave]=useState(false),[remember,setRemember]=useState(false),[saved,setSaved]=useState<Profile[]>([]),[savedId,setSavedId]=useState('');
   const [status,setStatus]=useState<SshStatus>(),[message,setMessage]=useState('填写服务器和登录信息即可连接。'),[busy,setBusy]=useState(false),[approved,setApproved]=useState(false),[answers,setAnswers]=useState<string[]>([]),[unknown,setUnknown]=useState(false);
+  const [fieldErrors,setFieldErrors]=useState<{host?:string;username?:string;port?:string}>({});
   const [operationError,setOperationError]=useState('');
   const [configurationCode,setConfigurationCode]=useState('');
   const [configurationLoading,setConfigurationLoading]=useState(true),[configurationError,setConfigurationError]=useState(''),[saveUncertain,setSaveUncertain]=useState(false),[editingTarget,setEditingTarget]=useState(false);
   const configFlight=useRef(false),authFlight=useRef(false),submittedChallenge=useRef<string|undefined>(undefined);
   const [authPending,setAuthPending]=useState(false),[authUnknown,setAuthUnknown]=useState(false),[savingCredential,setSavingCredential]=useState(false);
   const passwordField=useRef<HTMLInputElement>(null),keyField=useRef<HTMLInputElement>(null),latestStatus=useRef(status);latestStatus.current=status;
+  const hostField=useRef<HTMLInputElement>(null);
   const hostConfirmation=useRef<HTMLInputElement>(null);
   const intentStarted=useRef(false), intentBlocked=useRef(false);
   const mounted=useRef(true), current=useRef(connection), attempt=useRef<Attempt | undefined>(undefined), inFlight=useRef(false), notified=useRef(''), enterAfterAuth=useRef<ConnectionRef | undefined>(undefined);current.current=connection;
@@ -102,7 +104,22 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
     if(intentBlocked.current){setMessage('配置已读回，请核对目标后点击连接；没有自动重试。');return;}
     const selectedAuth=p.settings.auth;void run(async()=>{const a:Attempt={id:intent.request_id,cancelled:false};a.secret=chooseLoginSecret(p,selectedAuth,{password:'',key:'',passphrase:''});attempt.current=a;await dispatchStart(a,p.id);});
   },[intent,configurationLoading,configurationError,saved]);
-  async function connect(event:FormEvent){event.preventDefault();if(status?.challenge?.kind==='credentials'&&!ended(status.connection.state)){if(!authPending&&!authUnknown&&!unknown&&!saveUncertain)await run(submitManual);return;}if(target&&!ended(target.state)&&target.state!=='CONNECTED')return;if(configurationLoading||configurationError||saveUncertain)return;await run(async()=>{
+  function validateFields(form: HTMLFormElement) {
+    const errors: typeof fieldErrors={};
+    const bytes=(value:string)=>new TextEncoder().encode(value.trim()).length;
+    if(!host.trim()||/\s|\p{Cc}/u.test(host.trim())||bytes(host)>253)errors.host='请输入有效的主机名或 IP 地址，地址中不能有空格。';
+    if(!username.trim()||/\p{Cc}/u.test(username.trim())||bytes(username)>128)errors.username='请输入有效的用户名，长度最多 128 字节。';
+    if(!Number.isInteger(port)||port<1||port>65535)errors.port='请输入 1 到 65535 之间的整数。';
+    setFieldErrors(errors);
+    const invalid=errors.host?'SSH服务器':errors.username?'SSH用户名':errors.port?'SSH端口':undefined;
+    if(!invalid)return true;
+    const field=form.querySelector<HTMLInputElement>(`[aria-label="${invalid}"]`);
+    const advanced=field?.closest('details');
+    if(advanced)advanced.open=true;
+    field?.focus();
+    return false;
+  }
+  async function connect(event:FormEvent<HTMLFormElement>){event.preventDefault();if(status?.challenge?.kind==='credentials'&&!ended(status.connection.state)){if(!authPending&&!authUnknown&&!unknown&&!saveUncertain)await run(submitManual);return;}if(target&&!ended(target.state)&&target.state!=='CONNECTED')return;if(configurationLoading||configurationError||saveUncertain||unknown||!savedId&&!validateFields(event.currentTarget))return;await run(async()=>{
     const storeNow=remember;clear();resetAuthentication();setRemember(false);const a:Attempt={id:requestId(),cancelled:false};attempt.current=a;
     const settings:Settings={protocol:'ssh2',host:host.trim(),port,username:username.trim(),auth,encoding};
     const secret=chooseLoginSecret(saved.find(p=>p.id===savedId),auth,{password,key,passphrase});setPassword('');setPassphrase('');a.secret=secret;
@@ -139,6 +156,10 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
   useEffect(()=>{if(waiting){const field=challenge?.kind==='credentials'&&challenge.auth==='public_key'?keyField.current:passwordField.current;field?.focus();}},[waiting,challenge?.id]);
   const credentialProfile=saved.find(p=>p.id===(savedId||status?.profile_id));
   const phase=savingCredential?'正在安全保存本次凭据…':authUnknown?'认证结果不明，正在查询原连接状态…':waiting?waitingCredentialText(challenge.auth,status?.failure==='AUTHENTICATION_REJECTED'):status?states[status.connection.state]??status.connection.state:'';
+  useEffect(()=>{
+    if(!intent&&!configurationLoading&&!document.activeElement?.closest('form'))hostField.current?.focus();
+  },[intent,configurationLoading]);
+  const connecting=busy||!!target&&!ended(target.state)&&target.state!=='CONNECTED'&&!challenge;
   const blocked=busy||unknown||configurationLoading||!!configurationError||saveUncertain||!!target&&!ended(target.state)&&target.state!=='CONNECTED';
   const label=(status as (SshStatus&{temporary_settings?:Settings|null})|undefined)?.temporary_settings??saved.find(p=>p.id===status?.profile_id)?.settings;
   const failure=configurationError||operationError||(challenge?.kind==='host_key'&&challenge.review.status==='changed'?'服务器指纹已变化。请通过可信渠道核对新指纹，未确认前不会继续连接。':status?.failure&&!authPending&&status.failure!=='CANCELLED'?failures[status.failure]??'SSH连接未成功，请核对服务器和登录信息后重试。':status?.connection.state==='FAILED'?'SSH连接未成功，请核对服务器地址、端口和登录信息后重试。':'');
@@ -147,18 +168,18 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
     {configurationLoading&&<p role="status">正在读取连接配置…</p>}
     {configurationCode==='LOCKED'&&<ConfigurationRecheck disabled={configurationLoading||busy} ready={loadConfiguration}/>}
     {(configurationError||saveUncertain||operationError.startsWith('保存凭据'))&&<button disabled={configurationLoading||busy} onClick={()=>void loadConfiguration()}>重新读取配置</button>}
-    <form onSubmit={event=>void connect(event)}>
-      {saved.length>0&&<Field label="已保存的连接（可选）"><select aria-label="快速连接已保存" disabled={blocked} value={savedId} onChange={e=>{clear();setRemember(false);setSavedId(e.target.value);const p=saved.find(p=>p.id===e.target.value);if(p?.settings.protocol==='ssh2'){setHost(p.settings.host);setPort(p.settings.port);setUsername(p.settings.username);setAuth(p.settings.auth);setEncoding(p.settings.encoding);}}}><option value="">直接填写新连接</option>{saved.map(p=><option key={p.id} value={p.id}>{p.name}{p.credential_missing?' · 凭据引用缺失':p.credential_ref?' · 已记住凭据':' · 未记住凭据'}</option>)}</select></Field>}
-      <Field label="服务器地址"><input aria-label="SSH服务器" required autoFocus disabled={blocked||!!savedId} value={host} onChange={e=>setHost(e.target.value)} placeholder="例如 192.168.1.10" maxLength={1024}/></Field>
-      <Field label="用户名"><input aria-label="SSH用户名" required disabled={blocked||!!savedId} value={username} onChange={e=>setUsername(e.target.value)} autoComplete="off" maxLength={256}/></Field>
+    <form noValidate onKeyDown={keepCompositionInField} onSubmit={event=>void connect(event)}>
+      {saved.length>0&&<Field label="已保存的连接（可选）"><select aria-label="快速连接已保存" disabled={blocked} value={savedId} onChange={e=>{clear();setRemember(false);setFieldErrors({});setSavedId(e.target.value);const p=saved.find(p=>p.id===e.target.value);if(p?.settings.protocol==='ssh2'){setHost(p.settings.host);setPort(p.settings.port);setUsername(p.settings.username);setAuth(p.settings.auth);setEncoding(p.settings.encoding);}}}><option value="">直接填写新连接</option>{saved.map(p=><option key={p.id} value={p.id}>{p.name}{p.credential_missing?' · 凭据引用缺失':p.credential_ref?' · 已记住凭据':' · 未记住凭据'}</option>)}</select></Field>}
+      <Field label="服务器地址" error={fieldErrors.host} errorId="ssh-host-error"><input ref={hostField} aria-label="SSH服务器" aria-invalid={!!fieldErrors.host} aria-describedby={fieldErrors.host?"ssh-host-error":undefined} required autoFocus disabled={blocked||!!savedId} value={host} onChange={e=>{setHost(e.target.value);setFieldErrors(old=>({...old,host:undefined}));}} placeholder="例如 192.168.1.10" maxLength={1024}/></Field>
+      <Field label="用户名" error={fieldErrors.username} errorId="ssh-user-error"><input aria-label="SSH用户名" aria-invalid={!!fieldErrors.username} aria-describedby={fieldErrors.username?"ssh-user-error":undefined} required disabled={blocked||!!savedId} value={username} onChange={e=>{setUsername(e.target.value);setFieldErrors(old=>({...old,username:undefined}));}} autoComplete="off" maxLength={256}/></Field>
       <Field label="登录方式"><select aria-label="SSH登录方式" disabled={blocked||!!savedId} value={auth} onChange={e=>{clear();setRemember(false);setAuth(e.target.value as Auth);}}><option value="password">密码</option><option value="public_key">密钥</option><option value="keyboard_interactive">交互认证</option></select></Field>
       {auth==='password'&&<Field label="密码"><input ref={passwordField} aria-label="SSH登录密码" type="password" autoComplete="off" disabled={busy||authPending} value={password} onChange={e=>setPassword(e.target.value)} maxLength={65536}/></Field>}
       {auth==='public_key'&&<><Field label="本地私钥文件"><input ref={keyField} aria-label="SSH密钥文件" disabled={busy||authPending} value={key} onChange={e=>setKey(e.target.value)} placeholder="C:\Users\…\.ssh\id_ed25519"/></Field><Field label="密钥口令（如有）"><input aria-label="SSH密钥口令" type="password" autoComplete="off" disabled={busy||authPending} value={passphrase} onChange={e=>setPassphrase(e.target.value)}/></Field></>}
-      <details><summary>高级连接设置</summary><Field label="端口"><input aria-label="SSH端口" type="number" min={1} max={65535} required disabled={blocked||!!savedId} value={port} onChange={e=>setPort(Number(e.target.value))}/></Field><Field label="编码"><select aria-label="SSH快速编码" disabled={blocked||!!savedId} value={encoding} onChange={e=>setEncoding(e.target.value as typeof encoding)}><option value="utf8">UTF-8</option><option value="gbk">GBK</option><option value="gb18030">GB18030</option></select></Field></details>
+      <details><summary>高级连接设置</summary><Field label="端口" error={fieldErrors.port} errorId="ssh-port-error"><input aria-label="SSH端口" aria-invalid={!!fieldErrors.port} aria-describedby={fieldErrors.port?"ssh-port-error":undefined} type="number" min={1} max={65535} required disabled={blocked||!!savedId} value={port} onChange={e=>{setPort(Number(e.target.value));setFieldErrors(old=>({...old,port:undefined}));}}/></Field><Field label="编码"><select aria-label="SSH快速编码" disabled={blocked||!!savedId} value={encoding} onChange={e=>setEncoding(e.target.value as typeof encoding)}><option value="utf8">UTF-8</option><option value="gbk">GBK</option><option value="gb18030">GB18030</option></select></Field></details>
       {!savedId&&<label className="check"><input aria-label="保存SSH连接" type="checkbox" disabled={blocked} checked={save} onChange={e=>{setSave(e.target.checked);setRemember(false);}}/>保存连接，便于下次使用</label>}
       {(savedId||save)&&auth!=='keyboard_interactive'&&<label className="check"><input aria-label="记住SSH凭据" type="checkbox" disabled={busy||authPending||unknown||saveUncertain} checked={remember} onChange={e=>setRemember(e.target.checked)}/>记住本次凭据（Windows安全存储，更新此配置）</label>}
       <small aria-label="SSH凭据状态">{credentialHint(credentialProfile)}</small>
-      <div className="config-actions"><button type="submit" disabled={waiting?busy||unknown||saveUncertain||configurationLoading||!!configurationError:blocked}>{waiting?'提交本次登录信息':'连接'}</button>{unknown&&<button type="button" disabled={busy} onClick={()=>void run(async()=>{const a=attempt.current;if(a)await accepted(await ssh({op:'start_status',request_id:a.id}),a);})}>查询本次连接</button>}<button type="button" disabled={busy} onClick={()=>void run(cancel)}>取消连接</button></div>
+      <div className="config-actions"><button className="primary-action" type="submit" disabled={waiting?busy||unknown||saveUncertain||configurationLoading||!!configurationError:blocked}>{connecting?'正在连接…':waiting?'提交本次登录信息':'连接'}</button>{unknown&&<button type="button" disabled={busy} onClick={()=>void run(async()=>{const a=attempt.current;if(a)await accepted(await ssh({op:'start_status',request_id:a.id}),a);})}>查询本次连接</button>}<button type="button" disabled={busy} onClick={()=>void run(cancel)}>取消连接</button></div>
     </form>
     <p role="status" aria-label="SSH快速提示">{message}</p>
     {status&&<><p aria-label="SSH快速状态">{phase}{status.failure&&!authPending&&!waiting&&` · ${failures[status.failure]??'连接异常，请核对信息。'}`}</p>{label?.protocol==='ssh2'&&<small>当前目标：{label.username}@{label.host}:{label.port}</small>}
@@ -169,6 +190,6 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
       {ended(status.connection.state)&&<button onClick={()=>{clear();setRemember(false);setSavedId('');setSave(false);setEditingTarget(true);setMessage('可在上方修改地址、用户名或认证方式，再直接连接；原连接已结束。');}}>修改连接信息</button>}
 
     </>}
-    <small>不选择记住凭据时，只用于本次登录。SSH2连接通过原会话服务；基础日志在顶部“终端日志”中开始/停止。</small>
+
   </Panel>;
 }

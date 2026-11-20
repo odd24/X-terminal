@@ -54,7 +54,14 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
       throw new Error(`UI condition timed out: ${expression}`);
     };
     const invoke = (name, args = {}) => evaluate(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(name)},${JSON.stringify(args)})`);
-    const click = label => evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === ${JSON.stringify(label)})?.click()`);
+    const click = label => evaluate(`(() => {
+      const label=${JSON.stringify(label)};
+      const matches=Array.from(document.querySelectorAll('button')).filter(button=>button.textContent===label||button.getAttribute('aria-label')===label);
+      const button=matches.find(button=>button.getClientRects().length)||matches[0];
+      const menu=button?.closest('.new-menu');
+      if(menu) { menu.open=true; button.focus(); }
+      button?.click();
+    })()`);
     const fill = (label, value) => evaluate(`(() => { const control = document.querySelector('[aria-label=' + JSON.stringify(${JSON.stringify(label)}) + ']'); const proto = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(control, ${JSON.stringify(String(value))}); control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input', {bubbles:true})); })()`);
     await waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
     const nativeStatus = await invoke('service_status'); pid = nativeStatus.pid;

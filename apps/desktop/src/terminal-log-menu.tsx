@@ -6,7 +6,7 @@ import {LogSavePanel} from './log-save-panel';
 import {checkedSave,saveDiagnosticNotice,terminalSave,type SaveInfo} from './log-save';
 import {requestId} from './request-id';
 import {checkedMenu,restoreLogTask,knownMenuRejection,menuFailure,type MenuInfo,type RememberedLogTask,type TerminalMenuContext} from './log-menu';
-type Props={focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
+type Props={paneLabel:string; onLog(log:LogInfo):void; focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
 type Receipt={target:RememberedLogTask;info:SaveInfo};
 type Task=RememberedLogTask&{info?:MenuInfo;log?:LogInfo;uncertain:boolean;finished:boolean;auto:boolean;recovery:boolean;cancelled:boolean;message:string;error:boolean;save?:SaveInfo};
 const slot='terminal-context-log-task-v1';
@@ -24,7 +24,7 @@ export function TerminalLogMenu(props:Props){
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;const t=current.current;if(t&&!t.finished&&['prepare','file','directory'].includes(t.kind))void invoke('terminal_log_request',{request:{op:'cancel',target:t.target,request_id:t.request_id}}).catch(()=>{});};},[]);
  useEffect(()=>{
   let active=true,timer=0;setLogs([]);setLoadError('');setLoading(!!menu);setLoadedMenu(undefined);
-  async function read(){if(!menu||!latest.current.valid(menu))return;try{const result=await logging({op:'list',connection:menu.target.connection});if(!active)return;if(result.result!=='list'||result.logs.some(l=>l.connection.connection_id!==menu.target.connection.connection_id||l.connection.generation!==menu.target.connection.generation||l.protocol!==menu.target.protocol))throw Error();setLogs(result.logs);setLoadError('');}catch{if(active)setLoadError('日志状态读取失败，请关闭菜单后重试；未启动或停止记录。');}finally{if(active){setLoadedMenu(menu);setLoading(false);timer=window.setTimeout(()=>void read(),500);}}}
+  async function read(){if(!menu||!latest.current.valid(menu))return;try{const result=await logging({op:'list',connection:menu.target.connection});if(!active)return;if(result.result!=='list'||result.logs.some(l=>l.connection.connection_id!==menu.target.connection.connection_id||l.connection.generation!==menu.target.connection.generation||l.protocol!==menu.target.protocol))throw Error();setLogs(result.logs);setLoadError('');}catch{if(active)setLoadError('状态未知。请关闭菜单后重试。');}finally{if(active){setLoadedMenu(menu);setLoading(false);timer=window.setTimeout(()=>void read(),500);}}}
   if(menu&&['SSH2','SERIAL'].includes(menu.target.protocol))void read();else setLoading(false);
   return()=>{active=false;clearTimeout(timer);};
  },[menu]);
@@ -40,14 +40,14 @@ export function TerminalLogMenu(props:Props){
     const result=await logging(t.kind==='start'?(start?{op:'start',connection:t.target.connection,request_id:t.request_id,limits:{segment_bytes:100*1024*1024,segments:5}}:{op:'start_status',connection:t.target.connection,request_id:t.request_id}):{op:start?'stop':'status',connection:t.target.connection,log_id:t.log_id!});
     if(result.result!=='info'||result.connection.connection_id!==t.target.connection.connection_id||result.connection.generation!==t.target.connection.generation||result.protocol!==t.target.protocol||t.log_id&&result.log_id!==t.log_id)throw Error('日志回执目标不匹配，请查询原编号。');
     if(current.current!==t||!mounted.current)return;
-    t.log_id=result.log_id;t.log=result;t.uncertain=false;t.error=!!result.failure;t.message=captureMessage(result);t.finished=t.kind==='stop'?result.worker_finished:result.phase==='RECORDING'&&!!result.readable||['FAILED','STOPPED','REMOVED','RELEASED'].includes(result.phase);
+    latest.current.onLog(result);t.log_id=result.log_id;t.log=result;t.uncertain=false;t.error=!!result.failure;t.message=captureMessage(result);t.finished=t.kind==='stop'?result.worker_finished:result.phase==='RECORDING'&&!!result.readable||['FAILED','STOPPED','REMOVED','RELEASED'].includes(result.phase);
    }else{
     const result=checkedMenu(await invoke<MenuInfo>('terminal_log_request',{request:start?payload:{op:'status',target:t.target,request_id:t.request_id}}),t.target,t.request_id,t.subkind!);
     if(current.current!==t||!mounted.current){if(t.kind==='prepare')void cancelNative(t);return;}
     t.info=result;t.uncertain=false;t.error=result.phase==='FAILED';
     if(result.phase==='COMPLETED'&&t.kind==='prepare'){
      if(t.cancelled||t.auto&&!latest.current.valid(t)){t.auto=false;t.cancelled=true;t.message='目标已变化，已放弃本次准备的临时副本。';void cancelNative(t);}
-     else{t.message=t.subkind==='RECORDED'?`已准备 ${result.ranges.length} 份日志的完整已刷新范围。起录前未记录、源缺口和快照后新输出不在文件；正在记录的文件继续追加。`:t.subkind==='VIEWPORT'?'已冻结右键当时实际可见屏幕的物理行、空行及尾部空格；这是显示文本，不是完整通信记录。':'已冻结当前活动终端保留缓冲；最多含512行历史，不代表从连接开始的全部日志。';if(t.auto)t.saveVisible=true;}
+     else{t.message=t.subkind==='RECORDED'?`已准备 ${result.ranges.length} 份日志的完整已刷新范围。起录前未记录、源缺口和快照后新输出不在文件；正在记录的文件继续追加。`:t.subkind==='VIEWPORT'?'已冻结打开菜单时实际可见屏幕的物理行、空行及尾部空格；这是显示文本，不是完整通信记录。':'已冻结当前活动终端保留缓冲；最多含512行历史，不代表从连接开始的全部日志。';if(t.auto)t.saveVisible=true;}
      t.finished=false;
     }else if(result.phase==='OPENED'){t.finished=true;t.message=t.kind==='file'?'已请求系统文本编辑器打开本次实际日志文件。记录继续，文件周期刷新；编辑器未必自动刷新，可重新打开此文件查看新增内容。':'已请求打开所有窗口共用的日志目录。';}
     else if(result.phase==='FAILED'){t.finished=true;t.message=menuFailure(result.failure??'');}
@@ -91,26 +91,28 @@ export function TerminalLogMenu(props:Props){
  const source:ExportInfo|undefined=task?.info&&['COMPLETED','REMOVED','RELEASING'].includes(task.info.phase)?{connection:task.target.connection,log_id:task.request_id,request_id:task.request_id,phase:task.info.phase==='COMPLETED'?'COMPLETED':'REMOVED',failure:null,bytes:task.info.bytes,sha256:task.info.sha256,retained_records:task.info.retained_records,retained_raw_bytes:null,retained_gap_bytes:task.info.retained_gap_bytes,next_cursor:null}:undefined;
  return <>
   {menu&&<ContextMenu className="terminal-context-menu" label="终端日志菜单" x={menu.x} y={menu.y} anchor={menu.anchor} close={props.close}>
-   <small>{menu.title} · 窗格 {menu.pane==='first'?1:2}</small>
-   <button role="menuitem" disabled={!supported||loading||!!loadError||pending||!menu.writable||logs.some(l=>l.active)} onClick={()=>choose('start')}>开始记录日志</button>
-   <button role="menuitem" disabled={!supported||loading||!!loadError||pending||!shown?.active} onClick={()=>choose('stop')}>停止记录日志</button>
+   <small className="log-menu-target">{menu.title} · {props.paneLabel}</small>
+   <button role="menuitem" disabled={!supported||pending||!menu.buffer} onClick={()=>choose('prepare','BUFFER')}>保存终端缓冲内容…</button>
+   <button role="menuitem" disabled={!supported||loading||!!loadError||pending||(!shown?.active&&!menu.writable)}
+    onClick={()=>choose(shown?.active?'stop':'start')}>{shown?.active?'停止记录':'开始记录'}</button>
    <button role="menuitem" disabled={!supported||pending} onClick={()=>choose('directory','DIRECTORY')}>打开日志目录</button>
-   <button role="menuitem" title={shown?.readable?.filename??'本次尚无可读日志文件'} disabled={!supported||loading||pending||!shown?.readable} onClick={()=>choose('file','FILE')}>打开日志文件</button><hr/>
-   <button role="menuitem" disabled={!supported||loading||!!loadError||pending||!completeFiles.length||completeFiles.some(l=>!l.readable)} onClick={()=>choose('prepare','RECORDED')}>导出当前窗口全部已记录日志</button>
-   <button role="menuitem" disabled={!supported||pending||!menu.viewport} onClick={()=>choose('prepare','VIEWPORT')}>导出当前可见屏幕日志</button>
-   <button role="menuitem" disabled={!supported||pending||!menu.buffer} onClick={()=>choose('prepare','BUFFER')}>导出当前终端保留缓冲</button>
+   <hr/>
+   <small>其他保存范围</small>
+   <button role="menuitem" disabled={!supported||loading||!!loadError||pending||!completeFiles.length||completeFiles.some(l=>!l.readable)} onClick={()=>choose('prepare','RECORDED')}>另存全部已记录日志…</button>
+   <button role="menuitem" disabled={!supported||pending||!menu.viewport} onClick={()=>choose('prepare','VIEWPORT')}>只保存当前可见屏幕…</button>
+   <button role="menuitem" title={shown?.readable?.filename??'本次尚无可读日志文件'} disabled={!supported||loading||!!loadError||pending||!shown?.readable} onClick={()=>choose('file','FILE')}>打开当前日志文件</button>
    <hr/>
    <button role="menuitem" disabled={!menu.selected} onClick={()=>{if(props.valid(menu))props.copy(menu);props.close();}}>复制选区</button>
    <button role="menuitem" disabled={!menu.writable} onClick={()=>{if(props.valid(menu))props.paste(menu);props.close();}}>粘贴</button><hr/>
    {shown&&<small aria-label="右键日志状态">{captureMessage(shown)}{shown.source_gap_bytes>0&&` · 源缺口 ${shown.source_gap_bytes} 字节`}</small>}
-   {!shown&&!loading&&<small>尚未开启记录；保留缓冲不是全部通信历史。</small>}
+   {!shown&&!loading&&!loadError&&<small>未记录 · 可保存仍保留的缓冲内容</small>}
    {shown&&!shown.readable&&<small>本次可读文件未就绪，不会打开上一轮文件。</small>}
    {receiptMatches&&receipt&&<><hr/><small aria-label="最近日志保存路径">上次已保存：{receipt.info.path}</small><button role="menuitem" onClick={()=>{void openSaved(receipt);props.close();}}>打开上次保存目录</button></>}
    {directoryError&&<small role="alert">{directoryError}</small>}
    {loadError&&<small role="alert">{loadError}</small>}{menu.warning&&<small role="alert">{menu.warning}</small>}
    {pending&&<button role="menuitem" onClick={()=>{setVisible(true);props.close();if(current.current&&!busy)void run(current.current);}}>查询上次日志操作结果</button>}
   </ContextMenu>}
-  {notice&&props.valid(notice.target)&&<div className="terminal-log-feedback" role="status" aria-label="日志保存反馈"><span title={notice.info.path??undefined}>{notice.target.title} · {notice.info.phase==='COMPLETED'?`日志已保存：${notice.info.path}`:'日志保存已取消。'}{saveDiagnosticNotice(notice.info)}</span>{notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开保存目录</button>}{directoryError&&<small role="alert">{directoryError}</small>}</div>}
+  {notice&&props.valid(notice.target)&&<div className="terminal-log-feedback" role="status" aria-label="日志保存反馈"><span title={notice.info.path??undefined}>{notice.target.title} · {notice.info.phase==='COMPLETED'?`日志已保存：${notice.info.path?.split(/[\\/]/).at(-1)}`:'日志保存已取消。'}{saveDiagnosticNotice(notice.info)}</span>{notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开所在目录</button>}{directoryError&&<small role="alert">{directoryError}</small>}</div>}
   {task&&visible&&<div className="terminal-log-operation"><Panel title={`${task.title} · 窗格${task.pane==='first'?1:2}日志`} label="终端右键日志操作" close={closeStatus} closeLabel="收起日志操作">
    {task.error?<ErrorNotice title="日志操作未完成">{task.message}</ErrorNotice>:<p role="status" aria-label="右键日志操作状态">{task.message}</p>}
    {task.log?.readable&&<><p className="data-location" aria-label="实时日志文件名">{task.log.readable.filename}</p><small>同一应用数据目录的所有窗口共用 logs 文件夹。文件刷新目标100ms、持久同步目标1秒，系统阻塞时可能延迟；停止后核对最终同步状态。</small></>}

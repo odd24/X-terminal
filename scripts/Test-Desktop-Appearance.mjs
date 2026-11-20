@@ -8,6 +8,8 @@ const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-appearance-
 let ui;
 try {
   ui = await launchDesktop(directory, { fixture: true });
+  assert.equal(await ui.evaluate(`document.documentElement.dataset.theme`),'light');
+  assert.equal(await ui.evaluate(`document.documentElement.dataset.terminalPalette`),'black_white');
   await ui.click('新建合成会话');
   await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
   const [connection] = await ui.invoke('service_list');
@@ -22,6 +24,7 @@ try {
   const checkTheme = async (theme, background, terminalBackground) => {
     await ui.fill('应用主题', theme);
     await ui.waitFor(`document.documentElement.dataset.theme===${JSON.stringify(theme)}`);
+    await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
     const actual = await ui.evaluate(`(() => {
       const css=getComputedStyle(document.documentElement);
       return {
@@ -53,10 +56,15 @@ try {
     assert.ok(actual.mono.includes('Consolas'));
     assert.ok(actual.snapshots.every(font => font.includes('Consolas')));
   };
+  await ui.fill('终端配色','follow_theme');
   await checkTheme('dark', 'rgb(16, 23, 32)', 'rgb(16, 23, 32)');
   await ui.screenshot('desktop-appearance-dark-native.png');
-  await checkTheme('light', 'rgb(243, 245, 248)', 'rgb(255, 255, 255)');
+  await checkTheme('light', 'rgb(238, 240, 243)', 'rgb(255, 255, 255)');
   await ui.screenshot('desktop-appearance-light-native.png');
+  await ui.click('取消连接窗口');
+  await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await ui.waitFor(`document.querySelector('dialog:modal:last-child')?.getAttribute('aria-label')==='外观设置'`);
   // Actual keyboard focus must be visible on the next shared select control.
   await ui.evaluate(`document.querySelector('[aria-label="应用主题"]').focus()`);
   await ui.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
@@ -85,11 +93,14 @@ try {
   await ui.command('Emulation.clearDeviceMetricsOverride');
   await ui.command('Page.reload');
   await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
-  await ui.waitFor(`document.documentElement.dataset.theme==='dark'`);
+  await ui.waitFor(`document.documentElement.dataset.theme==='light'&&document.documentElement.dataset.terminalPalette==='black_white'`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`), '15');
   assert.equal((await ui.invoke('service_list'))[0].connection_id, target.connection_id);
   console.log('PASS appearance native WebView: shared dark/light panels/controls, independent UI/terminal fallback fonts, actual Tab focus, global terminal font/size, live system theme, source text unchanged, reload defaults; 3 CSS viewport probes (not native DPI); synthetic only');
+} catch(error) {
+  console.error(error);
+  throw error;
 } finally {
   await ui?.close();
-  await rm(directory, { recursive: true, force: true });
+  await rm(directory, { recursive: true, force: true, maxRetries:10, retryDelay:100 });
 }

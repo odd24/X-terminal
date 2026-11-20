@@ -162,6 +162,17 @@ impl Store {
                     "INSERT INTO schema_migrations VALUES(4); PRAGMA user_version=4;",
                 )?;
             }
+            if new {
+                let preferences = DesktopPreferences {
+                    theme: ThemeChoice::Light,
+                    terminal_palette: TerminalPalette::BlackWhite,
+                    ..DesktopPreferences::default()
+                };
+                tx.execute(
+                    "UPDATE desktop_preferences SET value=?1 WHERE id=1",
+                    params![serde_json::to_string(&preferences)?],
+                )?;
+            }
             if version < 5 {
                 tx.execute_batch(
                     "CREATE TABLE workspaces(id TEXT PRIMARY KEY NOT NULL,value TEXT NOT NULL);",

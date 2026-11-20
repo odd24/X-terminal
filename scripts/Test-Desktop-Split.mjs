@@ -32,7 +32,18 @@ try{
  const snapshot=async key=>{await focus(key);await menu('屏幕快照');return ui.evaluate(`document.querySelector('[aria-label="屏幕快照"]').textContent`);};
  assert.ok((await snapshot('first')).includes('ONLY_A_OUTPUT'));assert.equal((await snapshot('first')).includes('ONLY_B_OUTPUT'),false);assert.ok((await snapshot('second')).includes('ONLY_B_OUTPUT'));
  // Each actual server observes its own pane's fitted PTY size, not the active pane's size.
- const sizes=async(key,server)=>{await focus(key);const text=await ui.evaluate(`document.querySelector('[aria-label="终端视口尺寸"]').textContent`);const [cols,rows]=text.match(/(\d+)×(\d+)/).slice(1).map(Number);const expected=[Math.max(2,Math.min(500,cols)),Math.max(1,Math.min(200,rows))];await wait(async()=>JSON.stringify((await server.control({op:'metrics'})).sizes.at(-1))===JSON.stringify(expected),'remote pane PTY dimensions');return expected;};
+ const sizes=async(key,server)=>{
+   await focus(key);
+   let expected,actual;
+   await wait(async()=>{
+     const text=await ui.evaluate(`document.querySelector('[aria-label="终端视口尺寸"]').textContent`);
+     const [cols,rows]=text.match(/(\d+)×(\d+)/).slice(1).map(Number);
+     expected=[Math.max(2,Math.min(500,cols)),Math.max(1,Math.min(200,rows))];
+     actual=(await server.control({op:'metrics'})).sizes.at(-1);
+     return JSON.stringify(actual)===JSON.stringify(expected);
+   },`remote pane PTY dimensions for ${key}`).catch(error=>{throw new Error(`${error.message}: local ${expected}, remote ${actual}`);});
+   return expected;
+ };
  await sizes('first',one);await sizes('second',two);await ui.screenshot('P17-split-horizontal.png');
  const beforeA=await raw(a),beforeB=await raw(b);
  // Queue a second key behind an actually dispatched, held reply; a focus round trip must drop it.
