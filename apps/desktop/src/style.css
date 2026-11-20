@@ -64,9 +64,34 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 @media (max-width: 850px) { main { padding: var(--space-4); } }
 
 /* xterm marks palette and inverse foregrounds with xterm-fg-*; truecolor stays inline. */
-:root[data-terminal-palette="x"] .terminal .xterm-rows .xterm-bold:not([class*="xterm-fg-"], .xterm-dim, .xterm-cursor-block) {
+:where(:root[data-terminal-palette="x"]) .terminal .xterm-rows .xterm-bold:where(:not([class*="xterm-fg-"], .xterm-dim, .xterm-cursor-block)) {
+  --terminal-ink: var(--terminal-bold-foreground);
   color: var(--terminal-bold-foreground);
 }
+
+/* Dim foregrounds only. Native cursor, reversed colors and explicit RGB keep their renderer styling. */
+.desktop-shell[data-terminal-dim] .terminal .xterm-rows {
+  & span:where(:not([class*="xterm-fg-"]), .xterm-fg-0, .xterm-fg-1, .xterm-fg-2, .xterm-fg-3, .xterm-fg-4, .xterm-fg-5, .xterm-fg-6, .xterm-fg-7, .xterm-fg-8, .xterm-fg-9, .xterm-fg-10, .xterm-fg-11, .xterm-fg-12, .xterm-fg-13, .xterm-fg-14, .xterm-fg-15):where(:not(.xterm-cursor-block, .xterm-dim)) {
+    color: color-mix(in srgb, var(--terminal-ink, var(--terminal-foreground)) var(--terminal-text-brightness), var(--terminal-background));
+  }
+  & .xterm-fg-0 { --terminal-ink: var(--terminal-black); }
+  & .xterm-fg-1 { --terminal-ink: var(--terminal-red); }
+  & .xterm-fg-2 { --terminal-ink: var(--terminal-green); }
+  & .xterm-fg-3 { --terminal-ink: var(--terminal-yellow); }
+  & .xterm-fg-4 { --terminal-ink: var(--terminal-blue); }
+  & .xterm-fg-5 { --terminal-ink: var(--terminal-magenta); }
+  & .xterm-fg-6 { --terminal-ink: var(--terminal-cyan); }
+  & .xterm-fg-7 { --terminal-ink: var(--terminal-white); }
+  & .xterm-fg-8 { --terminal-ink: var(--terminal-bright-black); }
+  & .xterm-fg-9 { --terminal-ink: var(--terminal-bright-red); }
+  & .xterm-fg-10 { --terminal-ink: var(--terminal-bright-green); }
+  & .xterm-fg-11 { --terminal-ink: var(--terminal-bright-yellow); }
+  & .xterm-fg-12 { --terminal-ink: var(--terminal-bright-blue); }
+  & .xterm-fg-13 { --terminal-ink: var(--terminal-bright-magenta); }
+  & .xterm-fg-14 { --terminal-ink: var(--terminal-bright-cyan); }
+  & .xterm-fg-15 { --terminal-ink: var(--terminal-bright-white); }
+}
+.config-panel input[aria-label="终端文字亮度"] { accent-color: var(--accent); }
 
 .terminal .xterm-viewport { background-color: var(--terminal-background); }
 

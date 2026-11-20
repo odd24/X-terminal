@@ -102,6 +102,40 @@ try{
      assert.deepEqual(computed,{background:'rgb(0, 0, 0)',colors:wanted});
    }
    assert.equal(await ui.evaluate('getComputedStyle(document.querySelector(".app-bar")).backgroundColor'),'rgb(245, 246, 248)');
+   await menu('外观');
+   await ui.fill('终端文字亮度',70);
+   await ui.waitFor(`document.querySelector('.desktop-shell').dataset.terminalDim==='true'`);
+   await ui.click('关闭外观');
+   for(const key of ['first','second']){
+     const ink=await ui.evaluate(`(()=>{
+       const pane=document.querySelector('[data-pane="${key}"]');
+       const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
+       const ctx=canvas.getContext('2d');
+       const hex=span=>{
+         ctx.fillStyle=getComputedStyle(span).color;ctx.fillRect(0,0,1,1);
+         return [...ctx.getImageData(0,0,1,1).data].slice(0,3).map(n=>n.toString(16).padStart(2,'0')).join('');
+       };
+       const tokens=${JSON.stringify(colors.map(([name])=>name))};
+       const spans=[...pane.querySelectorAll('.xterm-rows span')].filter(span=>tokens.includes(span.textContent));
+       return {background:getComputedStyle(pane.querySelector('.terminal')).backgroundColor, ink:Object.fromEntries(spans.map(span=>[span.textContent,hex(span)]))};
+     })()`);
+     const dimmed=Object.fromEntries(colors.map(([name,,rgb])=>[name,name==='rgb-text'?rgb:rgb.match(/../g).map(byte=>Math.round(parseInt(byte,16)*0.7).toString(16).padStart(2,'0')).join('')]));
+     assert.equal(ink.background,'rgb(0, 0, 0)');
+     assert.deepEqual(Object.keys(ink.ink),Object.keys(dimmed));
+     for(const [name,wanted] of Object.entries(dimmed)){
+       const rendered=ink.ink[name];
+       const channels=hex=>hex.match(/../g).map(byte=>parseInt(byte,16));
+       assert.ok(channels(rendered).every((value,index)=>Math.abs(value-channels(wanted)[index])<=1),`${key} ${name}: ${rendered} ≈ ${wanted}`);
+     }
+     assert.equal(ink.ink['rgb-text'],'123456');
+   }
+   await ui.screenshot('terminal-brightness-70.png');
+   await menu('外观');
+   await ui.fill('终端文字亮度',100);
+   await ui.waitFor(`!document.querySelector('.desktop-shell').hasAttribute('data-terminal-dim')`);
+   await ui.screenshot('terminal-brightness-slider.png');
+   await ui.click('关闭外观');
+   await ui.waitFor(`[...document.querySelectorAll('.xterm-rows .xterm-bold')].filter(el=>el.textContent==='bold-text'&&getComputedStyle(el).color==='rgb(255, 255, 255)').length===2`);
    await ui.screenshot('palette-x-ssh-uart.png');
    console.log('PASS X actual SSH and UART xterm cells: default, bold, truecolor, 16 ANSI slots and eight SGR bold colors; UI untouched');
  }

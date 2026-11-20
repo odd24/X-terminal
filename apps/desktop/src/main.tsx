@@ -568,7 +568,9 @@ function App() {
     setNavigationWidth(Math.max(210, Math.min(360, width)));
   }
 
-  return <main className="desktop-shell" style={{ '--navigation-width': `${navigationWidth}px` } as CSSProperties}>
+  const brightness=preferences.terminal_text_brightness??100;
+  return <main className="desktop-shell" data-terminal-dim={brightness<100?'true':undefined}
+    style={{ '--navigation-width': `${navigationWidth}px`, '--terminal-text-brightness': `${brightness}%` } as CSSProperties}>
     <div className={`desktop-body${sidebarOpen ? '' : ' sidebar-hidden'}`}>
     <aside id="connection-library" className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent||!!ssh1Intent} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} revision={treeRevision} loaded={setProfiles} connect={(profile,revision) => connectProfile(profile,undefined,revision)} configure={(id,action='edit') => {setConfigurationTarget(id?{id,action}:undefined);setConfigurationOpen(true);}} />
       <div className="sidebar-divider" role="separator" aria-label="导航宽度" aria-orientation="vertical" aria-valuemin={210} aria-valuemax={360} aria-valuenow={navigationWidth} tabIndex={0}

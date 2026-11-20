@@ -824,6 +824,7 @@ fn preferences_restart_directory_isolation_backup_digest_and_transactional_resto
         terminal_font: TerminalFont::Cascadia,
         terminal_palette: config_model::TerminalPalette::BlackGreen,
         font_size: 28,
+        terminal_text_brightness: 70,
         ctrl_c_copy: false,
         ctrl_v_paste: true,
         right_click_paste: true,

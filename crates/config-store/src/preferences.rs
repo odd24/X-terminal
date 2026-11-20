@@ -36,6 +36,7 @@ pub(super) fn read(connection: &Connection) -> Result<DesktopPreferences> {
             terminal_font: old.terminal_font,
             terminal_palette: crate::TerminalPalette::FollowTheme,
             font_size: old.font_size,
+            terminal_text_brightness: crate::DEFAULT_TERMINAL_TEXT_BRIGHTNESS,
             ctrl_c_copy: old.ctrl_c_copy,
             ctrl_v_paste: old.ctrl_v_paste,
             right_click_paste: old.right_click_paste,

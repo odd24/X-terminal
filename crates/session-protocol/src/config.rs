@@ -502,6 +502,18 @@ mod preference_tests {
                 .unwrap()
                 .validate()
         );
+        value["preferences"]["terminal_text_brightness"] = 39.into();
+        assert!(
+            !serde_json::from_value::<ConfigRequest>(value.clone())
+                .unwrap()
+                .validate()
+        );
+        value["preferences"]["terminal_text_brightness"] = 70.into();
+        assert!(
+            serde_json::from_value::<ConfigRequest>(value.clone())
+                .unwrap()
+                .validate()
+        );
         value["preferences"]["font_size"] = 29.into();
         assert!(
             !serde_json::from_value::<ConfigRequest>(value.clone())

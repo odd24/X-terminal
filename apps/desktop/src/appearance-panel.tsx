@@ -8,6 +8,7 @@ export function AppearancePanel({ theme, font, setTheme, setFont, preferences, b
   update: (patch: Partial<DesktopPreferences>) => void; save: () => void; read: () => void;
   setFont: (font: TerminalFont) => void; close: () => void;
 }) {
+  const brightness=preferences.terminal_text_brightness??100;
   return <Panel title="外观" close={close} closeLabel="关闭外观">
     <fieldset disabled={busy}><div className="form-grid">
       <Field label="应用主题"><select aria-label="应用主题" value={theme} onChange={event => setTheme(event.target.value as ThemeChoice)}>
@@ -19,6 +20,10 @@ export function AppearancePanel({ theme, font, setTheme, setFont, preferences, b
       <Field label="终端等宽字体"><select aria-label="终端等宽字体" value={font} onChange={event => setFont(event.target.value as TerminalFont)}>
         <option value="consolas">Consolas</option><option value="cascadia">Cascadia Mono（未安装时使用 Consolas）</option>
       </select></Field>
+      <Field label={`终端文字亮度 · ${brightness}%`}>
+        <input aria-label="终端文字亮度" type="range" min={40} max={100} step={1} value={brightness}
+          aria-valuetext={`${brightness}%`} onChange={event=>update({terminal_text_brightness:event.currentTarget.valueAsNumber})} />
+      </Field>
     </div>
     <label className="check"><input aria-label="Ctrl+C选区复制" type="checkbox" checked={preferences.ctrl_c_copy} onChange={event => update({ctrl_c_copy:event.target.checked})} />Ctrl+C有选区时复制；关闭后交给终端</label>
     <label className="check"><input aria-label="Ctrl+V粘贴" type="checkbox" checked={preferences.ctrl_v_paste} onChange={event => update({ctrl_v_paste:event.target.checked})} />Ctrl+V粘贴到当前终端</label>

@@ -22,9 +22,11 @@ try {
   const seed=await call({op:'preferences'});await call({op:'save_preferences',revision:seed.revision,preferences:{...seed.preferences,right_click_paste:true}});await ui.click('重新读取偏好');await message('已读取');
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="右键粘贴"]')`),false);
   await ui.fill('终端配色','black_green');
+  await ui.fill('终端文字亮度',70);
+  await ui.waitFor(`document.querySelector('.desktop-shell').style.getPropertyValue('--terminal-text-brightness')==='70%'`);
   await ui.fill('应用主题','light'); await ui.fill('终端等宽字体','cascadia'); await ui.fill('字号',22);
   await toggle('Ctrl+C选区复制'); await toggle('Ctrl+V粘贴');
-  const expected={theme:'light',terminal_font:'cascadia',terminal_palette:'black_green',font_size:22,ctrl_c_copy:false,ctrl_v_paste:true,right_click_paste:true};
+  const expected={theme:'light',terminal_font:'cascadia',terminal_palette:'black_green',font_size:22,terminal_text_brightness:70,ctrl_c_copy:false,ctrl_v_paste:true,right_click_paste:true};
   assert.notDeepEqual((await call({op:'preferences'})).preferences,expected,'editing does not silently persist');
   await ui.click('保存桌面偏好'); await message('已保存'); assert.deepEqual((await call({op:'preferences'})).preferences,expected);
   await ui.evaluate('window.__preferencesReloadMarker=true'); await ui.command('Page.reload');
@@ -32,6 +34,7 @@ try {
   await ui.click('外观'); await message('已读取');
   assert.equal(await ui.evaluate('document.documentElement.dataset.theme'),'light');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'22');
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端文字亮度"]').value`),'70');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端等宽字体"]').value`),'cascadia');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端配色"]').value`),'black_green');
   for(const [label,value] of [['Ctrl+C选区复制',false],['Ctrl+V粘贴',true]]) assert.equal(await ui.evaluate(`document.querySelector('[aria-label="${label}"]').checked`),value);
@@ -128,15 +131,21 @@ try {
   await ui.evaluate(`document.querySelector('[aria-label="桌面偏好状态"]').scrollIntoView({block:'center'})`);
   await ui.screenshot('desktop-preferences-native.png');
   await ui.close();ui=null;
+  await open();
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端文字亮度"]').value`),'70','brightness survives process restart');
+  await ui.close();ui=null;
   // Convert only our stopped synthetic directory to the exact old schema-3 shape.
   const legacy = new DatabaseSync(path.join(directory,'config.sqlite'));
   const oldPreferences=JSON.parse(legacy.prepare('SELECT value FROM desktop_preferences WHERE id=1').get().value);
+  assert.equal(oldPreferences.terminal_text_brightness,70);
+  delete oldPreferences.terminal_text_brightness;
   delete oldPreferences.terminal_palette;
   legacy.prepare('UPDATE desktop_preferences SET value=? WHERE id=1').run(JSON.stringify(oldPreferences));
   assert.equal(legacy.prepare('SELECT COUNT(*) AS n FROM workspaces').get().n,0);assert.equal(legacy.prepare('SELECT COUNT(*) AS n FROM quick_commands').get().n,0);
   legacy.exec('DROP TABLE quick_commands; DROP TABLE workspaces; DELETE FROM schema_migrations WHERE version>3; PRAGMA user_version=3'); legacy.close();
   await open(); assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'24');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端配色"]').value`),'follow_theme','old database defaults only the new palette');
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端文字亮度"]').value`),'100','legacy brightness defaults to the original colors');
   assert.deepEqual((await call({op:'preferences'})).preferences,{...oldPreferences,terminal_palette:'follow_theme'});
   const migrationFiles=(await readdir(directory)).filter(name=>/^config-before-v3-[0-9a-f-]+\.sqlite$/.test(name));
   assert.equal(migrationFiles.length,1);

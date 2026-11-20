@@ -282,6 +282,16 @@ pub enum TerminalPalette {
     BlackWhite,
     X,
 }
+pub const DEFAULT_TERMINAL_TEXT_BRIGHTNESS: u8 = 100;
+
+fn default_terminal_text_brightness() -> u8 {
+    DEFAULT_TERMINAL_TEXT_BRIGHTNESS
+}
+
+fn is_default_terminal_text_brightness(value: &u8) -> bool {
+    *value == DEFAULT_TERMINAL_TEXT_BRIGHTNESS
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DesktopPreferences {
@@ -289,6 +299,12 @@ pub struct DesktopPreferences {
     pub terminal_font: TerminalFont,
     pub terminal_palette: TerminalPalette,
     pub font_size: u8,
+    #[serde(
+        default = "default_terminal_text_brightness",
+        skip_serializing_if = "is_default_terminal_text_brightness"
+    )]
+    #[schemars(range(min = 40, max = 100))]
+    pub terminal_text_brightness: u8,
     pub ctrl_c_copy: bool,
     pub ctrl_v_paste: bool,
     pub right_click_paste: bool,
@@ -300,6 +316,7 @@ impl Default for DesktopPreferences {
             terminal_font: TerminalFont::Consolas,
             terminal_palette: TerminalPalette::FollowTheme,
             font_size: 15,
+            terminal_text_brightness: DEFAULT_TERMINAL_TEXT_BRIGHTNESS,
             ctrl_c_copy: true,
             ctrl_v_paste: false,
             right_click_paste: false,
@@ -310,6 +327,9 @@ impl DesktopPreferences {
     pub fn validate(&self) -> Result<()> {
         if !(10..=28).contains(&self.font_size) {
             return Err(ValidationError("terminal font size"));
+        }
+        if !(40..=100).contains(&self.terminal_text_brightness) {
+            return Err(ValidationError("terminal text brightness"));
         }
         Ok(())
     }
