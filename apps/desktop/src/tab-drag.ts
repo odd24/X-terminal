@@ -30,10 +30,10 @@ export function locateTabDrop(x: number, y: number, rail: HTMLElement): TabDrop 
   const terminal = hit.closest('.terminal-grid');
   if (!terminal) return;
   const bounds = terminal.getBoundingClientRect();
-  const distances: [TabEdge, number][] = [
-    ['left', x - bounds.left], ['right', bounds.right - x],
-    ['top', y - bounds.top], ['bottom', bounds.bottom - y],
-  ];
-  const [edge, distance] = distances.reduce((nearest, next) => next[1] < nearest[1] ? next : nearest);
-  if (distance <= 42) return { kind: 'split', edge, bounds };
+  const horizontal = (x - bounds.left) / bounds.width - .5;
+  const vertical = (y - bounds.top) / bounds.height - .5;
+  const edge = Math.abs(horizontal) >= Math.abs(vertical)
+    ? horizontal < 0 ? 'left' : 'right'
+    : vertical < 0 ? 'top' : 'bottom';
+  return { kind: 'split', edge, bounds };
 }

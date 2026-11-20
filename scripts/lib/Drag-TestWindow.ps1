@@ -65,6 +65,7 @@ try {
         if ($i -eq $steps.Count-1 -and $steps[$i].outside -and $hit -eq $window) { throw 'The ending point is inside the owned test window' }
         if (![TerminalTestMouse]::SetCursorPos($point.X,$point.Y)) { throw 'Cursor positioning failed' }
         Start-Sleep -Milliseconds 100
+        if ($steps[$i].holdMs -gt 0) { Start-Sleep -Milliseconds ([int]$steps[$i].holdMs) }
         if ($i -eq 0) {
             [TerminalTestMouse]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
             $pressed = $true

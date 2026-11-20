@@ -34,10 +34,10 @@ try{
     const shown=await ui.evaluate(`[...document.querySelectorAll('[role="tab"]')].map(tab=>{
       const rail=tab.closest('[role="tablist"]').getBoundingClientRect();
       const rect=tab.getBoundingClientRect();
-      return {id:tab.dataset.connectionId,code:tab.querySelector('.tab-instance').textContent,selected:tab.getAttribute('aria-selected')==='true',visible:rect.left>=rail.left&&rect.right<=rail.right};
+      return {id:tab.dataset.connectionId,label:tab.textContent,selected:tab.getAttribute('aria-selected')==='true',visible:rect.left>=rail.left&&rect.right<=rail.right};
     })`);
     assert.equal(shown.length,3);
-    for(const tab of shown)assert.deepEqual(tab,{id:tab.id,code:'#'+tab.id.slice(-6).toUpperCase(),selected:tab.id===b.connection_id,visible:true});
+    for(const tab of shown)assert.deepEqual(tab,{id:tab.id,label:'127.0.0.1',selected:tab.id===b.connection_id,visible:true});
     await ui.screenshot('terminal-distinct-tabs.png');
   }
   const selected=()=>ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);

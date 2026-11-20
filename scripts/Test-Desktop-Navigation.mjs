@@ -119,21 +119,19 @@ try{
    console.log('PASS normal dark/light WebView layout and preedit/commit exact bytes');
  }
  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="标签操作状态"]')?.textContent.startsWith('正在连接 ')??false`),false,'successful or closed progress cannot stay on the terminal');
- const duplicateCodes=`Object.fromEntries([...document.querySelectorAll('[role="tab"]')].filter(t=>t.querySelector('.tab-label')?.textContent==='127.0.0.1').map(t=>[t.dataset.connectionId,t.querySelector('.tab-instance')?.textContent]))`;
- await ui.waitFor(`Object.keys(${duplicateCodes}).length===2&&Object.values(${duplicateCodes}).every(Boolean)`);
- const beforeMove=await ui.evaluate(duplicateCodes);
- assert.equal(new Set(Object.values(beforeMove)).size,2);
- await ui.click('标签左移');assert.deepEqual(await ui.evaluate(duplicateCodes),beforeMove);assert.equal(await ui.evaluate(`document.querySelector('[role="tab"]').dataset.connectionId`),second.connection_id);await ui.fill('搜索会话配置','不存在的名称');assert.equal(await ui.evaluate(`document.querySelectorAll('.session-tree-list button').length`),0);assert.equal((await list()).length,2);await ui.fill('搜索会话配置','');
+ const duplicatesById=`Object.fromEntries([...document.querySelectorAll('[role="tab"]')].filter(t=>t.querySelector('.tab-label')?.textContent==='127.0.0.1').map(t=>[t.dataset.connectionId,t.textContent]))`;
+ await ui.waitFor(`Object.keys(${duplicatesById}).length===2`);
+ const beforeMove=await ui.evaluate(duplicatesById);
+ assert.deepEqual(Object.values(beforeMove),['127.0.0.1','127.0.0.1']);
+ await ui.click('标签左移');assert.deepEqual(await ui.evaluate(duplicatesById),beforeMove);assert.equal(await ui.evaluate(`document.querySelector('[role="tab"]').dataset.connectionId`),second.connection_id);await ui.fill('搜索会话配置','不存在的名称');assert.equal(await ui.evaluate(`document.querySelectorAll('.session-tree-list button').length`),0);assert.equal((await list()).length,2);await ui.fill('搜索会话配置','');
  await ui.evaluate(`(${tree(a)}).click()`);const selectedBefore=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);await context(b);assert.equal(await ui.evaluate(`(${tree(b)}).getAttribute('aria-pressed')`),'true');assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),selectedBefore);
  await ui.screenshot('P12.1-saved-session-context.png');await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await ui.waitFor(`!document.querySelector('[role="menu"]')`);assert.ok(await ui.evaluate(`document.activeElement===${tree(b)}`));
  await context(b);await chooseContext();await trust();const right=await connected();assert.equal((await ssh({op:'status',connection:ref(right)})).profile_id,b.id,'right-click target must not use previous selection');
  await context(missing);await chooseContext();await ui.waitFor(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='提交本次登录信息')`);const missingAttempts=(await control({op:'metrics'})).attempts;await delay(300);assert.equal((await control({op:'metrics'})).attempts,missingAttempts,'no blank or guessed credential dispatch');await ui.fill('SSH登录密码',server.password);await ui.click('提交本次登录信息');await connected();
  const beforeWrong=(await control({op:'metrics'})).attempts;await double(wrong);await ui.waitFor(`document.querySelector('dialog:modal [role="alert"]')?.textContent.includes('未被服务器接受')`);await delay(350);assert.equal((await control({op:'metrics'})).attempts,beforeWrong+1,'rejected stored credential is never looped');await ui.fill('SSH登录密码',server.password);await ui.click('提交本次登录信息');await connected();
  await double(key);const keyed=await connected();assert.equal((await ssh({op:'status',connection:ref(keyed)})).profile_id,key.id);
- await ui.waitFor(`Object.keys(${duplicateCodes}).length>=3&&Object.values(${duplicateCodes}).every(Boolean)`);
- const duplicates=await ui.evaluate(duplicateCodes);
- assert.equal(new Set(Object.values(duplicates)).size,Object.keys(duplicates).length);
- for(const [id,code] of Object.entries(duplicates))assert.equal(code,'#'+id.slice(-6).toUpperCase());
+ await ui.waitFor(`Object.keys(${duplicatesById}).length>=3`);
+ for(const label of Object.values(await ui.evaluate(duplicatesById)))assert.equal(label,'127.0.0.1');
  const selection=await ui.evaluate(`(()=>{
    const active=document.querySelector('.connection-tab:has([aria-selected="true"])');
    const inactive=document.querySelector('.connection-tab:has([aria-selected="false"])');

@@ -2,8 +2,12 @@ use crate::Desktop;
 use session_core::session::{ConnectionInfo, ConnectionRef, Protocol, State as ConnectionState};
 use session_protocol::{Reply, Request};
 use std::{collections::HashMap, sync::Mutex};
-use tauri::{Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use uuid::Uuid;
+use windows::Win32::{
+    Foundation::POINT,
+    UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, WindowFromPoint},
+};
 
 pub const MAIN: &str = "main";
 
@@ -83,6 +87,56 @@ pub async fn desktop_live_sessions(
                 ConnectionState::Disconnected | ConnectionState::Failed
             )
     }))
+}
+
+fn main_under_cursor(window: &WebviewWindow) -> Option<WebviewWindow> {
+    let app = window.app_handle();
+    let main = app.get_webview_window(MAIN)?;
+    let cursor = app.cursor_position().ok()?;
+    let expected = main.hwnd().ok()?.0;
+    let point = POINT {
+        x: cursor.x as i32,
+        y: cursor.y as i32,
+    };
+    let actual = unsafe { GetAncestor(WindowFromPoint(point), GA_ROOT) }.0;
+    (actual == expected).then_some(main)
+}
+
+#[tauri::command]
+pub fn preview_session_dock(window: WebviewWindow, active: bool) {
+    if window.label() == MAIN {
+        return;
+    }
+    let ready = active && main_under_cursor(&window).is_some();
+    let _ = window
+        .app_handle()
+        .emit_to(MAIN, "session-dock-hover", ready);
+}
+
+#[tauri::command]
+pub async fn dock_session(
+    window: WebviewWindow,
+    state: State<'_, Desktop>,
+    windows: State<'_, SessionWindows>,
+    service_id: Uuid,
+    connection: ConnectionRef,
+) -> Result<(), String> {
+    if window.label() == MAIN || main_under_cursor(&window).is_none() {
+        return Err("DROP_OUTSIDE_MAIN_WINDOW".into());
+    }
+    {
+        let mut shared = state.0.lock().await;
+        let service = shared.as_mut().map_err(|error| error.clone())?;
+        if service.endpoint()?.2 != service_id {
+            return Err("STALE_SERVICE".into());
+        }
+        windows.permits(window.label(), Some(&connection))?;
+    }
+    let _ = window
+        .app_handle()
+        .emit_to(MAIN, "session-dock-hover", false);
+    // Destroyed releases the original window binding and returns the exact tab.
+    window.close().map_err(|_| "WINDOW_CLOSE_FAILED".into())
 }
 
 #[tauri::command]

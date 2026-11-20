@@ -940,6 +940,8 @@ fn main() {
             service_status,
             session_windows::desktop_live_sessions,
             session_windows::detach_session,
+            session_windows::preview_session_dock,
+            session_windows::dock_session,
             trigger_match::trigger_match_request,
             service_list,
             service_read,

@@ -92,12 +92,37 @@ const write=async(page,peer,value)=>{
   await page.command('Input.insertText',{text:value});
   await wait(async()=>Buffer.from((await peer.control({op:'metrics'})).received.flat()).includes(Buffer.from(value)),value);
 };
-async function outsideDrag(c) {
-  const start=center(await geometry(query(`[role="tab"][data-connection-id="${c.connection_id}"]`)));
+async function outsideDrag(c, fromPane=false) {
+  const source=fromPane?`[data-rendered-id="${c.connection_id}"] .pane-focus`:`[role="tab"][data-connection-id="${c.connection_id}"]`;
+  const start=center(await geometry(query(source)));
   await main.command('Page.bringToFront');
   dragNativeWindow(main.app,[start,{x:start.x-20,y:start.y+35},{x:50,y:120},{x:-40,y:150,outside:true}]);
   const target=await wait(async()=>(await main.otherPages())[0],'native detached WebView');
   return connectDesktopPage(target);
+}
+async function dockDrag(connection) {
+  const mainBounds=await main.evaluate('({x:screenX,y:screenY,width:innerWidth,height:innerHeight})');
+  const childBounds=await child.evaluate('({x:screenX,y:screenY,width:innerWidth,height:innerHeight})');
+  const destination=[{x:mainBounds.width-65,y:100},{x:40,y:100},{x:mainBounds.width/2,y:45},{x:mainBounds.width/2,y:mainBounds.height-45}]
+    .map(point=>({x:mainBounds.x+point.x-childBounds.x,y:mainBounds.y+point.y-childBounds.y}))
+    .find(point=>point.x < -30 || point.y < -66 || point.x > childBounds.width+30 || point.y > childBounds.height+30);
+  assert.ok(destination,'main has a visible landing area outside the child frame');
+  const source=await child.evaluate(`document.querySelector('[role="tab"][data-connection-id="${connection.connection_id}"]').getBoundingClientRect().toJSON()`);
+  const start=center(source);
+  await child.command('Page.bringToFront');
+  const points=[start,{x:start.x+32,y:start.y+40},{...destination,outside:true,holdMs:950}];
+  const mouse=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(main.app.pid),
+    '-ExpectedExecutable',desktop,'-Title','共享终端 · 独立会话','-Points',JSON.stringify(points)],{windowsHide:true});
+  let errors='';
+  mouse.stderr.on('data',chunk=>errors+=chunk);
+  const done=new Promise(resolve=>mouse.once('exit',resolve));
+  try {
+    await main.waitFor(`!!document.querySelector('.tab-dock-preview')`);
+    await main.screenshot('desktop-dock-preview.png');
+  } finally {
+    assert.equal(await done,0,errors);
+  }
+  await wait(async()=>!(await main.otherPages()).length,'physical drop returns the native session to main');
 }
 
 try {
@@ -173,34 +198,65 @@ try {
   for(const edge of ['left','right','top','bottom']){
     const grid=await geometry(query('.terminal-grid'));
     const point=center(grid);
-    if(edge==='left')point.x=grid.left+15;
-    if(edge==='right')point.x=grid.right-15;
-    if(edge==='top')point.y=grid.top+15;
-    if(edge==='bottom')point.y=grid.bottom-15;
+    if(edge==='left')point.x=grid.left+grid.width*.26;
+    if(edge==='right')point.x=grid.left+grid.width*.74;
+    if(edge==='top')point.y=grid.top+grid.height*.26;
+    if(edge==='bottom')point.y=grid.top+grid.height*.74;
+    assert.ok(Math.min(point.x-grid.left,grid.right-point.x,point.y-grid.top,grid.bottom-point.y)>42);
     const leading=edge==='left'||edge==='top';
     const direction=['left','right'].includes(edge)?'horizontal':'vertical';
-    await drag(center(await geometry(tab(b))),point,{
-      during:async()=>{
-        await main.waitFor(`!!${query(`.tab-split-preview[data-edge="${edge}"]`)}`);
-        if(edge==='left')await main.screenshot('desktop-tab-split-drop.png');
-      },
-    });
+    if(edge==='left'){
+      await drag(center(await geometry(tab(b))),point,{
+        during:async()=>{
+          await main.waitFor(`!!${query('.tab-split-preview[data-edge="left"]')}`);
+          await main.screenshot('desktop-tab-split-drop.png');
+        },
+      });
+    }else{
+      const heading=center(await geometry(query(`[data-rendered-id="${b.connection_id}"] .pane-focus`)));
+      await main.command('Page.bringToFront');
+      await terminalFocus(main);
+      dragNativeWindow(main.app,[heading,{x:heading.x+14,y:heading.y+24},point]);
+    }
     await main.waitFor(`!!document.querySelector('.terminal-grid.${direction}') && ${rendered(leading?b:a,0)} && ${rendered(leading?a:b,1)}`);
     assert.equal(await main.evaluate(`document.querySelector('.pane-active').dataset.renderedId`),a.connection_id);
-    await main.click('收起分屏，保留连接');
-    await main.waitFor(`document.querySelectorAll('[data-pane]').length===1 && ${rendered(a,0)}`);
+    const sameRenderer=`(()=>{const panes=[...document.querySelectorAll('[data-pane]')];return panes.every(pane=>window.__dragRenderers?.[pane.dataset.renderedId]===pane.querySelector('.xterm'));})()`;
+    if(edge==='left')await main.evaluate(`void(window.__dragRenderers=Object.fromEntries([...document.querySelectorAll('[data-pane]')].map(pane=>[pane.dataset.renderedId,pane.querySelector('.xterm')])));`);
+    else {
+      assert.equal(await main.evaluate(sameRenderer),true,'rearranging panes keeps both original xterm instances');
+      assert.equal(await main.evaluate(`document.activeElement?.closest('[data-pane]')?.dataset.renderedId`),a.connection_id,'dragging a pane keeps terminal input focus on the original target');
+    }
+    if(edge==='right'||edge==='top'){
+      const divider=query('.split-divider'), handle=center(await geometry(divider));
+      dragNativeWindow(main.app,[handle,{x:handle.x+(direction==='horizontal'?86:0),y:handle.y+(direction==='vertical'?72:0)}]);
+      await main.waitFor(`Number(${divider}.getAttribute('aria-valuenow'))>58`);
+      assert.equal(await main.evaluate(sameRenderer),true);
+    }
   }
-  const terminal=await main.evaluate(`(()=>{const host=document.querySelector('.terminal'),xterm=host.querySelector('.xterm'),s=getComputedStyle(host);return {borderLeft:s.borderLeftColor,borderRight:s.borderRightColor,background:s.backgroundColor,custom:xterm.querySelectorAll('.scrollbar.vertical').length,legacy:getComputedStyle(xterm.querySelector('.xterm-viewport')).overflowY};})()`);
-  assert.deepEqual(terminal,{borderLeft:'rgba(0, 0, 0, 0)',borderRight:'rgba(0, 0, 0, 0)',background:'rgb(0, 0, 0)',custom:1,legacy:'hidden'});
+  await write(main,left,'REPOSITIONED-A');
+  assert.equal((await right.control({op:'metrics'})).received.flat().length,0);
+  await main.screenshot('desktop-resized-panes.png');
+  await main.click('收起分屏，保留连接');
+  await main.waitFor(`document.querySelectorAll('[data-pane]').length===1 && ${rendered(a,0)}`);
   await left.control({op:'push',text:Array.from({length:65},(_,i)=>`EDGE-${i}\r\n`).join('')});
   await main.waitFor(terminalText('EDGE-64'));
   const end=await geometry(query('.terminal'));
-  await main.command('Input.dispatchMouseEvent',{type:'mouseMoved',x:end.right-25,y:end.top+40});
+  await main.command('Input.dispatchMouseEvent',{type:'mouseMoved',x:end.right-8,y:end.top+40});
+  const terminal=await main.evaluate(`(()=>{
+    const host=document.querySelector('.terminal-pane > .terminal'),xterm=host.querySelector('.xterm');
+    const bounds=host.getBoundingClientRect(),rows=xterm.querySelector('.xterm-rows').getBoundingClientRect();
+    const bars=xterm.querySelectorAll('.scrollbar.vertical'),bar=bars[0].getBoundingClientRect();
+    return {left:rows.left-bounds.left,right:bounds.right-bar.right,background:getComputedStyle(host).backgroundColor,custom:bars.length,legacy:getComputedStyle(xterm.querySelector('.xterm-viewport')).overflowY};
+  })()`);
+  assert.deepEqual(terminal,{left:4,right:4,background:'rgb(0, 0, 0)',custom:1,legacy:'hidden'});
   await main.screenshot('desktop-single-terminal-edges.png');
   await left.control({op:'push',text:'RETAINED-INDEPENDENT-A\r\n'});
   const log = await main.invoke('logging_request',{request:{op:'start',connection:ref(a),request_id:requestId(),limits:{segment_bytes:131072,segments:2}}});
 
-  child=await outsideDrag(a);
+  const grid=await geometry(query('.terminal-grid'));
+  await drag(center(await geometry(tab(b))),{x:grid.left+grid.width*.75,y:center(grid).y});
+  await main.waitFor(`${rendered(a,0)} && ${rendered(b,1)}`);
+  child=await outsideDrag(a,true);
   await child.waitFor(`document.querySelector('footer')?.dataset.serviceId===${JSON.stringify(service.service_id)} && ${terminalText('RETAINED-INDEPENDENT-A')}`);
   await child.waitFor(`document.activeElement?.matches('.xterm-helper-textarea') && document.hasFocus()`);
   assert.equal((await child.invoke('service_status')).pid,service.pid);
@@ -217,7 +273,7 @@ try {
   await assert.rejects(child.invoke('service_read',{connection:ref(b),cursor:1}),/SESSION_IN_OTHER_WINDOW/);
   await write(child,left,'DETACHED-INPUT-A');
   await write(main,right,'MAIN-INPUT-B');
-  assert.equal(Buffer.from((await left.control({op:'metrics'})).received.flat()).toString(),'DETACHED-INPUT-A');
+  assert.equal(Buffer.from((await left.control({op:'metrics'})).received.flat()).toString(),'REPOSITIONED-ADETACHED-INPUT-A');
   assert.equal(Buffer.from((await right.control({op:'metrics'})).received.flat()).toString(),'MAIN-INPUT-B');
   await left.control({op:'push',text:'RECORDED-IN-INDEPENDENT-WINDOW\r\n'});
   const listLogs=()=>child.invoke('logging_request',{request:{op:'list',connection:ref(a)}}).then(reply=>reply.logs);
@@ -236,8 +292,7 @@ try {
   await main.click('取消退出');
   await main.waitFor(`!${exit}`);
   assert.equal((await child.invoke('service_status')).service_id,service.service_id);
-  await child.evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent==='移回主窗口').click();true`);
-  await wait(async()=>!(await main.otherPages()).length,'close detached native window');
+  await dockDrag(a);
   child.close();child=undefined;
   await main.waitFor(`!!${tab(a)} && !!${tab(b)}`);
   assert.deepEqual((await main.invoke('service_list')).map(ref).sort((x,y)=>x.connection_id.localeCompare(y.connection_id)),[ref(a),ref(b)].sort((x,y)=>x.connection_id.localeCompare(y.connection_id)));
@@ -267,8 +322,8 @@ try {
   assert.equal(receipt.shutdown_ack,'ACKNOWLEDGED');
   assert.equal(receipt.owned_pid,service.pid);
   assert.equal(receipt.exited,true);
-  await writeFile('artifacts/desktop-window-interactions-result.json',JSON.stringify({result:'PASS',dialogs:'wide/narrow, drag, Escape and nested native modal focus',split:['left','right','top','bottom'],detach:'native pointer outside the owned HWND, exact original connection and service, correct keyboard and log routing, reattach, parent shutdown'},null,2));
-  console.log('PASS desktop draggable dialogs, four split edges, tab insertion, physical drag outside native window, ownership handoff, recording, reattach and managed exit');
+  await writeFile('artifacts/desktop-window-interactions-result.json',JSON.stringify({result:'PASS',dialogs:'wide/narrow, drag, Escape and nested native modal focus',interiorDrop:['left','right','top','bottom'],split:'repeated physical pane drag, same xterm nodes and focus, drag both dividers',terminalGutter:terminal,detach:'native pane drag outside and tab drag back, exact identity, input, recording and shutdown'},null,2));
+  console.log('PASS desktop dialogs, interior split targets, repeated physical pane drag, both dividers, 4px gutters, native drag-out and return, input, recording and managed exit');
 }catch(error){
   await main?.screenshot('desktop-window-interactions-failure.png').catch(()=>{});
   await writeFile('artifacts/desktop-window-interactions-failure.txt',String(error.stack??error));

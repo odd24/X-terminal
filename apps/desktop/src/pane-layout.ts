@@ -25,10 +25,13 @@ export class PaneLayout{
   if(!owner||owner!==this.owner||!equal(this.current.binding,first)||this.current.retired||this.current.pending||first.state!=='CONNECTED'||second.state!=='CONNECTED'||first.connection_id===second.connection_id||!['SSH2','SERIAL'].includes(first.protocol)||!['SSH2','SERIAL'].includes(second.protocol)||!['horizontal','vertical'].includes(direction))throw new Error('请选择两个不同且仍已连接的SSH或串口会话。');
   const retained=this.value.find(s=>s.key===this.active)!;this.value=[retained,{key:this.active==='first'?'second':'first',requested:second.connection_id,binding:{connection_id:second.connection_id,generation:second.generation,protocol:second.protocol},pending:false,retired:false}];this.direction=direction;this.epoch++;
  }
- restore(owner:string,first:PaneLive,second:PaneLive,direction:'horizontal'|'vertical',active:PaneIdentity){
+ restore(owner:string,first:PaneLive,second:PaneLive,direction:'horizontal'|'vertical',active:PaneIdentity,preserveSlots=false){
   if(!owner||owner!==this.owner||first.connection_id===second.connection_id||first.state!=='CONNECTED'||second.state!=='CONNECTED'||![first,second].every(c=>['SSH2','SERIAL'].includes(c.protocol))||!['horizontal','vertical'].includes(direction)||!equal(active,first)&&!equal(active,second))throw new Error('布局连接已变化，未恢复分屏。');
   const make=(key:PaneKey,c:PaneLive):PaneSlot=>({key,requested:c.connection_id,binding:{connection_id:c.connection_id,generation:c.generation,protocol:c.protocol},pending:false,retired:false});
-  this.value=[make('first',first),make('second',second)];this.active=equal(active,first)?'first':'second';this.direction=direction;this.epoch++;
+  const existing=(connection:PaneLive)=>preserveSlots?this.value.find(slot=>!slot.pending&&!slot.retired&&equal(slot.binding,connection))?.key:undefined;
+  const firstKey=existing(first)??(existing(second)==='first'?'second':'first');
+  const secondKey=firstKey==='first'?'second':'first';
+  this.value=[make(firstKey,first),make(secondKey,second)];this.active=equal(active,first)?firstKey:secondKey;this.direction=direction;this.epoch++;
  }
  collapse(keep:PaneKey=this.active){const s=this.value.find(s=>s.key===keep);if(!s)return false;this.value=[s];this.active=keep;this.direction='single';this.epoch++;return true;}
  remove(target:PaneIdentity){const s=this.value.find(s=>equal(s.binding,target));if(!s)return false;
