@@ -1,5 +1,7 @@
 # 执行台账
 
+2026-11-20 P22/T18 两小时正式稳定性验收通过。20 个固定回环 SSH2 代次跑满 7200 秒，14400 帧逐源 SHA 一致。5 次换票、720 个资源采样点、受管理关闭、终态审计和普通构建恢复核对通过。T19、完整 P22 与实机仍待验。[P22](records/P22.md) · Step-ID: P22。
+
 2026-11-10 P24 普通预览 schema 6→7 升级及配置快照回退演练通过。旧程序拒绝升级库读写，原库和备份保全，独立备份副本可由旧程序启动并读回配置与布局，见[P24](records/P24.md)。Step-ID: P24。
 
 2026-11-10 P24/T20 内存 UART 接收读失败专项通过。实际 Windows IPC 报告原代次 FAILED/IO、保留只读前缀并撤除 Agent 读写范围与租约。显式重开取得独立身份，普通服务已恢复，见[P24](records/P24.md)。Step-ID: P24。
@@ -439,7 +441,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P19 | 快速命令/完整撰写窗格 | IN_PROGRESS | [记录](records/P19.md) | 命令/选区/可选窗口历史及逐行节奏软件；完整验收仍开放 |
 | P20 | 触发器 | IN_PROGRESS | [记录](records/P20.md) | Step-ID: P20 |
 | P21 | 批量管理与迁移 | IN_PROGRESS | [记录](records/P21.md) | Step-ID: P21 |
-| P22 | 压力与权限边界 | IN_PROGRESS | T17/120秒T18子项及安全关闭诊断已验；旧FAIL/八小时/实机未闭；Desktop关闭回执独立规划 | [记录](records/P22.md) |
+| P22 | 压力与权限边界 | IN_PROGRESS | T17 软件、T18 两小时正式稳定性、独立 120 秒高负载和 Desktop 关闭回执已验，T19 与实机仍待验 | [记录](records/P22.md) |
 | P23 | 兼容与真实试用 | TODO | 待创建 | — |
 | P24 | 覆盖另存诊断已交付，合成 SSH 中断重连专项通过，完整故障恢复与升级待验 | IN_PROGRESS | [P24](records/P24.md) | Step-ID: P24 |
 | P25 | 安装与发布验收 | TODO | [本地分发前置核对](records/P25.md) | 开发预览与许可元数据已盘点，正式安装验收尚未启动 |
