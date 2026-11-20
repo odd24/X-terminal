@@ -2,7 +2,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io,
     os::windows::fs::{MetadataExt, OpenOptionsExt},
-    path::Path,
+    path::{Path, PathBuf},
 };
 use uuid::{Uuid, Variant};
 use windows_sys::Win32::{
@@ -10,15 +10,15 @@ use windows_sys::Win32::{
     System::WindowsProgramming::DRIVE_FIXED,
 };
 
-const PARENT: &str = r"D:\tmp";
-const CANONICAL_PARENT: &str = r"\\?\D:\tmp";
+pub(crate) const D_PARENT: &str = r"D:\tmp";
+pub(crate) const C_PARENT: &str = r"C:\Users\Administrator\AppData\Local\Temp";
 pub(crate) const PREFIX: &str = "P22-throughput-中文-";
 
 pub(crate) fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, "candidate root rejected")
 }
 
-pub(crate) fn candidate_id(path: &Path) -> io::Result<Uuid> {
+pub(crate) fn candidate_id_at(parent: &Path, path: &Path) -> io::Result<Uuid> {
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -28,7 +28,7 @@ pub(crate) fn candidate_id(path: &Path) -> io::Result<Uuid> {
     if id.to_string() != suffix
         || id.get_version_num() != 4
         || id.get_variant() != Variant::RFC4122
-        || path.as_os_str() != format!(r"{PARENT}\{name}").as_str()
+        || path.as_os_str() != parent.join(name).as_os_str()
     {
         return Err(invalid());
     }
@@ -49,8 +49,9 @@ fn pin(path: &Path) -> io::Result<File> {
     Ok(handle)
 }
 
-fn fixed_ntfs() -> io::Result<()> {
-    let drive = [b'D' as u16, b':' as u16, b'\\' as u16, 0];
+fn fixed_ntfs(volume: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    let drive: Vec<_> = volume.as_os_str().encode_wide().chain(Some(0)).collect();
     let mut filesystem = [0u16; 16];
     if unsafe { GetDriveTypeW(drive.as_ptr()) } != DRIVE_FIXED
         || unsafe {
@@ -73,26 +74,37 @@ fn fixed_ntfs() -> io::Result<()> {
 }
 
 pub(crate) struct Parent {
-    _parent: File,
-    _volume: File,
+    path: PathBuf,
+    _guards: Vec<File>,
 }
 
 impl Parent {
-    pub(crate) fn open() -> io::Result<Self> {
-        fixed_ntfs()?;
-        let volume = pin(Path::new(r"D:\"))?;
-        let parent = pin(Path::new(PARENT))?;
-        if fs::canonicalize(PARENT)? != Path::new(CANONICAL_PARENT) {
+    pub(crate) fn open_at(path: &Path) -> io::Result<Self> {
+        let volume = if path == Path::new(D_PARENT) {
+            Path::new(r"D:\")
+        } else if path == Path::new(C_PARENT) {
+            Path::new(r"C:\")
+        } else {
+            return Err(invalid());
+        };
+        fixed_ntfs(volume)?;
+        let mut ancestors: Vec<_> = path.ancestors().collect();
+        ancestors.reverse();
+        let guards = ancestors
+            .into_iter()
+            .map(pin)
+            .collect::<io::Result<Vec<_>>>()?;
+        if fs::canonicalize(path)?.as_os_str() != format!(r"\\?\{}", path.display()).as_str() {
             return Err(invalid());
         }
         Ok(Self {
-            _parent: parent,
-            _volume: volume,
+            path: path.to_path_buf(),
+            _guards: guards,
         })
     }
 
     pub(crate) fn pin_empty(&self, requested: &Path) -> io::Result<(File, std::path::PathBuf)> {
-        candidate_id(requested)?;
+        candidate_id_at(&self.path, requested)?;
         let root = pin(requested)?;
         let path = fs::canonicalize(requested)?;
         if path.as_os_str() != format!(r"\\?\{}", requested.display()).as_str()

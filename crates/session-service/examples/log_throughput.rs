@@ -939,9 +939,14 @@ async fn execute() -> Result<()> {
     let mode = args.get(4).and_then(|value| value.to_str());
     let concurrent = mode == Some("--d-tmp-concurrent-sync");
     let timeline = concurrent || matches!(mode, Some("--d-tmp-timeline" | "--check-timeline"));
+    #[cfg(feature = "t19-timeline-fixture")]
     let timeline_smoke = mode == Some("--check-timeline");
+    let c_mode = matches!(
+        mode,
+        Some("--c-tmp-calibrate" | "--c-tmp-formal" | "--check-c-tmp-root")
+    );
     let candidate_mode =
-        timeline || matches!(mode, Some("--d-tmp-calibrate" | "--check-d-tmp-root"));
+        c_mode || timeline || matches!(mode, Some("--d-tmp-calibrate" | "--check-d-tmp-root"));
     let ordinary_probe = mode == Some("--probe-ordinary");
     require(
         !timeline || cfg!(feature = "t19-timeline-fixture"),
@@ -954,7 +959,9 @@ async fn execute() -> Result<()> {
     let seconds = args[2].to_str().unwrap().parse::<u64>()?;
     let segment = args[3].to_str().unwrap().parse::<u64>()? * 1024 * 1024;
     require(
-        if candidate_mode || ordinary_probe {
+        if mode == Some("--c-tmp-formal") {
+            seconds == 1800 && segment == 104857600
+        } else if candidate_mode || ordinary_probe {
             seconds == 32 && segment == 1048576
         } else {
             matches!(seconds, 20..=60 | 1800) && matches!(segment, 1048576 | 104857600)
@@ -962,16 +969,26 @@ async fn execute() -> Result<()> {
         "bounded calibration or formal parameters only",
     )?;
     let requested = Path::new(&args[1]);
+    let parent = Path::new(if c_mode {
+        log_calibration_root::C_PARENT
+    } else {
+        log_calibration_root::D_PARENT
+    });
+    let evidence_prefix = if c_mode {
+        "P22-throughput-c-tmp"
+    } else {
+        "P22-throughput-d-tmp"
+    };
     let candidate = candidate_mode
-        .then(|| log_throughput_candidate::Candidate::create(requested))
+        .then(|| log_throughput_candidate::Candidate::create(parent, requested))
         .transpose()?;
-    if mode == Some("--check-d-tmp-root") {
+    if matches!(mode, Some("--check-d-tmp-root" | "--check-c-tmp-root")) {
         let owned = candidate.unwrap();
         let child = owned.path.join("guard-check");
         fs::create_dir(&child)?;
         fs::write(child.join("sentinel"), b"owned")?;
         require(
-            log_throughput_candidate::Candidate::create(requested)
+            log_throughput_candidate::Candidate::create(parent, requested)
                 .is_err_and(|e| e.kind() == io::ErrorKind::AlreadyExists),
             "existing candidate root must be rejected",
         )?;
@@ -1027,14 +1044,16 @@ async fn execute() -> Result<()> {
     if !ordinary_probe {
         command.arg("--test-fixture");
     }
-    let stderr = if timeline {
+    if timeline {
         command.arg(if concurrent {
             "--t19-concurrent-sync-fixture"
         } else {
             "--t19-timeline-fixture"
         });
+    }
+    let stderr = if timeline || c_mode {
         let id = candidate.as_ref().unwrap().id;
-        File::create_new(workspace.join(format!("P22-throughput-d-tmp-{id}-service-stderr.txt")))?
+        File::create_new(workspace.join(format!("{evidence_prefix}-{id}-service-stderr.txt")))?
     } else {
         File::create(root.join("service-stderr.txt"))?
     };
@@ -1199,7 +1218,7 @@ async fn execute() -> Result<()> {
     serde_json::to_writer_pretty(File::create(root.join("result.json"))?, &report)?;
     if let Some(owned) = candidate {
         serde_json::to_writer_pretty(
-            File::create_new(workspace.join(format!("P22-throughput-d-tmp-{}.json", owned.id)))?,
+            File::create_new(workspace.join(format!("{evidence_prefix}-{}.json", owned.id)))?,
             &report,
         )?;
         if clean && report["passed"] == true {

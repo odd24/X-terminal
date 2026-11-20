@@ -1,5 +1,5 @@
 //! Explicit, owned D-volume T19 diagnostic only.
-use crate::log_calibration_root::Parent;
+use crate::log_calibration_root::{D_PARENT, Parent};
 use serde::{Deserialize, Serialize};
 use session_protocol::{Request, logging, rpc_audit};
 use std::{
@@ -18,7 +18,7 @@ pub struct Root {
 
 impl Root {
     pub fn open(path: &Path, concurrent: bool) -> io::Result<Self> {
-        let parent = Parent::open()?;
+        let parent = Parent::open_at(Path::new(D_PARENT))?;
         let (root, path) = parent.pin_empty(path)?;
         Ok(Self {
             path,

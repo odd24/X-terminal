@@ -1,4 +1,4 @@
-use crate::log_calibration_root::{Parent, candidate_id, invalid};
+use crate::log_calibration_root::{Parent, candidate_id_at, invalid};
 use std::{
     fs::{self, File},
     io,
@@ -14,9 +14,9 @@ pub struct Candidate {
 }
 
 impl Candidate {
-    pub fn create(requested: &Path) -> io::Result<Self> {
-        let id = candidate_id(requested)?;
-        let parent = Parent::open()?;
+    pub fn create(parent: &Path, requested: &Path) -> io::Result<Self> {
+        let id = candidate_id_at(parent, requested)?;
+        let parent = Parent::open_at(parent)?;
         // An existing path is rejected before any read of its contents.
         fs::create_dir(requested)?;
         let (root, path) = parent.pin_empty(requested)?;
@@ -52,12 +52,18 @@ impl Candidate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log_calibration_root::PREFIX;
+    use crate::log_calibration_root::{C_PARENT, D_PARENT, PREFIX};
 
     #[test]
     fn accepts_only_exact_direct_candidate_paths() {
         let name = format!("{PREFIX}{}", Uuid::new_v4());
-        assert!(candidate_id(Path::new(&format!(r"D:\tmp\{name}"))).is_ok());
+        let d = Path::new(D_PARENT);
+        let c = Path::new(C_PARENT);
+        assert!(candidate_id_at(d, &d.join(&name)).is_ok());
+        assert!(candidate_id_at(c, &c.join(&name)).is_ok());
+        assert!(candidate_id_at(d, &c.join(&name)).is_err());
+        assert!(candidate_id_at(c, &d.join(&name)).is_err());
+        assert!(candidate_id_at(c, &c.join("child").join(&name)).is_err());
         for path in [
             format!(r"Z:\{name}"),
             format!(r"\\server\share\{name}"),
@@ -69,7 +75,7 @@ mod tests {
             format!(r"D:tmp\{name}"),
             format!(r"D:\tmp\{PREFIX}bad"),
         ] {
-            assert!(candidate_id(Path::new(&path)).is_err(), "{path}");
+            assert!(candidate_id_at(d, Path::new(&path)).is_err(), "{path}");
         }
     }
 }
