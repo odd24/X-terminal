@@ -414,6 +414,13 @@ async fn forward_config(
     request: session_protocol::config::ConfigRequest,
 ) -> Result<session_protocol::config::ConfigReply, String> {
     let mut channel = state.1.lock().await;
+    configured_request(&mut channel, request).await
+}
+
+async fn configured_request(
+    channel: &mut Option<session_service::client::Client>,
+    request: session_protocol::config::ConfigRequest,
+) -> Result<session_protocol::config::ConfigReply, String> {
     let client = channel.as_mut().ok_or("CONFIG_CHANNEL_UNAVAILABLE")?;
     match client.request(Request::Config { request }).await {
         Ok(session_protocol::Response::Ok {
@@ -426,6 +433,62 @@ async fn forward_config(
             Err("CONFIG_CHANNEL_UNAVAILABLE".into())
         }
     }
+}
+
+#[derive(serde::Serialize)]
+struct SavedFontSize {
+    previous_revision: uuid::Uuid,
+    revision: uuid::Uuid,
+    font_size: u8,
+}
+
+#[tauri::command]
+async fn save_terminal_font_size(
+    state: State<'_, Desktop>,
+    font_size: u8,
+) -> Result<SavedFontSize, String> {
+    use session_protocol::config::{ConfigReply as R, ConfigRequest as Q};
+    if !(10..=28).contains(&font_size) {
+        return Err("INVALID_CONFIGURATION".into());
+    }
+    // Read and patch the current stored preferences under the same config channel.
+    // The renderer's other appearance edits never enter this request.
+    let mut channel = state.1.lock().await;
+    let (mut preferences, previous_revision) =
+        match configured_request(&mut channel, Q::Preferences {}).await? {
+            R::Preferences {
+                preferences,
+                revision,
+            } => (preferences, revision),
+            R::Error { code } => return Err(format!("{code:?}")),
+            _ => return Err("INVALID_CONFIGURATION_REPLY".into()),
+        };
+    let revision = if preferences.font_size == font_size {
+        previous_revision
+    } else {
+        preferences.font_size = font_size;
+        match configured_request(
+            &mut channel,
+            Q::SavePreferences {
+                revision: previous_revision,
+                preferences,
+            },
+        )
+        .await?
+        {
+            R::Preferences {
+                preferences,
+                revision,
+            } if preferences.font_size == font_size => revision,
+            R::Error { code } => return Err(format!("{code:?}")),
+            _ => return Err("INVALID_CONFIGURATION_REPLY".into()),
+        }
+    };
+    Ok(SavedFontSize {
+        previous_revision,
+        revision,
+        font_size,
+    })
 }
 #[tauri::command]
 fn config_directory(state: State<'_, Desktop>) -> String {
@@ -953,6 +1016,7 @@ fn main() {
             fixture_append,
             fixture_lifecycle,
             config_request,
+            save_terminal_font_size,
             config_import::select_config_import,
             logging_request,
             agent_management_request,

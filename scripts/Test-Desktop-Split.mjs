@@ -5,11 +5,11 @@ import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {requestId} from '../apps/desktop/src/request-id.ts';
-import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
+import {connectDesktopPage,dragNativeWindow,launchDesktop,delay} from './lib/DesktopHarness.mjs';
 const build=fixture=>{const r=spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});if(r.error)throw r.error;assert.equal(r.status,0,'fixture and ordinary restoration must actually succeed');};
 const wait=async(check,label)=>{for(let i=0;i<300;i++){if(await check())return;await delay(50);}throw new Error(`Timeout: ${label}`);};
 const ref=c=>({connection_id:c.connection_id,generation:c.generation});
-let directory,ui;const fixtures=[];
+let directory,ui,detached;const fixtures=[];
 try{
  build(true);directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-split-ui-中文-'));
  async function server(name){const d=path.join(directory,name);await mkdir(d);const child=spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'),[d],{windowsHide:true,stdio:['pipe','pipe','pipe']});fixtures.push(child);const lines=createInterface({input:child.stdout})[Symbol.asyncIterator]();const next=async()=>{let t;try{return await Promise.race([lines.next().then(v=>JSON.parse(v.value)),new Promise((_,reject)=>{t=setTimeout(()=>reject(new Error('fixture timeout')),10000);})]);}finally{clearTimeout(t);}};const data=await next();return {...data,control:async value=>{child.stdin.write(JSON.stringify(value)+'\n');return next();}};}
@@ -169,7 +169,101 @@ try{
    await savePalette(originalPreferences.terminal_palette);
    assert.deepEqual((await config({op:'preferences'})).preferences,originalPreferences);
  }
+ if(process.argv.includes('--font-size')){
+   const saved=()=>config({op:'preferences'}).then(reply=>reply.preferences);
+   const readSize=(page,c,size)=>page.waitFor(`(()=>{
+     const pane=document.querySelector('[data-rendered-id="${c.connection_id}"]');
+     const text=pane?.querySelector('.xterm-rows span');
+     return !!text&&getComputedStyle(text).fontSize==='${size}px';
+   })()`);
+   const both=(c,d,size)=>Promise.all([readSize(ui,c,size),readSize(ui,d,size)]);
+   async function newUart(marker){
+     await ui.click('串口连接');
+     await ui.waitFor(`document.querySelector('[aria-label="UART端口"]')?.options.length===2`);
+     await ui.fill('UART端口',await ui.evaluate(`document.querySelector('[aria-label="UART端口"]').options[1].value`));
+     await ui.click('连接串口');
+     await ui.waitFor(`!document.querySelector('dialog:modal')`);
+     const found=(await ui.invoke('service_list')).find(c=>c.protocol==='SERIAL'&&c.state==='CONNECTED');
+     assert.ok(found);
+     const before=await raw(found);
+     await ui.invoke('serial_request',{request:{op:'send',connection:ref(found),request_id:requestId(),content:marker,format:'text',ending:'none',pace:{chunk_bytes:1024,interval_ms:0}}});
+     await exact(found,Buffer.concat([before,Buffer.from(marker)]));
+     return found;
+   }
+   const before=await saved();
+   assert.equal(before.font_size,15);
+   const existingUart=await newUart('FONT-EXISTING-UART');
+   await split(currentA,existingUart,'horizontal');
+   await both(currentA,existingUart,15);
+   await menu('外观');
+   await ui.fill('应用主题',before.theme==='dark'?'light':'dark');
+   await ui.fill('终端文字亮度',65);
+   const held=await ui.interceptIpc({command:'save_terminal_font_size',op:undefined,mode:'hold'});
+   try{
+     await ui.fill('终端字号',17);
+     await wait(async()=>await held.count()===1,'first size response held');
+     assert.equal((await saved()).font_size,17);
+     await ui.click('关闭外观');
+     await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
+     await ui.fill('字号',22);
+     await ui.fill('字号',24);
+     await both(currentA,existingUart,24);
+     assert.equal((await saved()).font_size,17);
+     await held.release();
+     await wait(async()=>await held.count()===2,'only the latest queued size is written');
+     await held.release();
+     await ui.waitFor(`document.querySelector('[aria-label="字号保存状态"]').textContent==='字号已自动保存'`);
+     assert.deepEqual(await saved(),{...before,font_size:24});
+     assert.equal(await held.count(),2);
+   }finally{await held.restore();}
+   await ui.evaluate(`document.querySelector('.tools-menu').open=false`);
+   await ui.screenshot('terminal-font-size-mixed-24.png');
+
+   const start=await ui.evaluate(`(()=>{
+     const r=document.querySelector('[data-rendered-id="${currentA.connection_id}"] .pane-focus').getBoundingClientRect();
+     return {x:r.x+r.width/2,y:r.y+r.height/2};
+   })()`);
+   await ui.command('Page.bringToFront');
+   dragNativeWindow(ui.app,[start,{x:start.x-25,y:start.y+44},{x:58,y:140},{x:-40,y:180,outside:true}]);
+   let target;await wait(async()=>{[target]=await ui.otherPages();return !!target;},'new native SSH window');
+   detached=await connectDesktopPage(target);
+   const previousOwner=await ui.invoke('service_status');
+   assert.equal((await detached.invoke('service_status')).service_id,previousOwner.service_id);
+   await readSize(detached,currentA,24);
+   await menu('外观');
+   await ui.fill('终端字号',20);
+   await ui.waitFor(`document.querySelector('[aria-label="终端字号保存状态"]').textContent==='字号已自动保存'`);
+   await ui.click('关闭外观');
+   await Promise.all([readSize(ui,existingUart,20),readSize(detached,currentA,20)]);
+   await detached.screenshot('terminal-font-size-detached-20.png');
+
+   const exitSave=await ui.interceptIpc({command:'save_terminal_font_size',op:undefined,mode:'hold'});
+   await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
+   await ui.fill('字号',23);
+   await wait(async()=>await exitSave.count()===1,'final size response held');
+   await ui.invoke('plugin:window|close',{label:'main'});
+   await ui.waitFor(`!!document.querySelector('dialog:modal[aria-label="退出桌面确认"]')`);
+   await ui.click('确认退出并停止服务');
+   await delay(240);
+   assert.equal(ui.app.exitCode,null,'managed exit waits while the confirmed size is being saved');
+   await exitSave.release();
+   await wait(()=>ui.app.exitCode!==null,'normal application exit');
+   assert.equal(ui.app.exitCode,0);
+   detached.close();detached=undefined;
+   await ui.close();ui=await launchDesktop(directory,{fixture:true});
+   assert.notEqual((await ui.invoke('service_status')).service_id,previousOwner.service_id);
+   assert.deepEqual(await saved(),{...before,font_size:23},'closed dialog and restart preserve only the committed size');
+   const afterSsh=await connect(one,a.profileId);
+   const afterUart=await newUart('FONT-RESTART-UART');
+   await split(afterSsh,afterUart,'horizontal');
+   await both(afterSsh,afterUart,23);
+   await ui.screenshot('terminal-font-size-restart-23.png');
+   await writeFile('artifacts/terminal-font-size-result.json',JSON.stringify({
+     result:'PASS',existing:{before:15,after:24},detached:{initial:24,after:20},normalRestart:{ssh:23,uart:23},otherPreferences:'unchanged',heldClose:'waited for original response',
+   },null,2));
+   console.log('PASS terminal font size 15→24 mixed, 24→20 in detached, 23px new SSH/UART after normal restart, isolated writes and held close');
+ }
  await writeFile('artifacts/P17-split-result.json',JSON.stringify({result:'PASS',identities:{a,b,renewed,uart,twin},realWindow:resized,hardware:'memory serial; no COM'},null,2));
  console.log('PASS native two-pane terminals: horizontal/vertical, actual independent SSH sizes/window resize, focused keyboard/F6, held queue roundtrip drop, paste/compose invalidation, lost write no replay, exact generation freeze/new explicit bind, mixed UART/log target, pane collapse keeps sessions, exact tab close, same-Profile instances, reload single without replay');
 }catch(error){if(ui){await ui.screenshot('P17-split-failure.png').catch(()=>{});await writeFile('artifacts/P17-split-failure.txt',await ui.evaluate('document.body.innerText').catch(String));}throw error;
-}finally{try{await ui?.close();for(const c of fixtures){c.kill();if(c.exitCode===null&&c.signalCode===null)await new Promise(resolve=>c.once('exit',resolve));}if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-split-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}finally{build(false);}}
+}finally{try{detached?.close();await ui?.close();for(const c of fixtures){c.kill();if(c.exitCode===null&&c.signalCode===null)await new Promise(resolve=>c.once('exit',resolve));}if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-split-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}finally{build(false);}}

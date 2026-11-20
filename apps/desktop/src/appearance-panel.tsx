@@ -1,10 +1,11 @@
 import type { ThemeChoice, TerminalFont } from './appearance';
 import type { DesktopPreferences } from './config-api';
+import type { ReactNode } from 'react';
 import { Field, Panel } from './ui';
 
-export function AppearancePanel({ theme, font, setTheme, setFont, preferences, busy, canSave, message, update, save, read, close }: {
+export function AppearancePanel({ theme, font, setTheme, setFont, preferences, fontSizeControl, busy, canSave, message, update, save, read, close }: {
   theme: ThemeChoice; font: TerminalFont; setTheme: (theme: ThemeChoice) => void;
-  preferences: DesktopPreferences; busy: boolean; canSave: boolean; message: string;
+  preferences: DesktopPreferences; fontSizeControl: ReactNode; busy: boolean; canSave: boolean; message: string;
   update: (patch: Partial<DesktopPreferences>) => void; save: () => void; read: () => void;
   setFont: (font: TerminalFont) => void; close: () => void;
 }) {
@@ -20,6 +21,7 @@ export function AppearancePanel({ theme, font, setTheme, setFont, preferences, b
       <Field label="终端等宽字体"><select aria-label="终端等宽字体" value={font} onChange={event => setFont(event.target.value as TerminalFont)}>
         <option value="consolas">Consolas</option><option value="cascadia">Cascadia Mono（未安装时使用 Consolas）</option>
       </select></Field>
+      {fontSizeControl}
       <Field label={`终端文字亮度 · ${brightness}%`}>
         <input aria-label="终端文字亮度" type="range" min={40} max={100} step={1} value={brightness}
           aria-valuetext={`${brightness}%`} onChange={event=>update({terminal_text_brightness:event.currentTarget.valueAsNumber})} />
@@ -31,6 +33,6 @@ export function AppearancePanel({ theme, font, setTheme, setFont, preferences, b
     <div className="config-actions"><button disabled={!canSave} onClick={save}>保存桌面偏好</button><button onClick={read}>重新读取偏好</button></div>
     </fieldset>
     <div role="status" aria-label="桌面偏好状态">{message}</div>
-    <small>调整立即作用于本窗口，保存后按当前数据目录恢复并纳入配置备份。重新读取会丢弃本窗口未保存的调整。中文使用系统字体回退，字号在工具栏调整。Ctrl+Shift+C/V及复制/粘贴按钮始终可用；无选区Ctrl+C仍发送终端中断。粘贴的预览与目标确认规则保持。草稿、正文和同意不保存。</small>
+    <small>字号立即生效并自动保存。其他调整点击「保存桌面偏好」后写入本数据目录，重新读取会丢弃未保存的调整。中文使用系统字体回退。Ctrl+Shift+C/V及复制/粘贴按钮始终可用；无选区Ctrl+C仍发送终端中断。粘贴的预览与目标确认规则保持。草稿、正文和同意不保存。</small>
   </Panel>;
 }

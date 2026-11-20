@@ -74,6 +74,8 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 }
 
 .config-panel input[aria-label="终端文字亮度"] { accent-color: var(--accent); }
+.terminal-font-size small { display: block; margin-block-start: var(--space-1); color: var(--text-subtle); }
+.terminal-font-size small:has(+ button) { color: var(--danger); }
 
 /* xterm uses its own scrollable element. The viewport also hosts the overview ruler. */
 .terminal .xterm-viewport { background-color: var(--terminal-background); overflow-y: hidden; }

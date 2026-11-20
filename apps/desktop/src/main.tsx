@@ -6,6 +6,7 @@ import {BatchConfigPanel} from './batch-config-panel';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
+import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -15,6 +16,7 @@ import { TerminalSearch } from './terminal-search-panel';
 import { initialTerminalView, type TerminalController, type TerminalView, type PaneSelection } from './terminal-controller';
 import { type ThemeChoice, type TerminalFont } from './appearance';
 import { AppearancePanel } from './appearance-panel';
+import { isTerminalFontSize, TerminalFontSizeControl, useTerminalFontSize } from './terminal-font-size';
 import { AgentPanel } from './agent-panel';
 import { ComposePanel } from './compose-panel';
 import type { ComposePacing } from './compose-pacing';
@@ -125,6 +127,7 @@ function App() {
   const [exitConfirm, setExitConfirm] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const allowExit = useRef(false);
+  const closingDesktop = useRef<symbol>(undefined);
   const pendingExitCheck = useRef(false);
   const transferring = useRef<string>(undefined);
   const liveConnections = useRef<Connection[]>([]);
@@ -149,34 +152,76 @@ function App() {
   const fontSize = preferences.font_size;
   const [preferencesBusy, setPreferencesBusy] = useState(true);
   const preferenceFlight = useRef(false), preferenceEpoch = useRef(0);
-  const [preferenceRevision, setPreferenceRevision] = useState<string>();
+  const preferenceRevision = useRef<string>(undefined);
+  const preferencesOwner = useRef<string>(undefined);
+  const remoteFontEpoch = useRef(0);
   const [preferenceMessage, setPreferenceMessage] = useState('正在读取本数据目录偏好');
   function updatePreferences(patch: Partial<DesktopPreferences>) {
     if (preferenceFlight.current) return;
     clipboard.current?.invalidate();
     setPreferences(previous => ({ ...previous, ...patch }));
-    setPreferenceMessage('本窗口调整尚未保存；关闭或重载会丢弃未保存的调整');
+    setPreferenceMessage('其他外观调整尚未保存，退出应用或重载会丢弃这些调整');
   }
   const setTheme = (theme: ThemeChoice) => updatePreferences({ theme });
   const setTerminalFont = (terminal_font: TerminalFont) => updatePreferences({ terminal_font });
-  const setFontSize = (font_size: number) => updatePreferences({ font_size });
+  async function announceFontSize(fontSize:number) {
+    const owner=serviceRef.current?.service_id;
+    if(!detached&&owner)await emit('terminal-font-size-saved',{owner,fontSize}).catch(()=>{});
+  }
+  const fontSizing=useTerminalFontSize(font_size=>{
+    clipboard.current?.invalidate();
+    setPreferences(previous=>({...previous,font_size}));
+  },receipt=>{
+    // Advancing the full-save baseline is safe only if it was the one we patched.
+    if(receipt.previous_revision&&receipt.previous_revision===preferenceRevision.current){
+      preferenceRevision.current=receipt.revision;
+    }
+    return announceFontSize(receipt.font_size);
+  });
+  function setFontSize(size:number) {
+    if(!preferencesBusy&&!preferenceFlight.current&&!closingDesktop.current)fontSizing.change(size);
+  }
+  useEffect(()=>{
+    if(!detached)return;
+    const unlisten=listen<{owner:string;fontSize:number}>('terminal-font-size-saved',event=>{
+      const {owner,fontSize}=event.payload;
+      if(owner!==serviceRef.current?.service_id||!isTerminalFontSize(fontSize))return;
+      remoteFontEpoch.current++;
+      setPreferences(previous=>({...previous,font_size:fontSize}));
+    });
+    return()=>{void unlisten.then(stop=>stop());};
+  },[]);
   async function preferenceOperation(save: boolean) {
-    if (preferenceFlight.current || (save && !preferenceRevision)) return;
+    if (preferenceFlight.current || (save && !preferenceRevision.current)) return;
     preferenceFlight.current = true; setPreferencesBusy(true);
     const epoch = ++preferenceEpoch.current;
+    const owner = serviceRef.current?.service_id;
     setPreferenceMessage(save ? '正在保存本数据目录偏好' : '正在读取本数据目录偏好');
     try {
-      const reply = await config(save ? { op: 'save_preferences', preferences: preferenceRef.current, revision: preferenceRevision! } : { op: 'preferences' });
+      await fontSizing.settled();
+      if(epoch!==preferenceEpoch.current)return;
+      const observedFontEpoch=remoteFontEpoch.current;
+      const reply = await config(save ? { op: 'save_preferences', preferences: preferenceRef.current, revision: preferenceRevision.current! } : { op: 'preferences' });
       if (epoch !== preferenceEpoch.current) return;
       if (reply.result !== 'preferences') throw new Error('偏好响应不匹配');
-      clipboard.current?.invalidate(); setPreferences(reply.preferences); setPreferenceRevision(reply.revision);
+      clipboard.current?.invalidate();
+      setPreferences(previous=>observedFontEpoch===remoteFontEpoch.current
+        ? reply.preferences : {...reply.preferences,font_size:previous.font_size});
+      preferenceRevision.current=reply.revision;
+      fontSizing.reset();
+      await announceFontSize(reply.preferences.font_size);
+      if(epoch!==preferenceEpoch.current)return;
       setPreferenceMessage(save ? '已保存到本数据目录；重载或下次启动自动读取' : '已读取本数据目录偏好；未发送任何终端输入');
     } catch (error) {
       if (epoch !== preferenceEpoch.current) return;
-      setPreferenceRevision(undefined);
+      preferenceRevision.current=undefined;
       setPreferenceMessage(`${error instanceof Error ? error.message : '偏好请求失败'} ${save ? '保存结果可能未知；请重新读取核对，未自动重试。' : '当前显示保留，未覆盖存储；可重新读取。'}`);
     } finally {
-      if (epoch === preferenceEpoch.current) { preferenceFlight.current = false; setPreferencesBusy(false); }
+      if (epoch === preferenceEpoch.current) {
+        preferencesOwner.current=owner;
+        preferenceFlight.current = false;
+        setPreferencesBusy(false);
+      }
     }
   }
   const [configurationOpen, setConfigurationOpen] = useState(false);
@@ -316,8 +361,7 @@ function App() {
       pendingExitCheck.current=true;
       void invoke<boolean>('desktop_live_sessions').then(live=>{
         if(live){setExitConfirm(true);return;}
-        allowExit.current=true;
-        return appWindow.close();
+        return finishDesktopClose();
       }).catch(()=>{
         allowExit.current=false;
         setExitConfirm(true);
@@ -325,6 +369,24 @@ function App() {
     });
     return () => { void unlisten.then(dispose => dispose()); };
   }, []);
+  async function finishDesktopClose(){
+    if(closingDesktop.current)return;
+    const attempt=Symbol();
+    closingDesktop.current=attempt;
+    try{
+      await fontSizing.settled();
+      if(closingDesktop.current!==attempt)return;
+      allowExit.current=true;
+      await appWindow.close();
+    }catch(error){
+      closingDesktop.current=undefined;
+      allowExit.current=false;
+      throw error;
+    }
+  }
+  function cancelDesktopClose(){
+    if(!allowExit.current){closingDesktop.current=undefined;setExitConfirm(false);}
+  }
 
   const serviceRef=useRef<Status|undefined>(undefined);serviceRef.current=service;
   const serviceStopped=useRef(false);
@@ -350,7 +412,8 @@ function App() {
   }
   function paneSelection(key:PaneKey):PaneSelection{const slot=panes.current.slots.find(p=>p.key===key),binding=slot?.binding;
     const live=binding&&liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation&&c.protocol===binding.protocol);
-    const owner=serviceStopped.current?'':serviceRef.current?.service_id??'';
+    const serviceOwner=serviceRef.current?.service_id;
+    const owner=serviceStopped.current||preferencesOwner.current!==serviceOwner?'':serviceOwner??'';
     const pending=firstSsh1Fit.current;
     const initialSsh1Fit=pending&&pending.owner===owner&&pending.pane===key&&pending.epoch===panes.current.epoch
       && binding?.protocol==='SSH1'&&binding.connection_id===pending.connection.connection_id&&binding.generation===pending.connection.generation
@@ -757,7 +820,7 @@ function App() {
       <button onClick={() => setSerialOpen(open=>!open)}>串口高级工具</button>
       <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
-      <label>字号 <input aria-label="字号" disabled={preferencesBusy} type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
+      <TerminalFontSizeControl label="字号" value={fontSize} state={fontSizing.state} disabled={preferencesBusy} change={setFontSize}/>
 
       </ToolbarMenu>}
       {detached?<button onClick={()=>void appWindow.close()}>移回主窗口</button>:<button className="sidebar-toggle" aria-label="会话导航" title="显示或收起连接库" aria-expanded={sidebarOpen} aria-controls="connection-library" onClick={toggleSidebar}><span aria-hidden="true">◫</span></button>}
@@ -798,7 +861,7 @@ function App() {
     {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} seed={broadcastSeed} close={closeBroadcast}/></Dialog>}
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
     {composeOpen && <Dialog label="撰写终端输入" modal={false} close={()=>{drafts.current.invalidate();setComposeOpen(false);}}><ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text, pacing) => composeSend.current?.(target, text, pacing) ?? false} close={() => setComposeOpen(false)} /></Dialog>}
-    {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
+    {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} fontSizeControl={<TerminalFontSizeControl label="终端字号" value={fontSize} state={fontSizing.state} change={setFontSize}/>} busy={preferencesBusy} canSave={!!preferenceRevision.current} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel key={configurationTarget?.id??'new'} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget?.id} initialAction={configurationTarget?.action} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
     {sshOpen && <Dialog label="SSH2 连接工具" modal={false} close={()=>setSshOpen(false)}><SshPanel connection={active} select={selectConnection} closePanel={()=>setSshOpen(false)} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} /></Dialog>}
     <Dialog label="独立 exec 任务" modal={false} open={execOpen} close={()=>setExecOpen(false)}><ExecPanel open={execOpen} connection={active} close={()=>setExecOpen(false)} /></Dialog>
@@ -847,10 +910,10 @@ function App() {
         <span>{active && `${active.connection_id} / ${active.generation} · `}{service && `服务 ${service.service_id} · `}{detached?'关闭窗口会将会话移回主窗口':'关闭主窗口将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收'}</span>
       </Panel></Dialog>
     </footer>
-    {exitConfirm && <Dialog label="退出桌面确认" close={()=>setExitConfirm(false)}>
+    {exitConfirm && <Dialog label="退出桌面确认" close={cancelDesktopClose}>
       <Panel title="退出并停止会话服务">
         <p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p>
-        <div className="config-actions"><button data-dialog-autofocus onClick={()=>setExitConfirm(false)}>取消退出</button><button onClick={()=>{allowExit.current=true;void getCurrentWindow().close();}}>确认退出并停止服务</button></div>
+        <div className="config-actions"><button data-dialog-autofocus onClick={cancelDesktopClose}>取消退出</button><button onClick={()=>void finishDesktopClose().catch(()=>{})}>确认退出并停止服务</button></div>
       </Panel>
     </Dialog>}
   </main>;

@@ -24,10 +24,12 @@ try {
   await ui.fill('终端配色','black_green');
   await ui.fill('终端文字亮度',70);
   await ui.waitFor(`document.querySelector('.desktop-shell').style.getPropertyValue('--terminal-text-brightness')==='70%'`);
-  await ui.fill('应用主题','light'); await ui.fill('终端等宽字体','cascadia'); await ui.fill('字号',22);
+  await ui.fill('应用主题','light'); await ui.fill('终端等宽字体','cascadia'); await ui.fill('终端字号',22);
+  await ui.waitFor(`document.querySelector('[aria-label="终端字号保存状态"]').textContent==='字号已自动保存'`);
+  await ui.screenshot('terminal-font-size-control.png');
   await toggle('Ctrl+C选区复制'); await toggle('Ctrl+V粘贴');
   const expected={theme:'light',terminal_font:'cascadia',terminal_palette:'black_green',font_size:22,terminal_text_brightness:70,ctrl_c_copy:false,ctrl_v_paste:true,right_click_paste:true};
-  assert.notDeepEqual((await call({op:'preferences'})).preferences,expected,'editing does not silently persist');
+  assert.deepEqual((await call({op:'preferences'})).preferences,{...seed.preferences,right_click_paste:true,font_size:22},'automatic size changes do not persist other edited preferences');
   await ui.click('保存桌面偏好'); await message('已保存'); assert.deepEqual((await call({op:'preferences'})).preferences,expected);
   await ui.evaluate('window.__preferencesReloadMarker=true'); await ui.command('Page.reload');
   await ui.waitFor(`!window.__preferencesReloadMarker && !!document.querySelector('footer')`);
@@ -96,21 +98,23 @@ try {
   assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='保存桌面偏好').disabled`),true);
   assert.equal((await call({op:'preferences'})).preferences.font_size,23);
   await ui.click('重新读取偏好'); await message('已读取');
-  await ui.fill('字号',24);
-  const lost=await ui.interceptIpc({command:'config_request',op:'save_preferences',mode:'error'});
+  const lost=await ui.interceptIpc({command:'save_terminal_font_size',op:undefined,mode:'error'});
   try {
-    await ui.click('保存桌面偏好'); await message('结果可能未知'); assert.equal(await lost.count(),1);
+    await ui.fill('终端字号',24);
+    await ui.waitFor(`document.querySelector('[aria-label="终端字号保存状态"]').textContent==='字号已自动保存'`);
+    assert.equal(await lost.count(),1);
     await delay(300); assert.equal(await lost.count(),1,'unknown save is not retried');
     assert.equal((await call({op:'preferences'})).preferences.font_size,24);
   } finally { await lost.restore(); }
   await ui.click('重新读取偏好'); await message('已读取');
   const backup=(await call({op:'create_backup'})).artifact;
-  await ui.fill('字号',25);
+  await ui.fill('应用主题','dark');
   const lateSave=await ui.interceptIpc({command:'config_request',op:'save_preferences',mode:'hold'});
   try {
     await ui.click('保存桌面偏好');
     for(let attempt=0;attempt<100 && !(await lateSave.count());attempt++)await delay(10);
     assert.equal(await lateSave.count(),1);
+    assert.equal((await call({op:'preferences'})).preferences.theme,'dark','manual change was committed before holding the response');
     assert.equal(await ui.evaluate('window.__desktopIpcResponseTest.releases.length'),1,'real save response must be held');
     await ui.click('关闭外观');await ui.click('连接配置');
     await ui.waitFor(`document.querySelector('[aria-label="配置状态"]')?.textContent.includes('已加载')`);
@@ -124,6 +128,7 @@ try {
     await ui.waitFor(`document.querySelector('[aria-label="备份状态"]').textContent.includes('当前配置已恢复')`);
     await ui.click('关闭配置');await ui.click('外观');await message('已读取'); await lateSave.release(); await delay(300);
     assert.equal(await lateSave.count(),1);
+    assert.equal(await ui.evaluate('document.documentElement.dataset.theme'),'light','late manual save cannot undo restored theme');
     assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'24','late old save reply cannot undo explicitly restored preferences');
     assert.equal((await call({op:'preferences'})).preferences.font_size,24);
     await ui.click('关闭配置');
@@ -157,7 +162,15 @@ try {
   const second=await mkdtemp(path.join(tmpdir(),'shared-terminal-preferences-ui-中文-'));roots.push(second);
   await open(second);assert.equal(await ui.evaluate('document.documentElement.dataset.theme'),'light');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`),'15');
-  console.log('PASS native preferences: explicit save/read, reload and service restart, directory isolation, Ctrl+C/Shift+C/V/Shift+V and right click exact bytes, consent invalidation, stale revision, real lost response hit once/no retry; synthetic only');
+  const secondStored=await call({op:'preferences'});
+  const external={...secondStored.preferences,terminal_text_brightness:63};
+  await call({op:'save_preferences',revision:secondStored.revision,preferences:external});
+  await ui.evaluate(`document.querySelector('[aria-label="终端字号"]').focus()`);
+  await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+  await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+  await ui.waitFor(`document.querySelector('[aria-label="终端字号"]').value==='16' && document.querySelector('[aria-label="终端字号保存状态"]').textContent==='字号已自动保存'`);
+  assert.deepEqual((await call({op:'preferences'})).preferences,{...external,font_size:16},'font write starts from the latest stored shared preferences');
+  console.log('PASS native preferences: isolated automatic font size, explicit save/read of other preferences, reload and process restart, directory isolation, exact clipboard bytes, stale revision, lost font save verified without replay and late restore; synthetic only');
 } catch(error) {
   console.error('preferences failure:',await ui?.evaluate(`JSON.stringify({preferences:document.querySelector('[aria-label="桌面偏好状态"]')?.textContent,main:document.querySelector('.status')?.textContent})`)); if(ui)await ui.screenshot('desktop-preferences-failure.png'); throw error;
 } finally {
