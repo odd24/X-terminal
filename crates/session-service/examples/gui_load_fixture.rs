@@ -17,6 +17,14 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 const STREAMS: usize = 20;
 const HZ: u64 = 21;
+fn sparse_mode(seconds: u64) -> Option<bool> {
+    match seconds {
+        25 | 7_200 => Some(true),
+        8 | 120 => Some(false),
+        _ => None,
+    }
+}
+
 fn block(stream: usize, seq: u64) -> Vec<u8> {
     let mut b = vec![b'a' + ((stream as u64 + seq) % 26) as u8; 1024];
     let header = format!("T18|{stream:02}|{seq:08}|");
@@ -147,8 +155,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let id = value["id"].clone();
         match value["op"].as_str().unwrap_or("") {
             "start"=>{
-                assert!(!started);started=true;let seconds=value["seconds"].as_u64().unwrap();assert!(matches!(seconds,8|25|120|28800));
-                let sparse=matches!(seconds,25|28800);
+                assert!(!started);
+                let seconds = value["seconds"].as_u64().expect("fixed fixture duration");
+                let sparse = sparse_mode(seconds).expect("supported fixture duration");
+                started = true;
                 let frames=if sparse {seconds.div_ceil(10)} else {seconds*HZ};
                 let base_start=Instant::now()+Duration::from_millis(250);let clock=tokio::time::Instant::from_std(base_start);let unix_ms=SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis()+250;
                 for index in 0..STREAMS {let f=sources[index].clone();let tx=tx.clone();let failed=notification_failed.clone();let stop=stop.clone();generation.push(tokio::spawn(async move{
@@ -185,4 +195,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     drop(tx);
     writer.join().unwrap();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_supports_fixed_load_and_soak_durations() {
+        assert_eq!(sparse_mode(7_200), Some(true));
+        assert_eq!(sparse_mode(25), Some(true));
+        assert_eq!(sparse_mode(8), Some(false));
+        assert_eq!(sparse_mode(120), Some(false));
+        assert_eq!(sparse_mode(7_199), None);
+        assert_eq!(sparse_mode(7_201), None);
+        assert_eq!(sparse_mode(28_800), None);
+    }
 }

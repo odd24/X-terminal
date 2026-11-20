@@ -8,7 +8,7 @@ import os from 'node:os';
 import {randomUUID,createHash} from 'node:crypto';
 import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 import {requestId} from '../apps/desktop/src/request-id.ts';
-import {closeSoakDesktop,measureSoak,soakPreflight} from './lib/LoadSoak.mjs';
+import {closeSoakDesktop,measureSoak,soakPreflight,soakSchedule} from './lib/LoadSoak.mjs';
 import {startSoakSampler} from './lib/SoakSamplerClient.mjs';
 
 const flags=process.argv.slice(2);
@@ -16,8 +16,10 @@ assert.ok(flags.every(x=>['--calibrate','--permissions-only','--soak','--soak-se
 const formalSoak=flags.includes('--soak'),selfCheck=flags.includes('--soak-self-check'),soak=formalSoak||selfCheck;
 if(soak)assert.equal(flags.length,1,'Choose exactly one soak mode');
 const permissionsOnly=flags.includes('--permissions-only'),calibration=flags.includes('--calibrate')||permissionsOnly;
-const seconds=formalSoak?28800:selfCheck?25:calibration?8:120;
-const artifact=`artifacts/P22-load-observer-${formalSoak?'soak':selfCheck?'soak-self-check':permissionsOnly?'permissions':calibration?'calibration':'formal'}-${randomUUID()}.json`;
+const schedule=soak?soakSchedule(formalSoak):null;
+const seconds=schedule?.seconds??(calibration?8:120);
+const mode=formalSoak?'soak-2h':selfCheck?'soak-self-check':permissionsOnly?'permissions':calibration?'calibration':'formal';
+const artifact=`artifacts/P22-load-observer-${mode}-${randomUUID()}.json`;
 const build=args=>{const r=spawnSync('cargo',args,{windowsHide:true,stdio:'inherit'});if(r.error)throw r.error;assert.equal(r.status,0,'actual example build/ordinary restoration');};
 const binaries=['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe'];
 const fileHash=async file=>{const hash=createHash('sha256');for await(const block of createReadStream(file,{highWaterMark:64*1024}))hash.update(block);return hash.digest('hex');};
@@ -50,7 +52,8 @@ if(soak){
   process.on('SIGTERM',()=>{stopSignal=true;});
   delete report.thresholdMs;
   delete report.endpoints;
-  Object.assign(report,{mode:formalSoak?'soak':'soak-self-check',plannedSamples:Math.ceil(seconds/10),
+  Object.assign(report,{mode,plannedSamples:schedule.framesPerSource,plannedFramesPerSource:schedule.framesPerSource,
+    plannedFramesTotal:20*schedule.framesPerSource,plannedTicketRotations:schedule.rotations,
     limitations:['Sparse SSH2 stability and sampled memory only. The high-load latency run is separate.',
       'Internal RPC audit enabled. WebView processes counted by Desktop ancestry at sample time, excluding shared GPU memory.']});
 }
@@ -106,7 +109,7 @@ try {
   await publish('load-observer-plan.json',{service_id:service.service_id,connections,seconds,preflight_only:permissionsOnly});
   await until(async()=>{const failure=await optionalJson('load-observer-result.json');if(failure&&!failure.passed)throw Error('native Observer preflight: '+failure.error);const ready=await optionalJson('load-observer-ready.json');if(!ready)return false;assert.equal(ready.service_id,service.service_id);assert.equal(ready.targets,20);assert.equal(ready.permission_preflight.passed,true);report.observerPreflight=ready;return true;},'native scoped Observer ready',15000);observerReady=true;
   if(soak){
-    await measureSoak({directory,ui,fixture,service,sampler,connections,seconds,control,done,report,publish,optionalJson,stopped,
+    await measureSoak({directory,ui,fixture,service,sampler,connections,formal:formalSoak,control,done,report,publish,optionalJson,stopped,
       protocolFailure:()=>protocolFailure});
     assert.deepEqual((await ui.invoke('logging_request',{request:{op:'capture_list'}})).logs,[]);
     assert.deepEqual((await ui.invoke('agent_management_request',{request:{op:'grant_list'}})).data,[]);

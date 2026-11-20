@@ -3,8 +3,10 @@ import os from 'node:os';
 import { mkdtemp, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { samplerClient, startSoakSampler } from './lib/SoakSamplerClient.mjs';
-import { checkSoakResourceFloor } from './lib/LoadSoak.mjs';
+import { checkSoakResourceFloor, soakSchedule } from './lib/LoadSoak.mjs';
 
+assert.deepEqual(soakSchedule(true), { seconds: 7200, intervalSeconds: 10, framesPerSource: 720, rotations: 5 });
+assert.deepEqual(soakSchedule(false), { seconds: 25, intervalSeconds: 10, framesPerSource: 3, rotations: 2 });
 const GiB = 1024 ** 3;
 for (const [stage, availableFloorBytes, volumeFloorBytes] of [
   ['preflight', 2 * GiB, 8 * GiB],

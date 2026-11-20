@@ -26,7 +26,7 @@ impl Plan {
     fn rotation(&self) -> Option<(Duration, u64)> {
         match self.seconds {
             25 => Some((Duration::from_secs(12), 25_000)),
-            28_800 => Some((Duration::from_secs(1200), 1_800_000)),
+            7_200 => Some((Duration::from_secs(1200), 1_800_000)),
             _ => None,
         }
     }
@@ -656,6 +656,15 @@ mod tests {
             preflight_only: true,
         };
         assert!(binding(&plan, &all, plan.service_id).is_ok());
+        let mut formal = plan.clone();
+        formal.seconds = 7_200;
+        formal.preflight_only = false;
+        assert!(binding(&formal, &all, plan.service_id).is_ok());
+        formal.preflight_only = true;
+        assert!(binding(&formal, &all, plan.service_id).is_err());
+        formal.preflight_only = false;
+        formal.seconds = 28_800;
+        assert!(binding(&formal, &all, plan.service_id).is_err());
         assert!(binding(&plan, &all, Uuid::new_v4()).is_err());
         let mut wrong = plan.clone();
         wrong.connections[0].generation += 1;
@@ -684,10 +693,10 @@ mod tests {
         let mut plan = Plan {
             service_id: Uuid::new_v4(),
             connections: vec![],
-            seconds: 28_800,
+            seconds: 7_200,
             preflight_only: false,
         };
-        assert_eq!(plan.frames(), 2880);
+        assert_eq!(plan.frames(), 720);
         assert_eq!(
             plan.rotation(),
             Some((Duration::from_secs(1200), 1_800_000))

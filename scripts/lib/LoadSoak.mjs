@@ -6,6 +6,17 @@ import { delay } from './DesktopHarness.mjs';
 const GiB = 1024 ** 3;
 const MiB = 1024 ** 2;
 
+export function soakSchedule(formal) {
+  const seconds = formal ? 7200 : 25;
+  const intervalSeconds = 10;
+  const rotationSeconds = formal ? 1200 : 12;
+  return {
+    seconds, intervalSeconds,
+    framesPerSource: Math.ceil(seconds / intervalSeconds),
+    rotations: Math.ceil(seconds / rotationSeconds) - 1,
+  };
+}
+
 export function checkSoakResourceFloor(measured, stage, report, nodeRssBytes = null) {
   const availableFloor = stage === 'preflight' ? 2 * GiB : GiB;
   const volumeFloor = stage === 'preflight' ? 8 * GiB : 4 * GiB;
@@ -38,10 +49,11 @@ export async function soakPreflight(sampler, formal, report) {
   return measured;
 }
 
-export async function measureSoak({ directory, ui, fixture, service, sampler, connections, seconds, control,
+export async function measureSoak({ directory, ui, fixture, service, sampler, connections, formal, control,
   done, report, publish, optionalJson, stopped, protocolFailure }) {
+  const { seconds, intervalSeconds, framesPerSource, rotations } = soakSchedule(formal);
   const started = await control({ op: 'start', seconds });
-  assert.equal(started.interval_seconds, 10);
+  assert.equal(started.interval_seconds, intervalSeconds);
   assert.equal(started.seconds, seconds);
   assert.equal(started.block_bytes, 1024);
   const wall = Number(started.start_unix_ms);
@@ -64,7 +76,7 @@ export async function measureSoak({ directory, ui, fixture, service, sampler, co
       const measure = await sampler.request('sample', { desktop: ui.app.pid, service: service.pid, fixture: fixture.pid });
       const node = process.memoryUsage().rss;
       checkSoakResourceFloor(measure, 'sampling', report, node);
-      if (seconds === 28800) assert.equal(measure.power, 'Online', 'Soak lost AC power');
+      if (formal) assert.equal(measure.power, 'Online', 'Soak lost AC power');
       assert.ok(node <= 512 * MiB, 'Soak Node RSS limit');
       const processes = measure.processes;
       for (const [name, p] of Object.entries(processes)) {
@@ -144,19 +156,19 @@ export async function measureSoak({ directory, ui, fixture, service, sampler, co
   assert.equal(native.observer_worker_joined, true);
   assert.equal(native.active_ticket_count, 0);
   assert.equal(native.stats.final_revocation_verified, true);
-  assert.equal(native.stats.rotations_verified, seconds === 28800 ? 23 : 2);
+  assert.equal(native.stats.rotations_verified, rotations);
   assert.equal(native.streams.length, 20);
   await verifyConnections();
-  const frames = Math.ceil(seconds / 10);
   report.streams = native.streams.map((stream, i) => {
     const source = done.get(i);
     assert.deepEqual(stream.connection, connections[i]);
     assert.equal(source.error, null);
-    assert.equal(source.frames, frames);
+    assert.equal(source.frames, framesPerSource);
+    assert.equal(source.bytes, framesPerSource * 1024);
     assert.ok(source.elapsed_s >= seconds);
     assert.ok(source.max_wall_mono_drift_ms <= 500);
-    assert.equal(stream.frames, frames);
-    assert.equal(stream.bytes, frames * 1024);
+    assert.equal(stream.frames, framesPerSource);
+    assert.equal(stream.bytes, framesPerSource * 1024);
     assert.equal(stream.pending_bytes, 0);
     assert.equal(stream.late_bytes, 0);
     assert.equal(stream.sha256, source.sha256);
@@ -166,9 +178,9 @@ export async function measureSoak({ directory, ui, fixture, service, sampler, co
   assert.equal(remote.notification_failed, false);
   assert.equal(remote.received.length, 20);
   assert.ok(remote.received.every(bytes => bytes.length === 0), 'Soak terminal input must be zero on all sources');
-  assert.equal(nextSample, Math.ceil(seconds / 10));
-  if (seconds === 28800) {
-    assert.equal(minuteRows.length, 480);
+  assert.equal(nextSample, framesPerSource);
+  if (formal) {
+    assert.equal(minuteRows.length, seconds / 60);
     assert.ok(minuteRows.every(row => row.count === 6));
     const median = values => {
       values.sort((a, b) => a - b);
