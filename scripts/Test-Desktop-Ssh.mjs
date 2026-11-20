@@ -50,8 +50,8 @@ try {
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="SSH2 临时密码"]') === null`),true);
   let connection = (await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');
   assert.equal(connection.generation,2);
-  await ui.waitFor(`document.querySelector('footer [aria-label="活动编码"]')?.textContent==='编码：UTF-8' && document.querySelector('footer [aria-label="权限状态"]')?.textContent.includes('桌面输入可用')`);
-  assert.equal(await ui.evaluate(`document.querySelector('footer [aria-label="权限状态"]').textContent.includes('Agent 授权可管理，MCP需独立配对')`),true,'Desktop readiness does not imply Agent authorization');
+  await ui.waitFor(`document.querySelector('dialog[aria-label="连接与服务详情"] [aria-label="活动编码"]')?.textContent==='编码：UTF-8' && document.querySelector('dialog[aria-label="连接与服务详情"] [aria-label="权限状态"]')?.textContent.includes('桌面输入可用')`);
+  assert.equal(await ui.evaluate(`document.querySelector('dialog[aria-label="连接与服务详情"] [aria-label="权限状态"]').textContent.includes('Agent 授权可管理，MCP需独立配对')`),true,'Desktop readiness does not imply Agent authorization');
   // Fill and cross the receipt cap through the real Desktop adapter, then use real keyboard input.
   // Historical timestamps keep the new GUI request above the retired watermark after the loop.
   const orderedInputId = index => `00000000-${index.toString(16).padStart(4,'0')}-7000-8000-000000000001`;
@@ -248,7 +248,7 @@ try {
   const pid=(await ui.invoke('service_status')).pid;
   const beforeReload=(await control({op:'metrics'})).sizes.at(-1);
   await ui.evaluate(`window.__sshReloadProbe = true`);
-  await ui.command('Page.reload'); await ui.waitFor(`window.__sshReloadProbe === undefined && document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await ui.command('Page.reload'); await ui.waitFor(`window.__sshReloadProbe === undefined && document.querySelector('footer')?.dataset.serviceId`);
   assert.equal((await ui.invoke('service_status')).pid,pid);
   await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value === ${JSON.stringify(connection.connection_id)})`);
   await ui.fill('会话',connection.connection_id);
@@ -341,7 +341,7 @@ try {
     assert.equal((await getStatus()).encoding,encoding);
     // Change the Profile while keeping the generation alive; only a future restart takes it.
     assert.equal((await ui.invoke('config_request',{request:{op:'save_profile',profile:{...legacy,settings:{...legacy.settings,encoding:'utf8'}},credential:{action:'keep'}}})).result,'saved_profile');
-    await ui.waitFor(`document.querySelector('footer [aria-label="活动编码"]')?.textContent===${JSON.stringify('编码：'+encoding.toUpperCase())}`);
+    await ui.waitFor(`document.querySelector('dialog[aria-label="连接与服务详情"] [aria-label="活动编码"]')?.textContent===${JSON.stringify('编码：'+encoding.toUpperCase())}`);
     const beforeBytes=(await control({op:'metrics'})).received.flat().length;
     for(let attempt=0;attempt<100 && (await control({op:'metrics'})).sizes.length<beforeLegacySizes+2;attempt++) await delay(50);
     assert.ok((await control({op:'metrics'})).sizes.length>=beforeLegacySizes+2,'selected terminal has synchronized dimensions');
@@ -366,7 +366,7 @@ try {
     }
     const callsBeforeReload=(await control({op:'metrics'})).exec_calls.length;
     await ui.evaluate(`window.__legacyReloadProbe=true`);await ui.command('Page.reload');
-    await ui.waitFor(`window.__legacyReloadProbe===undefined && document.querySelector('footer')?.textContent.includes('服务 ') && Array.from(document.querySelector('[aria-label="会话"]').options).some(o=>o.value===${JSON.stringify(scope.connection_id)})`);
+    await ui.waitFor(`window.__legacyReloadProbe===undefined && document.querySelector('footer')?.dataset.serviceId && Array.from(document.querySelector('[aria-label="会话"]').options).some(o=>o.value===${JSON.stringify(scope.connection_id)})`);
     await ui.fill('会话',scope.connection_id);
     await legacySnapshot(text+text);
     assert.equal((await getStatus()).encoding,encoding);

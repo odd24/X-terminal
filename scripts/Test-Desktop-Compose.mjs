@@ -86,7 +86,7 @@ try {
   await ui.fill('撰写正文','重载不保存');await ui.click('关闭撰写');await ui.click('基础撰写');
   await ui.waitFor(`document.querySelector('[aria-label="撰写正文"]').value==='重载不保存'`);
   await ui.screenshot('desktop-compose-native.png');
-  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);
   await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(second.connection_id)})`);
   await ui.fill('会话',second.connection_id);await ui.click('基础撰写');
   await ui.waitFor(`document.querySelector('[aria-label="撰写目标"]').textContent.includes(${JSON.stringify(second.connection_id)})`);

@@ -102,15 +102,15 @@ try{
    if(!baseline){
      const details=await ui.evaluate(`(()=>{
        const before=document.querySelector('.terminal').getBoundingClientRect().height;
-       const summary=document.querySelector('.connection-details summary');
-       summary.click();summary.focus();
-       const pane=document.querySelector('.connection-details-content');
+       const button=document.querySelector('button.connection-details');
+       button.focus();button.click();
+       const pane=document.querySelector('dialog[aria-label="连接与服务详情"]');
        return {before,after:document.querySelector('.terminal').getBoundingClientRect().height,visible:pane.getBoundingClientRect().height>0,text:pane.innerText};
      })()`);
      assert.equal(details.before,details.after);
      assert.equal(details.visible,true);assert.match(details.text,/服务输出已同步/);
      await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
-     await ui.waitFor(`!document.querySelector('.connection-details').open`);
+     await ui.waitFor(`!document.querySelector('dialog[aria-label="连接与服务详情"]').open`);
      await ui.click('外观');await ui.fill('应用主题','dark');await ui.click('关闭外观');
      await ui.waitFor(`document.documentElement.dataset.theme==='dark'`);
      await ui.screenshot('CR-022-polish-dark-desktop.png');

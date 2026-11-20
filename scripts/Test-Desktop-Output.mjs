@@ -80,7 +80,7 @@ try {
   await ui.click('服务端屏幕');await ui.waitFor(`document.querySelector('[aria-label="服务端屏幕快照"]')?.textContent==='SECOND_CONNECTION'`);
   const beforeFailure=(await ui.invoke('service_read',{connection:secondRef,cursor:1})).next_cursor;
   const stopped=await ui.interceptIpc({command:'service_list',mode:'error'});
-  await ui.waitFor(`document.querySelector('footer [aria-label="权限状态"]').textContent.includes('桌面输入已停止')`);
+  await ui.waitFor(`document.querySelector('dialog[aria-label="连接与服务详情"] [aria-label="权限状态"]').textContent.includes('桌面输入已停止')`);
   assert.ok(await stopped.count()>=1);await stopped.restore();
   await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);await ui.command('Input.insertText',{text:'NEVER_AFTER_LIST_FAILURE'});await delay(250);
   assert.equal((await ui.invoke('service_read',{connection:secondRef,cursor:beforeFailure})).events.length,0,'a failed root list closes controller input even if service_read still works');

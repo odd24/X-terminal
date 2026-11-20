@@ -35,6 +35,7 @@
     "test:desktop:ssh": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-Ssh.mjs",
     "test:desktop:quick-ssh": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-QuickSsh.mjs",
     "test:desktop:ssh-dialog": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-SshDialog.mjs",
+    "test:desktop:window-interactions": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-WindowInteractions.mjs",
     "test:desktop:quick-config": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-QuickConfig.mjs",
     "test:desktop:serial": "node scripts/Test-Desktop-Serial.mjs",
     "test:desktop:quick-serial": "node scripts/Test-Desktop-QuickSerial.mjs",

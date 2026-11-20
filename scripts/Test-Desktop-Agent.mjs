@@ -213,12 +213,12 @@ try {
   await ui.waitFor(`document.querySelector('[aria-label="Agent审计页"]')?.textContent.includes('本页无覆盖缺口')`);
   await ui.evaluate(`document.querySelector('[aria-label="Agent授权详情"]').scrollIntoView({block:'center'})`);
   await ui.screenshot('desktop-agent-management-synthetic.png');
-  await ui.evaluate(`document.querySelector('.auxiliary-panels').scrollTop=0`);
+  await ui.evaluate(`document.querySelector('.app-dialog[aria-label="管理 Agent 授权"]').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-top-synthetic.png');
   await ui.click('外观'); await ui.fill('应用主题', 'light');
   await ui.waitFor(`document.documentElement.dataset.theme==='light'`);
   await ui.click('关闭外观');
-  await ui.evaluate(`document.querySelector('.auxiliary-panels').scrollTop=0`);
+  await ui.evaluate(`document.querySelector('.app-dialog[aria-label="管理 Agent 授权"]').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-light-synthetic.png');
   await checkReadWindowApproval(ui, sshRef, 'SSH2');
   await checkGrantForms(ui, sshRef, profile, 'SSH2');

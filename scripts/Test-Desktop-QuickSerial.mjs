@@ -4,10 +4,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
+import { connectDesktopPage, dragNativeWindow, launchDesktop, delay } from './lib/DesktopHarness.mjs';
 const build=fixture=>{const r=spawnSync('cargo',['build','-p','session-service','--locked',...(fixture?['--features','serial-ui-fixture']:[])],{windowsHide:true,stdio:'inherit'});if(r.error)throw r.error;assert.equal(r.status,0,'ordinary service restoration/fixture build must actually succeed');};
 const wait=async(check,label)=>{for(let i=0;i<250;i++){if(await check())return;await delay(50);}throw new Error(`Timeout: ${label}`);};
-let directory,saveDirectory,ui;
+let directory,saveDirectory,ui,detached;
 try {
   build(true);
   directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-quick-serial-ui-中文-'));
@@ -71,7 +71,7 @@ try {
   await show();await choose();const lost=await ui.interceptIpc({command:'serial_request',op:'quick_start',mode:'error'});await click('连接串口');
   await ui.waitFor(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='查询串口连接结果')`);assert.equal(await lost.count(),1);await lost.restore();
   const original=await ui.evaluate(`sessionStorage.getItem('terminal-serial-start-v1')`);assert.ok(original);
-  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);await show();
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);await show();
   assert.equal(await ui.evaluate(`sessionStorage.getItem('terminal-serial-start-v1')`),original);
   await click('查询串口连接结果');const second=await connected();assert.notEqual(second.connection_id,first.connection_id);assert.equal((await ui.invoke('service_list')).length,2);await end(second);
   // Cancel while real Start reply is held: close only its eventual returned ref.
@@ -80,7 +80,7 @@ try {
   await show();await choose();await ui.evaluate(`document.querySelector('[aria-label="保存UART连接"]').click()`);await click('连接串口');const third=await connected();assert.equal((await config()).profiles.length,1);await end(third);
   await show();await ui.fill('串口已保存连接',(await config()).profiles[0].id);await choose();await click('连接串口');const fourth=await connected();
   // Backend CONNECTED can precede the selected pane and its summary button.
-  await ui.evaluate(`document.querySelector('.connection-details summary').click()`);
+  await ui.click('连接与服务详情');
   await ui.waitFor(`document.querySelector('[data-pane="first"]')?.dataset.renderedId===${JSON.stringify(fourth.connection_id)}&&document.querySelector('[data-pane="first"]').dataset.renderedGeneration==='${fourth.generation}'&&Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='发送与接收详情'&&!b.matches(':disabled'))`);
   assert.equal(await ui.evaluate(`(()=>{const b=Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='发送与接收详情');if(!b||b.matches(':disabled')||!b.getClientRects().length)return false;b.click();return true;})()`),true,'the exact rendered target has a real details entry');
   await ui.waitFor(`document.querySelector('dialog:modal')?.getAttribute('aria-label')==='串口收发详情'&&document.querySelector('[aria-label="串口状态"]')?.textContent.includes(${JSON.stringify(fourth.connection_id)})`);
@@ -90,12 +90,41 @@ try {
   // Echo can precede the receipt poll and enabled UI. Do not click a disabled send button.
   await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='发送串口内容'&&!b.matches(':disabled'))`);
   await ui.fill('串口发送格式','text');await ui.fill('串口发送换行','lf');await ui.fill('串口发送内容','串口通信');const sendObserved=await ui.interceptIpc({command:'serial_request',op:'send',mode:'delay',delayMs:0});await click('发送串口内容');await wait(async()=>await sendObserved.count()===1,'second text send actually dispatched once');assert.equal(await sendObserved.count(),1);await sendObserved.restore();
-  await wait(async()=>Buffer.from(await raw(fourth)).equals(Buffer.concat([Buffer.from([0,255,13,10]),Buffer.from('串口通信\n')])),'exact UTF8 text and LF');await end(fourth);
-  await click('关闭串口详情');await ui.screenshot('P10.1-serial-final.png');
+  const prior=Buffer.concat([Buffer.from([0,255,13,10]),Buffer.from('串口通信\n')]);
+  await wait(async()=>Buffer.from(await raw(fourth)).equals(prior),'exact UTF8 text and LF');
+  if(process.argv.includes('--window-interactions')){
+    await click('关闭串口详情');
+    await click('关闭连接与服务详情');
+    const option=`document.querySelector('[role="tab"][data-connection-id="${fourth.connection_id}"]')`;
+    const point=await ui.evaluate(`(()=>{const r=${option}.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+    await ui.command('Page.bringToFront');
+    dragNativeWindow(ui.app,[point,{x:point.x-25,y:point.y+42},{x:60,y:140},{x:-35,y:180,outside:true}]);
+    let target;
+    await wait(async()=>{[target]=await ui.otherPages();return !!target;},'detached UART window');
+    detached=await connectDesktopPage(target);
+    await detached.waitFor(`document.querySelector('.pane-active')?.dataset.renderedId===${JSON.stringify(fourth.connection_id)} && document.activeElement?.matches('.xterm-helper-textarea')`);
+    assert.deepEqual((await detached.invoke('service_list')).map(c=>({connection_id:c.connection_id,generation:c.generation})),[fourth]);
+    await detached.command('Input.insertText',{text:'DETACHED-UART'});
+    const expected=Buffer.concat([prior,Buffer.from('DETACHED-UART')]);
+    await wait(async()=>Buffer.from((await detached.invoke('service_read',{connection:fourth,cursor:1})).events.flatMap(e=>e.bytes)).equals(expected),'detached input echoes on original UART');
+    await detached.screenshot('desktop-detached-memory-uart.png');
+    await detached.evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent==='移回主窗口').click();true`);
+    await wait(async()=>!(await ui.otherPages()).length,'return UART to main window');
+    detached.close();detached=undefined;
+    await ui.waitFor(`!!${option}`);
+    assert.deepEqual(Buffer.from(await raw(fourth)),expected);
+    assert.equal((await rpc({op:'status',connection:fourth})).connection.state,'CONNECTED');
+    console.log('PASS actual drag-out and return for the exact in-memory UART generation');
+    await end(fourth);
+  } else {
+    await end(fourth);
+    await click('关闭串口详情');
+  }
+  await ui.screenshot('P10.1-serial-final.png');
   await writeFile('artifacts/P10.1-quick-serial-result.json',JSON.stringify({result:'PASS',first,second,third,fourth,bytes:saved.length,sha256:receipt.sha256,hardware:'memory backend only; no real COM opened'},null,2));
   console.log('PASS S2 native quick serial: optional save, passive UART receive/log/save, real IPC held/lost replies, one Start, original query/reload, cancel late close, occupied port, saved reuse; no real COM');
 }catch(e){if(ui){await ui.screenshot('P10.1-serial-failure.png').catch(()=>{});await writeFile('artifacts/P10.1-serial-failure.txt',await ui.evaluate('document.body.innerText').catch(String));}throw e;
 }finally{
-  try {await ui?.close();for(const [dir,prefix] of [[directory,'shared-terminal-quick-serial-ui-中文-'],[saveDirectory,'shared-terminal-save-ui-中文-']])if(dir){const target=path.resolve(dir);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(prefix));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}
+  try {detached?.close();await ui?.close();for(const [dir,prefix] of [[directory,'shared-terminal-quick-serial-ui-中文-'],[saveDirectory,'shared-terminal-save-ui-中文-']])if(dir){const target=path.resolve(dir);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(prefix));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}
   finally{build(false);}
 }

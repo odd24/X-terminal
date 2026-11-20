@@ -79,7 +79,7 @@ try{
  await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...point});
  await focus('first');
  const clip=await ui.interceptIpc({command:'terminal_clipboard_read',mode:'error'});await right('second');await ui.screenshot('P11.4-log-menu-native.png');assert.equal(await clip.count(),0);await clip.restore();
- const notice='document.querySelector(".terminal-log-operation")';
+ const notice='document.querySelector(".app-dialog-corner")';
  async function clickMenuAt(label, twice=false){
    return ui.evaluate(`(()=>{
      const time=performance.now();
@@ -106,7 +106,7 @@ try{
  const lbInitial=await active(b);let lb=lbInitial;
  assert.equal((await list(b)).logs.length,1);assert.equal((await list(a)).logs.length,0);assert.equal((await slot()).target.connection.connection_id,b.connection_id);
  const original=await slot();
- assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.terminal-log-operation h2')).fontWeight`),'400');
+ assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.app-dialog-corner h2')).fontWeight`),'400');
  if(pureBlack){
    assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.app-bar')).backgroundColor`),'rgb(20, 31, 43)');
    await ui.screenshot('terminal-black-only-log.png');

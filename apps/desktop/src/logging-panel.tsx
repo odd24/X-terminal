@@ -7,6 +7,7 @@ import { LogCapturePanel } from './log-capture-panel';
 import { BasicLogOutput } from './basic-log-output';
 import { invoke } from '@tauri-apps/api/core';
 import { capturePhases as phases } from './log-captures';
+import { Dialog } from './ui';
 const failures: Record<string, string> = { CAPACITY:'日志容量已达上限', QUEUE_FULL: '写盘队列已满', DISK_FULL: '磁盘空间不足', STORAGE: '文件存储故障', INVALID_RECORD: '输出序号或代次异常', COUNTER_EXHAUSTED: '计数容量已耗尽', WORKER_PANICKED: '文件线程异常' };
 export type LoggingSummary = { phase?:LogInfo['phase']; unknown?:boolean; connection: Pick<Connection, 'connection_id' | 'generation'>; text: string };
 export function summarizeLogging(logs:LogInfo[]) {
@@ -73,7 +74,7 @@ export function LoggingPanel({ connection, open, close, onStatus }: { connection
     finally { if (mounted.current) setBusy(false); }
   }
   return <>
-    {open && <section className="config-panel" aria-label="终端日志面板">
+    {open && <Dialog label="管理终端日志" modal={false} close={close}><section className="config-panel" aria-label="终端日志面板">
       <div className="config-heading"><h2>终端日志</h2><button onClick={close}>关闭日志面板</button></div>
       <p aria-label="日志目标">目标 {targetText}</p>
       {monitorError && <p role="status">{monitorError}</p>}
@@ -87,6 +88,6 @@ export function LoggingPanel({ connection, open, close, onStatus }: { connection
       {shown&&<>{shown.readable&&<p className="data-location" aria-label="实时文本写盘状态">{shown.readable.filename} · 接受 {shown.accepted_records} / 写入 {shown.written_records} / 刷新 {shown.readable.flushed_records} / 同步 {shown.readable.synced_records} 条；刷新目标100ms、同步目标1秒，系统阻塞时可能延迟。</p>}<p aria-label="基础日志状态">{summary([shown])}</p><p className="data-location" aria-label="基础日志保存目录">保存目录：{directory ? `${directory}\\logs` : '正在读取…'}</p><BasicLogOutput key={shown.log_id} log={shown}/></>}
       <details><summary>历史与高级日志管理</summary><LogCapturePanel /><LogHistoryPanel /></details>
       {message && <p role="status">{message}</p>}
-    </section>}
+    </section></Dialog>}
   </>;
 }

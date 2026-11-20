@@ -33,7 +33,7 @@ try {
   page=await read(cursor);assert.equal(Buffer.from(page.events.flatMap(e=>e.bytes)).toString(),'\x1b[200~BRACKET\n\x1b[201~');cursor=page.next_cursor;
   await paste('MODE\n');await preview();await ui.invoke('fixture_append',{connection:ref,bytes:[...Buffer.from('\x1b[?2004l')]});await delay(300);cursor=(await read(cursor)).next_cursor;
   await ui.click('确认发送粘贴');await ui.waitFor(`document.querySelector('[aria-label="剪贴板状态"]').textContent.includes('模式已变化')`);await unchanged();
-  await paste('RELOAD\n');await preview();await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await paste('RELOAD\n');await preview();await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="粘贴确认"]')`),false);await unchanged();
   console.log('PASS native WebView clipboard event routing: exact CR/LF, explicit bounded preview/one-shot confirmation, cancel, typed takeover, switch away/back, bracketed mode and mode-change refusal, reload drops proposal; synthetic service only');
 } finally {

@@ -81,7 +81,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       const writing='text' in action||'bytes' in action;
       const ssh1Resize = protocol === 'SSH1' && !writing;
       const selection = deps.selection();
-      if (!target || !['SSH1','SSH2','SERIAL'].includes(protocol) || !current.writable || !bound(target) || selection.connection?.state!=='CONNECTED' || (writing||ssh1Resize)&&!selection.active || ssh1Resize&&selection.suspended) return false;
+      if (!target || !['SSH1','SSH2','SERIAL'].includes(protocol) || !current.writable || !bound(target) || selection.connection?.state!=='CONNECTED' || selection.suspended || (writing||ssh1Resize)&&!selection.active) return false;
       const epoch=selection.epoch;
       const inputOwner=owner;
       const id = requestId();
@@ -92,7 +92,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       const dispatch = async (action:InputAction) => {
         // A selection change drops unsent input rather than retargeting it.
         const route = deps.selection();
-        if (disposed || owner!==inputOwner || current.protocol!==protocol || !bound(target) || route.connection?.state!=='CONNECTED' || (writing||ssh1Resize)&&(!route.active||route.epoch!==epoch) || ssh1Resize&&route.suspended) return false;
+        if (disposed || owner!==inputOwner || current.protocol!==protocol || !bound(target) || route.connection?.state!=='CONNECTED' || route.suspended || (writing||ssh1Resize)&&(!route.active||route.epoch!==epoch)) return false;
         const dispatchId=pacing?requestId():id;
         if (protocol === 'SERIAL') {
           if (!('text' in action)) return false;
@@ -299,7 +299,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         }else setStatus('服务就绪 · 尚无活动连接');
         if(!disposed)timer=window.setTimeout(()=>void poll(),Date.now()<interactiveUntil?16:100);
       }catch(error){
-        if(!disposed&&['StaleGeneration','NotFound'].includes(String(error))){current.writable=false;timer=window.setTimeout(()=>void poll(),100);return;}
+        if(!disposed&&['StaleGeneration','NotFound','SESSION_IN_OTHER_WINDOW'].includes(String(error))){current.writable=false;timer=window.setTimeout(()=>void poll(),100);return;}
         if(!disposed){current.fixture=false;current.writable=false;setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}
       }finally{polling=false;}
     }

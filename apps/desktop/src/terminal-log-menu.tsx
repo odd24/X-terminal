@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
-import {ContextMenu,ErrorNotice,Panel} from './ui';
+import {ContextMenu,Dialog,ErrorNotice,Panel} from './ui';
 import {logging,LogRequestError,type LogInfo,type ExportInfo} from './logging-api';
 import {LogSavePanel} from './log-save-panel';
 import {checkedSave,saveDiagnosticNotice,terminalSave,type SaveInfo} from './log-save';
@@ -123,7 +123,7 @@ export function TerminalLogMenu(props:Props){
    {pending&&<button role="menuitem" onClick={()=>{setVisible(true);props.close();if(current.current&&!busy)void run(current.current);}}>查询上次日志操作结果</button>}
   </ContextMenu>}
   {notice&&props.valid(notice.target)&&<div className="terminal-log-feedback" role="status" aria-label="日志保存反馈"><span title={notice.info.path??undefined}>{notice.target.title} · {notice.info.phase==='COMPLETED'?`日志已保存：${notice.info.path?.split(/[\\/]/).at(-1)}`:'日志保存已取消。'}{saveDiagnosticNotice(notice.info)}</span>{notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开所在目录</button>}{directoryError&&<small role="alert">{directoryError}</small>}</div>}
-  {task&&visible&&<div className="terminal-log-operation"><Panel title={`${task.title} · 窗格${task.pane==='first'?1:2}日志`} label="终端右键日志操作" close={closeStatus} closeLabel="收起日志操作">
+  {task&&visible&&<Dialog label="日志操作结果" modal={false} passive close={closeStatus}><Panel title={`${task.title} · 窗格${task.pane==='first'?1:2}日志`} label="终端右键日志操作" close={closeStatus} closeLabel="收起日志操作">
    {task.error?<ErrorNotice title="日志操作未完成">{task.message}</ErrorNotice>:<p role="status" aria-label="右键日志操作状态">{task.message}</p>}
    {task.log?.readable&&<><p className="data-location" aria-label="实时日志文件名">{task.log.readable.filename}</p><small>同一应用数据目录的所有窗口共用 logs 文件夹。文件刷新目标100ms、持久同步目标1秒，系统阻塞时可能延迟；停止后核对最终同步状态。</small></>}
    {(task.uncertain||task.recovery)&&<button disabled={busy} onClick={()=>{if(current.current)void run(current.current);}}>查询本次日志操作</button>}
@@ -131,6 +131,6 @@ export function TerminalLogMenu(props:Props){
    {task.saveVisible&&source&&<LogSavePanel key={`${task.request_id}/${task.recovery?'query':'live'}`} source={source} mode="MENU" autoStart={task.auto&&!task.cancelled&&props.valid(task)} onChange={info=>{const currentTask=current.current;if(currentTask?.request_id===task.request_id)saved(currentTask,info);}}/>}
    {task.info?.ranges.some(r=>r.source_gap_bytes>0||r.rejected_records>0||r.failed)&&<p role="alert">范围包含源缺口、拒绝或失败记录，不能视为完整通信。</p>}
    <details><summary>固定范围与编号</summary><p className="data-location">{task.target.protocol} · {task.target.connection.connection_id} / {task.target.connection.generation} · {task.request_id}</p>{task.info?.ranges.map(r=><p className="data-location" key={r.log_id}>{r.filename} · 刷新 {r.flushed_records} 条 / 同步 {r.synced_records} 条 · 固定 {r.bytes} 字节</p>)}</details>
-  </Panel></div>}
+  </Panel></Dialog>}
  </>;
 }

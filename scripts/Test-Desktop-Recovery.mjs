@@ -197,7 +197,7 @@ try {
   // A real reload while a confirmation exists does not restore consent or path.
   const reloadTask=await pickRecovery(replacement);await saveState('等待明确替换确认');
   await ui.evaluate(`document.querySelector('[aria-label="恢复确认替换保存文件"]').click()`);
-  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);await panel();
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);await panel();
   await saveState('已恢复另存编号');
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复另存文件路径"]') || !!document.querySelector('[aria-label="恢复确认替换保存文件"]')`),false);
   assert.deepEqual(await savedTask(),reloadTask);
@@ -239,7 +239,7 @@ try {
   assert.ok((await ui.evaluate(`document.querySelector('[aria-label="恢复导出任务目标"]').textContent`)).includes(first.log_id),'selection cannot retarget completed task');
   await ui.screenshot('desktop-recovery-export-synthetic.png');
   // A real WebView reload restores only the recovery-mode ID and queries it.
-  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);
   await panel();
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="恢复导出文件路径"]')`),false);
   assert.ok((await exportState()).includes('已恢复恢复导出编号'));

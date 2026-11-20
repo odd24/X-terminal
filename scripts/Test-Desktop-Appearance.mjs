@@ -92,7 +92,7 @@ try {
   assert.deepEqual(await ui.invoke('service_read_text', { connection: target, cursor: 1 }), before, 'appearance changes do not mutate raw-derived text or source identity');
   await ui.command('Emulation.clearDeviceMetricsOverride');
   await ui.command('Page.reload');
-  await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);
   await ui.waitFor(`document.documentElement.dataset.theme==='light'&&document.documentElement.dataset.terminalPalette==='black_white'`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`), '15');
   assert.equal((await ui.invoke('service_list'))[0].connection_id, target.connection_id);

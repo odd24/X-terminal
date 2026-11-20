@@ -3,7 +3,7 @@ import { readConfiguration, type Profile } from './config-api';
 import { ssh, reference, type Connection, type SshStatus } from './ssh-api';
 import { requestId } from './request-id';
 
-export function SshPanel({ connection, select, size }: { connection?: Connection; select(id: string,expected?:{connection_id:string;generation:number}): void; size(): { cols: number; rows: number } }) {
+export function SshPanel({ connection, select, size, closePanel }: { connection?: Connection; select(id: string,expected?:{connection_id:string;generation:number}): void; size(): { cols: number; rows: number }; closePanel():void }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileId, setProfileId] = useState('');
   const [status, setStatus] = useState<SshStatus>();
@@ -59,7 +59,8 @@ export function SshPanel({ connection, select, size }: { connection?: Connection
     if (mounted.current) { select(reply.connection.connection_id,reply.connection); setMessage('已提交连接请求；请核对本连接的主机指纹与认证提示。'); }
   }
   return <section className="config-panel ssh-panel" aria-label="SSH2 连接面板">
-    <div className="config-heading"><h2>SSH2 连接</h2><button disabled={busy} onClick={() => void reload()}>刷新 SSH2 配置</button></div>
+    <div className="config-heading"><h2>SSH2 连接</h2><button onClick={closePanel}>关闭 SSH2 工具</button></div>
+    <button disabled={busy} onClick={() => void reload()}>刷新 SSH2 配置</button>
     <div className="form-grid"><label>已保存的配置<select aria-label="SSH2 配置" value={profileId} onChange={event => setProfileId(event.target.value)}><option value="">请选择配置</option>{profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <div className="config-actions"><button disabled={busy || !profile} onClick={() => void act(() => start())}>建立 SSH2 连接</button></div></div>
     <small>终端按建立连接时的 UTF-8/GBK/GB18030 编码收发；编辑配置不改变活动连接。无法表示的文本整批拒绝，原始字节接口保持原样。密码不显示在输入诊断中。</small>

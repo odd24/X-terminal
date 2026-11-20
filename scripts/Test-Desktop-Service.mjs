@@ -63,7 +63,7 @@ async function launch(fixture, killDesktop = false) {
       }
       throw new Error(`condition timeout: ${expression}; ${await evaluate('document.body.innerText')}`);
     };
-    await waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+    await waitFor(`document.querySelector('footer')?.dataset.serviceId`);
     const status = await invoke('service_status'); childPid = status.pid;
     assert.equal(status.fixture, fixture);
     assert.equal(status.exit_policy, 'stop_on_desktop_exit');

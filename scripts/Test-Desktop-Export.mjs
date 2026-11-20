@@ -72,7 +72,7 @@ try {
   assert.ok((await snapshot()).target.includes(target.connection_id));
   await ui.screenshot('desktop-export-synthetic.png');
   // Reload restores only the task ID; it never issues another start.
-  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);
   await history(first.log_id);
   await ui.waitFor(`document.querySelector('[aria-label="日志导出状态"]')?.textContent.includes('已恢复上次任务编号')`);
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="日志导出文件路径"]')`),false);

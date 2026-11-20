@@ -16,6 +16,7 @@ mod save_recovery_fixture;
 #[cfg(feature = "serial-mcp-fixture")]
 mod serial_fixture;
 mod service;
+mod session_windows;
 mod terminal_clipboard;
 mod terminal_logs;
 mod trigger_match;
@@ -93,7 +94,7 @@ async fn export_save_request(
                 menu.fingerprint(&scope)?
             } else {
                 let reply =
-                    logging_request(state, scope.source_status().ok_or("INVALID_SOURCE")?).await?;
+                    forward_logging(state, scope.source_status().ok_or("INVALID_SOURCE")?).await?;
                 scope.fingerprint(reply)?
             };
             manager.start(
@@ -222,6 +223,8 @@ async fn protected_export_desktop_request(
 
 #[tauri::command]
 async fn terminal_log_request(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
     state: State<'_, Desktop>,
     manager: State<'_, terminal_logs::Manager>,
     saves: State<'_, export_save::Manager>,
@@ -262,6 +265,7 @@ async fn terminal_log_request(
     }
     {
         let mut shared = state.0.lock().await;
+        windows.permits(window.label(), Some(&target.connection))?;
         let service = shared.as_mut().map_err(|e| e.clone())?;
         if service.endpoint()?.2 != target.service_id {
             return Err("STALE_SERVICE".into());
@@ -280,7 +284,7 @@ async fn terminal_log_request(
     let mut snapshots = Vec::new();
     match &request {
         R::OpenFile { log_id, .. } => {
-            let session_protocol::logging::Reply::Info(info) = logging_request(
+            let session_protocol::logging::Reply::Info(info) = forward_logging(
                 state.clone(),
                 session_protocol::logging::Request::Status {
                     connection: target.connection,
@@ -300,7 +304,7 @@ async fn terminal_log_request(
             source: Source::Recorded { log_ids },
             ..
         } => {
-            let session_protocol::logging::Reply::List { logs } = logging_request(
+            let session_protocol::logging::Reply::List { logs } = forward_logging(
                 state.clone(),
                 session_protocol::logging::Request::List {
                     connection: target.connection,
@@ -347,7 +351,7 @@ async fn terminal_log_request(
                         return Err("SOURCE_NOT_FLUSHED".into());
                     }
                     tokio::time::sleep(Duration::from_millis(25)).await;
-                    let session_protocol::logging::Reply::Info(next) = logging_request(
+                    let session_protocol::logging::Reply::Info(next) = forward_logging(
                         state.clone(),
                         session_protocol::logging::Request::Status {
                             connection: target.connection,
@@ -430,16 +434,49 @@ fn config_directory(state: State<'_, Desktop>) -> String {
 
 #[tauri::command]
 async fn ssh_request(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
     state: State<'_, Desktop>,
     request: session_protocol::ssh::Request,
 ) -> Result<session_protocol::ssh::Reply, String> {
     if !request.validate() {
         return Err("INVALID_SSH_REQUEST".into());
     }
-    match state
-        .0
-        .lock()
-        .await
+    use session_protocol::ssh::Request as S;
+    let target = match &request {
+        S::AuthenticateKey { connection, .. }
+        | S::ExecReadProtected { connection, .. }
+        | S::ForgetStart { connection, .. }
+        | S::ForgetStatus { connection, .. }
+        | S::Disconnect { connection, .. }
+        | S::DisconnectStatus { connection, .. }
+        | S::Reconnect { connection, .. }
+        | S::ReconnectStatus { connection, .. }
+        | S::ReconnectFixed { connection, .. }
+        | S::ReconnectFixedStatus { connection, .. }
+        | S::Exec { connection, .. }
+        | S::ExecStatus { connection, .. }
+        | S::ExecRead { connection, .. }
+        | S::ExecCancel { connection, .. }
+        | S::WriteText { connection, .. }
+        | S::Write { connection, .. }
+        | S::Resize { connection, .. }
+        | S::InputStatus { connection, .. }
+        | S::Status { connection }
+        | S::AnswerHost { connection, .. }
+        | S::Authenticate { connection, .. }
+        | S::AnswerInteractive { connection, .. }
+        | S::Close { connection }
+        | S::Forget { connection } => Some(connection),
+        S::Start { .. }
+        | S::StartFixed { .. }
+        | S::QuickStart { .. }
+        | S::StartStatus { .. }
+        | S::ConnectStatus { .. } => None,
+    };
+    let mut shared = state.0.lock().await;
+    windows.permits(window.label(), target)?;
+    match shared
         .as_mut()
         .map_err(|error| error.clone())?
         .request(Request::Ssh { request })
@@ -452,6 +489,31 @@ async fn ssh_request(
 
 #[tauri::command]
 async fn logging_request(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
+    state: State<'_, Desktop>,
+    request: session_protocol::logging::Request,
+) -> Result<session_protocol::logging::Reply, String> {
+    use session_protocol::logging::Request as L;
+    match &request {
+        L::Start { connection, .. }
+        | L::Stop { connection, .. }
+        | L::ReleaseFailed { connection, .. } => {
+            windows.permits(window.label(), Some(connection))?
+        }
+        L::List { connection }
+        | L::Status { connection, .. }
+        | L::StartStatus { connection, .. }
+            if window.label() != session_windows::MAIN =>
+        {
+            windows.permits(window.label(), Some(connection))?
+        }
+        _ => {}
+    }
+    forward_logging(state, request).await
+}
+
+async fn forward_logging(
     state: State<'_, Desktop>,
     request: session_protocol::logging::Request,
 ) -> Result<session_protocol::logging::Reply, String> {
@@ -549,16 +611,37 @@ async fn bridge_management_request(
 
 #[tauri::command]
 async fn serial_request(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
     state: State<'_, Desktop>,
     request: session_protocol::serial::Request,
 ) -> Result<session_protocol::serial::Reply, String> {
     if !request.validate() {
         return Err("INVALID_SERIAL_REQUEST".into());
     }
-    match state
-        .0
-        .lock()
-        .await
+    use session_protocol::serial::Request as S;
+    let target = match &request {
+        S::ForgetStart { connection, .. }
+        | S::ForgetStatus { connection, .. }
+        | S::Send { connection, .. }
+        | S::Status { connection }
+        | S::Write { connection, .. }
+        | S::Control { connection, .. }
+        | S::InputStatus { connection, .. }
+        | S::Close { connection }
+        | S::Disconnect { connection, .. }
+        | S::DisconnectStatus { connection, .. }
+        | S::Forget { connection } => Some(connection),
+        S::Start { .. }
+        | S::StartFixed { .. }
+        | S::QuickStart { .. }
+        | S::StartStatus { .. }
+        | S::ConnectStatus { .. }
+        | S::Inventory {} => None,
+    };
+    let mut shared = state.0.lock().await;
+    windows.permits(window.label(), target)?;
+    match shared
         .as_mut()
         .map_err(|error| error.clone())?
         .request(Request::Serial { request })
@@ -581,30 +664,27 @@ async fn service_status(state: State<'_, Desktop>) -> Result<service::Status, St
         .await
 }
 #[tauri::command]
-async fn service_list(state: State<'_, Desktop>) -> Result<Vec<ConnectionInfo>, String> {
-    match state
-        .0
-        .lock()
-        .await
-        .as_mut()
-        .map_err(|e| e.clone())?
-        .request(Request::List {})
-        .await?
-    {
-        Reply::Sessions(sessions) => Ok(sessions),
-        _ => Err("INVALID_REPLY".into()),
-    }
+async fn service_list(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
+    state: State<'_, Desktop>,
+) -> Result<Vec<ConnectionInfo>, String> {
+    let mut shared = state.0.lock().await;
+    let service = shared.as_mut().map_err(|e| e.clone())?;
+    let sessions = session_windows::list(service).await?;
+    windows.filter(window.label(), sessions)
 }
 #[tauri::command]
 async fn service_read(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
     state: State<'_, Desktop>,
     connection: ConnectionRef,
     cursor: u64,
 ) -> Result<OutputPage, String> {
-    match state
-        .0
-        .lock()
-        .await
+    let mut shared = state.0.lock().await;
+    windows.permits(window.label(), Some(&connection))?;
+    match shared
         .as_mut()
         .map_err(|e| e.clone())?
         .request(Request::Read {
@@ -621,14 +701,15 @@ async fn service_read(
 
 #[tauri::command]
 async fn service_read_text(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
     state: State<'_, Desktop>,
     connection: ConnectionRef,
     cursor: u64,
 ) -> Result<session_core::presentation::TextPage, String> {
-    match state
-        .0
-        .lock()
-        .await
+    let mut shared = state.0.lock().await;
+    windows.permits(window.label(), Some(&connection))?;
+    match shared
         .as_mut()
         .map_err(|e| e.clone())?
         .request(Request::ReadText {
@@ -645,13 +726,14 @@ async fn service_read_text(
 
 #[tauri::command]
 async fn service_screen(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
     state: State<'_, Desktop>,
     connection: ConnectionRef,
 ) -> Result<session_core::presentation::ScreenSnapshot, String> {
-    match state
-        .0
-        .lock()
-        .await
+    let mut shared = state.0.lock().await;
+    windows.permits(window.label(), Some(&connection))?;
+    match shared
         .as_mut()
         .map_err(|e| e.clone())?
         .request(Request::Screen { connection })
@@ -795,6 +877,7 @@ fn main() {
     }
     let app = tauri::Builder::default()
         .setup(move |app| {
+            app.manage(session_windows::SessionWindows::default());
             let directory = match &directory {
                 Some(path) => path.clone(),
                 None => app.path().app_local_data_dir()?,
@@ -855,6 +938,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             terminal_clipboard::terminal_clipboard_read,
             service_status,
+            session_windows::desktop_live_sessions,
+            session_windows::detach_session,
             trigger_match::trigger_match_request,
             service_list,
             service_read,
@@ -880,6 +965,23 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("desktop application failed");
     app.run(|handle, event| {
+        if let tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Destroyed,
+            ..
+        } = &event
+        {
+            if label == session_windows::MAIN {
+                handle.exit(0);
+            } else {
+                handle
+                    .state::<session_windows::SessionWindows>()
+                    .release(label);
+                if let Some(main) = handle.get_webview_window(session_windows::MAIN) {
+                    let _ = main.set_focus();
+                }
+            }
+        }
         if let tauri::RunEvent::Exit = event {
             handle.state::<export_save::Manager>().cancel_all();
             let state = handle.state::<Desktop>();

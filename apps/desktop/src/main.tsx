@@ -41,10 +41,11 @@ import { SessionTabClosures } from './session-tab-closures';
 import { TabGroups } from './tab-groups';
 import { TabGroupsPanel } from './tab-groups-panel';
 import { SessionTabs } from './session-tabs';
+import type { TabDrop } from './tab-drag';
 import { WorkspaceSession, captureWorkspace } from './workspace-session';
 import { WorkspacesPanel } from './workspaces-panel';
 import { useTabLogging, logBadge } from './tab-logging';
-import { ToolbarMenu, Dialog } from './ui';
+import { ToolbarMenu, Dialog, Panel } from './ui';
 import { TerminalLogMenu } from './terminal-log-menu';
 import type {TerminalMenuContext,RememberedLogTask} from './log-menu';
 import { TerminalPane } from './terminal-pane';
@@ -66,6 +67,8 @@ type Ref = Pick<Connection, 'connection_id' | 'generation'>;
 type ServiceScreen = { connection: Ref; encoding: string; parser: string; resize_reflow: boolean; rows: number; cols: number; contents: string; contents_truncated: boolean; cursor_row: number; cursor_col: number; alternate: boolean; source_cursor: number; completed: boolean; gap_bytes: number; decode_error_events: number };
 type Status = { service_id: string; pid: number; fixture: boolean; ssh1_preview: boolean; exit_policy: string; previous_close?:PreviousClose };
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
+const appWindow = getCurrentWindow();
+const detached = appWindow.label !== 'main';
 
 function App() {
   const [composeOpen, setComposeOpen] = useState(false);
@@ -84,6 +87,7 @@ function App() {
   const [,setPaneEpoch]=useState(0);
   const [terminalMenu,setTerminalMenu]=useState<TerminalMenuContext>();
   const controllers=useRef(new Map<PaneKey,TerminalController>());
+  const detachedInputFocused=useRef(false);
   const [paneViews,setPaneViews]=useState<Partial<Record<PaneKey,TerminalView>>>({});
   const terminalView=paneViews[panes.current.active]??initialTerminalView();
   const {renderedTarget,viewport,status,lastInput,inputFailure,decodeWarning}=terminalView;
@@ -115,7 +119,10 @@ function App() {
   const [, setCatalogEpoch] = useState(0);
   const [tabMessage, setTabMessage] = useState('');
   const [exitConfirm, setExitConfirm] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const allowExit = useRef(false);
+  const pendingExitCheck = useRef(false);
+  const transferring = useRef<string>(undefined);
   const liveConnections = useRef<Connection[]>([]);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
@@ -200,6 +207,7 @@ function App() {
   const clipboard = useRef<TerminalClipboard | undefined>(undefined);
   const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
   const [clipboardMessage, setClipboardMessage] = useState('');
+  function cancelPaste(){clipboard.current?.invalidate();setClipboardMessage('已取消粘贴；未发送');runtime.current?.term.focus();}
   function selectConnection(id: string, expected?:Ref) {
     if(!workspaceLaunch.current)cancelWorkspaceSplit();
     const target=liveConnections.current.find(c=>c.connection_id===id);if(target)tabClosures.current.show(target);setTabEpoch(value=>value+1);
@@ -296,10 +304,20 @@ function App() {
   }, [selected, tabOrder, groupEpoch]);
 
   useEffect(() => {
-    const unlisten = getCurrentWindow().onCloseRequested(event => {
-      if (!allowExit.current && liveConnections.current.some(item => ['SSH1', 'SSH2', 'SERIAL'].includes(item.protocol) && !['DISCONNECTED', 'FAILED'].includes(item.state))) {
-        event.preventDefault(); setExitConfirm(true);
-      }
+    if(detached)return;
+    const unlisten = appWindow.onCloseRequested(event => {
+      if(allowExit.current)return;
+      event.preventDefault();
+      if(pendingExitCheck.current)return;
+      pendingExitCheck.current=true;
+      void invoke<boolean>('desktop_live_sessions').then(live=>{
+        if(live){setExitConfirm(true);return;}
+        allowExit.current=true;
+        return appWindow.close();
+      }).catch(()=>{
+        allowExit.current=false;
+        setExitConfirm(true);
+      }).finally(()=>{pendingExitCheck.current=false;});
     });
     return () => { void unlisten.then(dispose => dispose()); };
   }, []);
@@ -337,9 +355,14 @@ function App() {
         firstSsh1Fit.current=undefined;
         return true;
       } } : undefined;
-    return {owner,connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:!!binding&&(!!slot?.retired||!!slot?.pending),initialSsh1Fit};
+    return {owner,connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:!!binding&&(!!slot?.retired||!!slot?.pending||binding.connection_id===transferring.current),initialSsh1Fit};
   }
   function registerPane(key:PaneKey,c?:TerminalController){if(c)controllers.current.set(key,c);else controllers.current.delete(key);if(panes.current.active===key){runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;}}
+  useLayoutEffect(()=>{
+    if(!detached||detachedInputFocused.current||!renderedTarget)return;
+    detachedInputFocused.current=true;
+    runtime.current?.term.focus();
+  },[renderedTarget]);
   useEffect(()=>{let disposed=false,timer=0;
     async function poll(){try{const epoch=panes.current.epoch;const native=await invoke<Status>('service_status');if(disposed)return;const sessions=await invoke<Connection[]>('service_list');if(disposed)return;
       composeHistory.current.retain(native.service_id);serviceRef.current=native;setService(native);liveConnections.current=sessions;setConnections(sessions);triggers.current.validate(native.service_id,sessions);
@@ -349,7 +372,7 @@ function App() {
     }catch{if(!disposed){serviceStopped.current=true;triggers.current.stop('服务不可用，已停用触发器');composeHistory.current.retain('');panes.current.epoch++;routeChanged();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
     void poll();return()=>{disposed=true;clearTimeout(timer);};
   },[]);
-  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(event.ctrlKey&&event.shiftKey&&!event.altKey&&!event.metaKey&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog:modal')){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)openQuickCommands();return;}if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length!==2)return;event.preventDefault();event.stopImmediatePropagation();focusPane(panes.current.slots.find(p=>p.key!==panes.current.active)!.key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
+  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(!detached&&event.ctrlKey&&event.shiftKey&&!event.altKey&&!event.metaKey&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog:modal')){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)openQuickCommands();return;}if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length!==2)return;event.preventDefault();event.stopImmediatePropagation();focusPane(panes.current.slots.find(p=>p.key!==panes.current.active)!.key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
 
   useEffect(() => {
     const systemTheme = matchMedia('(prefers-color-scheme: dark)');
@@ -440,6 +463,70 @@ function App() {
     const ids = tabs.map(item => item.connection_id); const index = ids.indexOf(selected);
     if (index < 0 || index + offset < 0 || index + offset >= ids.length) return;
     [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]]; setTabOrder(ids);
+  }
+  function dropTab(source:Connection,destination:TabDrop) {
+    const owner=serviceRef.current?.service_id;
+    const live=liveConnections.current.find(c=>c.connection_id===source.connection_id&&c.generation===source.generation&&c.protocol===source.protocol);
+    if(!owner||!live||serviceStopped.current)return;
+    const id=live.connection_id;
+    if(destination.kind==='group'){
+      assignTab(live,destination.group);
+      return;
+    }
+    if(destination.kind==='insert'){
+      if(id===destination.anchor)return;
+      const order=tabs.map(tab=>tab.connection_id).filter(other=>other!==id);
+      const index=order.indexOf(destination.anchor);
+      if(index<0)return;
+      const group=tabGroups.current.groupOf(destination.anchor);
+      if(tabGroups.current.groupOf(id)!==group&&!assignTab(live,group))return;
+      order.splice(index+(destination.after?1:0),0,id);
+      setTabOrder(order);
+      return;
+    }
+    if(destination.kind==='detach'){void openSessionWindow(owner,live);return;}
+    const canSplit=(connection:Connection)=>connection.state==='CONNECTED'&&['SSH2','SERIAL'].includes(connection.protocol);
+    const other=[active,...tabs].find(c=>c&&c.connection_id!==id&&canSplit(c));
+    if(!other||!canSplit(live)){
+      setTabMessage('分屏需要两个仍在连接的 SSH2 或串口会话。');
+      return;
+    }
+    const {edge}=destination;
+    const first=edge==='left'||edge==='top'?live:other, second=first===live?other:live;
+    try {
+      cancelWorkspaceSplit();
+      panes.current.restore(owner,first,second,edge==='left'||edge==='right'?'horizontal':'vertical',
+        active?.connection_id===id?live:other);
+      routeChanged();
+    } catch {setTabMessage('会话已变化，未创建分屏。');}
+  }
+  function assignTab(target:Ref&{protocol:string},group:string){
+    try{
+      tabGroups.current.assign(serviceRef.current?.service_id??'',target,group);
+      setGroupEpoch(value=>value+1);
+      return true;
+    }catch(error){setTabMessage(error instanceof Error?error.message:'标签移动未完成。');return false;}
+  }
+  async function openSessionWindow(owner:string, connection:Connection){
+    if(transferring.current)return;
+    if(connection.state!=='CONNECTED'||!['SSH1','SSH2','SERIAL'].includes(connection.protocol)){
+      setTabMessage('此会话当前无法移到独立窗口。');
+      return;
+    }
+    transferring.current=connection.connection_id;
+    for(const pane of panes.current.slots)if(pane.binding?.connection_id===connection.connection_id)controllers.current.get(pane.key)?.invalidate();
+    try {
+      await invoke('detach_session',{serviceId:owner,connection:{connection_id:connection.connection_id,generation:connection.generation}});
+      if(serviceRef.current?.service_id!==owner)return;
+      liveConnections.current=liveConnections.current.filter(item=>item.connection_id!==connection.connection_id);
+      setConnections(liveConnections.current);
+      cancelWorkspaceSplit();
+      if(panes.current.remove(connection))routeChanged();
+    } catch {
+      setTabMessage('没有打开独立窗口，会话仍在主窗口。');
+    } finally {
+      transferring.current=undefined;
+    }
   }
   function hideTab(connection: Connection) {
     if(!tabClosures.current.hide(connection))return;setTabEpoch(value=>value+1);
@@ -571,13 +658,13 @@ function App() {
   const brightness=preferences.terminal_text_brightness??100;
   return <main className="desktop-shell" data-terminal-dim={brightness<100?'true':undefined}
     style={{ '--navigation-width': `${navigationWidth}px`, '--terminal-text-brightness': `${brightness}%` } as CSSProperties}>
-    <div className={`desktop-body${sidebarOpen ? '' : ' sidebar-hidden'}`}>
-    <aside id="connection-library" className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent||!!ssh1Intent} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} revision={treeRevision} loaded={setProfiles} connect={(profile,revision) => connectProfile(profile,undefined,revision)} configure={(id,action='edit') => {setConfigurationTarget(id?{id,action}:undefined);setConfigurationOpen(true);}} />
+    <div className={`desktop-body${sidebarOpen&&!detached ? '' : ' sidebar-hidden'}`}>
+    {!detached&&<aside id="connection-library" className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent||!!ssh1Intent} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} revision={treeRevision} loaded={setProfiles} connect={(profile,revision) => connectProfile(profile,undefined,revision)} configure={(id,action='edit') => {setConfigurationTarget(id?{id,action}:undefined);setConfigurationOpen(true);}} />
       <div className="sidebar-divider" role="separator" aria-label="导航宽度" aria-orientation="vertical" aria-valuemin={210} aria-valuemax={360} aria-valuenow={navigationWidth} tabIndex={0}
         onPointerDown={event=>{if(event.button===0)event.currentTarget.setPointerCapture(event.pointerId);}}
         onPointerMove={event=>{if(event.currentTarget.hasPointerCapture(event.pointerId))resizeNavigation(event.clientX-event.currentTarget.parentElement!.getBoundingClientRect().left);}}
         onKeyDown={event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();resizeNavigation(navigationWidth+(event.key==='ArrowLeft'?-10:10));}}}/>
-    </aside>
+    </aside>}
     <section className="terminal-workspace" aria-label="终端工作区">
     <TerminalLogMenu onLog={log=>setLoggingSummary({connection:log.connection,...summarizeLogging([log])})}
       paneLabel={panes.current.direction==='single'?'终端':panes.current.direction==='horizontal'?(terminalMenu?.pane==='first'?'左窗格':'右窗格'):(terminalMenu?.pane==='first'?'上窗格':'下窗格')}
@@ -585,15 +672,15 @@ function App() {
     {currentWorkspace&&<div className="workspace-strip" aria-label="打开的工作区布局"><span>{currentWorkspace.name} · 待连接 {pendingWorkspaceTabs.length} 项</span>{currentWorkspace.split&&<><small aria-label="分屏恢复状态">{currentWorkspace.split.direction==='horizontal'?'左右':'上下'}分屏 · {workspaceSession.current.splitState==='pending'?'等待两个指定连接项就绪':workspaceSession.current.splitState==='applied'?'本次已恢复':'本次恢复已取消，可手动分屏或重新打开布局'}</small>{workspaceSession.current.splitState==='pending'&&<button onClick={cancelWorkspaceSplit}>取消分屏恢复</button>}</>}{pendingWorkspaceTabs.map(slot=>{const binding=workspaceSession.current.binding(slot.id),live=binding&&connections.find(c=>c.connection_id===binding.connection_id),profile=profiles.find(p=>p.id===slot.profile_id);return !live||['FAILED','DISCONNECTED'].includes(live.state)?<button key={slot.id} data-workspace-slot={slot.id} title={profile?.settings.protocol==='ssh1'?'SSH1 请从会话树连接':slot.id===currentWorkspace.selected_tab?'保存时的活动项':undefined} disabled={!profile||profile.settings.protocol==='ssh1'||quickOpen||serialDialog||!!ssh1Intent} onClick={()=>{if(profile)connectProfile(profile,slot.id);}}>{profile?`连接 ${currentWorkspace.tabs.indexOf(slot)+1}. ${profile.name}`:`${currentWorkspace.tabs.indexOf(slot)+1}. 配置已删除`}</button>:null;})}<button onClick={()=>{workspaceSession.current.close();restoredFocus.current=undefined;workspaceLaunch.current=undefined;workspacePlacements.current.clear();setWorkspaceEpoch(v=>v+1);}}>收起布局</button></div>}
     {panes.current.slots.length===2&&<div className="split-tools"><span>{panes.current.direction==='horizontal'?'左右分屏':'上下分屏'} · F6切换输入窗格</span><button onClick={()=>collapseSplit()}>收起分屏，保留连接</button></div>}
     <nav className="app-bar" aria-label="会话控制">
-      <SessionTabs tabs={tabs} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)} owner={service?.service_id??''} selected={selected} list={tabList} name={tabName} badge={connection=>logBadge(tabLogs(connection))} select={selectConnection} close={target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={(target,group)=>{try{tabGroups.current.assign(service?.service_id??'',target,group);setGroupEpoch(value=>value+1);}catch(error){setTabMessage(error instanceof Error?error.message:'标签移动未完成。');}}}/>
-      {!!tabs.length && <ToolbarMenu summary={newMenuSummary} className="new-menu" label="新建连接" text="＋">
+      <SessionTabs tabs={tabs} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)} owner={service?.service_id??''} selected={selected} list={tabList} name={tabName} badge={connection=>logBadge(tabLogs(connection))} select={selectConnection} close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} onDrop={detached?undefined:dropTab}/>
+      {!detached&&!!tabs.length && <ToolbarMenu summary={newMenuSummary} className="new-menu" label="新建连接" text="＋">
         <button onClick={newSsh}>连接服务器</button>
         <button onClick={newSerial}>串口连接</button>
       </ToolbarMenu>}
       <button className="toolbar-log" aria-haspopup="menu" aria-expanded={!!terminalMenu&&terminalMenu.anchor.matches('.toolbar-log')} title={activeLog} disabled={!active||renderedTarget?.connection_id!==active.connection_id||renderedTarget.generation!==active.generation||!['SSH2','SERIAL'].includes(active.protocol)} onClick={event=>openTopLog(event.currentTarget)}>
         {activeLogBadge||'日志'}
       </button>
-      <ToolbarMenu summary={toolsSummary} className="tools-menu" label="更多工具" text="更多工具">
+      {!detached&&<ToolbarMenu summary={toolsSummary} className="tools-menu" label="更多工具" text="更多工具">
       <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
       <button disabled={!canMoveTab(-1)} onClick={()=>moveTab(-1)}>标签左移</button>
       <button disabled={!canMoveTab(1)} onClick={()=>moveTab(1)}>标签右移</button>
@@ -630,16 +717,15 @@ function App() {
       <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
       <label>字号 <input aria-label="字号" disabled={preferencesBusy} type="number" min="10" max="28" value={fontSize} onChange={event => setFontSize(Math.max(10, Math.min(28, Number(event.target.value) || 15)))} /></label>
 
-      </ToolbarMenu>
-      <button className="sidebar-toggle" aria-label="会话导航" title="显示或收起连接库" aria-expanded={sidebarOpen} aria-controls="connection-library" onClick={toggleSidebar}><span aria-hidden="true">◫</span></button>
+      </ToolbarMenu>}
+      {detached?<button onClick={()=>void appWindow.close()}>移回主窗口</button>:<button className="sidebar-toggle" aria-label="会话导航" title="显示或收起连接库" aria-expanded={sidebarOpen} aria-controls="connection-library" onClick={toggleSidebar}><span aria-hidden="true">◫</span></button>}
     </nav>
-    {!tabs.length && <section className="terminal-empty"><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button></div></section>}
+    {!tabs.length && <section className="terminal-empty">{detached?<h1>{service?'原会话已移除或代次已变化':'正在加载独立会话'}</h1>:<><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button></div></>}</section>}
     <div className={`terminal-grid ${panes.current.direction}${tabs.length?'':' terminal-grid-idle'}`} aria-label="终端窗格布局">{panes.current.slots.map(slot=>{const c=slot.binding&&connections.find(c=>c.connection_id===slot.binding!.connection_id&&c.generation===slot.binding!.generation&&c.protocol===slot.binding!.protocol);const view=paneViews[slot.key]??initialTerminalView();return <TerminalPane context={(pane,value)=>setTerminalMenu({...value,pane,title:c?tabName(c):value.target.protocol})} key={slot.key} rendered={view.renderedTarget} id={slot.key} split={panes.current.slots.length===2} active={panes.current.active===slot.key} label={c?tabName(c):slot.binding?'原会话已结束或变化':'尚无连接'} detail={slot.binding?`${slot.binding.protocol} · ${c?.state??'已变化'} · ${slot.binding.connection_id} / ${slot.binding.generation}`:''} preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} collapse={id=>collapseSplit(panes.current.slots.find(s=>s.key!==id)?.key)} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;})}</div>
     {clipboardMessage && <div className="clipboard-feedback" role="status" aria-label="剪贴板状态">{clipboardMessage}</div>}
     {tabMessage && <div className="tab-feedback" role="status" aria-label="标签操作状态">{tabMessage}</div>}
     </section>
-    <aside className="auxiliary-panels" aria-label="辅助工具">
     {quickOpen && <Dialog label="连接服务器" close={closeQuick} fallbackFocus={restoreConnectEntry}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent} connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SSH2',savedIntent?.request_id??'');focusRenderedTerminal(ref);closeQuick();}} close={closeQuick} /></Dialog>}
     {ssh1Intent&&<Dialog label={ssh1Intent.previous?'显式重连 SSH1':'连接 SSH1 保存配置'} close={closeSsh1} focusRestored={revealProfileConnectionFocus}><Ssh1Connect
       key={ssh1Intent.request_id} intent={ssh1Intent} close={closeSsh1}
@@ -655,8 +741,7 @@ function App() {
     {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
     {splitSource&&<Dialog label="设置分屏" close={closeSplitPanel}><SplitPanel first={splitSource.first} connections={connections} label={connectionLabel} apply={applySplit} close={closeSplitPanel}/></Dialog>}
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={captureCurrentWorkspace} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
-    {agentOpen && service && <AgentPanel key={service.service_id} serviceId={service.service_id} target={active?.protocol==='SSH1'?undefined:active} profileId={active?.protocol==='SSH1'?undefined:activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} />}
-    {exitConfirm && <section className="config-panel" aria-label="退出桌面确认"><h2>退出并停止会话服务</h2><p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p><button autoFocus onClick={() => setExitConfirm(false)}>取消退出</button><button onClick={() => { allowExit.current = true; void getCurrentWindow().close(); }}>确认退出并停止服务</button></section>}
+    {agentOpen && service && <Dialog label="管理 Agent 授权" modal={false} close={()=>setAgentOpen(false)}><AgentPanel key={service.service_id} serviceId={service.service_id} target={active?.protocol==='SSH1'?undefined:active} profileId={active?.protocol==='SSH1'?undefined:activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} /></Dialog>}
     {triggerNotice&&!triggersOpen&&<div className="terminal-log-feedback" role="status" aria-label="触发器窗口通知"><span>{visibleControls(triggerNotice)}</span><button onClick={()=>setTriggerNotice('')}>关闭触发通知</button></div>}
     {!triggerNotice&&!closeNoticeDismissed&&service?.previous_close?.attention&&service.previous_close.receipt?.service_id!==service.service_id&&<div className="terminal-log-feedback" role="status" aria-label="上次关闭提示"><span>上次本地服务关闭有需查看的信息。</span><button onClick={()=>setCloseInfoOpen(true)}>查看关闭信息</button><button onClick={()=>setCloseNoticeDismissed(true)}>收起关闭提示</button></div>}
     {closeInfoOpen&&<Dialog label="上次关闭信息" close={()=>setCloseInfoOpen(false)}><CloseReceiptPanel previous={service?.previous_close} close={()=>setCloseInfoOpen(false)}/></Dialog>}
@@ -668,30 +753,29 @@ function App() {
     {continuousOpen&&<Dialog label="明确启停连续同步键盘" close={()=>{continuousRun.current.stop();setContinuousOpen(false);}}><ContinuousInputPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={continuousRun.current} close={()=>setContinuousOpen(false)}/></Dialog>}
     {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} seed={broadcastSeed} close={closeBroadcast}/></Dialog>}
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
-    {composeOpen && <ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text, pacing) => composeSend.current?.(target, text, pacing) ?? false} close={() => setComposeOpen(false)} />}
+    {composeOpen && <Dialog label="撰写终端输入" modal={false} close={()=>{drafts.current.invalidate();setComposeOpen(false);}}><ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text, pacing) => composeSend.current?.(target, text, pacing) ?? false} close={() => setComposeOpen(false)} /></Dialog>}
     {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} busy={preferencesBusy} canSave={!!preferenceRevision} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel key={configurationTarget?.id??'new'} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget?.id} initialAction={configurationTarget?.action} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
-    {sshOpen && <SshPanel connection={active} select={selectConnection} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} />}
-    <ExecPanel open={execOpen} connection={active} />
-    {serialOpen && <SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} />}
+    {sshOpen && <Dialog label="SSH2 连接工具" modal={false} close={()=>setSshOpen(false)}><SshPanel connection={active} select={selectConnection} closePanel={()=>setSshOpen(false)} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} /></Dialog>}
+    <Dialog label="独立 exec 任务" modal={false} open={execOpen} close={()=>setExecOpen(false)}><ExecPanel open={execOpen} connection={active} close={()=>setExecOpen(false)} /></Dialog>
+    {serialOpen && <Dialog label="串口高级工具" modal={false} close={()=>setSerialOpen(false)}><SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} closePanel={()=>setSerialOpen(false)} /></Dialog>}
     {serialToolsOpen&&active?.protocol==='SERIAL'&&<Dialog label="串口收发详情" close={()=>setSerialToolsOpen(false)}><SerialPanel controlsOnly connection={active} select={selectConnection} closePanel={()=>setSerialToolsOpen(false)}/></Dialog>}
-    {searchOpen && <TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} closeFromKeyboard={() => {
+    {searchOpen && <Dialog label="查找终端内容" modal={false} close={()=>setSearchOpen(false)}><TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} closeFromKeyboard={() => {
       toolsSummary.current?.focus();
       setSearchOpen(false);
-    }} />}
-    {pasteProposal && <section className="config-panel" aria-label="粘贴确认">
-      <h2>确认粘贴到终端</h2>
+    }} /></Dialog>}
+    {pasteProposal && <Dialog label="粘贴确认" modal={false} close={cancelPaste}><Panel title="确认粘贴到终端">
       <small>目标 {pasteProposal.target.protocol} · {pasteProposal.target.connection_id} / 代次 {pasteProposal.target.generation}</small>
       <p>内容可能执行多条命令。CR/LF按原样发送，不自动添加换行；{pasteProposal.bracketed ? '使用终端请求的括号粘贴模式，不能保证远端安全。' : '当前未启用括号粘贴模式。'}继续键盘输入或切换目标会取消此预览。</p>
       <small>{pasteProposal.text.length} 个UTF-16单元 · CR {pasteProposal.text.split('\r').length - 1} · LF {pasteProposal.text.split('\n').length - 1} · 转义预览（最多8192个单元）</small>
       <pre aria-label="粘贴内容预览">{visibleControls(JSON.stringify(pasteProposal.text.slice(0,8192)))}{pasteProposal.text.length > 8192 && ' …预览已截断'}</pre>
-      <div className="config-actions"><button onClick={() => clipboard.current?.confirm(pasteProposal)}>确认发送粘贴</button><button autoFocus onClick={() => { clipboard.current?.invalidate(); setClipboardMessage('已取消粘贴；未发送'); runtime.current?.term.focus(); }}>取消粘贴</button></div>
-    </section>}
+      <div className="config-actions"><button onClick={() => clipboard.current?.confirm(pasteProposal)}>确认发送粘贴</button><button data-dialog-autofocus onClick={cancelPaste}>取消粘贴</button></div>
+    </Panel></Dialog>}
     <LoggingPanel connection={active} open={loggingOpen} close={()=>setLoggingOpen(false)} onStatus={setLoggingSummary} />
-    {snapshot && <section className="config-panel"><button onClick={() => setSnapshot('')}>关闭屏幕快照</button><pre aria-label="屏幕快照">{snapshot}</pre></section>}
-    {serviceScreen && <details open><summary>服务端屏幕快照</summary><button onClick={() => setServiceScreen(undefined)}>关闭服务端快照</button><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · {serviceScreen.resize_reflow ? '普通屏支持重排；复杂调整可能与桌面不同' : '宽度变化不重排，可能与桌面显示不同'} · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></details>}
-    </aside></div>
-    <footer className="terminal-footer">
+    {snapshot && <Dialog label="查看屏幕快照" modal={false} close={()=>setSnapshot('')}><Panel title="屏幕快照" close={()=>setSnapshot('')} closeLabel="关闭屏幕快照"><pre aria-label="屏幕快照">{snapshot}</pre></Panel></Dialog>}
+    {serviceScreen && <Dialog label="查看服务端屏幕快照" modal={false} close={()=>setServiceScreen(undefined)}><Panel title="服务端屏幕快照" close={()=>setServiceScreen(undefined)} closeLabel="关闭服务端快照"><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · {serviceScreen.resize_reflow ? '普通屏支持重排；复杂调整可能与桌面不同' : '宽度变化不重排，可能与桌面显示不同'} · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></Panel></Dialog>}
+    </div>
+    <footer className="terminal-footer" data-service-id={service?.service_id}>
       <div className="footer-summary" aria-label="终端状态">
         <span className="footer-target" title={active?connectionLabel(active):undefined}>{active?tabName(active):'尚无活动连接'}</span>
         {active&&<span>{active.protocol}</span>}
@@ -699,11 +783,9 @@ function App() {
           {statusAttention|| (inputReady?'输入就绪':active?'输入未就绪':'')}
         </span>
       </div>
-      <details className="connection-details" onKeyDown={event=>{
-        if(event.key==='Escape'&&event.currentTarget.open){event.preventDefault();event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus();}
-      }}>
-        <summary>连接与服务详情</summary>
-        <div className="connection-details-content">
+      <button className="connection-details" aria-haspopup="dialog" aria-expanded={detailsOpen} onClick={()=>setDetailsOpen(open=>!open)}>连接与服务详情</button>
+      <Dialog label="连接与服务详情" modal={false} open={detailsOpen} close={()=>setDetailsOpen(false)}>
+      <Panel title="连接与服务详情" close={()=>setDetailsOpen(false)} closeLabel="关闭连接与服务详情">
       <div className="connection-summary" aria-label="活动连接摘要">
         <span title={active ? `${active.connection_id} / ${active.generation}` : undefined}>{active ? `${connectionLabel(active)} · ${active.state} · 代次 ${active.generation}` : '尚无活动连接'}</span>
         <span aria-label="活动编码">编码：{activeDetails?.encoding === 'utf8' ? 'UTF-8' : activeDetails?.encoding.toUpperCase() ?? (active?.protocol === 'FIXTURE' ? 'UTF-8（合成）' : active ? '读取中' : '—')}</span>
@@ -712,16 +794,21 @@ function App() {
         <span aria-label="权限状态">{failure || inputFailure ? '桌面输入已停止' : inputReady && ['SSH1', 'SSH2', 'SERIAL'].includes(active?.protocol ?? '') ? '桌面输入可用' : inputReady && active?.protocol === 'FIXTURE' ? '合成输入（仅测试）' : '桌面输入未就绪'} · {active?.protocol==='SSH1'?'SSH1 仅桌面可用':'Agent 授权可管理，MCP需独立配对'}</span>
       </div>
     {active?.protocol==='SERIAL'&&<SerialPanel summaryOnly connection={active} select={selectConnection} tools={()=>setSerialToolsOpen(true)}/>}
-    {active?.protocol==='SSH1'&&['DISCONNECTED','FAILED'].includes(active.state)&&service?.ssh1_preview&&
+    {!detached&&active?.protocol==='SSH1'&&['DISCONNECTED','FAILED'].includes(active.state)&&service?.ssh1_preview&&
       <div className="status"><button disabled={!activeDetails?.profile_id||!!ssh1Intent||quickOpen||serialDialog||!!serviceFailure}
         onClick={()=>void prepareSsh1Reconnect()}>显式重连 SSH1</button></div>}
     <div className="status" role="status">{failure || inputFailure || status}</div>
     {decodeWarning && <div role="status" aria-label="接收解码提示">{decodeWarning}</div>}
     <div className="input-status">{active?.protocol === 'SSH1' || active?.protocol === 'SSH2' ? `${active.protocol} 输入` : active?.protocol === 'SERIAL' ? '串口输入' : service?.fixture ? '合成键盘事件' : '尚无设备输入'}：<output>{lastInput}</output></div>
-        <span>{active && `${active.connection_id} / ${active.generation} · `}{service && `服务 ${service.service_id} · `}关闭桌面将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收</span>
-        </div>
-      </details>
+        <span>{active && `${active.connection_id} / ${active.generation} · `}{service && `服务 ${service.service_id} · `}{detached?'关闭窗口会将会话移回主窗口':'关闭主窗口将停止服务 · 重载页面保留服务会话 · 未完成 SSH/串口验收'}</span>
+      </Panel></Dialog>
     </footer>
+    {exitConfirm && <Dialog label="退出桌面确认" close={()=>setExitConfirm(false)}>
+      <Panel title="退出并停止会话服务">
+        <p>尚有设备连接未结束。退出将停止全部连接与未发送输入，已执行动作不会撤销；没有后台驻留模式。</p>
+        <div className="config-actions"><button data-dialog-autofocus onClick={()=>setExitConfirm(false)}>取消退出</button><button onClick={()=>{allowExit.current=true;void getCurrentWindow().close();}}>确认退出并停止服务</button></div>
+      </Panel>
+    </Dialog>}
   </main>;
 }
 

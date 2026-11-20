@@ -4,7 +4,7 @@ import { OutputDecoder } from './output-decoder';
 import { requestId } from './request-id';
 const same = (left: ConnectionRef, right?: ConnectionRef) => left.connection_id === right?.connection_id && left.generation === right.generation;
 
-export function ExecPanel({ connection, open }: { connection?: Connection; open: boolean }) {
+export function ExecPanel({ connection, open, close }: { connection?: Connection; open: boolean; close():void }) {
   const [command, setCommand] = useState('');
   const [timeout, setTimeoutMs] = useState(30000);
   const [limit, setLimit] = useState(1048576);
@@ -84,7 +84,7 @@ export function ExecPanel({ connection, open }: { connection?: Connection; open:
   }
   if (!open) return null;
   return <section className="config-panel exec-panel" aria-label="SSH2 exec 任务">
-    <h2>独立 exec 任务</h2>
+    <div className="config-heading"><h2>独立 exec 任务</h2><button onClick={close}>关闭 exec 工具</button></div>
     <p role="status">{message}</p>
     <small>当前选择：{connection?.connection_id ?? '尚无连接'} · 代次 {connection?.generation ?? '—'}。切换连接或关闭面板不会取消任务；重载会清除本页列表，可记录任务 ID 后查询。本页保留最近 64 项；服务最多保留每连接 16 项、全局 64 项结果，容量需要时回收已结束的有序任务，过期结果无法再查询且不会重跑。重连不迁移。</small>
     <form onSubmit={event => { event.preventDefault(); const text = command; if (/[\uD800-\uDFFF]/u.test(text)) { setMessage('命令包含不完整 Unicode 字符，未发送。'); return; } setCommand(''); void act(async () => {

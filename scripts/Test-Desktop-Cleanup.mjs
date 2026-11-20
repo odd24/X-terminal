@@ -56,7 +56,7 @@ try {
   assert.deepEqual(await readFile(path.join(logPath,'0000000000000001.rawlog')),original);
   // Status recovery after reload never restores the approval checkbox.
   await preview('LOG',log.log_id);await check();
-  const restored=await scope();await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);await panel();
+  const restored=await scope();await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);await panel();
   await state('已恢复清理编号');assert.equal(await disabled('确认删除清单文件'),true);
   await ui.click('查询清理结果');await state('文件清单已锁定');assert.deepEqual(await scope(),restored);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="确认清理文件"]').checked`),false);

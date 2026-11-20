@@ -44,7 +44,7 @@ try {
   await ui.click('另存导出文件');await native('cancel');await state('另存已取消');
   const expires=await pick(replaced);await state('等待明确替换确认');for(let n=0;n<7;n++){await delay(10000);await ui.invoke('service_status');}await state('替换确认已到期');assert.equal((await save({op:'status',...expires})).phase,'EXPIRED');assert.equal(await readFile(replaced,'utf8'),'later user edit');
   const changed=Buffer.from(original);changed[0]^=1;await writeFile(sourcePath,changed);const refused=path.join(output,'源变化不得发布.jsonl');await pick(refused);await state('另存失败');await assert.rejects(readFile(refused));await writeFile(sourcePath,original);
-  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);await ui.click('终端日志');await ui.waitFor(`!!document.querySelector('[aria-label="历史日志工具"]')`);await ui.evaluate(`document.querySelector('[aria-label="历史日志工具"]').open=true`);await state('已恢复另存编号');await ui.click('查询另存结果');await state('另存失败');
+  await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);await ui.click('终端日志');await ui.waitFor(`!!document.querySelector('[aria-label="历史日志工具"]')`);await ui.evaluate(`document.querySelector('[aria-label="历史日志工具"]').open=true`);await state('已恢复另存编号');await ui.click('查询另存结果');await state('另存失败');
   assert.deepEqual(await readFile(sourcePath),original);assert.equal((await readdir(output)).filter(name=>name.endsWith('.partial')).length,0);
   await ui.screenshot('desktop-save-synthetic.png');console.log('PASS native save picker/publication/explicit replacement/backup/scope/dedup/lost reply/cancel/lease/tamper/reload/open directory; synthetic only');
 } catch(error) {

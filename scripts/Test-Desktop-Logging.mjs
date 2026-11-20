@@ -21,7 +21,7 @@ try {
     throw new Error('synthetic log status did not settle');
   };
   assert.deepEqual(await list(), []);
-  await ui.waitFor(`document.querySelector('footer [aria-label="日志状态"]')?.textContent.includes('未启用记录')`);
+  await ui.waitFor(`document.querySelector('dialog[aria-label="连接与服务详情"] [aria-label="日志状态"]')?.textContent.includes('未启用记录')`);
   await ui.click('终端日志');
   await ui.waitFor(`document.querySelector('[aria-label="终端日志面板"]')?.textContent.includes(${JSON.stringify(connection.connection_id)})`);
   await ui.evaluate(`document.querySelector('[aria-label="终端日志面板"] details').open=true`);
@@ -36,13 +36,13 @@ try {
   await waitStatus(first.log_id, value => value.written_records === 1);
   await ui.click('关闭日志面板');
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="终端日志面板"]')`), false);
-  await ui.waitFor(`document.querySelector('footer [aria-label="日志状态"]')?.textContent.includes('正在记录')`);
-  assert.equal(await ui.evaluate(`document.querySelector('.auxiliary-panels').matches(':empty')`),true,'closed log tool must not reserve terminal width just for its status');
+  await ui.waitFor(`document.querySelector('dialog[aria-label="连接与服务详情"] [aria-label="日志状态"]')?.textContent.includes('正在记录')`);
+  assert.equal(await ui.evaluate(`!document.querySelector('.auxiliary-panels')`),true,'closed log tool must not reserve terminal width just for its status');
   await ui.invoke('fixture_append', { connection: target, bytes: [...Buffer.from('panel-closed\r\n')] });
   await waitStatus(first.log_id, value => value.written_records === 2);
   const pid = (await ui.invoke('service_status')).pid;
   await ui.command('Page.reload');
-  await ui.waitFor(`document.querySelector('footer')?.textContent.includes('服务 ') && document.querySelector('[aria-label="日志状态"]')?.textContent.includes('正在记录')`);
+  await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId && document.querySelector('[aria-label="日志状态"]')?.textContent.includes('正在记录')`);
   assert.equal((await ui.invoke('service_status')).pid, pid);
   assert.equal((await list())[0].log_id, first.log_id);
   await ui.invoke('fixture_append', { connection: target, bytes: [...Buffer.from('after-reload\r\n')] });
@@ -151,7 +151,7 @@ try {
   assert.ok((await ui.evaluate(`document.querySelector('[aria-label="日志目标"]').textContent`)).includes('尚无连接'),'a new generation must not silently replace the pane/log target');
   await ui.evaluate(`document.querySelector('[role="tab"][data-connection-id="${renewed.connection_id}"]').click()`);
   await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes('/ '+${renewed.generation})`);
-  await ui.waitFor(`document.querySelector('footer [aria-label="日志状态"]')?.textContent.includes('未启用记录')`);
+  await ui.waitFor(`document.querySelector('dialog[aria-label="连接与服务详情"] [aria-label="日志状态"]')?.textContent.includes('未启用记录')`);
   await ui.evaluate(`(()=>{const panel=document.querySelector('[aria-label="捕获记录维护"]');let parent=panel.parentElement.closest('details');while(parent){parent.open=true;parent=parent.parentElement.closest('details');}panel.open=true;})()`);
   await ui.click('刷新捕获维护清单');
   await ui.waitFor(`!document.querySelector('[aria-label="捕获维护选择"]').disabled`);

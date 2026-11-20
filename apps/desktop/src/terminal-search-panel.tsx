@@ -24,7 +24,7 @@ export function TerminalSearch({ terminal, close, closeFromKeyboard }: {
     setPrevious(match); setMessage(`${index + 1} / ${matches.length}${limited ? '（已达扫描或1000条显示上限）' : ''} · 当前保留缓冲区`);
   }
   return <Panel title="终端查找" closeLabel="关闭查找" close={() => { terminal()?.clearSelection(); close(); terminal()?.focus(); }}>
-    <Field label="查找文字"><input autoFocus aria-label="终端查找文字" maxLength={256} value={query} onChange={event => { setQuery(event.target.value); setPrevious(undefined); }} onKeyDown={event => {
+    <Field label="查找文字"><input data-dialog-autofocus aria-label="终端查找文字" maxLength={256} value={query} onChange={event => { setQuery(event.target.value); setPrevious(undefined); }} onKeyDown={event => {
       if (event.key === 'Enter') { event.preventDefault(); find(event.shiftKey); }
       if (event.key === 'Escape') { event.preventDefault(); closeFromKeyboard(); }
     }} /></Field>

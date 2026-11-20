@@ -1,10 +1,59 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+export function dragNativeWindow(app, points, {executable=path.resolve('target/debug/shared-terminal-desktop.exe'), title}={}) {
+  execFileSync('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(app.pid),'-ExpectedExecutable',executable,
+    '-Points',JSON.stringify(points),...(title?['-Title',title]:[])],{windowsHide:true,timeout:12000,stdio:'pipe'});
+}
+
+export async function connectDesktopPage(target) {
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+  let sequence = 0;
+  const pending = new Map();
+  socket.onmessage = event => {
+    const reply = JSON.parse(event.data);
+    const item = pending.get(reply.id);
+    if (!item) return;
+    pending.delete(reply.id);
+    clearTimeout(item.timer);
+    if (reply.error) item.reject(new Error(JSON.stringify(reply.error)));
+    else item.resolve(reply.result);
+  };
+  const command = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++sequence;
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, 10000);
+    pending.set(id, { resolve, reject, timer });
+    socket.send(JSON.stringify({ id, method, params }));
+  });
+  const evaluate = async expression => {
+    const reply = await command('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    if (reply.exceptionDetails) {
+      const {exception,text}=reply.exceptionDetails;
+      throw new Error(exception?.description ?? exception?.value ?? text);
+    }
+    return reply.result.value;
+  };
+  const invoke = (name, args = {}) => evaluate(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(name)},${JSON.stringify(args)})`);
+  const waitFor = async expression => {
+    for (let attempt = 0; attempt < 200; attempt++) {
+      if (await evaluate(expression)) return;
+      await delay(50);
+    }
+    throw new Error(`UI condition timed out: ${expression}`);
+  };
+  const screenshot = async name => {
+    await mkdir('artifacts', { recursive: true });
+    const shot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    await writeFile(path.join('artifacts', name), Buffer.from(shot.data, 'base64'));
+  };
+  return {command,evaluate,invoke,waitFor,screenshot,close:()=>socket.close()};
+}
+
 export async function launchDesktop(directory, {fixture = false, executable = path.resolve('target/debug/shared-terminal-desktop.exe'), webviewDirectory = path.join(directory,'webview-ui'), windowsHide = true, extraArgs = []} = {}) {
   assert.ok(path.isAbsolute(directory));
   const reservation = createServer();
@@ -16,10 +65,10 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
   });
   let nativeErrors='';app.stderr.on('data',chunk=>{nativeErrors=(nativeErrors+chunk.toString()).slice(-8192);});
   let startupError; app.on('error', error => { startupError = error; });
-  let socket; let pid;
+  let page; let pid;
   const stopped=()=>app.exitCode!==null || app.signalCode!==null;
   const cleanup = async () => {
-    socket?.close(); if (!stopped()) app.kill();
+    page?.close(); if (!stopped()) app.kill();
     for (let attempt = 0; attempt < 100 && (!stopped() || (pid && alive(pid))); attempt++) await delay(50);
     assert.equal(stopped(),true,'desktop must exit'); if (pid) assert.equal(alive(pid), false, 'owned service must exit');
   };
@@ -32,28 +81,8 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
       await delay(200);
     }
     assert.ok(target, 'native WebView must start');
-    socket = new WebSocket(target.webSocketDebuggerUrl);
-    await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
-    let sequence = 0; const pending = new Map();
-    socket.onmessage = event => {
-      const reply = JSON.parse(event.data); const item = pending.get(reply.id); if (!item) return;
-      pending.delete(reply.id); clearTimeout(item.timer);
-      if (reply.error) item.reject(new Error(JSON.stringify(reply.error))); else item.resolve(reply.result);
-    };
-    const command = (method, params = {}) => new Promise((resolve, reject) => {
-      const id = ++sequence; const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, 10000);
-      pending.set(id, { resolve, reject, timer }); socket.send(JSON.stringify({ id, method, params }));
-    });
-    const evaluate = async expression => {
-      const reply = await command('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-      if (reply.exceptionDetails) throw new Error('WebView evaluation failed');
-      return reply.result.value;
-    };
-    const waitFor = async expression => {
-      for (let attempt = 0; attempt < 200; attempt++) { if (await evaluate(expression)) return; await delay(50); }
-      throw new Error(`UI condition timed out: ${expression}`);
-    };
-    const invoke = (name, args = {}) => evaluate(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(name)},${JSON.stringify(args)})`);
+    page = await connectDesktopPage(target);
+    const {command,evaluate,waitFor,invoke,screenshot}=page;
     const click = label => evaluate(`(() => {
       const label=${JSON.stringify(label)};
       const matches=Array.from(document.querySelectorAll('button')).filter(button=>button.textContent===label||button.getAttribute('aria-label')===label);
@@ -63,15 +92,10 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
       button?.click();
     })()`);
     const fill = (label, value) => evaluate(`(() => { const control = document.querySelector('[aria-label=' + JSON.stringify(${JSON.stringify(label)}) + ']'); const proto = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(control, ${JSON.stringify(String(value))}); control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input', {bubbles:true})); })()`);
-    await waitFor(`document.querySelector('footer')?.textContent.includes('服务 ')`);
+    await waitFor(`document.querySelector('footer')?.dataset.serviceId`);
     const nativeStatus = await invoke('service_status'); pid = nativeStatus.pid;
     // Static exit-policy prose also contains '服务 '; wait for this exact owner.
-    await waitFor(`document.querySelector('footer')?.textContent.includes(${JSON.stringify(nativeStatus.service_id)})`);
-    const screenshot = async name => {
-      await mkdir('artifacts', { recursive: true });
-      const shot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-      await writeFile(path.join('artifacts', name), Buffer.from(shot.data, 'base64'));
-    };
+    await waitFor(`document.querySelector('footer')?.dataset.serviceId===${JSON.stringify(nativeStatus.service_id)}`);
     // Tauri invoke is immutable. Intercept its real custom-protocol fetch
     // response instead; never replace service data with a fabricated success.
     // Assert interception counts in callers so an inactive hook cannot pass.
@@ -108,9 +132,10 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
       if (method !== 'Page.reload') return command(method, params);
       await evaluate('window.__desktopHarnessBeforeReload=true');
       const reply = await command(method, params);
-      await waitFor(`!window.__desktopHarnessBeforeReload && document.querySelector('footer')?.textContent.includes(${JSON.stringify(nativeStatus.service_id)})`);
+      await waitFor(`!window.__desktopHarnessBeforeReload && document.querySelector('footer')?.dataset.serviceId===${JSON.stringify(nativeStatus.service_id)}`);
       return reply;
     };
-    return { app, invoke, evaluate, command: publicCommand, waitFor, click, fill, screenshot, interceptIpc, close: cleanup };
+    const otherPages=async()=> (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).filter(item=>item.type==='page'&&item.id!==target.id);
+    return { app, invoke, evaluate, command: publicCommand, waitFor, click, fill, screenshot, interceptIpc, otherPages, close: cleanup };
   } catch (error) { await cleanup(); throw error; }
 }

@@ -34,7 +34,8 @@ export function SerialPanel({ connection, select, requestedProfile, controlsOnly
     return <div aria-label="串口快捷操作"><div className="config-actions"><span role="status" aria-label="UART连接状态">{status?`${status.port} · ${labels[status.connection.state]??'正在读取状态'} · 接收 ${status.read_bytes} 字节${status.dropped_bytes?` · 缺口 ${status.dropped_bytes} 字节`:''}`:'正在读取串口状态…'}</span><button onClick={tools}>发送与接收详情</button><button disabled={!status||['DISCONNECTED','FAILED'].includes(status.connection.state)} onClick={()=>void close()}>断开串口</button></div>{status?.failure&&<p role="alert">{failures[status.failure]??'串口发生错误，请打开详情核对；没有自动重连。'}</p>}{message!=='选择配置并只读刷新设备；核对端口、身份及开口控制线后手动连接。'&&<p role="status">{message}</p>}</div>;}
   return <section className="config-panel serial-panel" aria-label="串口连接面板">
     {!controlsOnly&&<>
-    <div className="config-heading"><h2>串口连接与发送</h2><button disabled={busy} onClick={()=>void act(refresh)}>刷新串口配置与设备</button></div>
+    <div className="config-heading"><h2>串口连接与发送</h2><button onClick={closePanel}>关闭串口高级工具</button></div>
+    <button disabled={busy} onClick={()=>void act(refresh)}>刷新串口配置与设备</button>
     <p role="status">{message}</p>
     <div className="form-grid"><label>配置<select aria-label="串口配置" value={profileId} onChange={event=>{setProfileId(event.target.value);setApproved(false);}}><option value="">请选择配置</option>{profiles.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>当前设备<select aria-label="串口设备" value={deviceId} onChange={event=>{setDeviceId(event.target.value);setApproved(false);}}><option value="">请选择设备</option>{inventory?.devices.map(item=><option key={item.device_id} value={item.device_id}>{item.port} · {item.instance_id}</option>)}</select></label></div>
