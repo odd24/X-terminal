@@ -265,5 +265,5 @@ try {
   const target = path.resolve(directory);
   assert.equal(path.dirname(target), path.resolve(tmpdir()));
   assert.ok(path.basename(target).startsWith('shared-terminal-agent-ui-中文-'));
-  await rm(target, { recursive: true, force: true });
+  await rm(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
