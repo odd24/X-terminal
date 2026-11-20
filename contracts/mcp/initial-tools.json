@@ -1320,7 +1320,7 @@
     },
     {
       "name": "terminal_read",
-      "description": "Read approved retained output. Use view info first, then text with its fixed through_cursor, cursor>=1, max_bytes 4096..65536. Window grants need their approved time window. Protected grants always use protected output.",
+      "description": "Read approved retained output. Use view info first to get through_cursor. For view text, use that fixed through_cursor, cursor>=1, and max_bytes 16384..65536 (16–64 KiB) with either ordinary or protected Read. View screen uses through_cursor and no max_bytes. Raw output is unavailable through this tool. Window grants require the approved time window.",
       "inputSchema": {
         "$defs": {
           "ConnectionId": {
@@ -1395,7 +1395,8 @@
                   },
                   "max_bytes": {
                     "format": "uint",
-                    "minimum": 0,
+                    "maximum": 65536,
+                    "minimum": 16384,
                     "type": "integer"
                   },
                   "through_cursor": {

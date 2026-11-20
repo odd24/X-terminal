@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import { processRpc } from '../jsonrpc-client.mjs';
 import { delay } from './DesktopHarness.mjs';
 import { active } from './DesktopKeyboard.mjs';
+import { assertReleasedMcpCatalog } from './McpCatalog.mjs';
 
 const marker = 'P13_SSH2_READ_ONLY_SENTINEL';
 const query = selector => `document.querySelector(${JSON.stringify(selector)})`;
@@ -88,7 +89,9 @@ export async function verifyDesktopSsh1McpIsolation({ ui, keyboard, directory, p
     rpc.notify('notifications/initialized', {});
     const catalog = (await rpc.request('tools/list', {})).result.tools;
     assert.equal(catalog.length, 29);
-    assert.deepEqual({ version: 11, tools: catalog }, JSON.parse(await readFile('contracts/mcp/initial-tools.json', 'utf8')));
+    const contract=JSON.parse(await readFile('contracts/mcp/initial-tools.json', 'utf8'));
+    assert.equal(contract.version,11);
+    assertReleasedMcpCatalog(catalog,contract.tools,'SSH1 preview must advertise a released v11 catalog');
     const call = async (name, args = {}) => (await rpc.request('tools/call', { name, arguments: args })).result;
     const success = async (name, args) => {
       const result = await call(name, args);

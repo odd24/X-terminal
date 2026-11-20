@@ -10,7 +10,10 @@ import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 const saveRecovery=process.argv.includes('--save-recovery');
 const auditGrantFeedback=process.argv.includes('--audit-grant-feedback');
 const paletteX=process.argv.includes('--palette-x');
-const stagePreview=process.argv.includes('--font-size')?'terminal-font-size-preview'
+const readMetadataBridge=process.argv.includes('--terminal-read-metadata')&&path.resolve('target/mcp-read-metadata/debug/terminal-mcp.exe');
+const sourcePreview=readMetadataBridge&&JSON.parse(await readFile('artifacts/terminal-font-size-preview.json','utf8'));
+const stagePreview=readMetadataBridge?'terminal-read-metadata-preview'
+  :process.argv.includes('--font-size')?'terminal-font-size-preview'
   :process.argv.includes('--pane-drag')?'desktop-pane-drag-preview'
   :process.argv.includes('--window-interactions')?'desktop-window-interactions-preview'
   :process.argv.includes('--tabs-scrollbar')?'tabs-scrollbar-preview'
@@ -28,6 +31,14 @@ const ssh1Option=process.argv.indexOf('--ssh1-service');
 const ssh1Service=ssh1Option<0?undefined:process.argv[ssh1Option+1];
 if(ssh1Option>=0)assert.ok(ssh1Service&&path.isAbsolute(ssh1Service)&&path.basename(ssh1Service)==='session-service.exe','paired SSH1 service required');
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+if(sourcePreview){
+  assert.ok(!ssh1Service&&!paletteX,'terminal read metadata requires an ordinary preview');
+  assert.equal(sourcePreview.result,'PASS');
+  assert.equal(path.dirname(path.resolve(sourcePreview.directory)),path.resolve('artifacts'));
+  assert.match(path.basename(sourcePreview.directory),/^shared-terminal-preview-[0-9a-f-]+$/);
+  const original=JSON.parse(await readFile(path.join(sourcePreview.directory,'manifest.json'),'utf8'));
+  assert.deepEqual(original.files,sourcePreview.files);
+}
 const pairedFiles = ['session-service.exe', 'ssh1-helper.exe', 'PuTTY-LICENCE.txt'];
 let pairing;
 if (ssh1Service) {
@@ -44,8 +55,11 @@ await mkdir(destination,{recursive:false});
 const files=[];
 for(const name of ['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe',...(ssh1Service?['ssh1-helper.exe','PuTTY-LICENCE.txt']:[])]){
   const paired = ssh1Service && pairedFiles.includes(name);
-  const source = paired ? path.join(path.dirname(ssh1Service), name) : path.resolve('target/debug', name);
+  const source = sourcePreview ? (name==='terminal-mcp.exe'?readMetadataBridge:path.join(sourcePreview.directory,name))
+    : paired ? path.join(path.dirname(ssh1Service), name) : path.resolve('target/debug', name);
   const expected = digest(await readFile(source));
+  if(sourcePreview&&name!=='terminal-mcp.exe')
+    assert.equal(expected,sourcePreview.files.find(file=>file.name===name)?.sha256,`source preview hash mismatch for ${name}`);
   if (paired) assert.equal(expected, pairing.files[name], `SSH1 staging hash mismatch for ${name}`);
   const target=path.join(destination,name);
   await copyFile(source,target);const data=await readFile(target);

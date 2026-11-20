@@ -2,6 +2,8 @@
 
 当前 [ADR-095](decisions/ADR-095.md) 固定 v11 二十九项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v10](../contracts/mcp/v10-tools.json) 的二十六项。
 
+`terminal_read` 先用 `view.kind: "info"` 取得固定的 `through_cursor`。`text` 使用该水位、正数 `cursor` 和 16384–65536 字节的 `max_bytes`，普通与受保护读取的限制相同。使用时间窗授权时需提供已批准的 `window`。`screen` 需要 `through_cursor`，`info` 和 `screen` 均无 `max_bytes`，此工具没有 `raw` 视图。早期 v11 目录描述列出过 4096 字节，实际文本读取下限一直是 16384 字节。
+
 在 Desktop 选中已结束的 SSH2 或串口代次，打开 Agent 授权并选择单次保护文本导出。预览并明确批准固定服务、原 UUIDv7、完整保留源区间、编码、UTF-8 格式、保护规则及期限。将面板显示的参数交给同一票据绑定的 `logs_export`。独立 Export 不授予 Read、租约或输入能力。
 
 `logs_export_status` 与 `logs_export_cancel` 接收原 `connection` 和 `request_id`。状态为 PREPARING、COMPLETED、FAILED 或 CANCELLED，完成时返回不透明产物 ID。应答不明只查原编号。取消仅能阻止尚未登记的产物。撤销、到期、代次退休或服务更换后，原托管副本不可访问。

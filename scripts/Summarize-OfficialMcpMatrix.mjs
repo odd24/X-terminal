@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
+import { assertReleasedMcpCatalog } from './lib/McpCatalog.mjs';
 
 const suites = {
   ssh: [
@@ -41,7 +41,7 @@ for (const [transport,names] of Object.entries(suites)) {
     assert.equal(observed.result,'PASS',evidence);
     assert.equal(observed.modelTurns,0,evidence);
     assert.equal(observed.client,'official Codex app-server',evidence);
-    assert.ok(isDeepStrictEqual(inventory.tools,catalog.tools),evidence+' does not match the current v11 tool catalog');
+    assertReleasedMcpCatalog(inventory.tools,catalog.tools,evidence+' does not match a released v11 tool catalog');
     cases.push({transport,suite:name,calls:observed.observations.length});
     for (const row of observed.observations) {
       assert.equal(typeof row.outcome,'string',evidence);

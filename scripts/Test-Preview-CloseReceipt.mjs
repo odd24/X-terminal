@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 import {processRpc} from './jsonrpc-client.mjs';
+import {assertReleasedMcpCatalog} from './lib/McpCatalog.mjs';
 const saveRecovery=process.argv.includes('--save-recovery');
 const preview=JSON.parse(await readFile(saveRecovery?'artifacts/P24-save-recovery-preview.json':'artifacts/P16-local-preview.json','utf8'));
 const catalogVersion=saveRecovery||process.argv.includes('--mcp-v11')?11:process.argv.includes('--mcp-v10')?10:process.argv.includes('--mcp-v9')?9:process.argv.includes('--mcp-v8')?8:process.argv.includes('--mcp-v7')?7:process.argv.includes('--mcp-v6')?6:process.argv.includes('--mcp-v5')?5:process.argv.includes('--mcp-v4')?4:process.argv.includes('--mcp-v3')?3:process.argv.includes('--mcp-v2')?2:null;
@@ -23,7 +24,10 @@ try{
     rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
     await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'copied-preview-v2',version:'2'}});rpc.notify('notifications/initialized',{});
     const tools=(await rpc.request('tools/list',{})).result.tools;
-    assert.deepEqual({version:catalogVersion,tools},JSON.parse(await readFile(catalogVersion===11?'contracts/mcp/initial-tools.json':`contracts/mcp/v${catalogVersion}-tools.json`,'utf8')));assert.equal(tools.length,catalogVersion===11?29:catalogVersion>=9?catalogVersion+16:8+2*catalogVersion);toolCount=tools.length;
+    const contract=JSON.parse(await readFile(catalogVersion===11?'contracts/mcp/initial-tools.json':`contracts/mcp/v${catalogVersion}-tools.json`,'utf8'));
+    if(catalogVersion===11)assertReleasedMcpCatalog(tools,contract.tools,'preview must advertise a released v11 catalog');
+    else assert.deepEqual({version:catalogVersion,tools},contract);
+    assert.equal(tools.length,catalogVersion===11?29:catalogVersion>=9?catalogVersion+16:8+2*catalogVersion);toolCount=tools.length;
     assert.equal((await rpc.close()).code,0);rpc=undefined;
   }
   await ui.evaluate(`(()=>{const d=document.querySelector('details.tools-menu');if(!d.open)d.querySelector('summary').click();setTimeout(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='退出桌面').click(),50);return true;})()`);

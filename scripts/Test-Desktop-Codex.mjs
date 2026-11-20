@@ -9,6 +9,7 @@ import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
 import { approveCodexExport, checkCodexExport } from './lib/CodexProtectedExportCheck.mjs';
 import { approveCodexExec, checkCodexExec } from './lib/CodexProtectedExecCheck.mjs';
+import { assertReleasedMcpCatalog } from './lib/McpCatalog.mjs';
 
 // Integration of the installed Codex model/client, not a delegated development task.
 // No user config, shell, apps, plugins, web search, or persistent Codex chat.
@@ -140,13 +141,12 @@ try {
       assert.equal(inventory.result.nextCursor,null);
       discovered=Object.keys(server.tools).sort();
       assert.deepEqual(discovered,catalog.tools.map(tool=>tool.name).sort());
-      for(const tool of catalog.tools){
+      const observed=catalog.tools.map(tool=>{
         const actual=server.tools[tool.name];
-        assert.equal(actual.name,tool.name);
-        assert.deepEqual(actual.inputSchema,tool.inputSchema,tool.name);
-        assert.deepEqual(actual.annotations,tool.annotations,tool.name);
-        assert.equal(actual.description,tool.description,tool.name);
-      }
+        const {name,description,inputSchema,annotations}=actual;
+        return {name,description,inputSchema,annotations};
+      });
+      assertReleasedMcpCatalog(observed,catalog.tools,'preview must advertise a released v11 catalog');
     }else assert.equal(Object.keys(server.tools).length,catalog.tools.length);
   }
   let pending;

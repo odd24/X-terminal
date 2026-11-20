@@ -25,6 +25,7 @@ import {closeSoakDesktop} from './lib/LoadSoak.mjs';
 import {openCodexMcpClient} from './lib/CodexMcpClient.mjs';
 
 const official=process.argv.includes('--official-client');
+const readBoundaries=process.argv.includes('--read-boundaries');
 const serialControl=process.argv.includes('--serial-control');
 const disconnect=process.argv.includes('--disconnect');
 const forget=process.argv.includes('--forget');
@@ -42,9 +43,10 @@ const countedSerial=serialConnect||serialControl||((disconnect||forget||protecte
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
 const suite=silentLink?'P24-ssh-silent-link':serviceInterruption?'P24-service-interruption':interruption?'P24-ssh-interruption':protectedExport?'P15-protected-export-v11':wait?'P15-terminal-wait-v11':sshResize?'P15-wait-impact-resize-v11':serialConnect?'P15-wait-impact-serial-connect-v11':connect?'P15-wait-impact-connect-v11':reconnect?'P15-wait-impact-reconnect-v11':forget?'P15-wait-impact-forget-v11':disconnect?'P15-wait-impact-disconnect-v11':serialControl?'P15-wait-impact-serial-v11':security?'P22-security-v11':exec?'P15-wait-impact-exec-v11':'P15-mcp-v11';
-const evidence=official?'P16-official-'+suite:suite;
+const evidence=readBoundaries?'P16-terminal-read-metadata':official?'P16-official-'+suite:suite;
 const observations=[];
 assert.ok(!silentLink||process.argv.length===3,'P24 silent link is an independent case');
+assert.ok(!readBoundaries||official&&!serial&&process.argv.length===4,'read boundaries require the standalone official SSH case');
 assert.ok(!(exec||reconnect||connect||sshResize||wait||interruption||serviceInterruption)||!serial,'SSH2 fixture required');
 assert.ok(!(interruption||serviceInterruption)||!(interruption&&serviceInterruption||exec||reconnect||connect||sshResize||wait||protectedExport||disconnect||forget||security),'P24 interruption is an independent case');
 const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
@@ -72,9 +74,10 @@ async function killSshFixture() {
 try {
   if (serial&&!countedSerial) build(true);
   directory=await mkdtemp(path.join(tmpdir(),rootPrefix));
-  const preview=interruption||serviceInterruption||silentLink?JSON.parse(await readFile('artifacts/P24-save-recovery-preview.json','utf8')):undefined;
+  const preview=readBoundaries?JSON.parse(await readFile('artifacts/terminal-read-metadata-preview.json','utf8')):
+    interruption||serviceInterruption||silentLink?JSON.parse(await readFile('artifacts/P24-save-recovery-preview.json','utf8')):undefined;
   if(preview){assert.equal(preview.result,'PASS');assert.equal(path.dirname(path.resolve(preview.directory)),path.resolve('artifacts'));}
-  if(serviceInterruption||silentLink){
+  if(readBoundaries||serviceInterruption||silentLink){
     assert.deepEqual(preview.files.map(file=>file.name).sort(),['session-service.exe','shared-terminal-desktop.exe','terminal-mcp.exe']);
     for(const file of preview.files){
       const bytes=await readFile(path.join(preview.directory,file.name));
@@ -178,7 +181,17 @@ try {
   };
   const execChecks=exec?await checkMcpExec({ui,call,success,ref,other:otherRef,management,grantId,signed,lease,metrics,rebind,getRpc:()=>rpc,evidencePrefix:evidence}):null;
   const serialChecks=serialControl?await checkMcpSerial({directory,ui,call,success,ref,other:otherRef,management,grantId,signed,lease,rebind,getRpc:()=>rpc,evidence}):null;
-  if(silentLink){
+  if(readBoundaries){
+    const read=await checkReadBoundaries({catalog,ref,call,success,management,rebind});
+    assert.equal((await rpc.close()).code,0);rpc=undefined;
+    const owner=await ui.invoke('service_status');
+    const close=await closeSoakDesktop(ui,directory,owner,{});
+    await ui.close();ui=undefined;
+    await writeFile(`artifacts/${evidence}-result.json`,JSON.stringify({
+      result:'PASS',preview:preview.directory,ordinaryService:true,read,close,
+    },null,2)+'\n');
+    console.log('PASS official terminal_read metadata and ordinary/protected bounds on the copied preview');
+  }else if(silentLink){
     const report=await checkSilentLink({ui,link,call,success,control,management,grantId,ref,send,sshPin});
     assert.equal((await rpc.close()).code,0);rpc=undefined;
     const owner=await ui.invoke('service_status');
@@ -259,6 +272,57 @@ try {
       result:failed?'FAIL':'PASS',client:'official Codex app-server',modelTurns:0,observations,
     },null,2)+'\n');
   }
+}
+async function checkReadBoundaries({catalog,ref,call,success,management,rebind}){
+  const read=catalog.find(tool=>tool.name==='terminal_read');
+  const variants=read.inputSchema.$defs.View.oneOf.map(variant=>variant.properties);
+  assert.deepEqual(variants.map(properties=>properties.kind.const),['info','text','screen']);
+  assert.deepEqual(variants[1].max_bytes,{format:'uint',minimum:16384,maximum:65536,type:'integer'});
+  assert.equal(variants[0].max_bytes,undefined);
+  assert.equal(variants[2].max_bytes,undefined);
+  const now=Date.now();
+  const approvedWindow={from_ms:now-60000,until_ms:now+60000};
+  const projections=[];
+  for(const [projection,window] of [
+    ['context',null],['protected_context',null],['context',approvedWindow],['protected_context',approvedWindow],
+  ]){
+    const protectedRead=projection==='protected_context';
+    if(protectedRead||window){
+      const id=randomUUID();
+      const target=window?{kind:'output_window',connection:ref,window}:{kind:'connection',connection:ref};
+      const grant={request_id:id,scopes:[{action:'READ',target}],lifetime_ms:120000};
+      await management(protectedRead?
+        {...grant,op:'grant_protected',form:{kind:'scoped'},redaction:{sensitive_fields:false,literals:['P15_PRIVATE']}}:
+        {...grant,op:'grant'});
+      await rebind(id);
+    }
+    const viewCall=view=>({connection:ref,window,view});
+    if(window){
+      const missing=await call('terminal_read',{...viewCall({kind:'info'}),window:null});
+      assert.equal(missing.isError,true);
+      assert.equal(missing.structuredContent.error_code,'PERMISSION_DENIED');
+    }
+    const info=await success('terminal_read',viewCall({kind:'info'}));
+    assert.equal(info.result,projection);
+    const through_cursor=info.data.context.through_cursor;
+    const page=(max_bytes,kind='text')=>viewCall({kind,cursor:1,through_cursor,max_bytes});
+    const accepted=[16384,65536],rejected=[4096,16383,65537];
+    for(const size of accepted){
+      const output=await success('terminal_read',page(size));
+      assert.equal(output.result,projection);
+      const text=output.data.page.events.map(event=>event.text).join('');
+      assert.ok(text.includes('MCP共享'));
+      assert.equal(text.includes('P15_PRIVATE'),projection==='context');
+    }
+    for(const args of [...rejected.map(size=>page(size)),page(4096,'raw')]){
+      const error=await call('terminal_read',args);
+      assert.equal(error.isError,true);
+      assert.deepEqual(error.structuredContent,{mock:false,error_code:'INVALID_ARGUMENT'});
+    }
+    assert.equal((await success('terminal_read',viewCall({kind:'screen',through_cursor}))).result,projection);
+    projections.push({projection,scope:window?'approved_window':'connection',accepted,rejected,rawRejected:true,infoAndScreen:true});
+  }
+  return projections;
 }
 async function checkOfficialWait({ref,other,control,success,call,management,grantId}){
   const info=await success('terminal_read',{connection:ref,window:null,view:{kind:'info'}});
