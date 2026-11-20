@@ -22,7 +22,9 @@ import {checkSshInterruption} from './lib/SshInterruptionChecks.mjs';
 import {checkServiceInterruption} from './lib/ServiceInterruptionChecks.mjs';
 import {checkSilentLink, openSilentLink} from './lib/SshSilentLink.mjs';
 import {closeSoakDesktop} from './lib/LoadSoak.mjs';
+import {openCodexMcpClient} from './lib/CodexMcpClient.mjs';
 
+const official=process.argv.includes('--official-client');
 const serialControl=process.argv.includes('--serial-control');
 const disconnect=process.argv.includes('--disconnect');
 const forget=process.argv.includes('--forget');
@@ -39,7 +41,9 @@ const serial=process.argv.includes('--serial')||serialControl||serialConnect;
 const countedSerial=serialConnect||serialControl||((disconnect||forget||protectedExport)&&serial);
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
-const evidence=silentLink?'P24-ssh-silent-link':serviceInterruption?'P24-service-interruption':interruption?'P24-ssh-interruption':protectedExport?'P15-protected-export-v11':wait?'P15-terminal-wait-v11':sshResize?'P15-wait-impact-resize-v11':serialConnect?'P15-wait-impact-serial-connect-v11':connect?'P15-wait-impact-connect-v11':reconnect?'P15-wait-impact-reconnect-v11':forget?'P15-wait-impact-forget-v11':disconnect?'P15-wait-impact-disconnect-v11':serialControl?'P15-wait-impact-serial-v11':security?'P22-security-v11':exec?'P15-wait-impact-exec-v11':'P15-mcp-v11';
+const suite=silentLink?'P24-ssh-silent-link':serviceInterruption?'P24-service-interruption':interruption?'P24-ssh-interruption':protectedExport?'P15-protected-export-v11':wait?'P15-terminal-wait-v11':sshResize?'P15-wait-impact-resize-v11':serialConnect?'P15-wait-impact-serial-connect-v11':connect?'P15-wait-impact-connect-v11':reconnect?'P15-wait-impact-reconnect-v11':forget?'P15-wait-impact-forget-v11':disconnect?'P15-wait-impact-disconnect-v11':serialControl?'P15-wait-impact-serial-v11':security?'P22-security-v11':exec?'P15-wait-impact-exec-v11':'P15-mcp-v11';
+const evidence=official?'P16-official-'+suite:suite;
+const observations=[];
 assert.ok(!silentLink||process.argv.length===3,'P24 silent link is an independent case');
 assert.ok(!(exec||reconnect||connect||sshResize||wait||interruption||serviceInterruption)||!serial,'SSH2 fixture required');
 assert.ok(!(interruption||serviceInterruption)||!(interruption&&serviceInterruption||exec||reconnect||connect||sshResize||wait||protectedExport||disconnect||forget||security),'P24 interruption is an independent case');
@@ -115,12 +119,23 @@ try {
   const info=await broker({op:'info'});
   const grantId=randomUUID();
   const baseGrant={request_id:grantId,scopes:['READ','WRITE',...(exec?['EXEC']:[]),...(serialControl?['CONTROL']:[])].map(action=>({target:{kind:'connection',connection:ref},action})),lifetime_ms:silentLink?300000:120000};
-  const signed=await management(serial||security||exec?{...baseGrant,op:'grant_protected',form:{kind:'scoped'},redaction:{sensitive_fields:false,literals:['P15_PRIVATE',...(exec?['synthetic-secret']:[]),...(security?[sentinels.literal]:[])]}}:{...baseGrant,op:'grant'});
+  const protectedGrant=serial||security||exec||(official&&wait);
+  const signed=await management(protectedGrant?{...baseGrant,op:'grant_protected',form:{kind:'scoped'},redaction:{sensitive_fields:false,literals:['P15_PRIVATE',...(exec?['synthetic-secret']:[]),...(security?[sentinels.literal]:[])]}}:{...baseGrant,op:'grant'});
   assert.equal(JSON.stringify(signed).includes('token'),false);
-  rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
-  const initialized=await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'p15-real-stdio',version:'0.1.0'}});assert.ok(initialized.result.capabilities.tools);rpc.notify('notifications/initialized',{});
-  const catalog=(await rpc.request('tools/list',{})).result.tools;
-  assert.deepEqual({version:11,tools:catalog},JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8')),'actual stdio tool schema matches the fixed v11 contract');
+  const contract=JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8'));
+  async function openClient(){
+    if(official)return openCodexMcpClient({directory,info,broker,catalog:contract.tools,observations});
+    const client=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
+    try{
+      const initialized=await client.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'p15-real-stdio',version:'0.1.0'}});
+      assert.ok(initialized.result.capabilities.tools);
+      client.notify('notifications/initialized',{});
+      return client;
+    }catch(error){await client.close();throw error;}
+  }
+  rpc=await openClient();
+  const catalog=official?rpc.tools:(await rpc.request('tools/list',{})).result.tools;
+  assert.deepEqual({version:11,tools:catalog},contract,'actual tool schema matches the fixed v11 contract');
   await writeFile(`artifacts/${evidence}-tools-${serial?'serial':'ssh'}.json`,JSON.stringify({tools:catalog},null,2)+'\n');
   assert.equal(catalog.length,29);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
   const call=async(name,args={})=>(await rpc.request('tools/call',{name,arguments:args})).result;
@@ -147,17 +162,16 @@ try {
   await success('terminal_send',send);await delay(50);
   if(metrics)assert.equal(Buffer.from((await metrics()).received.flat().slice(before)).toString(),text,'same original write UUID does not duplicate actual wire bytes');
   const receipt=await success('terminal_input_status',{transport,connection:ref,request_id});assert.equal(receipt.data.request_id,request_id);
-  const output=await success('terminal_read',{connection:ref,window:null,view:{kind:'info'}});assert.equal(output.result,serial||security||exec?'protected_context':'context');
+  const output=await success('terminal_read',{connection:ref,window:null,view:{kind:'info'}});assert.equal(output.result,protectedGrant?'protected_context':'context');
   const through=output.data.context.through_cursor;
   const read=await success('terminal_read',{connection:ref,window:null,view:{kind:'text',cursor:1,through_cursor:through,max_bytes:65536}});
-  const protectedText=read.data.page.events.map(e=>e.text).join('');assert.ok(protectedText.includes('MCP共享'));assert.equal(protectedText.includes('P15_PRIVATE'),!(serial||security||exec),'only the explicitly protected grant changes the Agent projection');
+  const protectedText=read.data.page.events.map(e=>e.text).join('');assert.ok(protectedText.includes('MCP共享'));assert.equal(protectedText.includes('P15_PRIVATE'),!protectedGrant,'only the explicitly protected grant changes the Agent projection');
   await success('terminal_screen',{connection:ref,window:null,through_cursor:through});
   assert.equal((await call('terminal_send',{...send,request_id:randomUUID(),role:'desktop'})).isError,true);
   const securityChecks=security?await checkMcpSecurity({ui,call,success,catalog,ref,other:otherRef,transport,management,grantId,signed,lease,send,control,metrics,rpc,sentinels}):null;
   const rebind=async id=>{
     await rpc.close();assert.ok(!rpc.stderr.includes('synthetic-secret')&&!rpc.stderr.includes('P15_PRIVATE'));for(let i=0;i<100;i++){if((await broker({op:'info'})).peer===null)break;await delay(20);}
-    rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
-    await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'p15-exec-repair',version:'2'}});rpc.notify('notifications/initialized',{});
+    rpc=await openClient();
     await success('agent_status');await ui.fill('Agent签发编号',id);await ui.click('查询原Agent编号');await ui.waitFor(`document.querySelector('[aria-label="Agent授权详情"]')?.textContent.includes('ACTIVE')`);
     await ui.click('刷新MCP连接状态');await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='预览MCP绑定原授权'&&!b.disabled)&&document.body.textContent.includes(${JSON.stringify('实际进程 PID '+rpc.child.pid)})`);await ui.click('预览MCP绑定原授权');await ui.waitFor(`!!document.querySelector('[aria-label="MCP固定配对预览"]')`);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="同意MCP绑定原授权"]').checked`),false);await ui.evaluate(`document.querySelector('[aria-label="同意MCP绑定原授权"]').click()`);await ui.click('确认MCP绑定');
     for(let i=0;i<100;i++){if((await success('agent_status')).data.paired_ticket)return;await delay(20);}throw new Error('rebind did not complete');
@@ -200,7 +214,7 @@ try {
       :protectedExport
       ?await checkProtectedExport(common)
       :wait
-      ?await checkMcpWait(common)
+      ?official?await checkOfficialWait(common):await checkMcpWait(common)
       :sshResize?await checkMcpSshResize(common)
       :serialConnect?await checkMcpSerialConnect(common)
       :connect?await checkMcpConnect(common)
@@ -229,7 +243,7 @@ try {
     await execChecks?.afterServiceLoss();
     await serialChecks?.afterServiceLoss();
     assert.ok(!rpc.stderr.includes('P15_PRIVATE'));assert.equal((await rpc.close()).code,0);rpc=undefined;
-    if(security)await writeFile(`artifacts/P22-security-v11-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
+    if(security)await writeFile(`artifacts/${evidence}-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
     console.log(`PASS real MCP ${transport}: native fixed-process/original-grant GUI approval, default-none, no unpaired access/bearer, same shared connection exact send/receipt/protected read/screen, lease and dedup, unrelated session denied, takeover/revoke rejected, Agent source audit and stdio EOF cleanup; synthetic only`);
   }
 } catch(error) {
@@ -238,7 +252,27 @@ try {
   if(directory)console.error('Owned failed MCP root retained:',directory);throw error;
 } finally {
   try {if(rpc)await rpc.close();await ui?.close();fixture?.kill();if(fixture)await new Promise(resolve=>{if(fixture.exitCode!==null||fixture.signalCode!==null)resolve();else fixture.once('exit',resolve);});if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith(rootPrefix));if(!failed)await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}
-  finally {await link?.close();if(serial&&!countedSerial)build(false);}
+  catch(error){failed=true;throw error;}
+  finally {
+    await link?.close();if(serial&&!countedSerial)build(false);
+    if(official)await writeFile(`artifacts/${evidence}-${serial?'serial':'ssh'}-calls.json`,JSON.stringify({
+      result:failed?'FAIL':'PASS',client:'official Codex app-server',modelTurns:0,observations,
+    },null,2)+'\n');
+  }
+}
+async function checkOfficialWait({ref,other,control,success,call,management,grantId}){
+  const info=await success('terminal_read',{connection:ref,window:null,view:{kind:'info'}});
+  assert.equal(info.result,'protected_context');
+  const {context}=info.data;
+  const args={connection:ref,cursor:context.through_cursor,pattern:'P16_OFFICIAL_WAIT.*[FIXTURE]',timeout_ms:5000};
+  assert.equal((await call('terminal_wait',{...args,connection:other,cursor:1})).structuredContent.error_code,'PERMISSION_DENIED');
+  await control({op:'push',text:args.pattern+' P15_PRIVATE\r\n'});
+  const matched=await success('terminal_wait',args);
+  assert.equal(matched.data.state,'MATCHED');
+  assert.equal(matched.data.evidence.text,args.pattern);
+  await management({op:'grant_revoke',request_id:grantId});
+  assert.equal((await call('terminal_wait',args)).structuredContent.error_code,'PERMISSION_DENIED');
+  return {result:'PASS',protectedRead:true,literalMatch:true,foreignDenied:true,revokedDenied:true};
 }
 if(silentLinkReport){
   await writeFile(`artifacts/${evidence}-ssh.json`,JSON.stringify({...silentLinkReport,stdioExit:0,ownedResourcesReleased:true},null,2)+'\n');

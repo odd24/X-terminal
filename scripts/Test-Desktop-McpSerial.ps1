@@ -1,4 +1,4 @@
-param([switch]$Disconnect, [switch]$Forget, [switch]$Connect, [switch]$Export)
+param([switch]$Disconnect, [switch]$Forget, [switch]$Connect, [switch]$Export, [switch]$OfficialMatrix)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/Enter-Toolchain.ps1"
 $serialRepoRoot=Split-Path -Parent $PSScriptRoot
@@ -14,7 +14,12 @@ try {
     Copy-Item -LiteralPath (Join-Path $serialRepoRoot 'target/debug/shared-terminal-desktop.exe') -Destination $serialFixtureDirectory -Force
     & node (Join-Path $PSScriptRoot 'Test-SerialMcpFixtureGuards.mjs')
     if ($LASTEXITCODE -ne 0) {throw 'explicit serial fixture guards failed'}
-    if ($Export) {
+    if ($OfficialMatrix) {
+        foreach ($serialCase in @('--serial-connect','--serial-control','--disconnect','--forget','--protected-export')) {
+            & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --official-client --serial $serialCase
+            if ($LASTEXITCODE -ne 0) {throw "Official Codex serial case failed ($serialCase)"}
+        }
+    } elseif ($Export) {
         & node (Join-Path $PSScriptRoot 'Test-Desktop-Mcp.mjs') --serial --protected-export
         if ($LASTEXITCODE -ne 0) {throw 'real serial MCP protected export checks failed'}
     } else {

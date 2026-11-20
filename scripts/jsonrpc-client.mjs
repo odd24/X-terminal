@@ -8,7 +8,7 @@ export function processRpc(command, args, options = {}) {
   let id = 0;
   let stderr = '';
   let protocolError;
-  const discard = new Set();let discarded=0;
+  const discard = new Map();let discarded=0;
   const fail = error => {
     protocolError = error;
     for (const request of pending.values()) { clearTimeout(request.timer); request.reject(error); }
@@ -27,7 +27,13 @@ export function processRpc(command, args, options = {}) {
       return;
     }
     if (message.method) { notifications.push(message); return; }
-    if(discard.delete(message.id)){discarded++;return;}
+    if(discard.has(message.id)){
+      const observe=discard.get(message.id);
+      discard.delete(message.id);
+      discarded++;
+      try { observe?.(message); } catch(error) { fail(error); }
+      return;
+    }
     const request = pending.get(message.id);
     if (!request) return;
     pending.delete(message.id);
@@ -46,7 +52,7 @@ export function processRpc(command, args, options = {}) {
   }
   return {
     child, notifications, begin,
-    discardResponse: requestId=>discard.add(requestId),
+    discardResponse: (requestId,observe)=>{discard.set(requestId,observe);},
     get discardedResponses(){return discarded;},
     get stderr() { return stderr; },
     request: (method, params, timeoutMs) => begin(method, params, timeoutMs).promise,
