@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, activeText, desktopKeyboard, terminalInput } from './lib/DesktopKeyboard.mjs';
+import { closeSoakDesktop } from './lib/LoadSoak.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const binaryNames = ['session-service.exe', 'shared-terminal-desktop.exe', 'terminal-mcp.exe'];
@@ -21,7 +22,9 @@ if (process.argv[2] === '--disk-full-ordinary') {
 }
 const diskFull = process.argv[2] === '--disk-full';
 const ordinaryRegression = process.argv[2] === '--ordinary-regression';
+const compact = process.argv[2] === '--compact-current';
 let preview, executable;
+let packagedFromHead;
 if (diskFull) {
   executable = await realpath(process.argv[3]);
   const directory = path.dirname(executable);
@@ -34,11 +37,18 @@ if (diskFull) {
     return { name, bytes: bytes.length, sha256: sha256(bytes) };
   })) };
 } else {
-  const manifest = ordinaryRegression ? 'P12-standard-workspace-dpi-preview' : 'P12-compact-config-dpi-preview';
+  const manifest = compact ? 'P19-command-shortcuts-preview'
+    : ordinaryRegression ? 'P12-standard-workspace-dpi-preview' : 'P12-compact-config-dpi-preview';
   preview = JSON.parse(await readFile(`artifacts/${manifest}.json`, 'utf8'));
   assert.equal(preview.result, 'PASS');
   assert.equal(path.dirname(path.resolve(preview.directory)), path.resolve('artifacts'));
   assert.deepEqual(preview.files.map(file => file.name).sort(), binaryNames);
+  if (compact) {
+    const packageManifest = JSON.parse(await readFile(path.join(preview.directory, 'manifest.json'), 'utf8'));
+    assert.deepEqual(packageManifest.files, preview.files);
+    assert.match(packageManifest.packagedFromHead, /^[a-f0-9]{40}$/);
+    packagedFromHead = packageManifest.packagedFromHead;
+  }
   for (const file of preview.files) {
     const bytes = await readFile(path.join(preview.directory, file.name));
     assert.equal(bytes.length, file.bytes);
@@ -49,7 +59,8 @@ if (diskFull) {
 
 const prefix = diskFull ? 'shared-terminal-log-disk-full-中文-' : 'shared-terminal-basic-log-keyboard-中文-';
 const artifact = diskFull ? 'P24-desktop-log-disk-full'
-  : ordinaryRegression ? 'P11.4-basic-log-keyboard-disk-full-impact' : 'P11.4-basic-log-keyboard';
+  : compact ? 'P23-compact-log-keyboard'
+    : ordinaryRegression ? 'P11.4-basic-log-keyboard-disk-full-impact' : 'P11.4-basic-log-keyboard';
 const root = diskFull ? path.join(tmpdir(), prefix + crypto.randomUUID()) : await mkdtemp(path.join(tmpdir(), prefix));
 if (diskFull) await mkdir(root);
 const peer = spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'), [root], {
@@ -61,7 +72,7 @@ const exited = new Promise(resolve => {
 });
 const lines = createInterface({ input: peer.stdout })[Symbol.asyncIterator]();
 const focusTrace = [];
-let ui, evidence;
+let ui, evidence, compatibility;
 
 async function nextReply() {
   let timer;
@@ -199,7 +210,8 @@ try {
   const server = await nextReply();
   ui = await launchDesktop(root, { executable, ...(diskFull ? { extraArgs: ['--log-disk-full-fixture'] } : {}) });
   await ui.command('Page.bringToFront');
-  assert.equal((await ui.invoke('service_status')).fixture, false);
+  const service = await ui.invoke('service_status');
+  assert.equal(service.fixture, false);
   const keyboard = desktopKeyboard(ui, focusTrace);
   const { key, type, enter, tabTo, recordFocus } = keyboard;
 
@@ -237,6 +249,23 @@ try {
   await ui.waitFor(`${active(`${pane} ${terminalInput}`)} && document.querySelector(${JSON.stringify(`${pane} .xterm-rows`)})?.textContent.includes('service-shared-shell')`);
   const logging = request => ui.invoke('logging_request', { request: { ...request, connection: ref } });
   assert.deepEqual((await logging({ op: 'list' })).logs, []);
+
+  if (compact) {
+    const window = JSON.parse(execFileSync('pwsh', [
+      '-NoProfile', '-File', 'scripts/lib/Resize-TestWindow.ps1', '-TargetProcessId', String(ui.app.pid),
+      '-ExpectedExecutable', executable, '-Width', '760', '-Height', '540', '-PhysicalSize', '-CompatibilityDetails',
+    ], { encoding: 'utf8', windowsHide: true, timeout: 15000 }));
+    compatibility = { window };
+    assert.deepEqual([window.pid, window.width, window.height], [ui.app.pid, 760, 540]);
+    await ui.waitFor(`Math.abs(innerWidth*devicePixelRatio-${window.clientWidth})<=devicePixelRatio
+      && Math.abs(innerHeight*devicePixelRatio-${window.clientHeight})<=devicePixelRatio`);
+    compatibility.viewport = await ui.evaluate('({ width:innerWidth, height:innerHeight, dpr:devicePixelRatio })');
+    assert.equal(compatibility.viewport.dpr, window.dpi / 96);
+    const { product, protocolVersion } = await ui.command('Browser.getVersion');
+    compatibility.browser = { product, protocolVersion };
+    assert.equal(window.webviewRuntimeVersions.length, 1, 'Owned WebView2 process version');
+    await ui.waitFor(active(`${pane} ${terminalInput}`));
+  }
 
   // The acceptance path starts here. Fixture output is injected from the peer,
   // while user actions use keys and test IPC only reads receipts.
@@ -314,10 +343,16 @@ try {
     evidence = { result: 'PASS', preview: preview.directory, connection: ref, logId: log.log_id, filename,
       phase: stopped.phase, durable: stopped.durable, markerBytes: Buffer.byteLength(marker), fileBytes: managed.length,
       sha256: sha256(managed), focusTrace };
+    if (compact) {
+      await ui.screenshot(`${artifact}.png`);
+      const close = compatibility.close = {};
+      await closeSoakDesktop(ui, root, service, close);
+      Object.assign(evidence, { packagedFromHead, compatibility, receivedInputBytes: 0 });
+    }
   }
 } catch (error) {
   await ui?.screenshot(`${artifact}-failure.png`).catch(() => {});
-  await writeFile(`artifacts/${artifact}-failure.json`, JSON.stringify({ result: 'FAIL', error: error.message, focusTrace }, null, 2) + '\n');
+  await writeFile(`artifacts/${artifact}-failure.json`, JSON.stringify({ result: 'FAIL', error: error.message, focusTrace, compatibility }, null, 2) + '\n');
   console.error('Owned logging test root retained:', root);
   throw error;
 } finally {

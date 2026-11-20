@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][int]$TargetProcessId,[Parameter(Mandatory=$true)][ValidateRange(640,2000)][int]$Width,[Parameter(Mandatory=$true)][ValidateRange(480,1400)][int]$Height,[string]$ExpectedExecutable,[switch]$MeasureOnly,[switch]$PhysicalSize,[switch]$Maximize)
+param([Parameter(Mandatory=$true)][int]$TargetProcessId,[Parameter(Mandatory=$true)][ValidateRange(640,2000)][int]$Width,[Parameter(Mandatory=$true)][ValidateRange(480,1400)][int]$Height,[string]$ExpectedExecutable,[switch]$MeasureOnly,[switch]$PhysicalSize,[switch]$Maximize,[switch]$CompatibilityDetails)
 $ErrorActionPreference='Stop'
 if (($MeasureOnly -or $PhysicalSize -or $Maximize) -and !$ExpectedExecutable) { throw 'Physical test measurements require an expected executable' }
 $targetProcess=Get-Process -Id $TargetProcessId
@@ -16,6 +16,8 @@ public static class TerminalTestWindow {
  [DllImport("user32.dll",SetLastError=true)] public static extern bool GetClientRect(IntPtr h,out Rect r);
  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
+ [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")] public static extern IntPtr GetKeyboardLayout(uint threadId);
  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h,uint flags);
  [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor,ref MonitorInfo info);
@@ -64,6 +66,19 @@ if ($ExpectedExecutable) {
    displayWidth=$info.Monitor.Right-$info.Monitor.Left; displayHeight=$info.Monitor.Bottom-$info.Monitor.Top
    workWidth=$info.Work.Right-$info.Work.Left; workHeight=$info.Work.Bottom-$info.Work.Top
    availableWidth=$availableWidth; availableHeight=$availableHeight
+  }
+  if ($CompatibilityDetails) {
+   $thread=[TerminalTestWindow]::GetWindowThreadProcessId($targetHandle,[ref]$owner)
+   if (!$thread -or $owner -ne $TargetProcessId) { throw 'Compatibility measurement lost its owned HWND' }
+   $measurement.ownsForeground=[TerminalTestWindow]::GetForegroundWindow() -eq $targetHandle
+   $measurement.keyboardLanguageId='0x{0:X4}' -f ([TerminalTestWindow]::GetKeyboardLayout($thread).ToInt64() -band 0xFFFF)
+   $windows=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+   $measurement.windowsBuild="$($windows.CurrentBuild).$($windows.UBR)"
+   $measurement.windowsRelease=$windows.DisplayVersion
+   $webview=Get-CimInstance Win32_Process -Filter "ParentProcessId=$TargetProcessId AND Name='msedgewebview2.exe'"
+   $measurement.webviewRuntimeVersions=@($webview | ForEach-Object {
+    if ($_.ExecutablePath) { (Get-Item -LiteralPath $_.ExecutablePath).VersionInfo.ProductVersion }
+   } | Sort-Object -Unique)
   }
   if ($Maximize -and !$MeasureOnly) {
    if ([TerminalTestWindow]::MonitorFromWindow($targetHandle,2) -ne $monitor) { throw 'Maximized test window changed monitors' }
