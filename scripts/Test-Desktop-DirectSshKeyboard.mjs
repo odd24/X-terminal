@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,10 +7,14 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { active, activeText, desktopKeyboard, terminalInput as terminal } from './lib/DesktopKeyboard.mjs';
+import { closeSoakDesktop } from './lib/LoadSoak.mjs';
 
-const authRecovery = process.argv.includes('--auth-recovery');
-const artifact = authRecovery ? 'P12.1-auth-recovery-keyboard' : 'P12.1-direct-ssh-keyboard';
-const manifest = authRecovery ? 'P12-compact-config-dpi-preview' : 'P22-audit-grant-feedback-preview';
+const compact = process.argv.includes('--compact-auth-recovery');
+const authRecovery = compact || process.argv.includes('--auth-recovery');
+const artifact = compact ? 'P12.1-compact-ssh-auth-keyboard'
+  : authRecovery ? 'P12.1-auth-recovery-keyboard' : 'P12.1-direct-ssh-keyboard';
+const manifest = compact ? 'P16-local-preview'
+  : authRecovery ? 'P12-compact-config-dpi-preview' : 'P22-audit-grant-feedback-preview';
 const manifestPath = process.argv.find(arg => arg.startsWith('--manifest='))?.slice('--manifest='.length);
 const preview = JSON.parse(await readFile(manifestPath ?? `artifacts/${manifest}.json`, 'utf8'));
 assert.equal(preview.result, 'PASS');
@@ -21,6 +25,14 @@ for (const file of preview.files) {
   const bytes = await readFile(path.join(preview.directory, file.name));
   assert.equal(bytes.length, file.bytes);
   assert.equal(createHash('sha256').update(bytes).digest('hex'), file.sha256);
+}
+const executable = path.join(preview.directory, 'shared-terminal-desktop.exe');
+let buildHead;
+if (compact) {
+  const packaged = JSON.parse(await readFile(path.join(preview.directory, 'manifest.json'), 'utf8'));
+  assert.deepEqual(packaged.files, preview.files);
+  assert.match(packaged.packagedFromHead, /^[0-9a-f]{40}$/);
+  buildHead = packaged.packagedFromHead;
 }
 
 const prefix = authRecovery ? 'shared-terminal-auth-recovery-keyboard-中文-' : 'shared-terminal-direct-ssh-keyboard-中文-';
@@ -34,6 +46,36 @@ peer.on('error', error => { peerError = error; });
 const lines = createInterface({ input: peer.stdout })[Symbol.asyncIterator]();
 let ui, evidence;
 const focusTrace = [];
+const compactView = { snapshots: {}, findings: [] };
+
+async function compactFocus(step, expectOutline = true) {
+  const view = await ui.evaluate(`(() => {
+    const node = document.activeElement;
+    const r = node.getBoundingClientRect();
+    const clip = {left:0, top:0, right:innerWidth, bottom:innerHeight};
+    for (let parent=node.parentElement; parent; parent=parent.parentElement) {
+      const style=getComputedStyle(parent), bounds=parent.getBoundingClientRect();
+      const x=bounds.left+parent.clientLeft, y=bounds.top+parent.clientTop;
+      if (style.overflowX !== 'visible') { clip.left=Math.max(clip.left,x); clip.right=Math.min(clip.right,x+parent.clientWidth); }
+      if (style.overflowY !== 'visible') { clip.top=Math.max(clip.top,y); clip.bottom=Math.min(clip.bottom,y+parent.clientHeight); }
+    }
+    const style=getComputedStyle(node);
+    const width=parseFloat(style.outlineWidth)||0;
+    const margin=width+Math.max(0,parseFloat(style.outlineOffset)||0);
+    const outlineFits=r.left-margin>=clip.left-1 && r.top-margin>=clip.top-1 &&
+      r.right+margin<=clip.right+1 && r.bottom+margin<=clip.bottom+1;
+    const hit=r.width>0 && r.height>0 && [0.2,0.5,0.8].every(x=>[0.2,0.5,0.8].every(y=>
+      node.contains(document.elementFromPoint(r.left+r.width*x,r.top+r.height*y))));
+    return {tag:node.tagName,label:node.getAttribute('aria-label')??(node.matches('button')?node.textContent.trim():null),
+      insideDialog:!!node.closest('dialog:modal'), rect:r.toJSON(),clip,hit,outlineFits,width,
+      outlineStyle:style.outlineStyle,focusVisible:node.matches(':focus-visible'),scroll:[scrollX,scrollY]};
+  })()`);
+  compactView.snapshots[step] = view;
+  if (expectOutline && !(view.hit && view.outlineFits && view.width > 0 && view.focusVisible && view.outlineStyle !== 'none')) {
+    compactView.findings.push(`${step}: keyboard focus outline not fully visible`);
+  }
+  return view;
+}
 async function nextReply() {
   let timer;
   try {
@@ -85,6 +127,7 @@ async function verifyRecovery(server, keyboard, page) {
   assert.ok(await ui.evaluate('document.activeElement.value === ""'), 'Rejected password must be cleared');
   assert.ok(await noSecret(), 'Authentication material must not appear in DOM text');
   await recordFocus('拒绝后可见密码补录焦点');
+  if (compact) await compactFocus('rejectedPassword');
   const rejected = await status();
   assert.deepEqual(rejected.connection, original);
   assert.equal(rejected.failure, 'AUTHENTICATION_REJECTED');
@@ -102,6 +145,7 @@ async function verifyRecovery(server, keyboard, page) {
   const pane = `.terminal-pane[data-rendered-id="${ref.connection_id}"][data-rendered-generation="${ref.generation}"]`;
   await ui.waitFor(`!document.querySelector('dialog:modal') && ${active(`${pane} ${terminal}`)}`);
   await recordFocus('更正后原连接终端');
+  if (compact) await compactFocus('activeTerminal', false);
   assert.deepEqual(await list(), [{ ...original, state: 'CONNECTED' }]);
   assert.ok(await noSecret());
   const finished = await metrics();
@@ -119,20 +163,32 @@ async function verifyRecovery(server, keyboard, page) {
 
 try {
   const server = await nextReply();
-  ui = await launchDesktop(root, { executable: path.join(preview.directory, 'shared-terminal-desktop.exe') });
+  ui = await launchDesktop(root, { executable });
   const keyboard = desktopKeyboard(ui, focusTrace);
   const { key, type, enter, tabTo } = keyboard;
   await ui.command('Page.bringToFront');
   assert.equal((await ui.invoke('service_status')).fixture, false);
+  if (compact) {
+    const physical = compactView.physical = JSON.parse(execFileSync('pwsh', [
+      '-NoProfile', '-File', 'scripts/lib/Resize-TestWindow.ps1', '-TargetProcessId', String(ui.app.pid),
+      '-ExpectedExecutable', executable, '-Width', '760', '-Height', '540', '-PhysicalSize',
+    ], { encoding: 'utf8', windowsHide: true, timeout: 10000 }));
+    assert.deepEqual([physical.pid, physical.width, physical.height], [ui.app.pid, 760, 540]);
+    await ui.waitFor(`Math.abs(innerWidth*devicePixelRatio-${physical.clientWidth})<=devicePixelRatio
+      && Math.abs(innerHeight*devicePixelRatio-${physical.clientHeight})<=devicePixelRatio`);
+    compactView.viewport = await ui.evaluate('({ width:innerWidth, height:innerHeight, dpr:devicePixelRatio })');
+    assert.equal(compactView.viewport.dpr, physical.dpi / 96);
+  }
   const page = () => ui.invoke('config_request', { request: { op: 'page', revision: null, offset: 0, folders: false } });
   assert.deepEqual((await page()).profiles, []);
   assert.deepEqual(await ui.invoke('service_list'), []);
   await tabTo(activeText('连接服务器'), '直接连接入口');
   await enter();
   await ui.waitFor(`!!document.querySelector('dialog:modal [aria-label="SSH服务器"]:not([disabled])')`);
-  if (!authRecovery) {
+  if (!authRecovery || compact) {
     await key('Escape', 'Escape', 27);
     await ui.waitFor(`!document.querySelector('dialog:modal') && ${activeText('连接服务器')}`);
+    if (compact) await compactFocus('returnedOpener');
     await enter();
     await ui.waitFor(`!!document.querySelector('dialog:modal [aria-label="SSH服务器"]:not([disabled])')`);
   }
@@ -152,12 +208,26 @@ try {
   assert.equal(await ui.evaluate(`document.querySelector('dialog:modal .fingerprint').textContent`), server.pin);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="快速连接核对指纹"]').checked`), false);
   assert.equal((await metrics()).attempts, 0);
+  if (compact) {
+    const initialHost = await compactFocus('hostInitial');
+    if (!initialHost.insideDialog || initialHost.label !== '快速连接核对指纹') {
+      compactView.findings.push('hostInitial: focus did not move to the unapproved fingerprint control');
+    }
+    assert.equal(await ui.evaluate(`Array.from(document.querySelector('dialog:modal').querySelectorAll('button'))
+      .find(b=>b.textContent==='信任并继续登录').disabled`), true);
+  }
   await tabTo(active('[aria-label="快速连接核对指纹"]'), '核对指纹');
+  if (compact) {
+    await compactFocus('hostCheckbox');
+    await ui.screenshot(`${artifact}-host.png`);
+  }
   await key(' ', 'Space', 32, { text: ' ' });
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="快速连接核对指纹"]').checked`), true);
   await tabTo(activeText('信任并继续登录'), '信任按钮');
+  if (compact) await compactFocus('trustButton');
   await enter();
   await ui.waitFor(`${active('[aria-label="SSH登录密码"]')} && !document.activeElement.disabled`);
+  if (compact) await compactFocus('firstPassword');
   if (authRecovery) evidence = await verifyRecovery(server, keyboard, page);
   else {
     await type(server.password);
@@ -207,9 +277,20 @@ try {
       peerConnections: final.accepted_connections, authenticationAttempts: final.attempts, focusTrace,
     };
   }
+  if (compact) {
+    const owner = await ui.invoke('service_status');
+    const receipt = await closeSoakDesktop(ui, root, owner, {});
+    peer.stdin.end();
+    assert.equal(await ended, 0);
+    Object.assign(evidence, { buildHead, compactView, serviceClose: receipt,
+      result: compactView.findings.length ? 'FAIL_FOCUS' : 'PASS' });
+  }
 } catch (error) {
   console.error('P12.1 owned keyboard root retained:', root);
   console.error(JSON.stringify({ focusTrace }));
+  if (compact) {
+    await writeFile(`artifacts/${artifact}-failure.json`, JSON.stringify({buildHead, compactView, focusTrace, error:error.message},null,2)+'\n');
+  }
   throw error;
 } finally {
   try { await ui?.close(); } finally {
@@ -224,5 +305,6 @@ assert.equal(path.dirname(resolved), await realpath(tmpdir()));
 assert.ok(path.basename(resolved).startsWith(prefix));
 await rm(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 await writeFile(`artifacts/${artifact}.json`, JSON.stringify(evidence, null, 2) + '\n');
+if (compact) assert.deepEqual(compactView.findings, [], 'Compact SSH2 keyboard focus');
 console.log(authRecovery ? 'PASS ordinary Desktop SSH2 keyboard-only temporary password rejection and recovery'
   : 'PASS ordinary Desktop direct SSH2 keyboard-only connection, input and disconnect');

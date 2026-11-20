@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Panel, Field, ErrorNotice } from './ui';
 import { config, ConfigRequestError, readConfiguration, type Auth, type Profile, type Settings } from './config-api';
 import { ssh, SshRequestError, reference, type Connection, type ConnectionRef, type SshStatus } from './ssh-api';
@@ -25,6 +25,7 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
   const configFlight=useRef(false),authFlight=useRef(false),submittedChallenge=useRef<string|undefined>(undefined);
   const [authPending,setAuthPending]=useState(false),[authUnknown,setAuthUnknown]=useState(false),[savingCredential,setSavingCredential]=useState(false);
   const passwordField=useRef<HTMLInputElement>(null),keyField=useRef<HTMLInputElement>(null),latestStatus=useRef(status);latestStatus.current=status;
+  const hostConfirmation=useRef<HTMLInputElement>(null);
   const intentStarted=useRef(false), intentBlocked=useRef(false);
   const mounted=useRef(true), current=useRef(connection), attempt=useRef<Attempt | undefined>(undefined), inFlight=useRef(false), notified=useRef(''), enterAfterAuth=useRef<ConnectionRef | undefined>(undefined);current.current=connection;
   const target=connection?.protocol==='SSH2'?connection:undefined;
@@ -122,6 +123,18 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
   async function retryCurrent(){await run(async()=>{const ref=active(),p=saved.find(p=>p.id===status?.profile_id),settings=status?.temporary_settings??p?.settings,method=settings?.protocol==='ssh2'?settings.auth:auth,values={password,key,passphrase},store=remember;clear();resetAuthentication();setRemember(false);const a:Attempt={id:requestId(),cancelled:false,secret:chooseLoginSecret(p,method,values)};attempt.current=a;if(store&&p){await saveExistingCredential(values);if(!mounted.current||a.cancelled)return;a.secret={password:'',key:'',passphrase:'',saved:true};}await dispatchStart(a,p?.id??'',undefined,ref);});}
   async function cancel(){setRemember(false);resetAuthentication();const a=attempt.current;if(a){a.cancelled=true;a.secret=undefined;}clear();const ref=a?a.connection:target&&!ended(target.state)?reference(target):undefined;if(ref)await ssh({op:'close',connection:ref});setMessage('已取消连接，已发生的服务器动作不会撤回。');}
   const challenge=status?.challenge;
+  const hostChallengeId = challenge?.kind === 'host_key' &&
+    status?.connection.connection_id === target?.connection_id &&
+    status?.connection.generation === target?.generation ? challenge.id : undefined;
+  useLayoutEffect(() => {
+    if (!hostChallengeId || busy) return;
+    const checkbox = hostConfirmation.current;
+    const modal = checkbox?.closest('dialog:modal');
+    if (!checkbox || !modal || checkbox.checked || checkbox.matches(':disabled')) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== modal && active.getClientRects().length) return;
+    checkbox.focus();
+  }, [hostChallengeId, busy]);
   const waiting=challenge?.kind==='credentials'&&!ended(status?.connection.state)&&!attempt.current?.secret&&!attempt.current?.cancelled&&!authPending&&!authUnknown&&submittedChallenge.current!==challenge.id;
   useEffect(()=>{if(waiting){const field=challenge?.kind==='credentials'&&challenge.auth==='public_key'?keyField.current:passwordField.current;field?.focus();}},[waiting,challenge?.id]);
   const credentialProfile=saved.find(p=>p.id===(savedId||status?.profile_id));
@@ -149,7 +162,7 @@ export function QuickConnect({ connection, intent, select, size, focus, close }:
     </form>
     <p role="status" aria-label="SSH快速提示">{message}</p>
     {status&&<><p aria-label="SSH快速状态">{phase}{status.failure&&!authPending&&!waiting&&` · ${failures[status.failure]??'连接异常，请核对信息。'}`}</p>{label?.protocol==='ssh2'&&<small>当前目标：{label.username}@{label.host}:{label.port}</small>}
-      {challenge?.kind==='host_key'&&<fieldset disabled={busy}><legend>确认服务器身份</legend><p>{challenge.review.status==='changed'?'服务器指纹已变化，默认不继续。请通过可信渠道核对。':'首次连接此服务器，请核对指纹。'}</p><code className="fingerprint">{challenge.review.candidate.fingerprint}</code><label className="check"><input aria-label="快速连接核对指纹" type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/>我已核对服务器指纹</label><button disabled={!approved} onClick={()=>void run(async()=>{await ssh({op:'answer_host',connection:authenticationTarget(),challenge_id:challenge.id,approve:true});})}>信任并继续登录</button><button onClick={()=>void run(async()=>{clear();await ssh({op:'answer_host',connection:authenticationTarget(),challenge_id:challenge.id,approve:false});})}>拒绝连接</button></fieldset>}
+      {challenge?.kind==='host_key'&&<fieldset disabled={busy}><legend>确认服务器身份</legend><p>{challenge.review.status==='changed'?'服务器指纹已变化，默认不继续。请通过可信渠道核对。':'首次连接此服务器，请核对指纹。'}</p><code className="fingerprint">{challenge.review.candidate.fingerprint}</code><label className="check"><input ref={hostConfirmation} aria-label="快速连接核对指纹" type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/>我已核对服务器指纹</label><button disabled={!approved} onClick={()=>void run(async()=>{await ssh({op:'answer_host',connection:authenticationTarget(),challenge_id:challenge.id,approve:true});})}>信任并继续登录</button><button onClick={()=>void run(async()=>{clear();await ssh({op:'answer_host',connection:authenticationTarget(),challenge_id:challenge.id,approve:false});})}>拒绝连接</button></fieldset>}
       {waiting&&challenge?.kind==='credentials'&&challenge.stored_available&&!credentialProfile?.credential_missing&&<button disabled={busy} onClick={()=>void run(async()=>{clear();setRemember(false);await authenticateCurrent({password:'',key:'',passphrase:'',saved:true},challenge.id);})}>使用已记住的凭据</button>}
       {challenge?.kind==='interactive'&&<fieldset disabled={busy}><legend>{challenge.name||'服务器认证'}</legend><p>{challenge.instructions}</p>{challenge.prompts.map((p,i)=><Field key={i} label={p.text}><input aria-label={`快速认证回答${i+1}`} type={p.echo?'text':'password'} autoComplete="off" value={answers[i]??''} onChange={e=>setAnswers(v=>{const n=[...v];n[i]=e.target.value;return n;})}/></Field>)}<button onClick={()=>void run(async()=>{const values=answers;setAnswers([]);await ssh({op:'answer_interactive',connection:authenticationTarget(),challenge_id:challenge.id,answers:values});})}>完成认证</button></fieldset>}
       {!ended(status.connection.state)&&<button disabled={busy} onClick={()=>void run(cancel)}>断开连接</button>}{ended(status.connection.state)&&!editingTarget&&(!savedId||savedId===status.profile_id)&&<button disabled={blocked} onClick={()=>void retryCurrent()}>重新连接</button>}
