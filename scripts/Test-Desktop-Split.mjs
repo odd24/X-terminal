@@ -83,7 +83,7 @@ try{
    const normal=['000000','d50000','008000','999606','0080ff','800080','0080c0','cfd8d3'];
    const bright=['535755','e30000','00ff40','ffff00','0080ff','ff00ff','00ffff','ffffff'];
    const colors=[
-     ['normal-text','0','00e600'],['bold-text','1','ffffff'],['rgb-text','1;38;2;18;52;86','123456'],
+     ['normal-text','0','00e600'],['bold-text','1','ffffff'],['rgb-text','1;38;2;18;52;86','123456'],['extended-text','38;5;196','ff0000'],['painted-bg','31;44','d50000'],
      ...normal.map((color,i)=>['basic-'+i,String(30+i),color]),
      ...bright.map((color,i)=>['bright-'+i,String(90+i),color]),
      ...bright.map((color,i)=>['bold-'+i,'1;'+(30+i),color]),
@@ -111,29 +111,48 @@ try{
        const pane=document.querySelector('[data-pane="${key}"]');
        const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
        const ctx=canvas.getContext('2d');
-       const hex=span=>{
-         ctx.fillStyle=getComputedStyle(span).color;ctx.fillRect(0,0,1,1);
-         return [...ctx.getImageData(0,0,1,1).data].slice(0,3).map(n=>n.toString(16).padStart(2,'0')).join('');
+       const pixels=span=>{
+         ctx.clearRect(0,0,1,1);
+         ctx.fillStyle=getComputedStyle(span).webkitTextFillColor;ctx.fillRect(0,0,1,1);
+         return [...ctx.getImageData(0,0,1,1).data];
        };
        const tokens=${JSON.stringify(colors.map(([name])=>name))};
        const spans=[...pane.querySelectorAll('.xterm-rows span')].filter(span=>tokens.includes(span.textContent));
-       return {background:getComputedStyle(pane.querySelector('.terminal')).backgroundColor, ink:Object.fromEntries(spans.map(span=>[span.textContent,hex(span)]))};
+       const cursor=pane.querySelector('.xterm-cursor-block');
+       return {
+         background:getComputedStyle(pane.querySelector('.terminal')).backgroundColor,
+         paintedBackground:getComputedStyle(spans.find(span=>span.textContent==='painted-bg')).backgroundColor,
+         cursorPreserved:!cursor||getComputedStyle(cursor).webkitTextFillColor===getComputedStyle(cursor).color,
+         ink:Object.fromEntries(spans.map(span=>[span.textContent,pixels(span)]))
+       };
      })()`);
-     const dimmed=Object.fromEntries(colors.map(([name,,rgb])=>[name,name==='rgb-text'?rgb:rgb.match(/../g).map(byte=>Math.round(parseInt(byte,16)*0.7).toString(16).padStart(2,'0')).join('')]));
      assert.equal(ink.background,'rgb(0, 0, 0)');
-     assert.deepEqual(Object.keys(ink.ink),Object.keys(dimmed));
-     for(const [name,wanted] of Object.entries(dimmed)){
-       const rendered=ink.ink[name];
-       const channels=hex=>hex.match(/../g).map(byte=>parseInt(byte,16));
-       assert.ok(channels(rendered).every((value,index)=>Math.abs(value-channels(wanted)[index])<=1),`${key} ${name}: ${rendered} ≈ ${wanted}`);
+     assert.equal(ink.paintedBackground,'rgb(0, 128, 255)');
+     assert.equal(ink.cursorPreserved,true);
+     assert.deepEqual(Object.keys(ink.ink),colors.map(([name])=>name));
+     for(const [name,,hex] of colors){
+       const rgb=hex.match(/../g).map(byte=>parseInt(byte,16));
+       const [r,g,b,a]=ink.ink[name];
+       assert.ok(Math.abs(a-179)<=1,`${key} ${name} fill alpha`);
+       assert.ok([r,g,b].every((value,index)=>Math.abs(value-rgb[index])<=2),`${key} ${name}: ${[r,g,b]} ≈ ${rgb}`);
      }
-     assert.equal(ink.ink['rgb-text'],'123456');
    }
    await ui.screenshot('terminal-brightness-70.png');
+   await focus('second');
+   const selectionPoint=await ui.evaluate(`(()=>{
+     const span=[...document.querySelectorAll('[data-pane="second"] .xterm-rows span')].find(el=>el.textContent==='normal-text');
+     const rect=span.getBoundingClientRect();
+     return {x:rect.left+2,right:rect.right-2,y:rect.top+rect.height/2};
+   })()`);
+   const {x,right,y}=selectionPoint;
+   await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x,y});
+   await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:right,y});
+   await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:right,y});
+   await ui.waitFor(`document.querySelector('[data-pane="second"] .xterm-selection > div')&&getComputedStyle(document.querySelector('[data-pane="second"] .xterm-selection > div')).backgroundColor==='rgb(53, 75, 97)'`);
    await menu('外观');
+   await ui.screenshot('terminal-brightness-slider.png');
    await ui.fill('终端文字亮度',100);
    await ui.waitFor(`!document.querySelector('.desktop-shell').hasAttribute('data-terminal-dim')`);
-   await ui.screenshot('terminal-brightness-slider.png');
    await ui.click('关闭外观');
    await ui.waitFor(`[...document.querySelectorAll('.xterm-rows .xterm-bold')].filter(el=>el.textContent==='bold-text'&&getComputedStyle(el).color==='rgb(255, 255, 255)').length===2`);
    await ui.screenshot('palette-x-ssh-uart.png');
