@@ -66,12 +66,19 @@ try{
  await ui.click('终端日志');await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes(${JSON.stringify(uart.connection_id)})`);await focus('first');await ui.waitFor(`document.querySelector('[aria-label="日志目标"]').textContent.includes(${JSON.stringify(currentA.connection_id)})`);await ui.click('关闭日志面板');await ui.screenshot('P17-split-mixed.png');
  const paletteX=process.argv.includes('--palette-x');
  const config=request=>ui.invoke('config_request',{request});
+ async function savePalette(value){
+   await menu('外观');
+   await ui.click('重新读取偏好');
+   await ui.waitFor(`document.querySelector('[aria-label="桌面偏好状态"]')?.textContent.startsWith('已读取')`);
+   await ui.fill('终端配色',value);await ui.click('保存桌面偏好');
+   await ui.waitFor(`document.querySelector('[aria-label="桌面偏好状态"]')?.textContent.startsWith('已保存')`);
+   await ui.click('关闭外观');
+ }
  let originalPreferences;
  if(paletteX){
    originalPreferences=(await config({op:'preferences'})).preferences;
-   await menu('外观');await ui.fill('终端配色','x');await ui.click('保存桌面偏好');
-   await wait(async()=>(await config({op:'preferences'})).preferences.terminal_palette==='x','X preference persisted');
-   await ui.click('关闭外观');
+   await savePalette('x');
+   assert.equal((await config({op:'preferences'})).preferences.terminal_palette,'x');
 
    const normal=['000000','d50000','008000','999606','0080ff','800080','0080c0','cfd8d3'];
    const bright=['535755','e30000','00ff40','ffff00','0080ff','ff00ff','00ffff','ffffff'];
@@ -106,8 +113,7 @@ try{
  if(paletteX){
    await ui.waitFor("document.documentElement.dataset.terminalPalette==='x'");
    assert.deepEqual((await config({op:'preferences'})).preferences,{...originalPreferences,terminal_palette:'x'});
-   await menu('外观');await ui.fill('终端配色',originalPreferences.terminal_palette);await ui.click('保存桌面偏好');
-   await wait(async()=>(await config({op:'preferences'})).preferences.terminal_palette===originalPreferences.terminal_palette,'original palette restored');
+   await savePalette(originalPreferences.terminal_palette);
    assert.deepEqual((await config({op:'preferences'})).preferences,originalPreferences);
  }
  await writeFile('artifacts/P17-split-result.json',JSON.stringify({result:'PASS',identities:{a,b,renewed,uart,twin},realWindow:resized,hardware:'memory serial; no COM'},null,2));
