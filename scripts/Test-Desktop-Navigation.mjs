@@ -22,6 +22,9 @@ try{
  const sidebar='document.querySelector(".sidebar-toggle")';
  assert.equal(await ui.evaluate(`${sidebar}.getAttribute('aria-expanded')`),'true');
  assert.equal(await ui.evaluate(`[...document.querySelectorAll('.empty-actions button')].map(b=>b.textContent).join('|')`),'新建 SSH|新建串口');
+ assert.equal(await ui.evaluate(`[...document.querySelectorAll('.empty-actions button')].every(b=>{
+   const r=b.getBoundingClientRect();return r.width>0&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===b;
+ })`),true,'both first-run creation controls are reachable');
  const grip=await ui.evaluate(`(()=>{const r=document.querySelector('.sidebar-divider').getBoundingClientRect();const x=r.x+r.width/2,y=r.y+60;if(!document.elementFromPoint(x,y)?.matches('.sidebar-divider'))throw Error('divider is covered');return{x,y};})()`);
  await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...grip});
  await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:grip.x+36,y:grip.y});
@@ -76,6 +79,26 @@ try{
    await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
  }
  assert.deepEqual([...visited].sort(),sixTabs.sort());
+ await ui.waitFor(`!document.querySelector('.toolbar-log').disabled&&document.querySelector('[aria-label="权限状态"]').textContent.includes('桌面输入可用')`);
+ await ui.evaluate(`document.querySelector('.new-menu > summary').focus()`);
+ await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+ await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+ await ui.waitFor(`document.activeElement.matches('.new-menu button')&&document.activeElement.getClientRects().length>0`);
+ await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await ui.waitFor(`!document.querySelector('.new-menu').open&&document.activeElement.matches('.new-menu > summary')`);
+ const sidebarRegions=await ui.evaluate(`(()=>{
+   const tree=document.querySelector('.tree-scroll'),details=document.querySelector('.profile-summary');
+   const before=tree.scrollTop;
+   details.scrollTop=details.scrollHeight;
+   const action=details.querySelector('button').getBoundingClientRect();
+   const frame=details.getBoundingClientRect();
+   const independent=tree.scrollTop===before;
+   const revealed=action.top>=frame.top&&action.bottom<=frame.bottom;
+   details.scrollTop=0;
+   tree.scrollTop=0;
+   return {separate:tree.getBoundingClientRect().bottom<=frame.top,independent,revealed};
+ })()`);
+ assert.deepEqual(sidebarRegions,{separate:true,independent:true,revealed:true},'the tree and profile controls have independent scroll regions');
  await ui.screenshot('CR-022-S3-six-tabs-compact.png');
  resize(1100,760);
  await ui.waitFor(`innerWidth > 900`);
