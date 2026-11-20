@@ -5,11 +5,12 @@ import {logging,LogRequestError,type LogInfo,type ExportInfo} from './logging-ap
 import {LogSavePanel} from './log-save-panel';
 import {checkedSave,saveDiagnosticNotice,terminalSave,type SaveInfo} from './log-save';
 import {requestId} from './request-id';
-import {checkedMenu,restoreLogTask,knownMenuRejection,menuFailure,type MenuInfo,type RememberedLogTask,type TerminalMenuContext} from './log-menu';
+import {checkedMenu,restoreLogTask,sameLogTarget,knownMenuRejection,menuFailure,type MenuInfo,type RememberedLogTask,type TerminalMenuContext} from './log-menu';
 type Props={paneLabel:string; onLog(log:LogInfo):void; focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
 type Receipt={target:RememberedLogTask;info:SaveInfo};
 type Task=RememberedLogTask&{info?:MenuInfo;log?:LogInfo;uncertain:boolean;finished:boolean;auto:boolean;recovery:boolean;cancelled:boolean;message:string;error:boolean;save?:SaveInfo};
 const slot='terminal-context-log-task-v1';
+const recordingStatus=(task:Task|undefined)=>task?.kind==='start'||task?.kind==='stop';
 const failures:Record<string,string>={CAPACITY:'日志文件容量已达上限',QUEUE_FULL:'日志写盘队列已满，后续输出未记录',DISK_FULL:'磁盘空间不足',STORAGE:'文件存储故障',INVALID_RECORD:'记录序号异常',COUNTER_EXHAUSTED:'记录计数已耗尽',WORKER_PANICKED:'文件线程异常'};
 function captureMessage(log:LogInfo){return log.failure?failures[log.failure]??'日志记录失败':log.phase==='RECORDING'?`正在记录 · 已接受 ${log.accepted_records} 条 · 已写入 ${log.written_records} 条 · 已刷新 ${log.readable?.flushed_records??0} 条 · 已同步 ${log.readable?.synced_records??0} 条`:log.phase==='OPENING'?'正在创建实时日志文件…':log.phase==='STOPPING'?'正在停止并同步日志…':log.phase==='STOPPED'?'记录已停止并同步。':'记录当前不可用。';}
 function initialTask():Task|undefined{try{const old=restoreLogTask(sessionStorage.getItem(slot));return old?{...old,uncertain:true,finished:false,auto:false,recovery:true,cancelled:false,error:false,message:'已恢复原操作编号，请查询结果；不会重新执行或自动续存。'}:undefined;}catch{return;}}
@@ -71,7 +72,7 @@ export function TerminalLogMenu(props:Props){
   }else if(kind==='file'||kind==='directory')payload={op:kind==='file'?'open_file':'open_directory',target:t.target,request_id:t.request_id,...(kind==='file'?{log_id:t.log_id}:{})};
   current.current=t;setNotice(undefined);setDirectoryError('');setVisible(true);publish(t);latest.current.close();void run(t,true,payload);
  }
- function closeStatus(){const t=current.current;setVisible(false);if(!t)return;if(t.finished){current.current=undefined;setTask(undefined);try{sessionStorage.removeItem(slot);}catch{/* unavailable */}}else if(['prepare','file','directory'].includes(t.kind)){t.auto=false;t.cancelled=true;t.recovery=true;t.uncertain=true;t.message='已请求取消，请查询原结果；已开始的保存可能完成。';publish(t);void cancelNative(t);}}
+ function closeStatus(){const t=current.current;setVisible(false);if(!t||recordingStatus(t))return;if(t.finished){current.current=undefined;setTask(undefined);try{sessionStorage.removeItem(slot);}catch{/* unavailable */}}else if(['prepare','file','directory'].includes(t.kind)){t.auto=false;t.cancelled=true;t.recovery=true;t.uncertain=true;t.message='已请求取消，请查询原结果；已开始的保存可能完成。';publish(t);void cancelNative(t);}}
  function saved(t:Task,info:SaveInfo){
   if(current.current!==t||info.scope.mode!=='MENU'||info.scope.request_id!==t.request_id||info.scope.log_id!==t.request_id||info.scope.connection.connection_id!==t.target.connection.connection_id||info.scope.connection.generation!==t.target.connection.generation)return;
   t.save=info;t.finished=terminalSave(info);publish(t);
@@ -83,6 +84,13 @@ export function TerminalLogMenu(props:Props){
   if(latest.current.valid(t)){setNotice(result);latest.current.focus(t);}
   try{sessionStorage.removeItem(slot);}catch{/* known terminal receipt stays in memory */}
  }
+ const recordingStatusId=recordingStatus(task)?task?.request_id:undefined;
+ // Key the timeout to the opening and original operation, not its changing receipts.
+ useEffect(()=>{
+  if(!visible||!recordingStatusId)return;
+  const timer=window.setTimeout(()=>setVisible(false),5000);
+  return()=>clearTimeout(timer);
+ },[visible,recordingStatusId]);
  useEffect(()=>{if(!notice)return;const timer=window.setTimeout(()=>setNotice(undefined),6000);return()=>clearTimeout(timer);},[notice]);
  async function openSaved(result:Receipt){if(directoryFlight.current)return;directoryFlight.current=true;setDirectoryError('');try{checkedSave(await invoke('export_save_request',{request:{op:'open_directory',scope:result.info.scope,save_id:result.info.save_id}}),result.info,result.info);}catch{if(mounted.current)setDirectoryError('保存目录暂时无法打开；已保存文件保持，可复制所示路径。');}finally{directoryFlight.current=false;}}
  const receiptMatches=!!menu&&!!receipt&&receipt.target.target.service_id===menu.target.service_id&&receipt.target.target.protocol===menu.target.protocol&&receipt.target.target.connection.connection_id===menu.target.connection.connection_id&&receipt.target.target.connection.generation===menu.target.connection.generation;
@@ -110,6 +118,8 @@ export function TerminalLogMenu(props:Props){
    {receiptMatches&&receipt&&<><hr/><small aria-label="最近日志保存路径">上次已保存：{receipt.info.path}</small><button role="menuitem" onClick={()=>{void openSaved(receipt);props.close();}}>打开上次保存目录</button></>}
    {directoryError&&<small role="alert">{directoryError}</small>}
    {loadError&&<small role="alert">{loadError}</small>}{menu.warning&&<small role="alert">{menu.warning}</small>}
+   {!pending&&!visible&&task&&recordingStatusId&&sameLogTarget(task.target,menu.target)&&
+    <button role="menuitem" onClick={()=>{setVisible(true);props.close();}}>查看上次日志操作</button>}
    {pending&&<button role="menuitem" onClick={()=>{setVisible(true);props.close();if(current.current&&!busy)void run(current.current);}}>查询上次日志操作结果</button>}
   </ContextMenu>}
   {notice&&props.valid(notice.target)&&<div className="terminal-log-feedback" role="status" aria-label="日志保存反馈"><span title={notice.info.path??undefined}>{notice.target.title} · {notice.info.phase==='COMPLETED'?`日志已保存：${notice.info.path?.split(/[\\/]/).at(-1)}`:'日志保存已取消。'}{saveDiagnosticNotice(notice.info)}</span>{notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开所在目录</button>}{directoryError&&<small role="alert">{directoryError}</small>}</div>}

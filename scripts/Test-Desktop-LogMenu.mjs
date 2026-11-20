@@ -77,10 +77,52 @@ try{
  await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...point});
  await focus('first');
  const clip=await ui.interceptIpc({command:'terminal_clipboard_read',mode:'error'});await right('second');await ui.screenshot('P11.4-log-menu-native.png');assert.equal(await clip.count(),0);await clip.restore();
+ const notice='document.querySelector(".terminal-log-operation")';
+ async function clickMenuAt(label, twice=false){
+   return ui.evaluate(`(()=>{
+     const time=performance.now();
+     const button=[...document.querySelectorAll('.terminal-context-menu button')].find(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled);
+     if(!button?.getClientRects().length)throw Error('notice menu action must be visible');
+     button.click();if(${twice})button.click();return time;
+   })()`);
+ }
+ async function dismissalTime(opened){
+   await ui.waitFor(`!${notice}`);
+   const elapsed=await ui.evaluate(`performance.now()-${opened}`);
+   assert.ok(elapsed>=4800&&elapsed<5900,`recording notice dismissed in ${elapsed} ms`);
+   return Math.round(elapsed);
+ }
+ const heldNotice=await ui.interceptIpc({op:'start',connectionId:b.connection_id,mode:'hold'});
  await ui.waitFor(`Array.from(document.querySelectorAll('[role="menuitem"]')).some(b=>b.textContent==='开始记录'&&!b.disabled)`);
- await ui.evaluate(`(()=>{const b=Array.from(document.querySelectorAll('[role="menuitem"]')).find(b=>b.textContent==='开始记录');b.click();b.click();})()`);
- await wait(async()=>!!(await active(b))?.readable,'right B starts B only');await ui.waitFor(`document.querySelector('[aria-label="右键日志操作状态"]')?.textContent.includes('正在记录')`);let lb=await active(b);assert.equal((await list(b)).logs.length,1);assert.equal((await list(a)).logs.length,0);assert.equal((await slot()).target.connection.connection_id,b.connection_id);
- await two.control({op:'push',text:'B-FIRST-ROUND\r\n'});await wait(async()=>(await readFile(file(lb),'utf8')).includes('B-FIRST-ROUND'),'B file growth');
+ const opened=await clickMenuAt('开始记录',true);
+ await wait(async()=>await heldNotice.count()===1,'one recording start with held status');
+ await ui.waitFor(`!!${notice}`);
+ await delay(2400);
+ await heldNotice.restore();
+ await wait(async()=>!!(await active(b))?.readable,'right B starts B only');
+ await ui.waitFor(`document.querySelector('[aria-label="右键日志操作状态"]')?.textContent.includes('正在记录')`);
+ const lbInitial=await active(b);let lb=lbInitial;
+ assert.equal((await list(b)).logs.length,1);assert.equal((await list(a)).logs.length,0);assert.equal((await slot()).target.connection.connection_id,b.connection_id);
+ const original=await slot();
+ await ui.screenshot('log-status-timeout-open.png');
+ const firstDismissal=await dismissalTime(opened);
+ await ui.waitFor(`(${badge(b)})?.title==='● 记录中'&&document.querySelector('.toolbar-log').textContent.trim()==='● 记录中'`);
+ await right('second');
+ const reopened=await clickMenuAt('查看上次日志操作');
+ await ui.waitFor(`!!${notice}`);
+ const secondDismissal=await dismissalTime(reopened);
+ await right('second');
+ await clickMenuAt('查看上次日志操作');
+ await ui.waitFor(`!!${notice}`);
+ await ui.click('收起日志操作');
+ await ui.waitFor(`!${notice}`);
+ assert.equal((await slot()).request_id,original.request_id);
+ assert.equal((await active(b)).log_id,lbInitial.log_id);
+ assert.equal((await list(b)).logs.length,1);
+ await ui.screenshot('log-status-timeout-dismissed.png');
+ await two.control({op:'push',text:'B-FIRST-ROUND\r\n'});
+ await wait(async()=>(await readFile(file(lb),'utf8')).includes('B-FIRST-ROUND'),'B file grows after the notice closes');
+ console.log(`PASS recording status auto-dismissed in ${firstDismissal} ms, reopened for ${secondDismissal} ms, manual dismissal preserves original recording`);
  // A buffer is explicitly exportable before recording; all-recorded is not fabricated.
  await focus('first');
  await ui.waitFor(`(${badge(b)})?.title==='● 记录中'&&! (${badge(a)})`);
@@ -142,7 +184,7 @@ try{
  const old=Buffer.from('SYNTHETIC-ORIGINAL-DO-NOT-LOSE'),destination=path.join(output,'明确覆盖.log');await writeFile(destination,old);const replaceTask=await choose('first','只保存当前可见屏幕…'),replace=await prepared(replaceTask);await saveTask(replaceTask);await picker(destination);await ui.waitFor(`!!document.querySelector('[aria-label="右键日志确认替换保存文件"]')`);assert.deepEqual(await readFile(destination),old);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="右键日志确认替换保存文件"]').checked`),false);await ui.evaluate(`document.querySelector('[aria-label="右键日志确认替换保存文件"]').click()`);await ui.click('确认替换并保存');const replaceScope=await saveTask(replaceTask);let replaced;await wait(async()=>{replaced=await save({op:'status',scope:replaceScope.scope,save_id:replaceScope.save_id});return replaced.phase==='COMPLETED';},'explicit overwrite');assert.deepEqual(await readFile(destination),replace.bytes);assert.deepEqual(await readFile(replaced.backup),old);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')&&document.querySelector('[aria-label="日志保存反馈"]')?.textContent.includes('日志已保存')`);
  const cancelTask=await choose('first','只保存当前可见屏幕…');await prepared(cancelTask);const cancelled=await saveTask(cancelTask);await picker(undefined,'cancel');await wait(async()=>(await save({op:'status',scope:cancelled.scope,save_id:cancelled.save_id})).phase==='CANCELLED','picker cancelled');await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')&&document.querySelector('[aria-label="日志保存反馈"]')?.textContent.includes('保存已取消')`);assert.deepEqual(await readFile(destination),replace.bytes);
  // Cancellation while awaiting replacement keeps the destination and ends only this UI.
- const kept=await readFile(destination),cancelReplaceTask=await choose('first','只保存当前可见屏幕…');await prepared(cancelReplaceTask);const cancelReplaceScope=await saveTask(cancelReplaceTask);await picker(destination);await ui.waitFor(`!!document.querySelector('[aria-label="右键日志确认替换保存文件"]')`);await ui.click('取消保存');await wait(async()=>(await save({op:'status',scope:cancelReplaceScope.scope,save_id:cancelReplaceScope.save_id})).phase==='CANCELLED','replacement cancellation');await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')`);assert.deepEqual(await readFile(destination),kept);
+ const kept=await readFile(destination),cancelReplaceTask=await choose('first','只保存当前可见屏幕…');await prepared(cancelReplaceTask);const cancelReplaceScope=await saveTask(cancelReplaceTask);await picker(destination);await ui.waitFor(`!!document.querySelector('[aria-label="右键日志确认替换保存文件"]')`);await delay(5200);assert.ok(await ui.evaluate(`!!document.querySelector('[aria-label="右键日志确认替换保存文件"]')`),'overwrite confirmation stays open beyond the recording notice timeout');await ui.click('取消保存');await wait(async()=>(await save({op:'status',scope:cancelReplaceScope.scope,save_id:cancelReplaceScope.save_id})).phase==='CANCELLED','replacement cancellation');await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')`);assert.deepEqual(await readFile(destination),kept);
  // A real failed fingerprint check stays visible; it cannot masquerade as completion.
  const failedTask=await choose('first','只保存当前可见屏幕…');await prepared(failedTask);const failedScope=await saveTask(failedTask);await picker(destination);await ui.waitFor(`!!document.querySelector('[aria-label="右键日志确认替换保存文件"]')`);const badSource=path.join(directory,'terminal-menu/terminal-log-exports',failedTask.request_id,'export.jsonl'),badBytes=await readFile(badSource);badBytes[0]=badBytes[0]===88?89:88;await writeFile(badSource,badBytes);await ui.evaluate(`document.querySelector('[aria-label="右键日志确认替换保存文件"]').click()`);await ui.click('确认替换并保存');await wait(async()=>(await save({op:'status',scope:failedScope.scope,save_id:failedScope.save_id})).phase==='FAILED','source integrity rejection');await ui.waitFor(`document.querySelector('[aria-label="右键日志导出另存状态"][role="alert"]')?.textContent.includes('另存失败')`);assert.ok(await ui.evaluate(`!!document.querySelector('[aria-label="终端右键日志操作"]')`));assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="日志保存反馈"]')`),false);assert.deepEqual(await readFile(destination),kept);await ui.click('收起日志操作');
  // Status loss keeps the original task visible until the user queries it once.
@@ -158,8 +200,18 @@ try{
  const generationReply=await ui.interceptIpc({command:'terminal_log_request',op:'prepare',mode:'hold'});const oldGenerationTask=await choose('first','只保存当前可见屏幕…');await wait(async()=>await generationReply.count()===1,'held old generation prepare');await ssh({op:'close',connection:ref(a)});await wait(async()=>['DISCONNECTED','FAILED'].includes((await ssh({op:'status',connection:ref(a)})).connection.state),'old A ended');const renewed=(await ssh({op:'reconnect',connection:ref(a),request_id:requestId(),cols:80,rows:24})).connection;assert.ok(renewed.generation>a.generation);await generationReply.restore();await delay(250);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+oldGenerationTask.request_id)})`),null);
  const answered=new Set();await wait(async()=>{const s=await ssh({op:'status',connection:ref(renewed)});if(s.challenge&&!answered.has(s.challenge.id)){answered.add(s.challenge.id);if(s.challenge.kind==='host_key'){assert.equal(s.challenge.review.candidate.fingerprint,one.pin);await ssh({op:'answer_host',connection:ref(renewed),challenge_id:s.challenge.id,approve:true});}else if(s.challenge.kind==='credentials')await ssh({op:'authenticate',connection:ref(renewed),challenge_id:s.challenge.id,use_saved:true,password:null});}return s.connection.state==='CONNECTED';},'normal new generation authentication');await ui.fill('会话',renewed.connection_id);await ready('first',renewed);assert.equal((await list(renewed)).logs.length,0);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')`);
  const closeReply=await ui.interceptIpc({command:'terminal_log_request',op:'prepare',mode:'hold'});const closedTask=await choose('first','保存终端缓冲内容…');await wait(async()=>await closeReply.count()===1,'held preparation before exact tab close');await ui.evaluate(`document.querySelector('[aria-label="关闭标签 ${renewed.connection_id}"]').click()`);await closeReply.restore();await delay(250);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+closedTask.request_id)})`),null);assert.equal((await ui.invoke('service_list')).find(c=>c.connection_id===b.connection_id).state,'CONNECTED');assert.equal((await active(uart)).log_id,lu.log_id);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')`);
- await ui.fill('会话',uart.connection_id);const lastPane=await ui.evaluate(`document.querySelector('[data-pane][data-active="true"]').dataset.pane`);await ready(lastPane,uart);await stop(lastPane,uart);
- await writeFile('artifacts/CR-022-log-menu-result.json',JSON.stringify({result:editorObservationError?'PARTIAL':'PASS',editor:editorObservationError?'title observed; in-editor header OCR and own-tab close unverified':'exact header observed; own tab closed',owner,identities:{a,b,uart},files:await readdir(path.join(directory,'logs')),fullBytes:full.bytes.length,fullRecords:full.info.retained_records,viewport:{cols,rows,bytes:screen.bytes.length,sha256:screen.info.sha256},hardware:'synthetic SSH, passive memory UART only; no COM'},null,2));
+ await ui.fill('会话',uart.connection_id);
+ const lastPane=await ui.evaluate(`document.querySelector('[data-pane][data-active="true"]').dataset.pane`);
+ await ready(lastPane,uart);
+ await right(lastPane);
+ await ui.waitFor(`[...document.querySelectorAll('.terminal-context-menu button')].some(b=>b.textContent==='停止记录'&&!b.disabled)`);
+ const stopOpened=await clickMenuAt('停止记录');
+ await wait(async()=>(await logging({op:'status',connection:ref(uart),log_id:lu.log_id})).durable,'UART stop has synced');
+ await ui.waitFor(`document.querySelector('[aria-label="右键日志操作状态"]')?.textContent.includes('停止并同步')`);
+ const stopDismissal=await dismissalTime(stopOpened);
+ await ui.waitFor(`!(${badge(uart)})`);
+ console.log(`PASS recording stop notice auto-dismissed in ${stopDismissal} ms after durable stop`);
+ await writeFile('artifacts/CR-022-log-menu-result.json',JSON.stringify({result:editorObservationError?'PARTIAL':'PASS',recordingNoticeMs:{firstDismissal,secondDismissal,stopDismissal},editor:editorObservationError?'title observed; in-editor header OCR and own-tab close unverified':'exact header observed; own tab closed',owner,identities:{a,b,uart},files:await readdir(path.join(directory,'logs')),fullBytes:full.bytes.length,fullRecords:full.info.retained_records,viewport:{cols,rows,bytes:screen.bytes.length,sha256:screen.info.sha256},hardware:'synthetic SSH, passive memory UART only; no COM'},null,2));
  if(editorObservationError)throw new Error('Native editor header observation failed. Remaining log-menu checks passed; see CR-022-log-menu-result.json.');
  console.log('PASS actual right-click six log actions: exact inactive pane, no legacy automatic paste, live common files, native Explorer/Notepad, complete all-round exports beyond preview, scrolled viewport exact bytes, original-ID recovery/no replay, native picker/cancel/overwrite/backup/SHA, late focus isolation; no COM');
 }catch(error){if(ui){await ui.screenshot('P11.4-log-menu-failure.png').catch(()=>{});await writeFile('artifacts/P11.4-log-menu-failure.txt',await ui.evaluate('document.body.innerText').catch(String));}throw error;}
