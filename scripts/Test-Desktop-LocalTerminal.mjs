@@ -53,7 +53,10 @@ try {
   await mkdir(target);
   await writeFile(fixture, `
     const args = process.argv.slice(2);
-    if (args[0] === 'interactive') {
+    if (args[0] === 'lost') {
+      require('node:fs').appendFileSync('lost-count.txt','one\\n');
+      setTimeout(()=>process.stdout.write('LOST_TAIL\\n'),300);
+    } else if (args[0] === 'interactive') {
       process.stdin.setRawMode(true);
       process.stdout.write('READY:' + process.pid + '\\n');
       process.stdin.on('data', bytes => {
@@ -84,6 +87,26 @@ try {
   const received = JSON.parse(await readFile(path.join(target, '收到.json'), 'utf8'));
   assert.deepEqual(received, {cwd:target, args:argv});
   await waitOutput('ARGV_TAIL');
+  await ui.evaluate(`(()=>{
+    const original=window.fetch;
+    window.__localReply={original,count:0};
+    window.fetch=async function(input,init){
+      const response=await original.call(this,input,init);
+      if(new URL(String(input)).pathname==='/local_terminal'&&JSON.parse(init?.body??'{}').action?.kind==='run'){
+        window.__localReply.count++;
+        const headers=new Headers(response.headers);
+        headers.set('Tauri-Response','error');
+        headers.set('content-type','application/json');
+        return new Response('"lost after native acceptance"',{status:response.status,headers});
+      }
+      return response;
+    };
+  })()`);
+  await run([node,quote(fixture),'lost'].join(' '),'LOST_TAIL');
+  assert.equal(await ui.evaluate('window.__localReply.count'),1);
+  await ui.evaluate('window.fetch=window.__localReply.original;delete window.__localReply');
+  assert.equal(await readFile(path.join(target,'lost-count.txt'),'utf8'),'one\n');
+  evidence.lostLaunch = 'one native invocation; original status and tail recovered';
   await run('no-local-such-tool', 'PATH 中找不到');
   await run('git "unclosed', '双引号未闭合');
   await run('git --version | more', '本地入口只运行单条命令');
@@ -128,11 +151,12 @@ try {
   if(measurePowerShell) evidence.powerShellConptyMs = [];
   for(let n=0;measurePowerShell&&n<11;n++) {
     const start = performance.now();
-    await run('pwsh -NoLogo -NoProfile -NoExit -Command "function prompt { \'PS-BASELINE> \' }"', undefined, false);
+    const marker = 'PSBASE'+n+'>';
+    await run(`pwsh -NoLogo -NoProfile -NoExit -Command "function prompt { '${marker} ' }"`, undefined, false);
     await ui.waitFor('document.activeElement?.matches(".local-terminal:not([hidden]) .xterm-helper-textarea")');
-    await waitOutput('PS-BASELINE>');
+    await waitOutput(marker);
     await ui.command('Input.insertText',{text:'test'+n});
-    await waitOutput('PS-BASELINE> test'+n);
+    await waitOutput(marker+' test'+n);
     evidence.powerShellConptyMs.push(performance.now()-start);
     await key('c','KeyC',67,2);
     await ui.command('Input.insertText',{text:'exit'});

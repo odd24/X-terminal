@@ -147,6 +147,36 @@ try {
   assert.match((await actions()).at(-1),/^pull\|good\|-s\|good\|pull\|\/sdcard\/ok\|edited.txt$/);
   await ui.screenshot('local-adb-software.png');
   evidence.cases.push('invalid edit retained without applying; explicit serial and corrected saved command preserved');
+  await ui.click('管理 ADB 按钮');
+  await ui.waitFor('!!document.querySelector("[aria-label=\'ADB 程序路径\']")');
+  await ui.click('新建按钮');
+  await ui.fill('按钮名称','环境目标');
+  await ui.fill('完整 ADB 命令','adb pull /sdcard/ok environment.txt');
+  await ui.click('保存 ADB 快捷设置');
+  await ui.waitFor('!document.querySelector("dialog[aria-label=\'ADB 快捷操作设置\']")');
+  await controlledExit();
+  process.env.ANDROID_SERIAL='other';
+  try {ui=await launchDesktop(root,{executable,webviewDirectory:path.join(root,'webview-environment')});}
+  finally {
+    if(originalEnv!==undefined)process.env.ANDROID_SERIAL=originalEnv;
+    else delete process.env.ANDROID_SERIAL;
+  }
+  await setInventory('good\tdevice','other\tdevice');
+  await openLocal();
+  await ui.waitFor("Array.from(document.querySelectorAll('.local-adb-actions button')).some(b=>b.textContent==='环境目标')");
+  const callCount=(await log()).length;
+  await ui.click('环境目标');
+  await show('ADB_FIXTURE_PULLED');
+  await idle();
+  assert.equal((await log()).length,callCount+1,'inherited device does not enumerate or rewrite');
+  assert.equal((await actions()).at(-1),'pull|other|pull|/sdcard/ok|environment.txt');
+  assert.equal(await readFile(path.join(workspace,'environment.txt'),'utf8'),'observed fixture download');
+  await ui.click('导出样本');
+  await idle();
+  await ui.waitFor(`document.querySelector('.local-terminal-output')?.innerText.includes('edited.txt')`);
+  assert.equal((await log()).length,callCount+2);
+  assert.match((await actions()).at(-1),/^pull\|good\|-s\|good\|/);
+  evidence.cases.push('ANDROID_SERIAL inherited for device command; explicit serial takes priority over environment');
   evidence.calls = await log();
   await controlledExit();
   evidence.result='PASS';

@@ -83,7 +83,7 @@ try {
   for(let n=0;n<80&&!(await raw(target)).includes('SSH_RETURN');n++)await delay(30);
   assert.match(await raw(target),/SSH_RETURN/);
   await ui.click('本地 1');
-  await ui.waitFor('document.activeElement?.closest(".local-terminal")');
+  await ui.waitFor('!!document.activeElement?.closest(".local-terminal")');
   await ui.waitFor('document.querySelector(".local-terminal-output").innerText.includes("LOCAL_TAIL_150")');
   await ui.command('Input.insertText',{text:'OWNED_LOCAL'});
   await ui.waitFor('document.querySelector(".local-terminal-output").innerText.includes("LOCAL_ECHO_OWNED_LOCAL")');
