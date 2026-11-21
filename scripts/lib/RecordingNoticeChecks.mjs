@@ -76,8 +76,12 @@ export async function checkNoticeActions(page,root,log,resumeRecording,switchTab
   const fileButton=`${notice}.querySelector('button:first-child')`;
   assert.equal(await page.evaluate(`${noticeFile}.textContent`),log.readable.filename);
   await page.evaluate(`${fileButton}.focus()`);
-  for(const type of ['keyDown','keyUp'])
-    await page.command('Input.dispatchKeyEvent',{type,key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  const opened=await page.interceptIpc({command:'terminal_log_request',op:'open_file'});
+  try{
+    await page.evaluate(`${fileButton}.click()`);
+    for(let i=0;i<50&&!(await opened.count());i++)await delay(50);
+    assert.equal(await opened.count(),1,'one real native file-open response after activating the notice button');
+  }finally{await opened.restore();}
   const file=powerShell(['-File','scripts/lib/ObserveLogShell.ps1','-Root',root,'-TargetPath',path.join(root,'logs',log.readable.filename),
     '-Action','file','-LogId',log.log_id]);
   assert.match(file,/PASS actual readable log and exact header/);
