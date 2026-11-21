@@ -223,7 +223,7 @@ async function run() {
     await verifyDesktopSsh1Keyboard({ ui, saved, peer: positive, executable, fingerprint, servicePid: status.pid });
     return;
   }
-  if (await ui.evaluate(`${el('.app-bar button')}.getAttribute('aria-expanded')==='false'`)) await ui.click('会话导航');
+  if (await ui.evaluate(`${el('.sidebar-toggle')}.getAttribute('aria-expanded')==='false'`)) await ui.click('会话导航');
   await ui.click('刷新会话树');
 
   async function chooseSaved(profile, peer) {

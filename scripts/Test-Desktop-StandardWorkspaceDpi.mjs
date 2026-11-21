@@ -155,7 +155,7 @@ try {
       assert.equal(item.viewport.dpr, physical.dpi / 96);
       assert.equal(item.viewport.theme, evidence.initialViewport.theme);
       if (narrow) assert.deepEqual([physical.dpi, item.viewport.width, item.viewport.height, item.viewport.theme], [96, 744, 501, 'dark']);
-      if (!await ui.evaluate(`document.querySelector('.app-bar button').getAttribute('aria-expanded')==='true'`)) {
+      if (!await ui.evaluate(`document.querySelector('.sidebar-toggle').getAttribute('aria-expanded')==='true'`)) {
         await tabTo(activeText('会话导航'), '打开会话导航');
         await enter();
         await tabTo(`(${activeText('刷新会话树')}) && !document.activeElement.disabled`, '加载预置会话树');

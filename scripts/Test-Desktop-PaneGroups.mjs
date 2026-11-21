@@ -16,7 +16,7 @@ const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
 const notices=process.argv.includes('--recording-notices');
 const webviewDrags=process.argv.includes('--webview-drags');
-const requestedVersion=process.argv.find(arg=>/^--ui-version=0\.1\.[5-9]$/.test(arg))?.split('=')[1];
+const requestedVersion=process.argv.find(arg=>/^--ui-version=0\.1\.([5-9]|10)$/.test(arg))?.split('=')[1];
 const version=requestedVersion??'0.1.5';
 const tabRecording=notices||process.argv.includes('--tab-recording');
 const evidence=requestedVersion??(notices?version:toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2');

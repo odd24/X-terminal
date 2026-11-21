@@ -3,8 +3,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const windowHandle = getCurrentWindow();
 
-export function WindowChrome({ detached, children }: {
+export function WindowChrome({ detached, leading, children }: {
   detached: boolean;
+  leading?: ReactNode;
   children: ReactNode;
 }) {
   const [maximized, setMaximized] = useState(false);
@@ -23,6 +24,7 @@ export function WindowChrome({ detached, children }: {
     void operation().catch(() => setProblem('窗口操作未完成。'));
   }
   return <header className="window-chrome" aria-label="窗口标题栏">
+    {leading}
     <div className="window-title" title={detached ? '共享终端 · 独立会话' : '共享终端'} data-tauri-drag-region="">
       共享终端
     </div>

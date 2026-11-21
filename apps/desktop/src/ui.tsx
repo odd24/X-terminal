@@ -197,7 +197,7 @@ export function keepCompositionInField(event: KeyboardEvent<HTMLFormElement>) {
 }
 
 export function ToolbarMenu({className,label,text,summary,children}: {
-  className: string; label: string; text: string; summary?: RefObject<HTMLElement|null>; children: ReactNode;
+  className: string; label: string; text: ReactNode; summary?: RefObject<HTMLElement|null>; children: ReactNode;
 }) {
   const element=useRef<HTMLDetailsElement>(null);
   const surface=useRef<HTMLDivElement>(null);

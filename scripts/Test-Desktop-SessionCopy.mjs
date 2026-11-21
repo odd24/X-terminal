@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawn} from 'node:child_process';
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createInterface} from 'node:readline';
 import {requestId} from '../apps/desktop/src/request-id.ts';
 import {connectDesktopPage, delay, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
+import {checkLogToolbar,checkMainToolbar,measureCompactToolbar,measurePopup} from './lib/ToolbarMenuChecks.mjs';
 
 const desktop=path.resolve(process.argv[2]);
 const uartMode=process.argv.includes('--uart');
+const refresh=process.argv.includes('--toolbar-refresh');
+const version=refresh?'0.1.10':'0.1.9';
 const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-session-copy-ui-中文-'));
 const processes=[];
 const title='共享终端';
@@ -171,7 +174,7 @@ function fit(width,height){
 const windowQuery=(page,operation,label='main')=>page.invoke(`plugin:window|${operation}`,{label});
 async function verifyWindow(page,caption,label='main'){
   const chrome=q('.window-title');
-  const start=await page.evaluate(`(()=>{const b=${chrome}.getBoundingClientRect();return{x:b.left+40,y:b.top+b.height/2};})()`);
+  const start=await page.evaluate(`(()=>{const b=${chrome}.getBoundingClientRect();return{x:b.left+b.width/2,y:b.top+b.height/2};})()`);
   const before=await windowQuery(page,'outer_position',label);
   dragNativeWindow(ui.app,[start,{x:start.x+32,y:start.y+24},{x:start.x+62,y:start.y+40}],{executable:desktop,title:caption,raise:true});
   const moved=await windowQuery(page,'outer_position',label);
@@ -194,11 +197,117 @@ async function close(){
   ui=undefined;
 }
 
+async function setTheme(theme){
+  await ui.evaluate("document.querySelector('.tools-menu').open=true");
+  await ui.click('软件设置');
+  await ui.waitFor(`document.querySelector('[aria-label="应用主题"]')?.disabled===false`);
+  await ui.fill('应用主题',theme);
+  await ui.click('保存桌面偏好');
+  await wait(async()=> (await ui.invoke('config_request',{request:{op:'preferences'}})).preferences.theme===theme,'saved toolbar test theme');
+  await ui.click('关闭软件设置');
+  await ui.waitFor(`document.documentElement.dataset.theme===${JSON.stringify(theme)}&&!document.querySelector('dialog:modal')`);
+}
+
+async function exerciseDirectory(page,caption){
+  await page.evaluate(`(()=>{
+    const original=window.fetch;
+    window.toolbarDirectory={original,result:[]};
+    window.fetch=async function(input,options){
+      const response=await original.call(this,input,options);
+      if(new URL(String(input)).pathname==='/open_managed_log_directory')window.toolbarDirectory.result.push(response.headers.get('Tauri-Response'));
+      return response;
+    };
+   })()`);
+  try{
+    await click(page,q('.toolbar-log-directory'),'Left',caption);
+    await page.waitFor("window.toolbarDirectory.result.length===1");
+    assert.deepEqual(await page.evaluate('window.toolbarDirectory.result'),['ok']);
+  }finally{
+    await page.evaluate('window.fetch=window.toolbarDirectory.original; delete window.toolbarDirectory;');
+  }
+  await page.command('Page.bringToFront');
+}
+
+async function checkMoreTools(){
+  await click(ui,q('.tools-menu > summary'));
+  const anchored=await measurePopup(ui,'.tools-menu > summary','.tools-menu-content','compact more tools');
+  const expanded=await ui.evaluate(`getComputedStyle(document.querySelector('.tools-menu > summary')).backgroundColor`);
+  assert.notEqual(expanded,'rgba(0, 0, 0, 0)');
+  for(const type of ['keyDown','keyUp'])await ui.command('Input.dispatchKeyEvent',{type,key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await ui.waitFor("!document.querySelector('.tools-menu').open");
+  return anchored;
+}
+
+async function toolbarRefresh(){
+  const menus=await checkMainToolbar(ui,width=>fit(width,width===720?480:760),version);
+  const first=await source('toolbar-first'),second=await source('toolbar-second');
+  const a=await connect(first,false),b=await connect(second,false);
+  await activate(b);
+  await ui.waitFor(`${tab(a)}?.getAttribute('aria-label')==='localhost'&&${tab(b)}?.getAttribute('aria-label')==='localhost'`);
+  await exerciseDirectory(ui,title);
+  assert.equal((await stat(path.join(root,'logs'))).isDirectory(),true);
+  const aRecord=`${tab(a)}.parentElement.querySelector('.tab-record-button')`;
+  const bRecord=`${tab(b)}.parentElement.querySelector('.tab-record-button')`;
+  await ui.waitFor(`${aRecord}?.getAttribute('aria-disabled')==='false'`);
+  await click(ui,aRecord);
+  await ui.waitFor(`${aRecord}.dataset.recording==='recording'&&${bRecord}.dataset.recording==='idle'
+    &&${tab(b)}.getAttribute('aria-selected')==='true'&&${q('.toolbar-log')}.dataset.logPhase!=='RECORDING'`);
+  await activate(a);
+  await ui.waitFor(`${q('.toolbar-log')}.dataset.logPhase==='RECORDING'&&${q('.toolbar-log')}.getAttribute('aria-description').includes('正在记录')`);
+  menus.push(await checkLogToolbar(ui,'active recording log','停止记录'));
+  const geometry={};
+  for(const theme of ['light','dark']){
+    await setTheme(theme);
+    for(const [name,width,height] of [['wide',1100,760],['narrow',720,480]]){
+      fit(width,height);
+      await ui.waitFor(width===720?'innerWidth<=725':'innerWidth>=1080');
+      const k=theme+'-'+name;
+      geometry[k]=await measureCompactToolbar(ui);
+      verifySeam(await seam(ui));
+      await ui.screenshot(`desktop-${version}-toolbar-${k}.png`);
+    }
+  }
+  assert.notEqual(geometry['light-wide'].background,geometry['dark-wide'].background);
+  await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...await ui.evaluate(`(()=>{const b=${q('.toolbar-log')}.getBoundingClientRect();return {x:b.x+b.width/2,y:b.y+b.height/2};})()`)});
+  await ui.waitFor(`getComputedStyle(${q('.toolbar-log')}).backgroundColor!=='rgba(0, 0, 0, 0)'`);
+  menus.push(await checkMoreTools());
+  fit(1100,760);
+  await ui.waitFor('innerWidth>=1080');
+  await splitRight(b);
+  geometry.split=await measureCompactToolbar(ui);
+  assert.equal(geometry.split.tabTops.length,2);
+  await ui.screenshot(`desktop-${version}-toolbar-split.png`);
+  const origin=await ui.evaluate(`(()=>{const r=${tab(b)}.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  dragNativeWindow(ui.app,[origin,{x:origin.x,y:origin.y+35},{x:45,y:120},{x:-35,y:150,outside:true,holdMs:350}],
+    {executable:desktop,title,raise:true,placeAtWorkAreaStart:true});
+  detached=await connectDesktopPage(await wait(async()=> (await ui.otherPages())[0],'native detached toolbar window'));
+  await detached.waitFor(`${tab(b)}?.getAttribute('aria-selected')==='true'&&document.documentElement.dataset.theme==='dark'`);
+  geometry.detached=await measureCompactToolbar(detached,true);
+  verifySeam(await seam(detached));
+  await detached.screenshot(`desktop-${version}-toolbar-detached.png`);
+  menus.push(await checkLogToolbar(detached,'detached log','开始记录'));
+  await exerciseDirectory(detached,childTitle);
+  const label=await detached.evaluate('window.__TAURI_INTERNALS__.metadata.currentWindow.label');
+  const detachedWindow=await verifyWindow(detached,childTitle,label);
+  await click(detached,q('.app-bar button:last-child'),'Left',childTitle);
+  await wait(async()=> !(await ui.otherPages()).length,'dedicated move-back control returned the original window');
+  detached.close();detached=undefined;
+  await ui.waitFor(`!!${tab(b)}`);
+  await activate(a);
+  await click(ui,aRecord);
+  await wait(async()=> (await logs(a,{op:'list'})).logs[0]?.durable,'original recording stopped independently');
+  assert.deepEqual((await logs(b,{op:'list'})).logs,[]);
+  const window=await verifyWindow(ui,title);
+  return {result:'PASS',geometry,menus,window,detachedWindow,recordingScoped:true,nativeDirectoryBothWindows:true};
+}
+
 try{
   ui=await launchDesktop(root,{executable:desktop,fixture:uartMode});
   service=await ui.invoke('service_status');
   assert.equal(service.fixture,uartMode);
-  if(uartMode){
+  if(refresh){
+    evidence=await toolbarRefresh();
+  }else if(uartMode){
     const inventory=await serial({op:'inventory'});
     assert.deepEqual(inventory.devices.map(item=>item.port),['COM7']);
     const settings={protocol:'serial',port:'COM7',baud_rate:57600,data_bits:8,stop_bits:1,parity:'none',flow:'none',
@@ -320,10 +429,10 @@ try{
       detachedCopyRouting:true,lostReplyRecoveredWithoutReplay:true};
   }
   await close();
-  await writeFile(`artifacts/windows-0.1.9-session-copy-${uartMode?'uart':'ssh'}.json`,JSON.stringify(evidence,null,2)+'\n');
-  console.log('PASS Windows session copy',uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows');
+  await writeFile(`artifacts/windows-${version}-${refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh'}.json`,JSON.stringify(evidence,null,2)+'\n');
+  console.log(refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
 }catch(error){
-  if(ui)await ui.screenshot(`desktop-0.1.9-session-copy-${uartMode?'uart':'ssh'}-failure.png`).catch(()=>{});
+  if(ui)await ui.screenshot(`desktop-${version}-${refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh'}-failure.png`).catch(()=>{});
   throw error;
 }finally{
   detached?.close();

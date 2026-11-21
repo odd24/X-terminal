@@ -548,8 +548,9 @@ function App() {
   const tabLogs=useTabLogging(logOwner,tabs,active,target=>!serviceStopped.current&&serviceRef.current?.service_id===target.service_id&&
     transferring.current!==target.connection.connection_id&&liveConnections.current.some(c=>c.protocol===target.protocol&&
       c.connection_id===target.connection.connection_id&&c.generation===target.connection.generation),tabName,recordingNotices.notify);
-  const activeLog=active?tabLogs.summary(active)?.text??'正在查询本次日志状态':'尚无活动连接';
-  const activeLogBadge=active?logBadge(tabLogs.summary(active)):undefined;
+  const activeLogSummary=active?tabLogs.summary(active):undefined;
+  const activeLog=active?activeLogSummary?.text??'正在查询本次日志状态':'尚无活动连接';
+  const activeLogBadge=logBadge(activeLogSummary);
   useEffect(()=>{
     if(clipboardMessage!=='终端选区已复制')return;
     const timer=window.setTimeout(()=>setClipboardMessage(''),2000);
@@ -880,16 +881,22 @@ function App() {
   const brightness=preferences.terminal_text_brightness??100;
   return <main className="desktop-shell" data-terminal-dim={brightness<100?'true':undefined}
     style={{ '--navigation-width': `${navigationWidth}px`, '--terminal-text-brightness': `${brightness}%` } as CSSProperties}>
-    <WindowChrome detached={detached}>
+    <WindowChrome detached={detached} leading={!detached&&<button type="button" className="sidebar-toggle"
+      aria-label="会话导航" title="显示或收起连接库" aria-expanded={sidebarOpen} aria-controls="connection-library"
+      onClick={toggleSidebar}><span className="sidebar-glyph" aria-hidden="true"/></button>}>
     <nav className="app-bar" aria-label="会话控制">
-      {!detached&&<button className="sidebar-toggle" aria-label="会话导航" title="显示或收起连接库" aria-expanded={sidebarOpen} aria-controls="connection-library" onClick={toggleSidebar}><span aria-hidden="true">◫</span></button>}
-      <button className="toolbar-log" aria-haspopup="menu" aria-expanded={!!terminalMenu&&terminalMenu.anchor.matches('.toolbar-log')} title={activeLog} disabled={!active||renderedTarget?.connection_id!==active.connection_id||renderedTarget.generation!==active.generation||!['SSH2','SERIAL'].includes(active.protocol)} onClick={event=>openTopLog(event.currentTarget)}>
-        {activeLogBadge||'日志'}
+      <button type="button" className="toolbar-log" aria-haspopup="menu" aria-expanded={!!terminalMenu&&terminalMenu.anchor.matches('.toolbar-log')}
+        aria-description={activeLog} title={activeLog} data-log-phase={activeLogSummary?.unknown?'UNKNOWN':activeLogSummary?.phase}
+        disabled={!active||renderedTarget?.connection_id!==active.connection_id||renderedTarget.generation!==active.generation||!['SSH2','SERIAL'].includes(active.protocol)}
+        onClick={event=>openTopLog(event.currentTarget)}>
+        日志<span className="log-chevron" aria-hidden="true"/>
       </button>
       <button type="button" className="toolbar-log-directory" aria-label="打开日志目录" title="打开日志目录" onClick={()=>void logDirectory.open()}>
         <span className="log-folder-glyph" aria-hidden="true"/>
       </button>
-      {!detached&&<ToolbarMenu summary={toolsSummary} className="tools-menu" label="更多工具" text="更多工具">
+      {!detached&&<ToolbarMenu summary={toolsSummary} className="tools-menu" label="更多工具" text={<>
+        <span className="tools-trigger-label">更多工具</span><span className="tools-glyph" aria-hidden="true"/>
+      </>}>
         <section className="toolbar-group" aria-label="会话与终端">
           <h3>会话与终端</h3>
           <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>

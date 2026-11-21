@@ -87,23 +87,47 @@ main.desktop-shell {
   height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
 }
 .window-chrome {
-  display: flex; align-items: stretch; min-width: 0; min-height: 38px;
-  margin-inline: calc(-1 * var(--space-2)); background: var(--surface); user-select: none;
+  display: flex; align-items: center; min-width: 0; min-height: 38px; padding-inline-start: var(--space-2);
+  margin-inline: calc(-1 * var(--space-2)); background: color-mix(in srgb, var(--page) 55%, var(--surface));
+  user-select: none;
   border-bottom: var(--border-width) solid var(--border-subtle);
 }
 .window-title {
-  flex: 1; display: flex; align-items: center; padding-inline: var(--space-3);
-  min-width: 0; overflow: hidden; color: var(--text-muted); white-space: nowrap; font-size: var(--text-sm);
+  flex: 1; align-self: stretch; display: flex; align-items: center; padding-inline: var(--space-3);
+  min-width: 0; overflow: hidden; color: var(--text); white-space: nowrap; font-size: var(--text-body); font-weight: 400;
 }
 .window-chrome .app-bar {
-  flex: none; align-self: center; align-items: center; margin: 2px var(--space-1);
-  padding: 0 2px; flex-wrap: nowrap; background: var(--surface-raised);
-  border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-control);
+  display: flex; flex: none; align-items: center; gap: var(--space-1); margin: 0; margin-inline-end: var(--space-5);
+  padding: 0; background: transparent; border-radius: 0;
 }
-.window-chrome .app-bar > :is(button,details) { flex-shrink: 0; }
-.window-chrome .app-bar > button { min-height: 28px; }
-.window-chrome .toolbar-log { width: clamp(4.2em, 8.5vw, 8em); white-space: nowrap; }
-.window-buttons { display: flex; flex: none; }
+.window-chrome > .sidebar-toggle,
+.window-chrome .app-bar > button,
+.window-chrome .app-bar > .tools-menu > summary {
+  display: inline-flex; flex: none; align-items: center; justify-content: center; position: relative;
+  min-height: var(--control-height); padding: 0 var(--space-2); border: 0;
+  border-radius: var(--radius-control); background: transparent; color: var(--text); font: inherit; white-space: nowrap;
+}
+.window-chrome :is(.sidebar-toggle,.toolbar-log-directory,.tools-menu > summary) { inline-size: var(--control-height); padding-inline: 0; }
+.window-chrome > .sidebar-toggle:hover,
+.window-chrome .app-bar > button:not(:disabled):hover,
+.window-chrome .app-bar > button[aria-expanded="true"],
+.window-chrome .app-bar > .tools-menu > summary:hover,
+.window-chrome .app-bar > .tools-menu[open] > summary { background: var(--control-hover); }
+.window-chrome :is(.sidebar-toggle, .app-bar > button, .tools-menu > summary):focus-visible { outline-offset: -2px; }
+.window-chrome .toolbar-log { min-inline-size: 64px; gap: var(--space-1); }
+.toolbar-log:is([data-log-phase="RECORDING"],[data-log-phase="STOPPING"],[data-log-phase="UNKNOWN"],[data-log-phase="FAILED"])::before {
+  content: ''; position: absolute; inset-inline-start: 4px; inline-size: 4px; block-size: 4px;
+  border-radius: 50%; background: var(--recording);
+}
+.toolbar-log:is([data-log-phase="UNKNOWN"],[data-log-phase="FAILED"])::before { background: var(--danger); }
+.sidebar-glyph { position: relative; width: 16px; height: 14px; border: 1px solid currentColor; border-radius: 2px; }
+.sidebar-glyph::before { content: ''; position: absolute; inset-block: 0; inset-inline-start: 4px; border-inline-start: 1px solid currentColor; }
+.log-chevron { width: 6px; height: 6px; margin: -3px 2px 0; border: solid currentColor; border-width: 0 1px 1px 0; transform: rotate(45deg); }
+.log-folder-glyph { position: relative; width: 16px; height: 11px; margin-top: 3px; border: 1px solid currentColor; border-radius: 2px; }
+.log-folder-glyph::before { content: ''; position: absolute; width: 6px; height: 3px; left: -1px; top: -4px; border: 1px solid currentColor; border-bottom: 0; border-radius: 2px 2px 0 0; }
+.tools-trigger-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tools-glyph { width: 3px; height: 3px; border-radius: 50%; background: currentColor; box-shadow: -5px 0 currentColor, 5px 0 currentColor; }
+.window-buttons { display: flex; flex: none; align-self: stretch; }
 .window-buttons button { display: grid; place-items: center; width: 34px; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .window-buttons button:hover { background: var(--control-hover); }
 .window-buttons .window-close:hover { background: var(--danger); color: var(--surface); }
@@ -116,9 +140,7 @@ main.desktop-shell {
 @media (max-width: 560px) {
   .window-title { padding-inline: var(--space-2); font-size: var(--text-xs); }
   .window-buttons button { width: 30px; }
-  .window-chrome .app-bar { gap: 2px; }
 }
-.app-bar { min-width: 0; display: flex; align-items: end; gap: var(--space-1); }
 .primary-action:not(:disabled) { border-color: var(--accent); background: var(--accent); color: var(--page); font-weight: var(--weight-heading); }
 .primary-action:hover:not(:disabled) { background: var(--accent-text); }
 .app-dialog { position: fixed; inset: 0; width: min(var(--dialog-width), calc(100vw - 16px)); max-width: none; max-height: min(var(--dialog-max-height), calc(100dvh - 16px)); margin: auto; padding: 0; color: var(--text); background: var(--surface); border: var(--border-width) solid var(--border); border-radius: var(--radius-panel); }
@@ -162,17 +184,14 @@ main.desktop-shell {
 .tools-menu-content .toolbar-group > .toolbar-exit { margin-top: var(--space-1); border-top-color: var(--border-subtle); }
 .toolbar-group select { width: 100%; max-width: 100%; }
 .terminal-context-menu[data-positioned] { box-sizing: border-box; max-width: calc(100vw - 16px); overflow: auto; overscroll-behavior: contain; }
-.app-bar > details > summary,.pane-tab-bar .new-menu > summary {
+.pane-tab-bar .new-menu > summary {
   display: grid; place-items: center; min-height: var(--control-height); padding: 0 var(--space-2);
   border-radius: var(--radius-control); list-style: none;
 }
-.app-bar > details[open] > summary, .app-bar > details > summary:hover,
 .pane-tab-bar .new-menu[open] > summary,.pane-tab-bar .new-menu > summary:hover { background: var(--control-hover); }
 .desktop-shell nav { position: relative; flex-wrap: nowrap; flex: 0 0 auto; margin: 0; padding: 0 var(--space-1) 0 0; white-space: nowrap; background: var(--surface); border-radius: var(--radius-control) var(--radius-control) 0 0; }
 .desktop-shell nav > * { flex-shrink: 0; }
-.app-bar > button, .app-bar > details { margin-bottom: var(--space-1); }
-.app-bar > button, .connection-tab button { min-height: var(--control-height); padding-block: 0; }
-.sidebar-toggle { font-size: var(--text-heading); }
+.connection-tab button { min-height: var(--control-height); padding-block: 0; }
 .desktop-shell nav select { max-width: var(--list-height); }
 .diagnostic-menu { position: relative; }
 .diagnostic-menu > summary { padding: 4px 8px; }
@@ -352,10 +371,6 @@ main.desktop-shell {
 .config-panel form :is(input:not([type="checkbox"]), select, button) { min-height: var(--control-height); padding-block: var(--space-1); }
 .config-panel form .primary-action { min-width: 8rem; }
 
-.toolbar-log { width: 8em; text-overflow: ellipsis; overflow: hidden; }
-.toolbar-log-directory { display:grid; place-items:center; flex:none; width:var(--control-height); padding:0; }
-.log-folder-glyph { position:relative; width:15px; height:11px; margin-top:3px; border:1px solid currentColor; border-radius:2px; }
-.log-folder-glyph::before { content:''; position:absolute; width:6px; height:3px; left:-1px; top:-4px; border:1px solid currentColor; border-bottom:0; border-radius:2px 2px 0 0; }
 .log-directory-error { display:block; color:var(--danger); padding:0 var(--space-2); }
 .corner-notice-stack {
   position:fixed; inset:auto var(--space-4) var(--space-4) auto; z-index:80;

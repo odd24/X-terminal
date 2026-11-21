@@ -113,11 +113,11 @@ try{
  const original=await slot();
  assert.ok(await ui.evaluate(`!!document.querySelector('.terminal-log-operation-notice .corner-notice-title')`));
  if(pureBlack){
-   assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.app-bar')).backgroundColor`),'rgb(20, 31, 43)');
+   assert.notEqual(await ui.evaluate(`getComputedStyle(document.querySelector('.window-chrome')).backgroundColor`),'rgb(0, 0, 0)');
    await ui.screenshot('terminal-black-only-log.png');
  }else await ui.screenshot('log-status-timeout-open.png');
  const firstDismissal=await dismissalTime(opened);
- await ui.waitFor(`(${badge(b)})?.dataset.recording==='recording'&&document.querySelector('.toolbar-log').textContent.trim()==='● 记录中'`);
+ await ui.waitFor(`(${badge(b)})?.dataset.recording==='recording'&&document.querySelector('.toolbar-log').dataset.logPhase==='RECORDING'`);
  await right('second');
  const reopened=await clickMenuAt('查看上次日志操作');
  await ui.waitFor(`!!${notice}`);

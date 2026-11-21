@@ -49,10 +49,13 @@ export async function measurePopup(page,trigger,popup,label){
 
 export async function checkMainToolbar(page,fit,version='0.1.4'){
   const result=[];
-  const softwareSettings=['0.1.7','0.1.8','0.1.9'].includes(version);
+  const compact=version==='0.1.10';
+  const softwareSettings=compact||['0.1.7','0.1.8','0.1.9'].includes(version);
   await page.command('Page.bringToFront');
   assert.deepEqual(await page.evaluate('[...document.querySelector(".app-bar").children].map(element=>element.className)'),
-    ['0.1.5','0.1.6'].includes(version)||softwareSettings?['sidebar-toggle','toolbar-log','toolbar-log-directory','tools-menu']:['sidebar-toggle','toolbar-log','tools-menu']);
+    compact?['toolbar-log','toolbar-log-directory','tools-menu']:
+      ['0.1.5','0.1.6'].includes(version)||softwareSettings?['sidebar-toggle','toolbar-log','toolbar-log-directory','tools-menu']:['sidebar-toggle','toolbar-log','tools-menu']);
+  if(compact)assert.equal(await page.evaluate("document.querySelector('.window-chrome').firstElementChild.className"),'sidebar-toggle');
   for(const width of [1100,720]){
     await fit(width);
     await clickVisible(page,tools);
@@ -72,6 +75,7 @@ export async function checkMainToolbar(page,fit,version='0.1.4'){
     await page.waitFor('document.activeElement.textContent==="终端日志"');
     await key(page,escaped);
     await page.waitFor('!document.querySelector(".tools-menu").open && document.activeElement==='+q(tools));
+    if(compact)assert.equal(await page.evaluate('getComputedStyle('+q(tools)+').outlineStyle'),'solid');
   }
   await clickVisible(page,'.sidebar-toggle');
   await page.waitFor('document.querySelector(".desktop-body").classList.contains("sidebar-hidden")');
@@ -97,6 +101,42 @@ export async function checkMainToolbar(page,fit,version='0.1.4'){
   await page.waitFor('!document.querySelector("dialog:modal") && document.activeElement==='+q(tools));
   await clickVisible(page,'.sidebar-toggle');
   await fit(1100);
+  return result;
+}
+
+export async function measureCompactToolbar(page,detached=false){
+  await page.command('Input.dispatchMouseEvent',{type:'mouseMoved',x:2,y:95});
+  const result=await page.evaluate(`(()=>{
+    const header=document.querySelector('.window-chrome'),nav=header.querySelector('.app-bar');
+    const title=header.querySelector('.window-title'),sidebar=header.querySelector('.sidebar-toggle');
+    const box=node=>node.getBoundingClientRect(),chrome=box(header),actions=box(nav),caption=box(header.querySelector('.window-buttons'));
+    const nodeSizes=[...nav.children].map(child=>child.matches('details')?child.querySelector('summary'):child);
+    if(sidebar)nodeSizes.unshift(sidebar);
+    const controls=nodeSizes.map(node=>{
+      const b=box(node),style=getComputedStyle(node);
+      return {label:node.getAttribute('aria-label')??node.textContent.trim(),width:b.width,height:b.height,
+        transparent:style.backgroundColor==='rgba(0, 0, 0, 0)',border:parseFloat(style.borderTopWidth),
+        fits:b.left>=chrome.left&&b.right<=chrome.right&&b.top>=chrome.top&&b.bottom<=chrome.bottom};
+    });
+    return {viewport:[innerWidth,innerHeight],height:chrome.height,controls,gap:caption.left-actions.right,
+      background:getComputedStyle(header).backgroundColor,navBackground:getComputedStyle(nav).backgroundColor,
+      title:{text:title.textContent.trim(),weight:getComputedStyle(title).fontWeight,width:box(title).width,drag:title.hasAttribute('data-tauri-drag-region')},
+      sidebarBeforeTitle:sidebar?.nextElementSibling===title,toolbarBottom:chrome.bottom,
+      tabTops:[...document.querySelectorAll('.terminal-pane .pane-tab-bar')].map(node=>box(node).top),
+      toolsHint:nav.querySelector('.tools-menu > summary')?.title??null};
+  })()`);
+  assert.equal(result.navBackground,'rgba(0, 0, 0, 0)');
+  assert.ok(result.height>=37&&result.height<=41&&Math.abs(result.gap-20)<1,JSON.stringify(result));
+  assert.deepEqual(result.controls.map(control=>control.label),detached?['日志','打开日志目录','移回主窗口']:['会话导航','日志','打开日志目录','更多工具']);
+  assert.ok(result.controls.every(control=>control.fits&&control.border===0&&control.height===32&&control.transparent),JSON.stringify(result));
+  assert.ok(result.controls.filter(control=>['会话导航','打开日志目录','更多工具'].includes(control.label)).every(control=>control.width===32));
+  assert.equal(result.title.text,'共享终端');
+  assert.equal(result.title.weight,'400');
+  assert.equal(result.title.drag,true);
+  assert.ok(result.title.width>=80);
+  assert.equal(result.sidebarBeforeTitle,!detached);
+  assert.equal(result.toolsHint,detached?null:'更多工具');
+  assert.ok(result.tabTops.length>0&&result.tabTops.every(top=>top>=result.toolbarBottom),JSON.stringify(result));
   return result;
 }
 

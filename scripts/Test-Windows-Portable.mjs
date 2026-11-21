@@ -104,14 +104,17 @@ try {
   assert.equal(path.resolve(await release.invoke('config_directory')).toLowerCase(),path.resolve(root).toLowerCase());
   const title = psJson(`(Get-Process -Id ${release.app.pid}).MainWindowTitle | ConvertTo-Json -Compress`);
   assert.equal(title,'共享终端');
-  if(manifest.version==='0.1.9'){
+  if(['0.1.9','0.1.10'].includes(manifest.version)){
     const toolbar=await release.evaluate(`(()=>{
       const bar=document.querySelector('.window-chrome'),tools=bar.querySelector('.app-bar');
-      return {grouped:getComputedStyle(tools).backgroundColor!==getComputedStyle(bar).backgroundColor,
+      return {transparent:getComputedStyle(tools).backgroundColor==='rgba(0, 0, 0, 0)',
+        sidebarAtStart:bar.firstElementChild.classList.contains('sidebar-toggle'),
         tabsInHeader:!!bar.querySelector('.pane-tab-bar'),
         controls:[...tools.children].filter(node=>node.getClientRects().length).map(node=>node.className)};
     })()`);
-    assert.deepEqual(toolbar,{grouped:true,tabsInHeader:false,controls:['sidebar-toggle','toolbar-log','toolbar-log-directory','tools-menu']});
+    assert.deepEqual(toolbar,manifest.version==='0.1.10'
+      ?{transparent:true,sidebarAtStart:true,tabsInHeader:false,controls:['toolbar-log','toolbar-log-directory','tools-menu']}
+      :{transparent:false,sidebarAtStart:false,tabsInHeader:false,controls:['sidebar-toggle','toolbar-log','toolbar-log-directory','tools-menu']});
   }
   const consoles = psJson(`$children=@(Get-CimInstance Win32_Process -Filter "ParentProcessId=${release.app.pid}" | Where-Object { $_.Name -match '^(conhost|OpenConsole|WindowsTerminal|powershell|pwsh)\.exe$' }); ConvertTo-Json -InputObject $children.Count -Compress`);
   assert.equal(consoles,0);

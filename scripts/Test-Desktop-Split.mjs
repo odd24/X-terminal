@@ -101,7 +101,7 @@ try{
      const computed=await ui.evaluate('(()=>{const pane=document.querySelector('+JSON.stringify(pane)+');return {background:getComputedStyle(pane.querySelector(".terminal")).backgroundColor, colors:Object.fromEntries([...pane.querySelectorAll(".xterm-rows > div > span")].filter(span=>'+JSON.stringify(Object.keys(wanted))+'.includes(span.textContent)).map(span=>[span.textContent,getComputedStyle(span).color]))};})()');
      assert.deepEqual(computed,{background:'rgb(0, 0, 0)',colors:wanted});
    }
-   assert.equal(await ui.evaluate('getComputedStyle(document.querySelector(".app-bar")).backgroundColor'),'rgb(245, 246, 248)');
+   assert.notEqual(await ui.evaluate('getComputedStyle(document.querySelector(".window-chrome")).backgroundColor'),'rgb(0, 0, 0)');
    await menu('软件设置');
    await ui.fill('终端文字亮度',70);
    await ui.waitFor(`document.querySelector('.desktop-shell').dataset.terminalDim==='true'`);
