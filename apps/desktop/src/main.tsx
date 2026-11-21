@@ -62,7 +62,7 @@ import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { QuickSerial } from './quick-serial';
 import {LocalTerminal, terminalAction, type LocalPromptState, type LocalTab, type LocalView} from './local-terminal';
-import {AdbShortcutPanel, loadAdbSettings, type AdbIntent, type AdbSettings} from './local-adb';
+import {AdbShortcutPanel, loadAdbSettings, type AdbDiagnostic, type AdbIntent, type AdbSettings} from './local-adb';
 import { LoggingPanel } from './logging-panel';
 import { serial, type SerialStatus } from './serial-api';
 import { requestId } from './request-id';
@@ -302,6 +302,8 @@ function App() {
   const [adbPanels,setAdbPanels]=useState<Partial<Record<PaneKey,boolean>>>({});
   const [adbIntent,setAdbIntent]=useState<AdbIntent&{id:string}>();
   const [adbStarting,setAdbStarting]=useState(false);
+  const [adbDiagnostics,setAdbDiagnostics]=useState<Record<string,AdbDiagnostic>>({});
+  const adbDiagnosticRequests=useRef(new Map<string,string>());
   const shortcutFlight=useRef<{request:string;id?:string}|undefined>(undefined);
   const promptStates=useRef(new Map<string,LocalPromptState>());
   const reportLocalPrompt=useRef((id:string,state:LocalPromptState)=>{promptStates.current.set(id,state);});
@@ -323,12 +325,12 @@ function App() {
     catch { /* the current window still remembers the choice */ }
     if (!open) document.querySelector<HTMLElement>(`[data-pane="${pane}"] .adb-panel-toggle`)?.focus();
   }
-  async function openLocal(pane:PaneKey,inherit?:string) {
+  async function openLocal(pane:PaneKey,powershell=true,inherit?:string) {
     if (openingLocal.current||closingDesktop.current) return undefined;
     openingLocal.current=true;
     const id=crypto.randomUUID();
     try {
-      const initial=await terminalAction<LocalView>({kind:'open',id,inherit:inherit??null});
+      const initial=await terminalAction<LocalView>({kind:'open',id,inherit:inherit??null,powershell});
       if(!panes.current.slots.some(slot=>slot.key===pane)) {
         await terminalAction({kind:'close',id});return;
       }
@@ -336,7 +338,7 @@ function App() {
       localCount.current++;
       const surface=document.createElement('div');
       surface.className='local-terminal-surface';
-      setLocalTabs(previous=>[...previous,{id,title,initial,pane,surface}]);
+      setLocalTabs(previous=>[...previous,{id,title,initial,pane,surface,powershell}]);
       selectLocal(pane,id);
       if(!adbSettings)void loadAdb();
       return id;
@@ -370,12 +372,17 @@ function App() {
     if(shortcutFlight.current||closingLocal.current.has(source))return;
     const request=crypto.randomUUID();
     shortcutFlight.current={request};
+    adbDiagnosticRequests.current.set(button,request);
     setAdbStarting(true);
     const state=promptStates.current.get(source);
-    const id=state&&!state.busy&&!state.hasDraft?source:await openLocal(pane,source);
+    const id=state&&!state.busy&&!state.hasDraft?source:await openLocal(pane,false,source);
     if(!id){shortcutSettled(request);return;}
     shortcutFlight.current={request,id};
     setAdbIntent({button,revision,request,id});
+  }
+  function reportAdbDiagnostic(intent:AdbIntent,diagnostic:AdbDiagnostic) {
+    if(adbDiagnosticRequests.current.get(intent.button)===intent.request)
+      setAdbDiagnostics(previous=>({...previous,[intent.button]:diagnostic}));
   }
   const stopped = useRef(false);
   const connectionStates=JSON.stringify(connections.map(c=>[c.connection_id,c.generation,c.state]));
@@ -505,7 +512,7 @@ function App() {
   function closeBroadcast(){broadcastRun.current.cancel();setBroadcastOpen(false);setBroadcastSeed(undefined);}
   function syncRoute(){const current=panes.current.current,local=localSelected.current.has(panes.current.active);selectedRef.current=local?'':current.requested;setSelected(selectedRef.current);const c=local?undefined:controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
   function routeChanged(){firstSsh1Fit.current=undefined;setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
-  function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard){if(localSelected.current.has(key)){const local=document.querySelector(`[data-pane="${key}"] .local-terminal:not([hidden])`);(local?.querySelector<HTMLElement>('.local-prompt input')??local?.querySelector<HTMLElement>('.xterm-helper-textarea'))?.focus();}else controllers.current.get(key)?.runtime.term.focus();}}
+  function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard){if(localSelected.current.has(key)){document.querySelector<HTMLElement>(`[data-pane="${key}"] .local-terminal:not([hidden]) .xterm-helper-textarea`)?.focus();}else controllers.current.get(key)?.runtime.term.focus();}}
   function cancelWorkspaceSplit(){workspaceSession.current.cancelSplit();restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);}
   function collapseSplit(keep?:PaneKey){cancelWorkspaceSplit();panes.current.collapse(keep);routeChanged();}
   function paneSelection(key:PaneKey):PaneSelection{const slot=panes.current.slots.find(p=>p.key===key),binding=slot?.binding;
@@ -1052,7 +1059,7 @@ function App() {
 
     {logDirectory.error&&<CornerNotice key={logDirectory.error} className="log-directory-error" heading="日志目录" tone="error" autoDismiss
       dismiss={()=>logDirectory.dismiss(logDirectory.error)}>{logDirectory.error}</CornerNotice>}
-    {!tabs.length && !localTabs.length && <section className="terminal-empty">{detached?<h1>{service?'原会话已移除或代次已变化':'正在加载独立会话'}</h1>:<><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button><button onClick={()=>void openLocal(panes.current.active)}>本地命令行</button></div></>}</section>}
+    {!tabs.length && !localTabs.length && <section className="terminal-empty">{detached?<h1>{service?'原会话已移除或代次已变化':'正在加载独立会话'}</h1>:<><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button><button onClick={()=>void openLocal(panes.current.active)}>本地命令行</button><button onClick={()=>void openLocal(panes.current.active,false)}>轻量命令行</button></div></>}</section>}
     <SessionDragPreview destination={drag.preview?.destination} detached={detached}/>
     {dockHover&&<div className="tab-dock-preview" aria-hidden="true">松开后移回主窗口</div>}
     <PaneGrid tree={panes.current.tree} ratios={splitRatios} idle={!tabs.length&&!localTabs.length} resize={(id,value)=>setSplitRatios(previous=>({...previous,[id]:value}))}
@@ -1067,17 +1074,19 @@ function App() {
         const rail=<SessionTabs singlePane={paneSlots.length===1} tabs={paneTabs(key)} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)}
           owner={service?.service_id??''} selected={localId??slot.requested} name={tabName} recording={tabLogs.control} toggleRecording={tabLogs.toggle}
           select={id=>{panes.current.focus(key);selectConnection(id);controllers.current.get(key)?.runtime.term.focus();}}
-          endControls={localId&&<button type="button" className="adb-panel-toggle" aria-expanded={adbOpen} aria-controls={adbPanelId}
-            onClick={()=>setAdbPanel(key,!adbOpen)}>快捷指令</button>}
+          endControls={localId&&<button type="button" className="adb-panel-toggle" aria-label="快捷指令" title="快捷指令"
+            aria-expanded={adbOpen} aria-controls={adbPanelId} onClick={()=>setAdbPanel(key,!adbOpen)}><span className="sidebar-glyph" aria-hidden="true"/></button>}
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached} copy={(source,owner)=>copyTab(key,source,owner)}
           extraTabs={locals.map(tab=><div className="connection-tab" key={tab.id}>
-            <button role="tab" type="button" className={localId===tab.id?'pane-focus':undefined} aria-selected={localId===tab.id} data-connection-id={tab.id} onClick={()=>selectLocal(key,tab.id)}>{tab.title}</button>
+            <button role="tab" type="button" className={localId===tab.id?'pane-focus':undefined} aria-selected={localId===tab.id} data-connection-id={tab.id}
+              title={tab.powershell?'Windows PowerShell':'轻量命令行'} onClick={()=>{selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);}}>{tab.title}</button>
             <button type="button" aria-label={`关闭 ${tab.title}`} onClick={()=>void closeLocal(key,tab.id)}>×</button>
           </div>)}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSsh();}}>连接服务器</button>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSerial();}}>串口连接</button>
             <button onClick={()=>void openLocal(key)}>本地命令行</button>
+            <button onClick={()=>void openLocal(key,false)}>轻量命令行</button>
           </ToolbarMenu>}
           {paneSlots.length>1&&<button type="button" className="pane-collapse" aria-label="收起此窗格，保留连接" title="收起此窗格，保留连接"
             onClick={()=>{cancelWorkspaceSplit();if(panes.current.closePane(key,panes.current.active))routeChanged();}}><ControlIcon icon="collapse" /></button>}
@@ -1086,6 +1095,7 @@ function App() {
           local={locals.map(tab=><div key={tab.id} className="local-terminal-socket" hidden={localId!==tab.id}
             ref={node=>{if(node&&tab.surface.parentElement!==node)node.append(tab.surface);}}/>)}
           localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} open={adbOpen} settings={adbSettings} starting={adbStarting}
+            diagnostics={adbDiagnostics}
             close={()=>setAdbPanel(key,false)} reload={()=>void loadAdb()} update={setAdbSettings}
             execute={(button,revision)=>void clickAdb(key,localId,button,revision)}/>}
           preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
@@ -1096,7 +1106,7 @@ function App() {
       const visible=localSelected.current.get(key)===tab.id;
       return createPortal(<LocalTerminal tab={tab} visible={visible} focused={visible&&panes.current.active===key}
         preferences={preferences} focus={()=>focusPane(key)} report={reportLocalPrompt.current} shortcutSettled={shortcutSettled}
-        intent={adbIntent?.id===tab.id?adbIntent:undefined}/>,tab.surface,tab.id);
+        onDiagnostic={reportAdbDiagnostic} intent={adbIntent?.id===tab.id?adbIntent:undefined}/>,tab.surface,tab.id);
     })}
     {clipboardMessage&&<CornerNotice key={clipboardMessage} heading="剪贴板" autoDismiss
       dismiss={()=>setClipboardMessage(previous=>previous===clipboardMessage?'':previous)}><span aria-label="剪贴板状态">{clipboardMessage}</span></CornerNotice>}

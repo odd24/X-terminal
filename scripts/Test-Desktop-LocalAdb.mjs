@@ -11,13 +11,13 @@ const adb = path.join(root,'adb.exe');
 const workspace = path.join(root,'工作 目录');
 const inventory = path.join(workspace,'inventory.txt');
 const calls = path.join(workspace,'adb-calls.txt');
-const prompt = '.local-terminal:not([hidden]) input[aria-label="本地命令输入"]';
+const prompt = '.local-terminal:not([hidden])[data-foreground="false"] .xterm-helper-textarea';
 const output = '.local-terminal:not([hidden]) .local-terminal-output';
 const panel = '.adb-shortcut-panel:not([hidden])';
 const rows = () => ui.evaluate(`Array.from(document.querySelectorAll('${panel} .adb-shortcut-run')).map(row=>row.getAttribute('aria-label'))`);
-const key = async (key, code, windowsVirtualKeyCode) => {
-  await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode});
-  await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode});
+const key = async (key, code, windowsVirtualKeyCode, modifiers=0) => {
+  await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode,modifiers});
+  await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode,modifiers});
 };
 let ui;
 const evidence = {result:'IN_PROGRESS', executable:executable??path.resolve('target/debug/shared-terminal-desktop.exe'), cases:[]};
@@ -31,13 +31,14 @@ const selected = name => ui.waitFor(`document.querySelector('.pane-active [role=
 async function run(line) {
   await idle();
   await ui.command('Input.insertText',{text:line});
+  await ui.waitFor(`document.querySelector(${JSON.stringify(output)})?.innerText.trimEnd().endsWith(${JSON.stringify(line.slice(-12))})`);
   await key('Enter','Enter',13);
 }
 async function openLocal() {
-  await ui.click('本地命令行');
+  await ui.click('轻量命令行');
   await idle();
   await run('cd "'+workspace+'"');
-  await ui.waitFor(`document.querySelector(${JSON.stringify(prompt)})?.previousElementSibling.title===${JSON.stringify(workspace)}`);
+  await ui.waitFor(`document.querySelector(${JSON.stringify(output)})?.title===${JSON.stringify(workspace)}`);
 }
 async function openPanel() {
   if(!await ui.evaluate(`!!document.querySelector('${panel}')`))await ui.click('快捷指令');
@@ -78,7 +79,7 @@ async function setOptions() {
 try {
   execFileSync('rustc',['--edition=2024','tests/fixtures/local-adb.rs','-o',adb],{windowsHide:true,stdio:'inherit'});
   await mkdir(workspace);
-  await setInventory('good\tdevice product:fixture');
+  await setInventory('good       device product:fixture');
   const originalEnv = process.env.ANDROID_SERIAL;
   delete process.env.ANDROID_SERIAL;
   try {ui=await launchDesktop(root,{executable});}
@@ -124,15 +125,16 @@ try {
   evidence.cases.push('expanded preference and saved list survive application reopening; executable, argv, cwd and exported bytes verified');
   await idle();
   await ui.command('Input.insertText',{text:'半条草稿'});
-  await ui.waitFor(`document.querySelector(${JSON.stringify(prompt)})?.value==='半条草稿'`);
+  await ui.waitFor(`document.querySelector(${JSON.stringify(output)})?.innerText.trimEnd().endsWith('半条草稿')`);
   await ui.click('导出样本');
   await selected('本地 2');
   await show('ADB_FIXTURE_PULLED');
   await ui.click('本地 1');
   await selected('本地 1');
   await idle();
-  assert.equal(await ui.evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`),'半条草稿');
-  await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'c',code:'KeyC',windowsVirtualKeyCode:67,modifiers:2});
+  await ui.waitFor(`document.querySelector(${JSON.stringify(output)})?.innerText.trimEnd().endsWith('半条草稿')`);
+  await key('c','KeyC',67,2);
+  await ui.waitFor(`document.querySelector(${JSON.stringify(output)})?.innerText.trimEnd().endsWith('>')`);
   await run('adb shell');
   await show('ADB_FIXTURE_FOREGROUND');
   const pid = Number((await text()).match(/ADB_FIXTURE_FOREGROUND:(\d+)/)?.[1]);
@@ -158,6 +160,17 @@ try {
   await ui.click('本地 2');
   await selected('本地 2');
   await idle();
+  await writeFile(path.join(workspace,'inventory-error.txt'),'fixture transport unavailable');
+  await ui.click('导出样本');
+  await show('ADB 枚举失败');
+  await ui.click('导出样本 的失败详情');
+  await ui.waitFor(`document.querySelector('[aria-label="ADB 枚举错误输出"]')?.textContent.includes('fixture transport unavailable')`);
+  assert.ok(await ui.evaluate(`document.querySelector('[aria-label="最近 ADB 诊断"]').innerText.includes(${JSON.stringify(adb)})`));
+  await ui.screenshot('windows-0.1.15-adb-diagnostic.png');
+  await ui.click('关闭 ADB 诊断');
+  await rm(path.join(workspace,'inventory-error.txt'));
+  await ui.evaluate(`document.querySelector(${JSON.stringify(prompt)}).focus()`);
+  evidence.cases.push('spaces and tabs parsed; failed enumeration shows stderr and exact executable beside shortcut');
   await setInventory('unauth\tunauthorized');
   const before = (await actions()).length;
   await ui.click('导出样本');

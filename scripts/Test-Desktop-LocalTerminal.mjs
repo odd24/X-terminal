@@ -11,7 +11,7 @@ const image = options.find(arg=>!arg.startsWith('--'));
 const executable = image ? path.resolve(image) : undefined;
 const measurePowerShell = options.includes('--powershell-baseline');
 const outputFile = measurePowerShell?'artifacts/local-terminal-performance-result.json':'artifacts/local-terminal-software-result.json';
-const prompt = '.local-terminal:not([hidden]) input[aria-label="本地命令输入"]';
+const prompt = '.local-terminal:not([hidden])[data-foreground="false"] .xterm-helper-textarea';
 const output = '.local-terminal:not([hidden]) .local-terminal-output';
 const quote = value => '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/\\+$/, '$&$&') + '"';
 const evidence = {result:'IN_PROGRESS', executable:executable??path.resolve('target/debug/shared-terminal-desktop.exe'), samples:[]};
@@ -37,13 +37,13 @@ async function open(name) {
   if (name !== '本地 1') {
     await ui.evaluate("document.querySelector('details.new-menu').querySelector('summary').click()");
   }
-  await ui.click('本地命令行');
+  await ui.click('轻量命令行');
   await waitPrompt();
   await ui.command('Input.insertText', {text:'x'});
-  await ui.waitFor(`document.querySelector(${JSON.stringify(prompt)})?.value==='x'`);
+  await ui.waitFor(`${contents(output)}?.trimEnd().endsWith('> x')`);
   evidence.samples.push(performance.now() - start);
   await key('Backspace', 'Backspace', 8);
-  assert.equal(await ui.evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), '');
+  await ui.waitFor(`${contents(output)}?.trimEnd().endsWith('>')`);
 }
 
 try {
@@ -79,7 +79,7 @@ try {
   }
   const tabB = '本地 12';
   await run('cd ' + quote(target));
-  await ui.waitFor(`document.querySelector(${JSON.stringify(prompt)})?.previousElementSibling.title===${JSON.stringify(target)}`);
+  await ui.waitFor(`document.querySelector(${JSON.stringify(output)})?.title===${JSON.stringify(target)}`);
   await run('git --version', 'git version');
   await run('fastboot --version', 'fastboot version');
   const node = quote(process.execPath);
@@ -111,7 +111,7 @@ try {
   await run('git "unclosed', '双引号未闭合');
   await run('git --version | more', '本地入口只运行单条命令');
   await key('ArrowUp','ArrowUp',38);
-  assert.equal(await ui.evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), 'git --version | more');
+  await ui.waitFor(`${contents(output)}?.trimEnd().endsWith('> git --version | more')`);
   await key('c','KeyC',67,2);
   await run([node, quote(fixture), 'interactive'].join(' '), 'READY:', false);
   const text = await ui.evaluate(contents(output));
@@ -119,7 +119,7 @@ try {
   assert.ok(pid > 0);
   await open(tabB);
   await run('pwd');
-  assert.notEqual(await ui.evaluate(`document.querySelector(${JSON.stringify(prompt)}).previousElementSibling.title`), target);
+  assert.notEqual(await ui.evaluate(`document.querySelector(${JSON.stringify(output)}).title`), target);
   await ui.click('本地 1');
   await ui.waitFor('document.activeElement?.matches(".local-terminal:not([hidden]) .xterm-helper-textarea")');
   evidence.echoMs = [];
@@ -134,7 +134,7 @@ try {
   await waitPrompt();
   assert.throws(() => process.kill(pid,0), error=>error.code==='ESRCH');
   await waitOutput('INTERRUPTED');
-  assert.equal(await ui.evaluate(`document.querySelector(${JSON.stringify(prompt)}).previousElementSibling.title`), target);
+  assert.equal(await ui.evaluate(`document.querySelector(${JSON.stringify(output)}).title`), target);
   assert.equal(await ui.evaluate('document.querySelector(".toolbar-log").disabled'), true);
   await run([node, quote(fixture), 'interactive'].join(' '), 'READY:', false);
   await delay(300);

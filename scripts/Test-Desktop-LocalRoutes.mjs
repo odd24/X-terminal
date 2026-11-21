@@ -64,8 +64,8 @@ try {
     setInterval(()=>{if(++n<=150)process.stdout.write('LOCAL_TAIL_'+n+'\\n');},12);
     process.stdin.on('data',bytes=>{if(bytes.includes(3)){process.stdout.write('LOCAL_STOPPED\\n',()=>process.exit(130));}
       else process.stdout.write('LOCAL_ECHO_'+bytes.toString('utf8')+'\\n');});`);
-  await ui.click('本地命令行');
-  const prompt='[aria-label="本地命令输入"]';
+  await ui.click('轻量命令行');
+  const prompt='.local-terminal:not([hidden])[data-foreground="false"] .xterm-helper-textarea';
   await ui.waitFor(`document.activeElement?.matches(${JSON.stringify(prompt)})`);
   await ui.command('Input.insertText',{text:`"${process.execPath}" "${fixture}"`});
   await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});

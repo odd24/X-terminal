@@ -40,6 +40,7 @@ struct View {
     overflow: bool,
     message: Option<String>,
     command: Option<String>,
+    exit_code: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -48,6 +49,8 @@ pub enum Action {
     Open {
         id: Uuid,
         inherit: Option<Uuid>,
+        #[serde(default)]
+        powershell: bool,
     },
     Poll {
         id: Uuid,
@@ -254,7 +257,8 @@ impl Session {
                 std::mem::take(&mut *output)
             })
             .unwrap_or_default();
-        if let Some(code) = output.exit.take() {
+        let exit_code = output.exit.take();
+        if let Some(code) = exit_code {
             self.active.take();
             self.message = Some(match (self.interrupted, code) {
                 (true, 0xc000013a | 130) => "已中断（Ctrl+C）".into(),
@@ -270,6 +274,7 @@ impl Session {
             overflow: output.overflow,
             message: self.message.take(),
             command: None,
+            exit_code,
         }
     }
 }
@@ -293,7 +298,11 @@ pub async fn local_terminal(
     }
     let mut sessions = state.0.lock().unwrap();
     let view = match action {
-        Action::Open { id, inherit } => {
+        Action::Open {
+            id,
+            inherit,
+            powershell,
+        } => {
             if sessions.contains_key(&id) || sessions.len() == MAX_SESSIONS {
                 return Err("本地标签已存在或达到上限".into());
             }
@@ -316,6 +325,22 @@ pub async fn local_terminal(
                 cols: 80,
                 rows: 24,
             };
+            if powershell {
+                let image = env::var_os("SystemRoot")
+                    .map(PathBuf::from)
+                    .ok_or("找不到 Windows 系统目录")?
+                    .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+                session.active = Some(
+                    Process::start_windows_powershell(
+                        &image,
+                        &session.cwd,
+                        session.cols,
+                        session.rows,
+                    )
+                    .map_err(|error| format!("Windows PowerShell 启动失败：{error}"))?,
+                );
+                session.last_request = Some(Uuid::new_v4());
+            }
             let view = session.view();
             sessions.insert(id, session);
             view
@@ -436,6 +461,7 @@ pub struct AdbChoice {
     devices: Vec<adb::Device>,
     select: bool,
     inherited_target: Option<String>,
+    diagnostic: adb::Diagnostic,
 }
 
 #[tauri::command]
@@ -466,6 +492,7 @@ pub async fn prepare_local_adb(
             session.pending_adb = Some((request, None));
             session.cwd.clone()
         };
+        let mut diagnostic = adb::Diagnostic::default();
         let prepared = (|| {
             let settings = adb::read(&root)?;
             if settings.revision != Some(revision) {
@@ -476,7 +503,12 @@ pub async fn prepare_local_adb(
                 .iter()
                 .find(|item| item.id == button)
                 .ok_or("按钮已移除")?;
-            adb::prepare(&shortcut.command, &cwd, settings.executable.as_deref())
+            adb::prepare(
+                &shortcut.command,
+                &cwd,
+                settings.executable.as_deref(),
+                &mut diagnostic,
+            )
         })();
         let mut sessions = state.0.lock().unwrap();
         let session = sessions.get_mut(&id).ok_or("结果标签已关闭")?;
@@ -488,11 +520,23 @@ pub async fn prepare_local_adb(
             return Err("本次 ADB 操作已取消".into());
         }
         session.pending_adb = None;
-        let prepared = prepared?;
+        let prepared = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                diagnostic.error = Some(error);
+                return Ok(AdbChoice {
+                    devices: Vec::new(),
+                    select: false,
+                    inherited_target: None,
+                    diagnostic,
+                });
+            }
+        };
         let choice = AdbChoice {
             devices: prepared.devices.clone(),
             select: prepared.select,
             inherited_target: prepared.inherited_target.clone(),
+            diagnostic,
         };
         session.pending_adb = Some((request, Some(prepared)));
         Ok(choice)

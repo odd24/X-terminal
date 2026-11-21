@@ -143,6 +143,16 @@ pub struct Device {
     pub state: String,
 }
 
+#[derive(Default, Serialize)]
+pub struct Diagnostic {
+    pub image: Option<String>,
+    pub enumeration: Option<String>,
+    pub stdout: String,
+    pub stderr: String,
+    pub environment: Vec<(String, String)>,
+    pub error: Option<String>,
+}
+
 pub struct Prepared {
     pub image: PathBuf,
     args: Vec<String>,
@@ -199,61 +209,109 @@ fn capture(mut stream: impl Read) -> Vec<u8> {
     retained
 }
 
-fn inventory(image: &Path, cwd: &Path, global: &[String]) -> Result<Vec<Device>, String> {
+fn observed(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let mut preview: String = text.chars().take(8192).collect();
+    if preview.len() < text.len() {
+        preview.push_str("\n…");
+    }
+    preview
+}
+
+fn inventory(
+    image: &Path,
+    cwd: &Path,
+    global: &[String],
+    diagnostic: &mut Diagnostic,
+) -> Result<Vec<Device>, String> {
+    diagnostic.enumeration = Some(
+        global
+            .iter()
+            .map(|arg| quote(arg))
+            .chain(["devices".into(), "-l".into()])
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
     let mut child = Command::new(image)
         .args(global)
         .args(["devices", "-l"])
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|error| format!("ADB 枚举启动失败：{error}"))?;
     let stdout = child.stdout.take().unwrap();
-    let (tx, rx) = std::sync::mpsc::channel();
+    let stderr = child.stderr.take().unwrap();
+    let (out_tx, out_rx) = std::sync::mpsc::channel();
+    let (err_tx, err_rx) = std::sync::mpsc::channel();
     thread::spawn(move || {
-        let _ = tx.send(capture(stdout));
+        let _ = out_tx.send(capture(stdout));
+    });
+    thread::spawn(move || {
+        let _ = err_tx.send(capture(stderr));
     });
     let deadline = Instant::now() + Duration::from_secs(8);
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => break,
-            Ok(Some(status)) => return Err(format!("ADB 枚举失败（{status}）")),
+            Ok(Some(status)) => break Ok(status),
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("ADB 枚举超时或读取失败".into());
+                break Err("ADB 枚举超时或读取失败");
             }
         }
+    };
+    let bytes = out_rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
+    let errors = err_rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
+    if let Ok(bytes) = &bytes {
+        diagnostic.stdout = observed(bytes);
     }
-    let bytes = rx
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .map_err(|_| "ADB 枚举输出未结束")?;
+    if let Ok(errors) = &errors {
+        diagnostic.stderr = observed(errors);
+    }
+    let status = status?;
+    if !status.success() {
+        return Err(format!("ADB 枚举失败（{status}）"));
+    }
+    let bytes = bytes.map_err(|_| "ADB 枚举输出未结束")?;
     if bytes.len() > INVENTORY_LIMIT {
         return Err("ADB 设备列表超过读取上限".into());
     }
     let text = std::str::from_utf8(&bytes).map_err(|_| "ADB 设备列表编码无效")?;
+    parse_inventory(text)
+}
+
+fn parse_inventory(text: &str) -> Result<Vec<Device>, String> {
     let mut started = false;
     let mut devices = Vec::new();
+    let mut serials = HashSet::new();
     for line in text.lines() {
         if line.trim() == "List of devices attached" {
             started = true;
             continue;
         }
-        if started
-            && let Some((serial, details)) = line.split_once('\t')
-            && let Some(state) = details.split_whitespace().next()
-            && !serial.is_empty()
-            && serial.len() <= 256
-            && !serial.chars().any(char::is_control)
-        {
-            devices.push(Device {
-                serial: serial.into(),
-                state: state.into(),
-            });
+        if !started || line.trim().is_empty() {
+            continue;
         }
+        let mut fields = line.split_ascii_whitespace();
+        let (Some(serial), Some(state)) = (fields.next(), fields.next()) else {
+            return Err("ADB 设备列表行缺少设备或状态".into());
+        };
+        if serial.len() > 256
+            || serial.chars().any(char::is_control)
+            || state.len() > 32
+            || state.chars().any(char::is_control)
+            || !serials.insert(serial)
+        {
+            return Err("ADB 设备列表含无效或重复的设备标识".into());
+        }
+        devices.push(Device {
+            serial: serial.into(),
+            state: state.into(),
+        });
     }
     if !started || devices.len() > 128 {
         return Err("ADB 设备列表格式无效或设备过多".into());
@@ -261,7 +319,12 @@ fn inventory(image: &Path, cwd: &Path, global: &[String]) -> Result<Vec<Device>,
     Ok(devices)
 }
 
-pub fn prepare(line: &str, cwd: &Path, preferred_image: Option<&str>) -> Result<Prepared, String> {
+pub fn prepare(
+    line: &str,
+    cwd: &Path,
+    preferred_image: Option<&str>,
+    diagnostic: &mut Diagnostic,
+) -> Result<Prepared, String> {
     let mut args = arguments(line)?;
     if args.len() < 2 || !adb_name(&args[0]) {
         return Err("按钮需要一条完整的 adb 命令".into());
@@ -272,7 +335,22 @@ pub fn prepare(line: &str, cwd: &Path, preferred_image: Option<&str>) -> Result<
     } else {
         &program
     };
+    diagnostic.image = Some(chosen_image.into());
+    diagnostic.environment = [
+        "ANDROID_SERIAL",
+        "ADB_SERVER_SOCKET",
+        "ANDROID_ADB_SERVER_ADDRESS",
+        "ANDROID_ADB_SERVER_PORT",
+    ]
+    .into_iter()
+    .filter_map(|key| {
+        env::var(key)
+            .ok()
+            .map(|value| (key.into(), observed(value.as_bytes())))
+    })
+    .collect();
     let image = executable(chosen_image, cwd)?;
+    diagnostic.image = Some(image.display().to_string());
     let insert = device_command(&args);
     let inherited_target = insert
         .and_then(|_| env::var("ANDROID_SERIAL").ok())
@@ -280,7 +358,7 @@ pub fn prepare(line: &str, cwd: &Path, preferred_image: Option<&str>) -> Result<
     let select = insert.is_some() && inherited_target.is_none();
     let insert = insert.unwrap_or(0);
     let devices = if select {
-        inventory(&image, cwd, &args[..insert])?
+        inventory(&image, cwd, &args[..insert], diagnostic)?
     } else {
         Vec::new()
     };
@@ -304,4 +382,35 @@ pub fn prepare(line: &str, cwd: &Path, preferred_image: Option<&str>) -> Result<
         select,
         inherited_target,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_inventory;
+
+    #[test]
+    fn inventory_accepts_spaces_tabs_and_the_empty_header() {
+        let devices = parse_inventory(
+            "List of devices attached\r\nfirst       device product:fixture\r\nsecond\toffline\r\n",
+        )
+        .unwrap();
+        assert_eq!(
+            (devices[0].serial.as_str(), devices[0].state.as_str()),
+            ("first", "device")
+        );
+        assert_eq!(
+            (devices[1].serial.as_str(), devices[1].state.as_str()),
+            ("second", "offline")
+        );
+        assert!(
+            parse_inventory("List of devices attached\r\n\r\n")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(parse_inventory("error: unknown server\r\n").is_err());
+        assert!(parse_inventory("List of devices attached\r\nbroken\r\n").is_err());
+        assert!(
+            parse_inventory("List of devices attached\r\nfirst\tdevice\nfirst device").is_err()
+        );
+    }
 }

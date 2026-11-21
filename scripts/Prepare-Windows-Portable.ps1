@@ -1,3 +1,4 @@
+param([switch]$DirectoryOnly)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 Push-Location -LiteralPath $repo
@@ -11,7 +12,9 @@ try {
     $artifactName = "SharedTerminal-$version-windows-x64"
     $source = Join-Path $repo "target/windows-x64-portable/$triple/release"
     $artifacts = (Resolve-Path -LiteralPath 'artifacts').Path
-    $destinations = @($artifactName, "$artifactName.zip", "$artifactName.zip.sha256", "$artifactName-verification.json")
+    $destinations = if ($DirectoryOnly) { @($artifactName, "$artifactName-verification.json") } else {
+        @($artifactName, "$artifactName.zip", "$artifactName.zip.sha256", "$artifactName-verification.json")
+    }
     foreach ($name in $destinations) {
         if (Test-Path -LiteralPath (Join-Path $artifacts $name)) { throw "Delivery path already exists: $name" }
     }
@@ -50,10 +53,13 @@ try {
     }
     $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $candidate 'manifest.json') -Encoding utf8
     $archive = Join-Path $staging "$artifactName.zip"
-    Compress-Archive -LiteralPath $candidate -DestinationPath $archive -CompressionLevel Optimal
-    $extracted = Join-Path $staging 'extracted'
-    Expand-Archive -LiteralPath $archive -DestinationPath $extracted
-    $unpacked = Join-Path $extracted $artifactName
+    $unpacked = $candidate
+    if (!$DirectoryOnly) {
+        Compress-Archive -LiteralPath $candidate -DestinationPath $archive -CompressionLevel Optimal
+        $extracted = Join-Path $staging 'extracted'
+        Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+        $unpacked = Join-Path $extracted $artifactName
+    }
     $evidence = Join-Path $staging "$artifactName-verification.json"
     node scripts/Test-Windows-Portable.mjs $unpacked $evidence
     if ($LASTEXITCODE -ne 0) { throw "Extracted release smoke failed. Candidate: $staging" }
@@ -64,17 +70,24 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Extracted local terminal regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-LocalAdb.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Extracted ADB shortcut regression failed. Candidate: $staging" }
-    $sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    "$sha256  $artifactName.zip" | Set-Content -LiteralPath (Join-Path $staging "$artifactName.zip.sha256") -Encoding ascii
+    node scripts/Test-Desktop-LocalPowerShell.mjs $desktop
+    if ($LASTEXITCODE -ne 0) { throw "PowerShell regression failed. Candidate: $staging" }
+    $sha256 = $null
+    if (!$DirectoryOnly) {
+        $sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$sha256  $artifactName.zip" | Set-Content -LiteralPath (Join-Path $staging "$artifactName.zip.sha256") -Encoding ascii
+    }
     $verified = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
     $mcp = Get-Content -LiteralPath 'artifacts/windows-x64-release-terminal-read-result.json' -Raw | ConvertFrom-Json
     $local = Get-Content -LiteralPath 'artifacts/local-terminal-software-result.json' -Raw | ConvertFrom-Json
     $adb = Get-Content -LiteralPath 'artifacts/local-adb-software-result.json' -Raw | ConvertFrom-Json
+    $powershell = Get-Content -LiteralPath 'artifacts/local-powershell-software-result.json' -Raw | ConvertFrom-Json
     if ($verified.result -ne 'PASS' -or $mcp.result -ne 'PASS' -or $mcp.preview -ne $unpacked -or
-        $local.result -ne 'PASS' -or $local.executable -ne $desktop -or $adb.result -ne 'PASS' -or $adb.executable -ne $desktop) {
+        $local.result -ne 'PASS' -or $local.executable -ne $desktop -or $adb.result -ne 'PASS' -or $adb.executable -ne $desktop -or
+        $powershell.result -ne 'PASS' -or $powershell.executable -ne $desktop) {
         throw 'Release evidence mismatch'
     }
-    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb}
+    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
 
     $resolvedStage = (Resolve-Path -LiteralPath $staging).Path
@@ -90,7 +103,8 @@ try {
         Move-Item -LiteralPath $from -Destination $to
     }
     Remove-Item -LiteralPath $resolvedStage -Recurse
-    Write-Output "PASS $artifactName | SHA-256 $sha256"
+    if ($DirectoryOnly) { Write-Output "PASS $artifactName | executable directory" }
+    else { Write-Output "PASS $artifactName | SHA-256 $sha256" }
 } finally {
     Pop-Location
 }

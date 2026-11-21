@@ -1,4 +1,5 @@
 use std::{
+    env,
     ffi::{OsStr, c_void},
     fs::File,
     io::{self, Read, Write},
@@ -18,10 +19,11 @@ use windows_sys::Win32::{
         Console::{COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole},
         Pipes::CreatePipe,
         Threading::{
-            CreateProcessW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT,
-            GetExitCodeProcess, INFINITE, InitializeProcThreadAttributeList,
-            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
-            STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+            CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
+            EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, INFINITE,
+            InitializeProcThreadAttributeList, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+            PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess,
+            UpdateProcThreadAttribute, WaitForSingleObject,
         },
     },
 };
@@ -112,6 +114,7 @@ fn spawn(
     executable: &Path,
     argv: &[String],
     cwd: &Path,
+    environment: Option<&[u16]>,
 ) -> io::Result<OwnedHandle> {
     let mut bytes = 0;
     unsafe { InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut bytes) };
@@ -156,8 +159,8 @@ fn spawn(
             null(),
             null(),
             0,
-            EXTENDED_STARTUPINFO_PRESENT,
-            null(),
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+            environment.map_or(null(), |values| values.as_ptr().cast()),
             cwd.as_ptr(),
             &startup.StartupInfo,
             &mut process,
@@ -177,6 +180,46 @@ impl Process {
         cwd: &Path,
         cols: u16,
         rows: u16,
+    ) -> io::Result<Self> {
+        Self::start_with_environment(executable, argv, cwd, cols, rows, None)
+    }
+
+    pub fn start_windows_powershell(
+        executable: &Path,
+        cwd: &Path,
+        cols: u16,
+        rows: u16,
+    ) -> io::Result<Self> {
+        // Windows PowerShell builds its own module search path. An intermediate
+        // host can otherwise pass along PowerShell 7's incompatible modules.
+        let mut values: Vec<_> = env::vars_os()
+            .filter(|(name, _)| !name.eq_ignore_ascii_case("PSModulePath"))
+            .collect();
+        values.sort_by_cached_key(|(name, _)| name.to_string_lossy().to_uppercase());
+        let mut block = Vec::new();
+        for (mut name, value) in values {
+            name.push("=");
+            name.push(value);
+            block.extend(wide(&name));
+        }
+        block.push(0);
+        Self::start_with_environment(
+            executable,
+            &["-NoLogo".into()],
+            cwd,
+            cols,
+            rows,
+            Some(&block),
+        )
+    }
+
+    fn start_with_environment(
+        executable: &Path,
+        argv: &[String],
+        cwd: &Path,
+        cols: u16,
+        rows: u16,
+        environment: Option<&[u16]>,
     ) -> io::Result<Self> {
         let (input_read, input_write) = pipe()?;
         let (output_read, output_write) = pipe()?;
@@ -223,7 +266,7 @@ impl Process {
                 collected.lock().unwrap().bytes.extend_from_slice(&prefix);
             }
         });
-        let spawned = spawn(console.0, executable, argv, cwd);
+        let spawned = spawn(console.0, executable, argv, cwd, environment);
         drop(input_read);
         drop(output_write);
         let process = match spawned {

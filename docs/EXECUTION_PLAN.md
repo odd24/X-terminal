@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.2 按 [CR-025](changes/CR-025.md) 对照实际 adb 环境，实施默认 PowerShell 和轻量终端内输入，软件及实机分别取证并验证直接运行目录。[P26.2](records/P26.2.md)
+
 P26.1 按 [CR-024](changes/CR-024.md) 完成右侧 ADB 快捷指令栏，保留原执行和设置链路，按实际窗口与解包复验交付。[P26.1](records/P26.1.md)
 
 P26 按 [CR-023](changes/CR-023.md) 集成本地命令行及隔离生命周期，验证 ADB 快捷操作、设备绑定和配置重开，再核对 Windows x64 便携交付。[P26 验收记录](records/P26.md)

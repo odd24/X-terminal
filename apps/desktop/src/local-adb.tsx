@@ -6,7 +6,8 @@ export type AdbShortcut = {id:string; name:string; command:string};
 export type AdbSettings = {revision:string|null; executable:string|null; shortcuts:AdbShortcut[]};
 export type AdbIntent = {button:string; revision:string; request:string};
 type AdbDevice = {serial:string; state:string};
-export type AdbChoice = {devices:AdbDevice[]; select:boolean; inherited_target:string|null};
+export type AdbDiagnostic = {image:string|null; enumeration:string|null; stdout:string; stderr:string; environment:[string,string][]; error:string|null};
+export type AdbChoice = {devices:AdbDevice[]; select:boolean; inherited_target:string|null; diagnostic:AdbDiagnostic};
 
 export function loadAdbSettings() {
   return invoke<AdbSettings>('local_adb_settings', {settings:null});
@@ -14,17 +15,22 @@ export function loadAdbSettings() {
 
 type Editor = {kind:'shortcut'; item:AdbShortcut; revision:string|null} | {kind:'settings'; path:string; revision:string|null};
 
-export function AdbShortcutPanel({id, open, settings, starting, close, reload, update, execute}: {
+export function AdbShortcutPanel({id, open, settings, starting, close, reload, update, execute, diagnostics}: {
   id:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():void;
   update(value:AdbSettings):void; execute(button:string, revision:string):void;
+  diagnostics:Readonly<Record<string, AdbDiagnostic>>;
 }) {
   const [editor, setEditor] = useState<Editor>();
   const [menu, setMenu] = useState<{id:string; anchor:HTMLButtonElement}>();
+  const [diagnosticId, setDiagnosticId] = useState<string>();
+  const diagnosticPanel = useRef<HTMLElement>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState('');
   const saving = useRef(false);
   const canAdd = !!settings && settings.shortcuts.length < 32 && !busy && !editor;
+  const diagnostic = diagnosticId ? diagnostics[diagnosticId] : undefined;
   useEffect(()=>{if(!open)setMenu(undefined);},[open]);
+  useEffect(()=>{if(open&&diagnosticId)diagnosticPanel.current?.scrollIntoView({block:'nearest'});},[open,diagnosticId]);
   function edit(item:AdbShortcut) {
     if (!settings) return;
     setFailure('');
@@ -102,17 +108,30 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
           <button type="button" className="adb-row-menu-trigger" aria-label={item.name+' 的管理操作'}
             aria-haspopup="menu" aria-expanded={menu?.id===item.id}
             onClick={event=>setMenu(menu?.id===item.id?undefined:{id:item.id,anchor:event.currentTarget})}><ControlIcon icon="more"/></button>
+          {diagnostics[item.id]?.error&&<button type="button" className="adb-row-menu-trigger adb-diagnostic-alert" aria-label={item.name+' 的失败详情'}
+            title={diagnostics[item.id].error??undefined} onClick={()=>setDiagnosticId(item.id)}>!</button>}
           {open&&menu?.id===item.id&&<ContextMenu className="adb-row-menu" label={item.name+' 的管理菜单'}
             x={0} y={0} anchor={menu.anchor} anchored close={()=>setMenu(undefined)}>
             <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);edit(item);}}>编辑</button>
             <button role="menuitem" type="button" disabled={busy||index===0} onClick={()=>{setMenu(undefined);move(index,-1);}}>上移</button>
             <button role="menuitem" type="button" disabled={busy||index===settings.shortcuts.length-1} onClick={()=>{setMenu(undefined);move(index,1);}}>下移</button>
+            <button role="menuitem" type="button" disabled={!diagnostics[item.id]} onClick={()=>{setMenu(undefined);setDiagnosticId(item.id);}}>查看最近诊断</button>
             <button role="menuitem" type="button" disabled={busy} onClick={()=>{
               setMenu(undefined);
               void save({...settings,shortcuts:settings.shortcuts.filter(row=>row.id!==item.id)});
             }}>删除</button>
           </ContextMenu>}
         </li>)}</ul>}
+      {diagnostic&&<section ref={diagnosticPanel} className="adb-diagnostic" aria-label="最近 ADB 诊断">
+        <div className="adb-panel-heading"><h2>最近 ADB 诊断</h2><IconButton icon="close" label="关闭 ADB 诊断" onClick={()=>setDiagnosticId(undefined)}/></div>
+        {diagnostic.error&&<p role="alert">{diagnostic.error}</p>}
+        <dl><dt>ADB 程序</dt><dd>{diagnostic.image??'未定位'}</dd>
+          <dt>枚举参数</dt><dd>{diagnostic.enumeration??'本次未枚举'}</dd>
+          {!!diagnostic.environment.length&&<><dt>ADB 环境</dt><dd>{diagnostic.environment.map(([key,value])=>key+'='+value).join('\n')}</dd></>}
+        </dl>
+        {diagnostic.stdout&&<pre aria-label="ADB 枚举输出">{diagnostic.stdout}</pre>}
+        {diagnostic.stderr&&<pre aria-label="ADB 枚举错误输出">{diagnostic.stderr}</pre>}
+      </section>}
       {failure&&<p role="alert">{failure}</p>}
     </div>
     <div className="adb-panel-footer">

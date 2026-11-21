@@ -9,7 +9,7 @@ import {delay, launchDesktop} from './lib/DesktopHarness.mjs';
 
 const root = await mkdtemp(path.join(await realpath(tmpdir()), 'shared-terminal-adb-sidebar-中文-'));
 const executable = path.resolve(process.argv[2]??'target/debug/shared-terminal-desktop.exe');
-const previous = path.resolve('artifacts/SharedTerminal-0.1.13-windows-x64/shared-terminal-desktop.exe');
+const previous = path.resolve('artifacts/SharedTerminal-0.1.14-windows-x64/shared-terminal-desktop.exe');
 const fixtures = [];
 const result = {result:'IN_PROGRESS', executable, measurements:{}};
 const long = 'adb shell echo "'+'固定路径含有空格 '.repeat(15)+'结束"';
@@ -92,8 +92,8 @@ try {
   await exit(false);
   ui=await launchDesktop(root,{executable});
   await resize(1100,760);
-  await ui.click('本地命令行');
-  await ui.waitFor('document.activeElement?.matches("[aria-label=\'本地命令输入\']")');
+  await ui.click('轻量命令行');
+  await ui.waitFor('document.activeElement?.matches(".local-terminal:not([hidden]) .xterm-helper-textarea")');
   assert.deepEqual(await ui.invoke('local_adb_settings',{settings:null}),oldSettings);
   const closed=await bounds();
   assert.ok(closed.body.width>760);
@@ -101,8 +101,16 @@ try {
   assert.ok(Math.abs(closed.terminal.width-closed.body.width)<1);
   assert.ok(Math.abs(closed.toggle.right-closed.rail.right)<14);
   assert.ok(closed.toggle.top>=closed.rail.top-.5&&closed.toggle.bottom<=closed.rail.bottom+.5);
-  await ui.click('快捷指令');
-  await ui.waitFor('!!document.querySelector(".adb-shortcut-run")');
+  assert.equal(closed.toggle.width,28);
+  assert.equal(closed.toggle.height,28);
+  const icon=await ui.evaluate(`(()=>{
+    const button=document.querySelector('.adb-panel-toggle'),glyph=button.querySelector('.sidebar-glyph');
+    return {title:button.title, text:button.textContent, width:glyph.getBoundingClientRect().width, transform:getComputedStyle(glyph).transform};
+  })()`);
+  assert.deepEqual(icon,{title:'快捷指令',text:'',width:16,transform:'matrix(-1, 0, 0, 1, 0, 0)'});
+  await ui.evaluate("document.querySelector('.adb-panel-toggle').focus()");
+  for(const type of ['keyDown','keyUp'])await ui.command('Input.dispatchKeyEvent',{type,key:' ',code:'Space',windowsVirtualKeyCode:32,...(type==='keyDown'?{text:' ' }:{})});
+  await ui.waitFor('!!document.querySelector(".adb-shortcut-panel:not([hidden]) .adb-shortcut-run")');
   const wide=await bounds();
   assert.equal(wide.position,'static');
   assert.ok(Math.abs(wide.panel.width-300)<1);
@@ -113,7 +121,7 @@ try {
     return code.scrollWidth>code.clientWidth&&getComputedStyle(code).textOverflow==='ellipsis';})()`));
   assert.equal(await ui.evaluate('!!document.querySelector(".local-adb-actions, dialog[aria-label=\'ADB 快捷操作设置\']")'),false);
   result.measurements.wide=wide;
-  await ui.screenshot('windows-0.1.14-adb-sidebar-wide.png');
+  await ui.screenshot('windows-0.1.15-adb-sidebar-wide.png');
   await ui.click('完整命令换行预览 的管理操作');
   await ui.waitFor('!!document.querySelector(".adb-row-menu[data-positioned]")');
   const menuHit=await ui.evaluate(`(()=>{
@@ -132,7 +140,7 @@ try {
   assert.equal(editor.dialog,false);
   assert.ok(/mono|Consolas/i.test(editor.font));
   assert.ok(editor.width>editor.panelWidth-36&&editor.scrollWidth<=editor.width+1);
-  await ui.screenshot('windows-0.1.14-adb-sidebar-editor.png');
+  await ui.screenshot('windows-0.1.15-adb-sidebar-editor.png');
   await ui.click('取消编辑');
 
   await resize(720,540);
@@ -141,7 +149,7 @@ try {
   assert.ok(Math.abs(narrow.terminal.width-narrow.body.width)<1);
   assert.ok(Math.abs(narrow.panel.right-narrow.body.right)<1&&narrow.panel.left>=narrow.body.left-.5);
   result.measurements.narrow=narrow;
-  await ui.screenshot('windows-0.1.14-adb-sidebar-narrow.png');
+  await ui.screenshot('windows-0.1.15-adb-sidebar-narrow.png');
   await ui.click('收起快捷指令');
   assert.equal((await bounds()).panel,null);
   await resize(1100,760);
@@ -154,34 +162,34 @@ try {
   await ui.splitTab(second,'horizontal');
   await ui.waitFor('document.querySelectorAll(".terminal-pane").length===2');
   await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
-  await ui.click('本地命令行');
-  await ui.waitFor('document.activeElement?.matches("[aria-label=\'本地命令输入\']")');
+  await ui.click('轻量命令行');
+  await ui.waitFor('document.activeElement?.matches(".local-terminal:not([hidden]) .xterm-helper-textarea")');
   await ui.evaluate("if(document.querySelector('.pane-active .adb-panel-toggle').getAttribute('aria-expanded')==='false')document.querySelector('.pane-active .adb-panel-toggle').click()");
   const split=await bounds();
   assert.equal(split.position,'absolute');
   assert.ok(Math.abs(split.terminal.width-split.body.width)<1);
   assert.ok(nonOverlapping(split.panel,split.other));
   result.measurements.split=split;
-  await ui.screenshot('windows-0.1.14-adb-sidebar-split.png');
+  await ui.screenshot('windows-0.1.15-adb-sidebar-split.png');
   await ui.evaluate("document.querySelector('.pane-active .adb-panel-toggle').click()");
   assert.equal((await bounds()).panel,null);
   await exit(true);
   ui=await launchDesktop(root,{executable});
-  await ui.click('本地命令行');
+  await ui.click('轻量命令行');
   await ui.waitFor('!!document.querySelector(".adb-panel-toggle")');
   assert.equal(await ui.evaluate('document.querySelector(".adb-panel-toggle").getAttribute("aria-expanded")'),'false');
   assert.deepEqual(await ui.invoke('local_adb_settings',{settings:null}),oldSettings);
   await exit(true);
   result.result='PASS';
-  result.verified=['0.1.13 settings read unchanged','wide 300px dock and reclaimed space','narrow and split overlay bounded to pane',
+  result.verified=['0.1.14 settings read unchanged','wide 300px dock and reclaimed space','narrow and split overlay bounded to pane',
     'tab-row toggle and global toolbar geometry','ellipsis and soft-wrap inline editor','positioned management menu','collapsed state survives restart'];
 } catch(error) {
   result.result='FAIL';
   result.error=String(error.stack);
-  if(ui)await ui.screenshot('windows-0.1.14-adb-sidebar-failure.png').catch(()=>{});
+  if(ui)await ui.screenshot('windows-0.1.15-adb-sidebar-failure.png').catch(()=>{});
   throw error;
 } finally {
-  await writeFile('artifacts/windows-0.1.14-adb-sidebar-layout.json',JSON.stringify(result,null,2));
+  await writeFile('artifacts/windows-0.1.15-adb-sidebar-layout.json',JSON.stringify(result,null,2));
   await ui?.close();
   for(const child of fixtures)if(child.exitCode===null){child.stdin.end();await once(child,'exit');}
   await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});

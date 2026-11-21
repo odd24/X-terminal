@@ -335,7 +335,13 @@ main.desktop-shell {
 .local-terminal-output > .xterm { height: 100%; padding: 6px 4px; }
 .local-pane-body { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; container: local-pane / inline-size; }
 .local-pane-body[hidden], .adb-shortcut-panel[hidden] { display: none; }
-.desktop-shell .pane-tab-bar > .adb-panel-toggle { align-self: center; flex: none; margin-inline-start: auto; padding-inline: var(--space-2); }
+.desktop-shell .pane-tab-bar > .adb-panel-toggle {
+  display: grid; place-items: center; align-self: center; flex: 0 0 28px; margin-inline-start: auto;
+  inline-size: 28px; block-size: 28px; min-block-size: 28px; padding: 0;
+  border-color: transparent; background: transparent;
+}
+.adb-panel-toggle .sidebar-glyph { transform: scaleX(-1); }
+.adb-panel-toggle:is(:hover,[aria-expanded="true"]) { background: var(--control-hover); }
 .adb-shortcut-panel {
   display: flex; flex: 0 0 300px; inline-size: min(300px, 100%); min-height: 0; flex-direction: column;
   background: var(--surface); border-inline-start: 1px solid var(--border-subtle);
@@ -362,9 +368,10 @@ main.desktop-shell {
 .adb-row-menu { width: 112px; }
 .adb-row-menu:not([data-positioned]) { visibility: hidden; }
 .adb-empty { width: 100%; }
-.local-prompt { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1); }
-.local-prompt > span { max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.local-prompt > input { flex: 1; min-width: 0; font-family: var(--font-terminal); }
+.adb-diagnostic-alert { color: var(--danger); }
+.adb-diagnostic { overflow-wrap: anywhere; margin-block-start: var(--space-2); }
+.adb-diagnostic dd { margin: 0 0 var(--space-2); }
+.adb-diagnostic pre { white-space: pre-wrap; font-family: var(--font-terminal); }
 .desktop-shell footer { margin: 0; }
 .connection-summary { display: flex; flex-wrap: wrap; column-gap: var(--space-4); row-gap: var(--space-1); }
 @media (max-width: 850px) {
