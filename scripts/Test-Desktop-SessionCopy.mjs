@@ -235,10 +235,22 @@ async function verifyWindow(page,caption,label='main'){
   return {moved:true,maximized:true,restored:true,...movement};
 }
 async function close(){
-  if(refresh)await webviewClick(ui,q('.window-close'));
-  else await click(ui,q('.window-close'));
-  await ui.waitFor(`!!document.querySelector('dialog[aria-label="退出桌面确认"]')`);
-  await ui.click('确认退出并停止服务');
+  if(notices){
+    await wait(async()=>(await sessions()).every(c=>['DISCONNECTED','FAILED'].includes(c.state)),'owned connections ended before idle shutdown');
+    assert.equal(await ui.evaluate(`(()=>{
+      const menu=document.querySelector('details.tools-menu');
+      if(!menu.open)menu.querySelector('summary').click();
+      const exit=[...menu.querySelectorAll('button')].find(button=>button.textContent==='退出桌面');
+      if(!exit||exit.disabled)return false;
+      setTimeout(()=>exit.click(),50);
+      return true;
+    })()`),true);
+  }else{
+    if(refresh)await webviewClick(ui,q('.window-close'));
+    else await click(ui,q('.window-close'));
+    await ui.waitFor(`!!document.querySelector('dialog[aria-label="退出桌面确认"]')`);
+    await ui.click('确认退出并停止服务');
+  }
   await wait(()=>ui.app.exitCode===0,'owned desktop exited');
   const receipt=JSON.parse(await readFile(path.join(root,'desktop-close-receipts-v1',service.service_id+'.json'),'utf8'));
   assert.equal(receipt.shutdown_ack,'ACKNOWLEDGED');
