@@ -22,7 +22,7 @@ const wait=async(check,label)=>{
   for(let i=0;i<150;i++){const v=await check();if(v)return v;await delay(50);}
   throw Error('Timeout: '+label);
 };
-const traces=()=>readFile(trace,'utf8').then(s=>s.trim().split(/\r?\n/).filter(Boolean)).catch(e=>{if(e.code==='ENOENT')return [];throw e;});
+const traces=()=>readFile(trace,'utf8').then(s=>s.split(/\r?\n/).slice(0,-1).filter(Boolean)).catch(e=>{if(e.code==='ENOENT')return [];throw e;});
 const pick=(purpose,action,filename)=>execFileSync('pwsh',['-NoProfile','-STA','-File','scripts/lib/NativeImportDialog.ps1',
   '-TargetProcessId',String(ui.app.pid),'-Purpose',purpose,'-Root',purpose==='LogViewer'?root:saveRoot,
   '-Action',action,...(filename?['-TargetPath',filename]:[])],
@@ -175,6 +175,7 @@ const checkTrace=async(program,file,index)=>{
   const rows=await wait(async()=>{const values=await traces();return values.length>index&&values;},'explicit viewer was launched');
   const [arity,image,argument,...extra]=rows[index].split('\t');
   assert.deepEqual([arity,image,extra],['1',path.basename(program),[]]);
+  assert.ok(argument,'the completed probe line includes the original file argument');
   assert.equal(await realpath(argument),await realpath(file));
   assert.equal(rows.length,index+1);
 };
