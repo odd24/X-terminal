@@ -106,6 +106,7 @@ async function chooseRegistered(registered) {
   const options=await ui.evaluate(`[...${dropdown}.querySelectorAll('optgroup option')].map(o=>({id:o.value,name:o.textContent}))`);
   assert.ok(options.length>0, 'Windows supplied registered candidates');
   assert.ok(options.every(c=>/^[0-9a-f-]{36}$/.test(c.id)&&c.name.length>0));
+  assert.equal(new Set(options.map(option=>option.name.toLowerCase())).size,options.length);
   const target=options.find(c=>c.name===registered.name);
   assert.ok(target,`Missing actual registered application: ${registered.name}, obtained ${JSON.stringify(options)}`);
   const before=await settings();

@@ -6,7 +6,7 @@ use windows::{
     Win32::{
         System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree},
         UI::Shell::{
-            ASSOC_FILTER_NONE, ASSOCF_NONE, ASSOCSTR, ASSOCSTR_EXECUTABLE,
+            ASSOC_FILTER_RECOMMENDED, ASSOCF_NONE, ASSOCSTR, ASSOCSTR_EXECUTABLE,
             ASSOCSTR_FRIENDLYAPPNAME, AssocQueryStringW, IAssocHandler, SHAssocEnumHandlers,
         },
     },
@@ -95,6 +95,12 @@ fn add(candidates: &mut Vec<Candidate>, name: Option<String>, image: &str) {
     } else {
         label.trim().to_owned()
     };
+    if candidates
+        .iter()
+        .any(|item| item.label.eq_ignore_ascii_case(&label))
+    {
+        return;
+    }
     candidates.push(Candidate {
         id: Uuid::new_v4(),
         label,
@@ -103,7 +109,7 @@ fn add(candidates: &mut Vec<Candidate>, name: Option<String>, image: &str) {
 }
 
 fn enumerate(extension: PCWSTR, candidates: &mut Vec<Candidate>) -> bool {
-    let Ok(list) = (unsafe { SHAssocEnumHandlers(extension, ASSOC_FILTER_NONE) }) else {
+    let Ok(list) = (unsafe { SHAssocEnumHandlers(extension, ASSOC_FILTER_RECOMMENDED) }) else {
         return false;
     };
     for _ in 0..MAX_HANDLERS_PER_EXTENSION {
@@ -134,8 +140,8 @@ pub(super) fn discover() -> Result<Vec<Candidate>, String> {
         .map_err(|_| UNAVAILABLE)?;
     let _apartment = Apartment;
     let mut candidates = Vec::new();
-    let mut enumerated = false;
-    for extension in [w!(".log"), w!(".txt")] {
+    let extensions = [w!(".log"), w!(".txt")];
+    for extension in extensions {
         if let Some(image) = association(extension, ASSOCSTR_EXECUTABLE) {
             add(
                 &mut candidates,
@@ -143,6 +149,11 @@ pub(super) fn discover() -> Result<Vec<Candidate>, String> {
                 &image,
             );
         }
+    }
+    // Windows' unrestricted list also contains generic "Open With" entries
+    // unrelated to text. Keep default registrations and recommended handlers.
+    let mut enumerated = false;
+    for extension in extensions {
         enumerated |= enumerate(extension, &mut candidates);
     }
     if !enumerated && candidates.is_empty() {
