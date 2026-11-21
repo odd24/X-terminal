@@ -1,10 +1,11 @@
-param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$TargetPath,[Parameter(Mandatory)][ValidateSet('directory','file')][string]$Action,[string]$LogId)
+param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$TargetPath,[Parameter(Mandatory)][ValidateSet('directory','file')][string]$Action,[string]$LogId,[string]$ExistingExplorerWindows='[]')
 $ErrorActionPreference='Stop'
 $ErrorView='NormalView'
 trap { Write-Output $_.ScriptStackTrace; break }
 $rootFull=[IO.Path]::GetFullPath($Root)
 $tempFull=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
-if ([IO.Path]::GetDirectoryName($rootFull) -ne $tempFull -or ![IO.Path]::GetFileName($rootFull).StartsWith('shared-terminal-log-menu-ui-中文-')) { throw 'Only the owned menu-test root is allowed.' }
+$name=[IO.Path]::GetFileName($rootFull)
+if ([IO.Path]::GetDirectoryName($rootFull) -ne $tempFull -or $name -notmatch '^shared-terminal-(log-menu|pane-groups)-ui-中文-') { throw 'Only an owned log-test root is allowed.' }
 $targetFull=[IO.Path]::GetFullPath($TargetPath)
 $common=[IO.Path]::Combine($rootFull,'logs')
 if (($Action -eq 'directory' -and $targetFull -ne $common) -or ($Action -eq 'file' -and ([IO.Path]::GetDirectoryName($targetFull) -ne $common -or [IO.Path]::GetExtension($targetFull) -ne '.log' -or $LogId -notmatch '^[0-9a-f-]{36}$'))) { throw 'Refuse an unrelated shell target.' }
@@ -20,7 +21,22 @@ public static class LogShellLongPath {
 $expected=[LogShellLongPath]::Of($targetFull)
 if ($Action -eq 'directory') {
  $shell=New-Object -ComObject Shell.Application
- for($n=0;$n -lt 100;$n++) { foreach($window in @($shell.Windows())) { try { if ([LogShellLongPath]::Of([string]$window.Document.Folder.Self.Path) -eq $expected) { $window.Quit(); Write-Output 'PASS exact shared test log directory observed in Explorer and its own window closed'; exit 0 } } catch {} }; Start-Sleep -Milliseconds 100 }
+ $existing=@($ExistingExplorerWindows|ConvertFrom-Json)
+ for($n=0;$n -lt 100;$n++) {
+  foreach($window in @($shell.Windows())) {
+   try {
+    if ([LogShellLongPath]::Of([string]$window.Document.Folder.Self.Path) -ne $expected) { continue }
+    if($existing -contains [string]$window.HWND) {
+     Write-Output 'PASS exact shared test log directory in an existing Explorer window'
+    } else {
+     $window.Quit()
+     Write-Output 'PASS exact shared test log directory observed in Explorer and its own window closed'
+    }
+    exit 0
+   } catch {}
+  }
+  Start-Sleep -Milliseconds 100
+ }
  throw 'The owned common log directory was not observed in Explorer.'
 }
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes

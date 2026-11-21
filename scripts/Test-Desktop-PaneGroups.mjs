@@ -8,13 +8,15 @@ import {requestId} from '../apps/desktop/src/request-id.ts';
 import {connectDesktopPage, delay, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
 import {closeSoakDesktop} from './lib/LoadSoak.mjs';
 import {checkMainToolbar,checkNewConnectionMenu,checkLogToolbar} from './lib/ToolbarMenuChecks.mjs';
+import {checkNoticeActions,checkToolbarDirectory,observeLogDirectory,waitForStopNotice} from './lib/RecordingNoticeChecks.mjs';
 
 const root = await mkdtemp(path.join(tmpdir(), 'shared-terminal-pane-groups-ui-中文-'));
 const desktop = path.resolve(process.argv[2]);
 const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
-const tabRecording=process.argv.includes('--tab-recording');
-const evidence=toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2';
+const notices=process.argv.includes('--recording-notices');
+const tabRecording=notices||process.argv.includes('--tab-recording');
+const evidence=notices?'0.1.5':toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2';
 const toolbar=[];
 const processes = [];
 let main, child;
@@ -171,14 +173,24 @@ try{
   main=await launchDesktop(root,{executable:desktop,windowsHide:false});
   const service=await main.invoke('service_status');
   assert.equal(service.fixture,false);
-  if(toolbarChecks)toolbar.push(...await checkMainToolbar(main,fit));
+  if(toolbarChecks)toolbar.push(...await checkMainToolbar(main,fit,evidence));
+  if(notices)await checkToolbarDirectory(main,root);
   const a=await connect(left,'127.0.0.1'),b=await connect(right,'localhost'),c=await connect(lower,'127.0.0.1');
   await main.waitFor('document.querySelectorAll("[role=tab]").length===3');
   await choose(a);
   if(tabRecording){
+    let noticeChecks;
     const logs=(page,c)=>page.invoke('logging_request',{request:{op:'list',connection:ref(c)}}).then(value=>value.logs);
     const original=(page,c,id)=>page.invoke('logging_request',{request:{op:'start_status',connection:ref(c),request_id:id}});
     await fit(1100);
+    if(notices){
+      await observeLogDirectory(main,root,async()=>{
+        await main.evaluate(`document.querySelector('.toolbar-log').click()`);
+        await main.waitFor(`[...document.querySelectorAll('.terminal-context-menu button')].some(b=>b.textContent==='打开日志目录'&&!b.disabled)`);
+        await main.click('打开日志目录');
+      });
+      assert.equal(await main.evaluate(`!!document.querySelector('.recording-notice')`),false);
+    }
     await recordState(main,a,'idle');await recordState(main,b,'idle');
     const controlBounds=await main.evaluate(`(()=>{
       const label=${tab(b)}.querySelector('.tab-label'),button=${recordButton(b)};
@@ -212,12 +224,23 @@ try{
     await wait(async()=>{const [latest]=await logs(main,b);return latest?.readable?.flushed_bytes>0&&
       (await readFile(path.join(root,'logs',latest.readable.filename),'utf8')).includes('TAB_RECORD_SSH_FILE');},'flushed SSH text');
     await recordState(main,c,'idle');
-    await main.screenshot('desktop-0.1.4-tab-recording.png');
+    await main.screenshot(`desktop-${evidence}-tab-recording.png`);
 
     await main.splitTab(b.connection_id);
     await main.waitFor(rendered(a,0)+' && '+rendered(b,1));
     await recordState(main,b,'recording');
+    await terminalFocus(main);
+    const lostStop=notices?await main.interceptIpc({op:'stop',connectionId:b.connection_id,mode:'hold_error'}):undefined;
     await recordClick(main,b);
+    if(lostStop){
+      await wait(async()=>await lostStop.count()===1,'original stop was accepted once');
+      await wait(async()=>(await logs(main,b))[0].durable,'service stop synchronized while renderer reply held');
+      assert.equal(await main.evaluate(`!!document.querySelector('.recording-notice')`),false);
+      await lostStop.restore();
+      await recordState(main,b,'unknown');
+      assert.equal(await main.evaluate(`!!document.querySelector('.recording-notice')`),false);
+      await recordClick(main,b);
+    }
     await recordState(main,b,'idle');
     assert.equal(await main.evaluate('document.querySelector(".pane-active").dataset.renderedId'),a.connection_id);
     const [stopped]=await logs(main,b);
@@ -227,30 +250,61 @@ try{
     const bytes=await readFile(path.join(root,'logs',stopped.readable.filename));
     assert.equal(bytes.byteLength,stopped.readable.synced_bytes);
     assert.ok(bytes.includes(Buffer.from('TAB_RECORD_SSH_FILE')));
+    if(notices)await waitForStopNotice(main,'localhost',stopped);
     await right.control({op:'push',text:'\r\nAFTER_TAB_STOP\r\n'});
     await main.waitFor(`${pane(b)}?.querySelector('.xterm-rows')?.textContent.includes('AFTER_TAB_STOP')`);
     assert.deepEqual(await readFile(path.join(root,'logs',stopped.readable.filename)),bytes);
 
-    await recordClick(main,b);
-    await recordState(main,b,'recording');
+    const resumeRecording=async()=>{
+      await recordClick(main,b);
+      await recordState(main,b,'recording');
+      const active=(await logs(main,b)).find(entry=>entry.active);
+      assert.notEqual(active.log_id,stopped.log_id);
+      assert.notEqual(active.readable.filename,stopped.readable.filename);
+    };
+    if(notices)noticeChecks=await checkNoticeActions(main,root,stopped,resumeRecording,()=>choose(c));
+    else await resumeRecording();
     const live=(await logs(main,b)).find(entry=>entry.active);
     await right.control({op:'push',text:'\r\nDETACHED_TAB_RECORD\r\n'});
     child=await outsideDrag(b,true);
     await child.waitFor('document.querySelector("[data-pane]")?.dataset.renderedId==='+JSON.stringify(b.connection_id));
     await recordState(child,b,'recording');
     await checkLogToolbar(child,'detached recording log','停止记录');
-    await child.screenshot('desktop-0.1.4-detached-recording.png');
-    await recordClick(child,b,true);await recordState(child,b,'idle');
+    await child.screenshot(`desktop-${evidence}-detached-recording.png`);
+    if(notices){
+      await child.evaluate(`document.querySelector('.toolbar-log').click()`);
+      const stop=`[...document.querySelectorAll('.terminal-context-menu button')].find(button=>button.textContent==='停止记录'&&!button.disabled)`;
+      await child.waitFor(`!!(${stop})`);
+      await child.evaluate(`(${stop}).click()`);
+    }else await recordClick(child,b,true);
+    await recordState(child,b,'idle');
     const detachedStop=(await logs(child,b)).find(entry=>entry.log_id===live.log_id);
     assert.equal(detachedStop.worker_finished&&detachedStop.durable,true);
     assert.ok((await readFile(path.join(root,'logs',detachedStop.readable.filename),'utf8')).includes('DETACHED_TAB_RECORD'));
+    if(notices){
+      await waitForStopNotice(child,'localhost',detachedStop);
+      await child.screenshot('desktop-0.1.5-detached-stop-notice.png');
+      await observeLogDirectory(child,root,()=>child.evaluate(`document.querySelector('.toolbar-log-directory').click()`));
+    }
     await dockDrag(b);child.close();child=undefined;
     await recordState(main,b,'idle');
     assert.deepEqual(await logs(main,a),[]);
+    if(notices){
+      await choose(b);
+      await tool('终端日志');
+      for(const label of ['开始记录终端','停止记录终端']){
+        await main.waitFor(`[...document.querySelectorAll('[aria-label="终端日志面板"] button')].some(btn=>btn.textContent===${JSON.stringify(label)}&&!btn.disabled)`);
+        await main.click(label);
+      }
+      const advanced=await wait(async()=>{const [log]=await logs(main,b);return log.log_id!==detachedStop.log_id&&log.durable&&log.worker_finished?log:undefined;},'advanced panel stopped its own recording');
+      await waitForStopNotice(main,'localhost',advanced);
+      await main.click('关闭日志面板');
+    }
     const close=await closeSoakDesktop(main,root,service,{});
     await main.close();main=undefined;
     report={result:'PASS',background:true,sameRequestOnReload:true,keyboard:true,split:true,detached:true,fileBytes:bytes.length,
-      syncedBytes:stopped.readable.synced_bytes,untouchedOther:true,toolbar,close};
+      syncedBytes:stopped.readable.synced_bytes,untouchedOther:true,toolbar,
+      ...(notices?{directoryExplorer:true,directoryFailureOnly:true,unknownStopSilent:true,detachedMenuStop:true,advancedStop:true,noticeChecks}:{}),close};
   }else if(dockProbe){
     await fit(1100);
     child=await outsideDrag(b);
@@ -373,7 +427,7 @@ try{
   }
 }catch(error){
   if(tabRecording&&main) {
-    await main.screenshot('desktop-0.1.4-tab-recording-failure.png').catch(()=>{});
+    await main.screenshot(`desktop-${evidence}-tab-recording-failure.png`).catch(()=>{});
     const state=await main.evaluate(`[...document.querySelectorAll('.connection-tab')].map(e=>({label:e.querySelector('.tab-label').textContent,record:e.querySelector('.tab-record-button')?.outerHTML}))`).catch(String);
     console.error('Recording controls at failure:',state);
   }
@@ -389,6 +443,6 @@ try{
   assert.ok(path.basename(root).startsWith('shared-terminal-pane-groups-ui-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }
-await writeFile(tabRecording?`artifacts/windows-${evidence}-tab-recording-ssh.json`:dockProbe?`artifacts/windows-${evidence}-dock-toolbar.json`:`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
-console.log(tabRecording?'PASS SSH tab recording, exact unknown recovery, synced file, split and detached window':dockProbe?'PASS detached toolbar popup and native dock return':
+await writeFile(notices?`artifacts/windows-${evidence}-recording-notices.json`:tabRecording?`artifacts/windows-${evidence}-tab-recording-ssh.json`:dockProbe?`artifacts/windows-${evidence}-dock-toolbar.json`:`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
+console.log(notices?'PASS fixed log directory, verified stop notices, timeouts and exact original file':tabRecording?'PASS SSH tab recording, exact unknown recovery, synced file, split and detached window':dockProbe?'PASS detached toolbar popup and native dock return':
   'PASS physical pane tabs, nested geometry, input, recording and docking');

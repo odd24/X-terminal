@@ -222,6 +222,14 @@ async fn protected_export_desktop_request(
 }
 
 #[tauri::command]
+async fn open_managed_log_directory(
+    state: State<'_, Desktop>,
+    manager: State<'_, terminal_logs::Manager>,
+) -> Result<(), String> {
+    manager.open_directory(state.2.clone()).await
+}
+
+#[tauri::command]
 async fn terminal_log_request(
     window: tauri::WebviewWindow,
     windows: State<'_, session_windows::SessionWindows>,
@@ -295,7 +303,10 @@ async fn terminal_log_request(
             else {
                 return Err("INVALID_SOURCE".into());
             };
-            if info.connection != target.connection || info.protocol != target.protocol {
+            if info.connection != target.connection
+                || info.protocol != target.protocol
+                || info.log_id != *log_id
+            {
                 return Err("INVALID_SOURCE".into());
             }
             filename = Some(info.readable.ok_or("SOURCE_NOT_READY")?.filename);
@@ -1026,6 +1037,7 @@ fn main() {
             save_recovery_status,
             protected_export_desktop_request,
             terminal_log_request,
+            open_managed_log_directory,
             config_directory
         ])
         .build(tauri::generate_context!())

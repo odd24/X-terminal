@@ -3,10 +3,11 @@ import {logging,LogRequestError,type LogInfo} from './logging-api';
 import {summarizeLogging,type LoggingSummary} from './logging-panel';
 import {requestId} from './request-id';
 import type {LogTarget} from './log-menu';
+import {syncedStop,type NotifyStopped} from './recording-notice';
 
 type Connection=LoggingSummary['connection']&{protocol:string;state:string};
 type Operation={kind:'start'|'stop';id:string};
-type Entry={log?:LogInfo;summary?:LoggingSummary;pending?:'start'|'stop'|'query';uncertain?:boolean;error?:string};
+type Entry={log?:LogInfo;summary?:LoggingSummary;pending?:'start'|'stop'|'query';uncertain?:boolean;error?:string;observedActive?:string};
 export type TabRecording={state:'idle'|'recording'|'pending'|'unknown'|'failed';label:string;detail:string;disabled:boolean};
 const same=(a:LoggingSummary['connection'],b:LoggingSummary['connection'])=>
   a.connection_id===b.connection_id&&a.generation===b.generation;
@@ -40,8 +41,9 @@ function savedOperations(owner:string) {
   return result;
 }
 
-export function useTabLogging(owner:string,tabs:Connection[],active:Connection|undefined,valid:(target:LogTarget)=>boolean) {
-  const latest=useRef({tabs,active,owner,valid});latest.current={tabs,active,owner,valid};
+export function useTabLogging(owner:string,tabs:Connection[],active:Connection|undefined,valid:(target:LogTarget)=>boolean,
+  name:(c:Connection)=>string,notifyStopped:NotifyStopped) {
+  const latest=useRef({tabs,active,owner,valid,name,notifyStopped});latest.current={tabs,active,owner,valid,name,notifyStopped};
   const [visible,setVisible]=useState<Record<string,Entry>>({});
   const entries=useRef<Record<string,Entry>>({});
   const running=useRef(new Set<string>());
@@ -75,8 +77,14 @@ export function useTabLogging(owner:string,tabs:Connection[],active:Connection|u
       let next:Entry;
       try {next=await read(t);}
       catch{next={summary:{connection:t.connection,unknown:true,text:'日志状态暂不可用'}};}
-      if(live&&alive(t)&&revision.current.get(id)===before&&!running.current.has(id))
-        update(id,{...next,error:entries.current[id]?.error});
+      if(live&&alive(t)&&revision.current.get(id)===before&&!running.current.has(id)){
+        const prior=entries.current[id],log=next.log;
+        const previous=prior?.log?.active?prior.log.log_id:prior?.observedActive;
+        if(log?.natural_end&&log.log_id===previous&&syncedStop(log))
+          latest.current.notifyStopped(t,latest.current.name(c),log);
+        update(id,{...next,error:prior?.error,observedActive:log?.active?log.log_id:
+          !log||log.log_id===previous&&!log.worker_finished?previous:undefined});
+      }
     }
     async function poll() {
       const current=latest.current.active,candidates=latest.current.tabs.filter(c=>supported(c)&&(!current||!same(c,current)));
@@ -116,6 +124,7 @@ export function useTabLogging(owner:string,tabs:Connection[],active:Connection|u
 
   async function toggle(c:Connection) {
     const t=target(c),id=key(t),old=entries.current[id],recovery=operations.current.get(id);
+    const title=latest.current.name(c);
     const locks=running.current,versions=revision.current;
     if(!supported(c)||scope.current!==owner||!alive(t)||locks.has(id)||!recovery&&(!old?.summary||old.summary.unknown))return;
     if(!recovery&&(!old?.log?.active&&c.state!=='CONNECTED'||old?.log?.phase==='OPENING'||old?.log?.phase==='STOPPING'))return;
@@ -158,8 +167,9 @@ export function useTabLogging(owner:string,tabs:Connection[],active:Connection|u
       const summary={connection:t.connection,...summarizeLogging([log])};
       if(!finished()){update(id,{log,summary,uncertain:true,error:'记录尚未完成；可查询本次操作。'});return;}
       remember(id);
+      if(kind==='stop')latest.current.notifyStopped(t,title,log);
       const error=log.failure?'记录失败。请在终端日志中查看详情。':
-        kind==='stop'&&!log.durable?'记录已停止，最终同步状态未确认。':undefined;
+        kind==='stop'&&!syncedStop(log)?'最终停止和同步状态未确认。':undefined;
       update(id,{log,summary,error});
     }catch(error){
       if(!current())return;

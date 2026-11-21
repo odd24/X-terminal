@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { capturePhases as phases } from './log-captures';
 import { Dialog } from './ui';
 import type {LogTarget} from './log-menu';
+import {syncedStop,type NotifyStopped} from './recording-notice';
 const failures: Record<string, string> = { CAPACITY:'日志容量已达上限', QUEUE_FULL: '写盘队列已满', DISK_FULL: '磁盘空间不足', STORAGE: '文件存储故障', INVALID_RECORD: '输出序号或代次异常', COUNTER_EXHAUSTED: '计数容量已耗尽', WORKER_PANICKED: '文件线程异常' };
 export type LoggingSummary = { phase?:LogInfo['phase']; unknown?:boolean; connection: Pick<Connection, 'connection_id' | 'generation'>; text: string };
 export function summarizeLogging(logs:LogInfo[]) {
@@ -19,7 +20,7 @@ function summary(logs: LogInfo[]) {
   const latest = logs.find(log => log.active) ?? logs[0];
   return latest ? `${phases[latest.phase]}${latest.failure ? ` · ${failures[latest.failure] ?? latest.failure}，后续输出未记录` : ''} · 源缺口 ${latest.source_gap_bytes} 字节 · 拒绝 ${latest.rejected_records} 条${latest.durable ? ' · 保留窗口同步完成' : ''}` : '未启用记录（本次服务）';
 }
-export function LoggingPanel({connection,owner,open,close,claimRecording,recordingLocked}:{connection?:Connection;owner:string;open:boolean;close():void;claimRecording(target:LogTarget):(()=>void)|undefined;recordingLocked(target:LogTarget):boolean}) {
+export function LoggingPanel({connection,owner,title,open,close,claimRecording,recordingLocked,notifyStopped}:{connection?:Connection;owner:string;title:string;open:boolean;close():void;claimRecording(target:LogTarget):(()=>void)|undefined;recordingLocked(target:LogTarget):boolean;notifyStopped:NotifyStopped}) {
   const [directory,setDirectory]=useState('');
   useEffect(()=>{let active=true;void invoke<string>('config_directory').then(d=>{if(active)setDirectory(d);}).catch(()=>{});return()=>{active=false;};},[]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
@@ -62,15 +63,32 @@ export function LoggingPanel({connection,owner,open,close,claimRecording,recordi
     const frozen = reference(target);
     const logId = shown?.log_id;
     if (action !== 'start' && !logId) return;
-    const release=claimRecording({service_id:owner,protocol:target.protocol,connection:frozen});
+    const scope={service_id:owner,protocol:target.protocol,connection:frozen};
+    const release=claimRecording(scope);
     if(!release)return;
     setBusy(true); setMessage('');
     try {
-      const reply = await logging(action === 'start' ? { op: 'start', connection: frozen, request_id: requestId(), limits: { segment_bytes: Math.round(size * 1024 * 1024), segments } } : { op: action, connection: frozen, log_id: logId! });
-      if (reply.result !== 'info' || reply.protocol !== target.protocol || reply.connection.connection_id !== frozen.connection_id || reply.connection.generation !== frozen.generation || (action !== 'start' && reply.log_id !== logId)) throw new Error('日志响应目标或状态不匹配；请查询原目标，未自动重试。');
-      if (mounted.current && current.current?.connection_id === frozen.connection_id && current.current.generation === frozen.generation && reply.result === 'info') {
+      function exact(value:Awaited<ReturnType<typeof logging>>) {
+        if(value.result!=='info'||value.protocol!==scope.protocol||value.connection.connection_id!==frozen.connection_id||
+          value.connection.generation!==frozen.generation||(action==='stop'&&value.log_id!==logId))
+          throw new Error('日志响应目标或状态不匹配；请查询原目标，未自动重试。');
+        return value;
+      }
+      let reply=exact(await logging(action==='start'?
+        {op:'start',connection:frozen,request_id:requestId(),limits:{segment_bytes:Math.round(size*1024*1024),segments}}:
+        {op:'stop',connection:frozen,log_id:logId!}));
+      if(action==='stop'){
+        for(let i=0;i<24&&!reply.worker_finished&&mounted.current;i++){
+          await new Promise(resolve=>window.setTimeout(resolve,200));
+          if(!mounted.current)return;
+          reply=exact(await logging({op:'status',connection:frozen,log_id:logId!}));
+        }
+        if(mounted.current)notifyStopped(scope,title,reply);
+      }
+      if (mounted.current && current.current?.connection_id === frozen.connection_id && current.current.generation === frozen.generation) {
         setSelected(reply.log_id); setLogs(old => [reply, ...old.filter(log => log.log_id !== reply.log_id)]);
-        setMessage(action === 'start' ? '已接受记录请求；打开、写盘和同步结果见状态。' : '已停止接收新输出；停止前已提交的内容不会撤回，最终结果见日志状态。');
+        setMessage(action==='start'?'已接受记录请求；打开、写盘和同步结果见状态。':
+          syncedStop(reply)?'':reply.failure?'记录失败，请查看日志状态。':'最终停止和同步状态未确认。');
       }
     } catch (error) { if (mounted.current && current.current?.connection_id === frozen.connection_id && current.current.generation === frozen.generation) setMessage(String(error)); }
     finally { release();if (mounted.current) setBusy(false); }

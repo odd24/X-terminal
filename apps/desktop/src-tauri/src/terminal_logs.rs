@@ -6,7 +6,7 @@ use session_core::{
 };
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -197,6 +197,7 @@ enum Job {
 pub struct Manager {
     registry: Arc<Mutex<Registry>>,
     sender: mpsc::SyncSender<Job>,
+    directory_open: Arc<tokio::sync::Semaphore>,
 }
 #[cfg(test)]
 mod tests;
@@ -210,7 +211,24 @@ fn error(e: std::io::Error) -> String {
     }
     .into()
 }
+fn open_managed_directory(directory: &Path) -> Result<(), String> {
+    let source = UserLogDirectory::ensure(directory).map_err(error)?;
+    crate::export_save::open_directory(source.path(), 0)
+}
 impl Manager {
+    pub async fn open_directory(&self, directory: PathBuf) -> Result<(), String> {
+        let permit = self
+            .directory_open
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "BUSY")?;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            open_managed_directory(&directory)
+        })
+        .await
+        .map_err(|_| "WORKER_FAILED")?
+    }
     pub fn release_scope(&self, scope: &crate::export_save::Scope) -> Result<Info, String> {
         let target = {
             let state = self.registry.lock().map_err(|_| "INVALID_STATE")?;
@@ -348,9 +366,7 @@ impl Manager {
                                         .map_err(error)?;
                                         crate::export_save::open_readable(source.path())?;
                                     } else {
-                                        let source =
-                                            UserLogDirectory::ensure(&directory).map_err(error)?;
-                                        crate::export_save::open_directory(source.path(), 0)?;
+                                        open_managed_directory(&directory)?;
                                     }
                                     shared
                                         .lock()
@@ -390,7 +406,11 @@ impl Manager {
                     }
                 }
             })?;
-        Ok(Self { registry, sender })
+        Ok(Self {
+            registry,
+            sender,
+            directory_open: Arc::new(tokio::sync::Semaphore::new(1)),
+        })
     }
     pub fn duplicate(&self, request: &Request) -> Result<Option<Info>, String> {
         let (target, id) = request.scope();

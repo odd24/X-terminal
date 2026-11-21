@@ -7,6 +7,8 @@ import {closeSoakDesktop} from './lib/LoadSoak.mjs';
 
 const desktop=path.resolve(process.argv[2]);
 const fixture=path.resolve(process.argv[3]);
+const notices=process.argv.includes('--notices');
+const version=notices?'0.1.5':'0.1.4';
 const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-tab-record-serial-ui-中文-'));
 let ui,report;
 try {
@@ -46,10 +48,11 @@ try {
     await delay(30);
   }
   assert.ok((await readFile(filename,'utf8')).includes(marker));
-  await ui.screenshot('desktop-0.1.4-serial-recording.png');
+  await ui.screenshot(`desktop-${version}-serial-recording.png`);
   const lost=await ui.interceptIpc({op:'stop',connectionId:uart.connection_id,mode:'error'});
   await click();await state('unknown');
   assert.equal(await ui.evaluate(`document.querySelector('.toolbar-log').textContent`),'状态未知');
+  if(notices)assert.equal(await ui.evaluate(`!!document.querySelector('.recording-notice')`),false);
   assert.equal(await lost.count(),1);
   const pending=await ui.evaluate(`JSON.parse(sessionStorage.getItem('terminal-tab-recording-v1'))[0][1]`);
   assert.deepEqual(pending,{kind:'stop',id:log.log_id});
@@ -65,18 +68,25 @@ try {
   const final=await readFile(filename);
   assert.equal(final.length,stopped.readable.synced_bytes);
   assert.ok(final.includes(Buffer.from(marker)));
+  if(notices){
+    await ui.waitFor(`document.querySelector('.recording-notice-file')?.textContent===${JSON.stringify(stopped.readable.filename)}`);
+    assert.ok(await ui.evaluate(`document.querySelector('.recording-notice [role="status"]').textContent.includes('COM7')`));
+    assert.ok(await ui.evaluate(`document.querySelector('.recording-notice-totals').textContent.includes(${JSON.stringify(final.length+' 字节')})`));
+    await ui.screenshot('desktop-0.1.5-serial-stop-notice.png');
+  }
   const rendering=`document.querySelector('[data-pane][data-rendered-id="${uart.connection_id}"]')`;
   await ui.waitFor(`!!${rendering} && document.querySelector('.toolbar-log').textContent==='日志'`);
   await ui.evaluate(`document.querySelector('.toolbar-log').click()`);
   await ui.waitFor(`[...document.querySelectorAll('.terminal-context-menu button')].some(b=>b.textContent==='开始记录'&&!b.disabled)`);
   await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
   const close=await closeSoakDesktop(ui,data,service,{});
-  report={result:'PASS',transport:'memory UART COM7',sameStopAfterLostReply:true,syncedBytes:final.length,menuUpdated:true,close};
+  report={result:'PASS',transport:'memory UART COM7',sameStopAfterLostReply:true,syncedBytes:final.length,menuUpdated:true,
+    ...(notices?{stopNotice:true,noNoticeWhileUnknown:true}:{}),close};
 } finally {
   await ui?.close();
   assert.equal(path.dirname(root),path.resolve(tmpdir()));
   assert.ok(path.basename(root).startsWith('shared-terminal-tab-record-serial-ui-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }
-await writeFile('artifacts/windows-0.1.4-tab-recording-serial.json',JSON.stringify(report,null,2)+'\n');
+await writeFile(`artifacts/windows-${version}-tab-recording-serial.json`,JSON.stringify(report,null,2)+'\n');
 console.log('PASS memory UART tab recording, file, durable stop and original-only lookup');

@@ -2,7 +2,7 @@ param([Parameter(Mandatory)][string]$ImagePath,[Parameter(Mandatory)][string]$Lo
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 $parent=[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ImagePath))
-if([IO.Path]::GetDirectoryName($parent) -ne [IO.Path]::GetTempPath().TrimEnd('\') -or ![IO.Path]::GetFileName($parent).StartsWith('shared-terminal-log-menu-ui-') -or [IO.Path]::GetFileName($ImagePath) -ne 'log-shell-header.png' -or $LogId -notmatch '^[0-9a-f-]{36}$'){throw 'Unrelated OCR input refused.'}
+if([IO.Path]::GetDirectoryName($parent) -ne [IO.Path]::GetTempPath().TrimEnd('\') -or [IO.Path]::GetFileName($parent) -notmatch '^shared-terminal-(log-menu|pane-groups)-ui-' -or [IO.Path]::GetFileName($ImagePath) -ne 'log-shell-header.png' -or $LogId -notmatch '^[0-9a-f-]{36}$'){throw 'Unrelated OCR input refused.'}
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 [Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]|Out-Null
 [Windows.Storage.Streams.IRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime]|Out-Null

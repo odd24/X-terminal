@@ -5,14 +5,15 @@ import {logging,LogRequestError,type LogInfo,type ExportInfo} from './logging-ap
 import {LogSavePanel} from './log-save-panel';
 import {checkedSave,saveDiagnosticNotice,terminalSave,type SaveInfo} from './log-save';
 import {requestId} from './request-id';
+import {syncedStop,type NotifyStopped} from './recording-notice';
 import {checkedMenu,restoreLogTask,sameLogTarget,knownMenuRejection,menuFailure,type LogTarget,type MenuInfo,type RememberedLogTask,type TerminalMenuContext} from './log-menu';
-type Props={paneLabel:string; claimRecording(target:LogTarget):(()=>void)|undefined;recordingLocked(target:LogTarget):boolean;focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
+type Props={paneLabel:string; claimRecording(target:LogTarget):(()=>void)|undefined;recordingLocked(target:LogTarget):boolean;notifyStopped:NotifyStopped;completedLogId?:string;openDirectory():Promise<void>;focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
 type Receipt={target:RememberedLogTask;info:SaveInfo};
 type Task=RememberedLogTask&{info?:MenuInfo;log?:LogInfo;uncertain:boolean;finished:boolean;auto:boolean;recovery:boolean;cancelled:boolean;message:string;error:boolean;save?:SaveInfo;releaseRecording?:()=>void};
 const slot='terminal-context-log-task-v1';
 const recordingStatus=(task:Task|undefined)=>task?.kind==='start'||task?.kind==='stop';
 const failures:Record<string,string>={CAPACITY:'日志文件容量已达上限',QUEUE_FULL:'日志写盘队列已满，后续输出未记录',DISK_FULL:'磁盘空间不足',STORAGE:'文件存储故障',INVALID_RECORD:'记录序号异常',COUNTER_EXHAUSTED:'记录计数已耗尽',WORKER_PANICKED:'文件线程异常'};
-function captureMessage(log:LogInfo){return log.failure?failures[log.failure]??'日志记录失败':log.phase==='RECORDING'?`正在记录 · 已接受 ${log.accepted_records} 条 · 已写入 ${log.written_records} 条 · 已刷新 ${log.readable?.flushed_records??0} 条 · 已同步 ${log.readable?.synced_records??0} 条`:log.phase==='OPENING'?'正在创建实时日志文件…':log.phase==='STOPPING'?'正在停止并同步日志…':log.phase==='STOPPED'?'记录已停止并同步。':'记录当前不可用。';}
+function captureMessage(log:LogInfo){return log.failure?failures[log.failure]??'日志记录失败':log.phase==='RECORDING'?`正在记录 · 已接受 ${log.accepted_records} 条 · 已写入 ${log.written_records} 条 · 已刷新 ${log.readable?.flushed_records??0} 条 · 已同步 ${log.readable?.synced_records??0} 条`:log.phase==='OPENING'?'正在创建实时日志文件…':log.phase==='STOPPING'?'正在停止并同步日志…':log.phase==='STOPPED'?(syncedStop(log)?'记录已停止并同步。':'最终停止和同步状态未确认。'):'记录当前不可用。';}
 function initialTask():Task|undefined{try{const old=restoreLogTask(sessionStorage.getItem(slot));return old?{...old,uncertain:true,finished:false,auto:false,recovery:true,cancelled:false,error:false,message:'已恢复原操作编号，请查询结果；不会重新执行或自动续存。'}:undefined;}catch{return;}}
 export function TerminalLogMenu(props:Props){
  const latest=useRef(props);latest.current=props;
@@ -42,6 +43,18 @@ export function TerminalLogMenu(props:Props){
     if(result.result!=='info'||result.connection.connection_id!==t.target.connection.connection_id||result.connection.generation!==t.target.connection.generation||result.protocol!==t.target.protocol||t.log_id&&result.log_id!==t.log_id)throw Error('日志回执目标不匹配，请查询原编号。');
     if(current.current!==t||!mounted.current)return;
     t.log_id=result.log_id;t.log=result;t.uncertain=false;t.error=!!result.failure;t.message=captureMessage(result);t.finished=t.kind==='stop'?result.worker_finished:result.phase==='RECORDING'&&!!result.readable||['FAILED','STOPPED','REMOVED','RELEASED'].includes(result.phase);
+    if(t.kind==='stop'&&t.finished){
+     if(syncedStop(result)){
+      latest.current.notifyStopped(t.target,t.title,result);
+      setVisible(false);
+      current.current=undefined;
+      setTask(undefined);
+      try{sessionStorage.removeItem(slot);}catch{/* same recording is deduplicated */}
+      return;
+     }
+     t.error=true;
+     setVisible(true);
+    }
    }else{
     const result=checkedMenu(await invoke<MenuInfo>('terminal_log_request',{request:start?payload:{op:'status',target:t.target,request_id:t.request_id}}),t.target,t.request_id,t.subkind!);
     if(current.current!==t||!mounted.current){if(t.kind==='prepare')void cancelNative(t);return;}
@@ -56,7 +69,7 @@ export function TerminalLogMenu(props:Props){
     else{t.finished=false;t.message=result.phase==='RELEASING'?'正在回收本次临时副本…':t.kind==='prepare'?'正在准备固定范围日志…':'正在打开本次日志来源…';}
    }
    publish(t);
-  }catch(error){if(current.current!==t||!mounted.current)return;const code=error instanceof LogRequestError?error.code:String(error);const rejected=start&&(error instanceof LogRequestError?!error.uncertain:knownMenuRejection(code));t.auto=false;t.uncertain=!rejected;t.finished=rejected;t.error=true;t.message=error instanceof LogRequestError?error.message:menuFailure(code);if(t.uncertain)t.message+=' 保留原编号，请查询结果；没有自动重放或续存。';publish(t);}
+  }catch(error){if(current.current!==t||!mounted.current)return;const code=error instanceof LogRequestError?error.code:String(error);const rejected=start&&(error instanceof LogRequestError?!error.uncertain:knownMenuRejection(code));t.auto=false;t.uncertain=!rejected;t.finished=rejected;t.error=true;t.message=error instanceof LogRequestError?error.message:menuFailure(code);if(t.uncertain)t.message+=' 保留原编号，请查询结果；没有自动重放或续存。';if(t.kind==='stop')setVisible(true);publish(t);}
   finally{if(t.finished)t.releaseRecording?.();flight.current=false;if(mounted.current)setBusy(false);}
  }
  useEffect(()=>{const t=current.current;if(!t||busy||t.uncertain||t.finished||t.saveVisible||t.info?.phase==='COMPLETED'&&!t.cancelled)return;const timer=window.setTimeout(()=>void run(t),150);return()=>clearTimeout(timer);},[task,busy]);
@@ -74,7 +87,7 @@ export function TerminalLogMenu(props:Props){
    const source=subkind==='RECORDED'?{kind:'recorded',log_ids:logs.filter(l=>l.readable||!['REMOVED','RELEASED'].includes(l.phase)).slice().reverse().map(l=>l.log_id)}:subkind==='VIEWPORT'?{kind:'viewport',...context.viewport}:{kind:'buffer',text:context.buffer?.text,rows:context.buffer?.rows,cols:context.buffer?.cols};
    payload={op:'prepare',target:t.target,request_id:t.request_id,source};
   }else if(kind==='file'||kind==='directory')payload={op:kind==='file'?'open_file':'open_directory',target:t.target,request_id:t.request_id,...(kind==='file'?{log_id:t.log_id}:{})};
-  current.current=t;setNotice(undefined);setDirectoryError('');setVisible(true);publish(t);latest.current.close();void run(t,true,payload);
+ current.current=t;setNotice(undefined);setDirectoryError('');setVisible(kind!=='stop');publish(t);latest.current.close();void run(t,true,payload);
  }
  function closeStatus(){const t=current.current;setVisible(false);if(!t||recordingStatus(t))return;if(t.finished){current.current=undefined;setTask(undefined);try{sessionStorage.removeItem(slot);}catch{/* unavailable */}}else if(['prepare','file','directory'].includes(t.kind)){t.auto=false;t.cancelled=true;t.recovery=true;t.uncertain=true;t.message='已请求取消，请查询原结果；已开始的保存可能完成。';publish(t);void cancelNative(t);}}
  function saved(t:Task,info:SaveInfo){
@@ -107,7 +120,7 @@ export function TerminalLogMenu(props:Props){
    <button role="menuitem" disabled={!supported||pending||!menu.buffer} onClick={()=>choose('prepare','BUFFER')}>保存终端缓冲内容…</button>
    <button role="menuitem" disabled={!supported||loading||!!loadError||pending||props.recordingLocked(menu.target)||shown?.phase==='OPENING'||shown?.phase==='STOPPING'||(!shown?.active&&!menu.writable)}
     onClick={()=>choose(shown?.active?'stop':'start')}>{shown?.active?'停止记录':'开始记录'}</button>
-   <button role="menuitem" disabled={!supported||pending} onClick={()=>choose('directory','DIRECTORY')}>打开日志目录</button>
+   <button role="menuitem" disabled={!supported} onClick={()=>{props.close();void props.openDirectory();}}>打开日志目录</button>
    <hr/>
    <small>其他保存范围</small>
    <button role="menuitem" disabled={!supported||loading||!!loadError||pending||!completeFiles.length||completeFiles.some(l=>!l.readable)} onClick={()=>choose('prepare','RECORDED')}>另存全部已记录日志…</button>
@@ -128,7 +141,7 @@ export function TerminalLogMenu(props:Props){
    {pending&&<button role="menuitem" onClick={()=>{setVisible(true);props.close();if(current.current&&!busy)void run(current.current);}}>查询上次日志操作结果</button>}
   </ContextMenu>}
   {notice&&props.valid(notice.target)&&<div className="terminal-log-feedback" role="status" aria-label="日志保存反馈"><span title={notice.info.path??undefined}>{notice.target.title} · {notice.info.phase==='COMPLETED'?`日志已保存：${notice.info.path?.split(/[\\/]/).at(-1)}`:'日志保存已取消。'}{saveDiagnosticNotice(notice.info)}</span>{notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开所在目录</button>}{directoryError&&<small role="alert">{directoryError}</small>}</div>}
-  {task&&visible&&<Dialog label="日志操作结果" modal={false} passive close={closeStatus}><Panel title={`${task.title} · 终端日志`} label="终端右键日志操作" close={closeStatus} closeLabel="收起日志操作">
+  {task&&visible&&(!props.completedLogId||task.kind!=='start'||task.log_id!==props.completedLogId)&&<Dialog label="日志操作结果" modal={false} passive close={closeStatus}><Panel title={`${task.title} · 终端日志`} label="终端右键日志操作" close={closeStatus} closeLabel="收起日志操作">
    {task.error?<ErrorNotice title="日志操作未完成">{task.message}</ErrorNotice>:<p role="status" aria-label="右键日志操作状态">{task.message}</p>}
    {task.log?.readable&&<><p className="data-location" aria-label="实时日志文件名">{task.log.readable.filename}</p><small>同一应用数据目录的所有窗口共用 logs 文件夹。文件刷新目标100ms、持久同步目标1秒，系统阻塞时可能延迟；停止后核对最终同步状态。</small></>}
    {(task.uncertain||task.recovery)&&<button disabled={busy} onClick={()=>{if(current.current)void run(current.current);}}>查询本次日志操作</button>}

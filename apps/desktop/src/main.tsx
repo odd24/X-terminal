@@ -51,6 +51,7 @@ import { WorkspacesPanel } from './workspaces-panel';
 import { useTabLogging, logBadge } from './tab-logging';
 import { ToolbarMenu, Dialog, Panel } from './ui';
 import { TerminalLogMenu } from './terminal-log-menu';
+import {RecordingNotice,useOpenLogDirectory,useRecordingNotices} from './recording-notice';
 import type {TerminalMenuContext,RememberedLogTask} from './log-menu';
 import { TerminalPane } from './terminal-pane';
 import { PaneLayout, type PaneKey } from './pane-layout';
@@ -516,9 +517,11 @@ function App() {
   const pendingWorkspaceTabs=currentWorkspace?.tabs.filter(t=>{const ref=workspaceSession.current.binding(t.id),live=ref&&connections.find(c=>c.connection_id===ref.connection_id);return !live||['FAILED','DISCONNECTED'].includes(live.state);})??[];
   const activeDetails = active && catalog.current.get(active);
   const logOwner=serviceStopped.current?'':service?.service_id??'';
+  const recordingNotices=useRecordingNotices(logOwner);
+  const logDirectory=useOpenLogDirectory();
   const tabLogs=useTabLogging(logOwner,tabs,active,target=>!serviceStopped.current&&serviceRef.current?.service_id===target.service_id&&
     transferring.current!==target.connection.connection_id&&liveConnections.current.some(c=>c.protocol===target.protocol&&
-      c.connection_id===target.connection.connection_id&&c.generation===target.connection.generation));
+      c.connection_id===target.connection.connection_id&&c.generation===target.connection.generation),tabName,recordingNotices.notify);
   const activeLog=active?tabLogs.summary(active)?.text??'正在查询本次日志状态':'尚无活动连接';
   const activeLogBadge=active?logBadge(tabLogs.summary(active)):undefined;
   useEffect(()=>{
@@ -535,9 +538,11 @@ function App() {
     const profile = details && profiles.find(item => item.id === details.profile_id && item.settings.protocol.toUpperCase() === connection.protocol);
     return details?.target_label ?? profile?.name;
   };
-  const tabName = (connection: Connection) => connection.protocol === 'SSH2'||connection.protocol === 'SSH1'
-    ? catalog.current.get(connection)?.host ?? '正在读取地址'
-    : connection.protocol==='SERIAL' ? catalog.current.get(connection)?.target_label ?? '正在读取端口' : '合成终端';
+  function tabName(connection: Connection) {
+    return connection.protocol==='SSH2'||connection.protocol==='SSH1'
+      ? catalog.current.get(connection)?.host??'正在读取地址'
+      : connection.protocol==='SERIAL'?catalog.current.get(connection)?.target_label??'正在读取端口':'合成终端';
+  }
   const connectionLabel = (connection: Connection) => profileName(connection) ? `${profileName(connection)} · ${connection.protocol}` : tabName(connection);
   function moveTab(offset: number) {
     const peers=paneTabs(panes.current.active);
@@ -791,6 +796,7 @@ function App() {
     </aside>}
     <section className="terminal-workspace" aria-label="终端工作区">
     <TerminalLogMenu claimRecording={tabLogs.claim} recordingLocked={tabLogs.locked}
+      notifyStopped={recordingNotices.notify} completedLogId={recordingNotices.notice?.id} openDirectory={logDirectory.open}
       paneLabel={paneSlots.length===1?'终端':paneSlots.length===2
         ?(panes.current.direction==='horizontal'?['左窗格','右窗格']:['上窗格','下窗格'])[terminalMenu?.pane===paneSlots[0].key?0:1]
         :'窗格 '+(paneSlots.findIndex(slot=>slot.key===terminalMenu?.pane)+1)}
@@ -800,6 +806,9 @@ function App() {
       {!detached&&<button className="sidebar-toggle" aria-label="会话导航" title="显示或收起连接库" aria-expanded={sidebarOpen} aria-controls="connection-library" onClick={toggleSidebar}><span aria-hidden="true">◫</span></button>}
       <button className="toolbar-log" aria-haspopup="menu" aria-expanded={!!terminalMenu&&terminalMenu.anchor.matches('.toolbar-log')} title={activeLog} disabled={!active||renderedTarget?.connection_id!==active.connection_id||renderedTarget.generation!==active.generation||!['SSH2','SERIAL'].includes(active.protocol)} onClick={event=>openTopLog(event.currentTarget)}>
         {activeLogBadge||'日志'}
+      </button>
+      <button type="button" className="toolbar-log-directory" aria-label="打开日志目录" title="打开日志目录" onClick={()=>void logDirectory.open()}>
+        <span className="log-folder-glyph" aria-hidden="true"/>
       </button>
       {!detached&&<ToolbarMenu summary={toolsSummary} className="tools-menu" label="更多工具" text="更多工具">
         <section className="toolbar-group" aria-label="会话与终端">
@@ -845,6 +854,7 @@ function App() {
       </ToolbarMenu>}
       {detached&&<button onClick={()=>void appWindow.close()}>移回主窗口</button>}
     </nav>
+    {logDirectory.error&&<small role="alert" className="log-directory-error">{logDirectory.error}</small>}
     {!tabs.length && <section className="terminal-empty">{detached?<h1>{service?'原会话已移除或代次已变化':'正在加载独立会话'}</h1>:<><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button></div></>}</section>}
     <SessionDragPreview destination={drag.preview?.destination} detached={detached}/>
     {dockHover&&<div className="tab-dock-preview" aria-hidden="true">松开后移回主窗口</div>}
@@ -914,7 +924,10 @@ function App() {
       <pre aria-label="粘贴内容预览">{visibleControls(JSON.stringify(pasteProposal.text.slice(0,8192)))}{pasteProposal.text.length > 8192 && ' …预览已截断'}</pre>
       <div className="config-actions"><button onClick={() => clipboard.current?.confirm(pasteProposal)}>确认发送粘贴</button><button data-dialog-autofocus onClick={cancelPaste}>取消粘贴</button></div>
     </Panel></Dialog>}
-    <LoggingPanel connection={active} owner={logOwner} open={loggingOpen} close={()=>setLoggingOpen(false)} claimRecording={tabLogs.claim} recordingLocked={tabLogs.locked} />
+    <LoggingPanel connection={active} owner={logOwner} title={active?tabName(active):''} open={loggingOpen} close={()=>setLoggingOpen(false)}
+      claimRecording={tabLogs.claim} recordingLocked={tabLogs.locked} notifyStopped={recordingNotices.notify}/>
+    {recordingNotices.notice&&<RecordingNotice key={recordingNotices.notice.id} notice={recordingNotices.notice}
+      dismiss={recordingNotices.dismiss} openDirectory={logDirectory.open}/>}
     {snapshot && <Dialog label="查看屏幕快照" modal={false} close={()=>setSnapshot('')}><Panel title="屏幕快照" close={()=>setSnapshot('')} closeLabel="关闭屏幕快照"><pre aria-label="屏幕快照">{snapshot}</pre></Panel></Dialog>}
     {serviceScreen && <Dialog label="查看服务端屏幕快照" modal={false} close={()=>setServiceScreen(undefined)}><Panel title="服务端屏幕快照" close={()=>setServiceScreen(undefined)} closeLabel="关闭服务端快照"><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · {serviceScreen.resize_reflow ? '普通屏支持重排；复杂调整可能与桌面不同' : '宽度变化不重排，可能与桌面显示不同'} · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></Panel></Dialog>}
     </div>
