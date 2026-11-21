@@ -211,6 +211,7 @@ try{
     await right.control({op:'push',text:'\r\nTAB_RECORD_SSH_FILE\r\n'});
     await wait(async()=>{const [latest]=await logs(main,b);return latest?.readable?.flushed_bytes>0&&
       (await readFile(path.join(root,'logs',latest.readable.filename),'utf8')).includes('TAB_RECORD_SSH_FILE');},'flushed SSH text');
+    await recordState(main,c,'idle');
     await main.screenshot('desktop-0.1.4-tab-recording.png');
 
     await main.splitTab(b.connection_id);
