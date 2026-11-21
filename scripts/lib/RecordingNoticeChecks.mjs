@@ -83,12 +83,12 @@ export async function checkNoticeActions(page,root,log,resumeRecording,switchTab
     assert.equal(await opened.count(),1,'one real native file-open response after activating the notice button');
   }finally{await opened.restore();}
   const file=powerShell(['-File','scripts/lib/ObserveLogShell.ps1','-Root',root,'-TargetPath',path.join(root,'logs',log.readable.filename),
-    '-Action','file','-LogId',log.log_id]);
-  assert.match(file,/PASS actual readable log and exact header/);
+    '-Action',version==='0.1.6'?'system-file':'file','-LogId',log.log_id]);
+  assert.match(file,/PASS actual (?:system default program|readable log and exact header)/);
   await page.command('Page.bringToFront');
   const idleStart=await page.evaluate(`document.querySelector('[data-active="true"] .xterm-helper-textarea').focus();performance.now()`);
   await page.waitFor(`!${notice}`);
   const idleMs=Math.round((await page.evaluate('performance.now()'))-idleStart);
   assert.ok(idleMs>=4750&&idleMs<7000,`idle notice dismissal took ${idleMs}ms`);
-  return {hoverPaused:true,keyboardPaused:true,originalFileInNotepad:true,idleMs};
+  return {hoverPaused:true,keyboardPaused:true,originalFileOpened:file,idleMs};
 }

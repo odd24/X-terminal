@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$TargetPath,[Parameter(Mandatory)][ValidateSet('directory','file')][string]$Action,[string]$LogId,[string]$ExistingExplorerWindows='[]')
+param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$TargetPath,[Parameter(Mandatory)][ValidateSet('directory','file','system-file')][string]$Action,[string]$LogId,[string]$ExistingExplorerWindows='[]')
 $ErrorActionPreference='Stop'
 $ErrorView='NormalView'
 trap { Write-Output $_.ScriptStackTrace; break }
@@ -15,7 +15,9 @@ using System.Text;
 using System.Runtime.InteropServices;
 public static class LogShellLongPath {
  [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern uint GetLongPathName(string path,StringBuilder output,uint size);
+ [DllImport("shlwapi.dll",CharSet=CharSet.Unicode)] static extern int AssocQueryStringW(int flags,int kind,string extension,string verb,StringBuilder output,ref uint size);
  public static string Of(string path) { var b=new StringBuilder(32768); var n=GetLongPathName(path,b,(uint)b.Capacity); if(n==0||n>=b.Capacity)throw new InvalidOperationException("cannot normalize existing test path"); return b.ToString(); }
+ public static string LogApplication() { var b=new StringBuilder(32768); uint n=(uint)b.Capacity; return AssocQueryStringW(0,2,".log","open",b,ref n)==0 ? b.ToString() : ""; }
 }
 '@
 $expected=[LogShellLongPath]::Of($targetFull)
@@ -38,6 +40,28 @@ if ($Action -eq 'directory') {
   Start-Sleep -Milliseconds 100
  }
  throw 'The owned common log directory was not observed in Explorer.'
+}
+if ($Action -eq 'system-file') {
+ $application=[LogShellLongPath]::LogApplication()
+ $program=[IO.Path]::GetFileNameWithoutExtension($application)
+ if ($program -and $program -ne 'notepad') {
+  $filename=[IO.Path]::GetFileName($expected)
+  for($n=0;$n -lt 100;$n++) {
+   foreach($editor in @(Get-Process -Name $program -ErrorAction SilentlyContinue)) {
+    try {
+     if(!$editor.Path -or [LogShellLongPath]::Of($editor.Path) -ne [LogShellLongPath]::Of($application)) { continue }
+     $title=$editor.MainWindowTitle
+     if($title -eq $expected -or $title.StartsWith($expected+' - ',[StringComparison]::OrdinalIgnoreCase) -or
+          $title -eq $filename -or $title.StartsWith($filename+' - ',[StringComparison]::OrdinalIgnoreCase)) {
+      Write-Output "PASS actual system default program opened the owned log ($program)"
+      exit 0
+     }
+    } catch {}
+   }
+   Start-Sleep -Milliseconds 100
+  }
+  throw 'The current system default program did not show the exact owned log name.'
+ }
 }
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 $name=[IO.Path]::GetFileName($targetFull)

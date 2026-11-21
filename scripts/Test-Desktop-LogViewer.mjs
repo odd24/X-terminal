@@ -138,6 +138,7 @@ try{
   await ui.screenshot('desktop-0.1.6-log-viewer-settings.png');
   await ui.click('关闭外观');
   await idleClose(original);
+  console.log('PASS native selection and cancellation');
 
   ui=await launchDesktop(root,{executable:desktop,webviewDirectory:path.join(root,'webview-second')});
   const service=await ui.invoke('service_status');
@@ -188,6 +189,7 @@ try{
   await closeOpenedFile();
   await observeLogDirectory(ui,root,()=>ui.evaluate(`document.querySelector('.toolbar-log-directory').click()`));
   assert.equal((await traces()).length,3);
+  console.log('PASS restart, exact argument, missing viewer, replacement and Explorer');
   await appearance();
   const reset=button('.log-viewer-settings','恢复 Windows 系统默认');
   await ui.waitFor(`(${reset})?.disabled===false`);
@@ -195,9 +197,11 @@ try{
   await ui.waitFor(`${selected}.textContent==='Windows 系统默认'`);
   await ui.click('关闭外观');
   await menu('打开当前日志文件');
-  assert.match(execFileSync('pwsh',['-NoProfile','-STA','-File','scripts/lib/ObserveLogShell.ps1',
-    '-Root',root,'-TargetPath',file(live),'-Action','file','-LogId',live.log_id],
-    {windowsHide:true,encoding:'utf8',timeout:30000}),/PASS actual readable log and exact header/);
+  const systemViewer=execFileSync('pwsh',['-NoProfile','-STA','-File','scripts/lib/ObserveLogShell.ps1',
+    '-Root',root,'-TargetPath',file(live),'-Action','system-file','-LogId',live.log_id],
+    {windowsHide:true,encoding:'utf8',timeout:30000}).trim();
+  assert.match(systemViewer,/PASS actual (?:system default program|readable log and exact header)/);
+  console.log(systemViewer);
   assert.equal((await traces()).length,3);
   await closeOpenedFile();
   await observeLogDirectory(ui,root,()=>ui.evaluate(`document.querySelector('.toolbar-log-directory').click()`));
@@ -224,7 +228,7 @@ try{
   assert.deepEqual(await settings(),{executable:null,available:true});
   await idleClose(restored);
   report={result:'PASS',pickerCancelled:true,retainedAcrossRestart:true,customLaunches:3,singleArgument:true,missingShown:true,
-    windowsDefaultObserved:true,resetPersisted:true,directoryExplorer:true,measurements,close};
+    windowsDefaultObserved:systemViewer,resetPersisted:true,directoryExplorer:true,measurements,close};
 }catch(error){
   if(ui)await ui.screenshot('desktop-0.1.6-log-viewer-failure.png').catch(()=>{});
   throw error;
