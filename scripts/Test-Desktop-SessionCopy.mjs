@@ -202,8 +202,14 @@ async function setTheme(theme){
   await ui.click('软件设置');
   await ui.waitFor(`document.querySelector('[aria-label="应用主题"]')?.disabled===false`);
   await ui.fill('应用主题',theme);
-  await ui.click('保存桌面偏好');
-  await wait(async()=> (await ui.invoke('config_request',{request:{op:'preferences'}})).preferences.theme===theme,'saved toolbar test theme');
+  // Seed the detached window's theme in the isolated preferences. The open
+  // main window already previews the same theme through the settings control.
+  const before=await ui.invoke('config_request',{request:{op:'preferences'}});
+  if(before.preferences.theme!==theme){
+    const saved=await ui.invoke('config_request',{request:{op:'save_preferences',revision:before.revision,
+      preferences:{...before.preferences,theme}}});
+    assert.equal(saved.preferences.theme,theme);
+  }
   await ui.click('关闭软件设置');
   await ui.waitFor(`document.documentElement.dataset.theme===${JSON.stringify(theme)}&&!document.querySelector('dialog:modal')`);
 }
