@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedExecutable,
     [Parameter(Mandatory=$true)][string]$Points,
     [string]$Title,
-    [switch]$Raise
+    [switch]$Raise,
+    [string]$LandingTitle
 )
 $ErrorActionPreference = 'Stop'
 $target = Get-Process -Id $TargetProcessId
@@ -59,7 +60,18 @@ $original = New-Object TerminalTestMouse+Point
 [void][TerminalTestMouse]::GetCursorPos([ref]$original)
 $pressed = $false
 $raised = $false
+$raisedLanding = $false
+$landing = [IntPtr]::Zero
 try {
+    if ($LandingTitle) {
+        $landing = [TerminalTestMouse]::FindWindow($TargetProcessId,$LandingTitle)
+        [uint32]$landingOwner = 0
+        if (!$landing -or $landing -eq $window -or ![TerminalTestMouse]::GetWindowThreadProcessId($landing,[ref]$landingOwner) -or $landingOwner -ne $TargetProcessId) {
+            throw 'Unexpected test landing window'
+        }
+        $raisedLanding = -not ([TerminalTestMouse]::GetWindowLongW($landing,-20) -band 8)
+        if (![TerminalTestMouse]::SetWindowPos($landing,[IntPtr](-1),0,0,0,0,19)) { throw 'Unable to raise the verified landing window' }
+    }
     if ($Raise) {
         $raised = -not ([TerminalTestMouse]::GetWindowLongW($window,-20) -band 8)
         [void][TerminalTestMouse]::ShowWindow($window,5)
@@ -71,9 +83,25 @@ try {
     $steps = @($Points | ConvertFrom-Json)
     for ($i=0; $i -lt $steps.Count; $i++) {
         $point = New-Object TerminalTestMouse+Point
-        $point.X = [int][Math]::Round($steps[$i].x * $scale)
-        $point.Y = [int][Math]::Round($steps[$i].y * $scale)
-        if (![TerminalTestMouse]::ClientToScreen($window,[ref]$point)) { throw 'Window coordinates unavailable' }
+        if ($steps[$i].landings) {
+            if (!$landing -or $i -ne $steps.Count-1) { throw 'Landing points require an owned destination and final step' }
+            $landingScale = [TerminalTestMouse]::GetDpiForWindow($landing) / 96
+            $destinationFound = $false
+            foreach ($candidate in $steps[$i].landings) {
+                $point.X = [int][Math]::Round($candidate.x * $landingScale)
+                $point.Y = [int][Math]::Round($candidate.y * $landingScale)
+                if ([TerminalTestMouse]::ClientToScreen($landing,[ref]$point) -and
+                    [TerminalTestMouse]::GetAncestor([TerminalTestMouse]::WindowFromPoint($point),2) -eq $landing) {
+                    $destinationFound = $true
+                    break
+                }
+            }
+            if (!$destinationFound) { throw 'No unobstructed point on the verified landing window' }
+        } else {
+            $point.X = [int][Math]::Round($steps[$i].x * $scale)
+            $point.Y = [int][Math]::Round($steps[$i].y * $scale)
+            if (![TerminalTestMouse]::ClientToScreen($window,[ref]$point)) { throw 'Window coordinates unavailable' }
+        }
         $hit = [TerminalTestMouse]::GetAncestor([TerminalTestMouse]::WindowFromPoint($point),2)
         if ($i -eq 0 -and $hit -ne $window) {
             [uint32]$hitOwner = 0
@@ -99,6 +127,7 @@ try {
     if ($pressed) { [TerminalTestMouse]::mouse_event(4,0,0,0,[UIntPtr]::Zero) }
     Start-Sleep -Milliseconds 200
     if ($raised) { [void][TerminalTestMouse]::SetWindowPos($window,[IntPtr](-2),0,0,0,0,19) }
+    if ($raisedLanding) { [void][TerminalTestMouse]::SetWindowPos($landing,[IntPtr](-2),0,0,0,0,19) }
     [void][TerminalTestMouse]::SetCursorPos($original.X,$original.Y)
     [void][TerminalTestMouse]::SetThreadDpiAwarenessContext($previousDpi)
 }

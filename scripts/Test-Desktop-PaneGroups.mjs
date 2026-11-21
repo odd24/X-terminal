@@ -92,18 +92,15 @@ async function outsideDrag(c, fromPane=false) {
   return connectDesktopPage(target);
 }
 async function dockDrag(connection) {
-  const mainBounds=await main.evaluate('({x:screenX,y:screenY,width:innerWidth,height:innerHeight})');
-  const childBounds=await child.evaluate('({x:screenX,y:screenY,width:innerWidth,height:innerHeight})');
-  const destination=[{x:mainBounds.width-65,y:100},{x:40,y:100},{x:mainBounds.width/2,y:45},{x:mainBounds.width/2,y:mainBounds.height-45}]
-    .map(point=>({x:mainBounds.x+point.x-childBounds.x,y:mainBounds.y+point.y-childBounds.y}))
-    .find(point=>point.x < -30 || point.y < -66 || point.x > childBounds.width+30 || point.y > childBounds.height+30);
-  assert.ok(destination,'main has a visible landing area outside the child frame');
+  const mainBounds=await main.evaluate('({width:innerWidth,height:innerHeight})');
+  const landings=[{x:mainBounds.width-65,y:100},{x:40,y:100},{x:mainBounds.width/2,y:45},
+    {x:mainBounds.width/2,y:mainBounds.height-45},{x:mainBounds.width-35,y:mainBounds.height-35}];
   const source=await child.evaluate(`document.querySelector('[role="tab"][data-connection-id="${connection.connection_id}"]').getBoundingClientRect().toJSON()`);
   const start=center(source);
   await child.command('Page.bringToFront');
-  const points=[start,{x:start.x+32,y:start.y+40},{...destination,outside:true,holdMs:950}];
+  const points=[start,{x:start.x+32,y:start.y+40},{landings,outside:true,holdMs:1300}];
   const mouse=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(main.app.pid),
-    '-ExpectedExecutable',desktop,'-Title','共享终端 · 独立会话','-Points',JSON.stringify(points),'-Raise'],{windowsHide:true});
+    '-ExpectedExecutable',desktop,'-Title','共享终端 · 独立会话','-LandingTitle','共享终端','-Points',JSON.stringify(points),'-Raise'],{windowsHide:true});
   let errors='';
   mouse.stderr.on('data',chunk=>errors+=chunk);
   const done=new Promise(resolve=>mouse.once('exit',resolve));
