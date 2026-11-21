@@ -349,6 +349,7 @@ async function toolbarRefresh(){
   await webviewClick(ui,q('.sidebar-toggle'));
   await ui.waitFor("!document.querySelector('.desktop-body').classList.contains('sidebar-hidden')");
   await activate(a);
+  await ui.waitFor(`${aRecord}.dataset.recording==='recording'&&${aRecord}.getAttribute('aria-disabled')==='false'`);
   await webviewClick(ui,aRecord);
   await wait(async()=> (await logs(a,{op:'list'})).logs[0]?.durable,'original recording stopped independently');
   assert.deepEqual((await logs(b,{op:'list'})).logs,[]);
