@@ -223,6 +223,7 @@ async function verifyWindow(page,caption,label='main'){
   const control=expression=>refresh?webviewClick(page,expression):click(page,expression,'Left',caption);
   await control(q('button[aria-label="最大化窗口"]'));
   await wait(()=>windowQuery(page,'is_maximized',label),'native maximize button maximized');
+  await page.waitFor(`!!${q('button[aria-label="还原窗口"]')}`);
   await control(q('button[aria-label="还原窗口"]'));
   await wait(async()=>!(await windowQuery(page,'is_maximized',label)),'native window restored');
   return {moved:true,maximized:true,restored:true,...movement};
