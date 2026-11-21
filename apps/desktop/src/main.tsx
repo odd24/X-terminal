@@ -774,8 +774,7 @@ function App() {
     if(terminalMenu?.anchor===anchor){setTerminalMenu(undefined);return;}
     if(!active)return;
     const pane=panes.current.active;
-    const bounds=anchor.getBoundingClientRect();
-    const value=controllers.current.get(pane)?.captureMenu(anchor,bounds.right-360,bounds.bottom+4);
+    const value=controllers.current.get(pane)?.captureMenu(anchor,0,0);
     if(value)setTerminalMenu({...value,pane,title:tabName(active)});
   }
   function restoreConnectEntry() {
@@ -809,49 +808,61 @@ function App() {
       focus={t=>controllers.current.get(t.pane)?.runtime.term.focus()} menu={terminalMenu} close={()=>setTerminalMenu(undefined)} owner={serviceStopped.current?'':service?.service_id??''} valid={(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>)=>{const now=paneSelection(t.pane);return !now.suspended&&now.active&&now.owner===t.target.service_id&&now.epoch===t.epoch&&now.connection?.connection_id===t.target.connection.connection_id&&now.connection.generation===t.target.connection.generation&&now.connection.protocol===t.target.protocol;}} resume={t=>{const pane=panes.current.active,now=paneSelection(pane);return !now.suspended&&now.active&&now.owner===t.target.service_id&&now.connection?.connection_id===t.target.connection.connection_id&&now.connection.generation===t.target.connection.generation&&now.connection.protocol===t.target.protocol?{pane,epoch:now.epoch}:undefined;}} copy={c=>{void controllers.current.get(c.pane)?.clipboard.copy();}} paste={c=>{void controllers.current.get(c.pane)?.clipboard.paste();}}/>
     {currentWorkspace&&<div className="workspace-strip" aria-label="打开的工作区布局"><span>{currentWorkspace.name} · 待连接 {pendingWorkspaceTabs.length} 项</span>{currentWorkspace.split&&<><small aria-label="分屏恢复状态">{currentWorkspace.split.direction==='horizontal'?'左右':'上下'}分屏 · {workspaceSession.current.splitState==='pending'?'等待两个指定连接项就绪':workspaceSession.current.splitState==='applied'?'本次已恢复':'本次恢复已取消，可手动分屏或重新打开布局'}</small>{workspaceSession.current.splitState==='pending'&&<button onClick={cancelWorkspaceSplit}>取消分屏恢复</button>}</>}{pendingWorkspaceTabs.map(slot=>{const binding=workspaceSession.current.binding(slot.id),live=binding&&connections.find(c=>c.connection_id===binding.connection_id),profile=profiles.find(p=>p.id===slot.profile_id);return !live||['FAILED','DISCONNECTED'].includes(live.state)?<button key={slot.id} data-workspace-slot={slot.id} title={profile?.settings.protocol==='ssh1'?'SSH1 请从会话树连接':slot.id===currentWorkspace.selected_tab?'保存时的活动项':undefined} disabled={!profile||profile.settings.protocol==='ssh1'||quickOpen||serialDialog||!!ssh1Intent} onClick={()=>{if(profile)connectProfile(profile,slot.id);}}>{profile?`连接 ${currentWorkspace.tabs.indexOf(slot)+1}. ${profile.name}`:`${currentWorkspace.tabs.indexOf(slot)+1}. 配置已删除`}</button>:null;})}<button onClick={()=>{workspaceSession.current.close();restoredFocus.current=undefined;workspaceLaunch.current=undefined;workspacePlacements.current.clear();setWorkspaceEpoch(v=>v+1);}}>收起布局</button></div>}
     <nav className="app-bar" aria-label="会话控制">
+      {!detached&&<button className="sidebar-toggle" aria-label="会话导航" title="显示或收起连接库" aria-expanded={sidebarOpen} aria-controls="connection-library" onClick={toggleSidebar}><span aria-hidden="true">◫</span></button>}
       <button className="toolbar-log" aria-haspopup="menu" aria-expanded={!!terminalMenu&&terminalMenu.anchor.matches('.toolbar-log')} title={activeLog} disabled={!active||renderedTarget?.connection_id!==active.connection_id||renderedTarget.generation!==active.generation||!['SSH2','SERIAL'].includes(active.protocol)} onClick={event=>openTopLog(event.currentTarget)}>
         {activeLogBadge||'日志'}
       </button>
       {!detached&&<ToolbarMenu summary={toolsSummary} className="tools-menu" label="更多工具" text="更多工具">
-      <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
-      <button disabled={!canMoveTab(-1)} onClick={()=>moveTab(-1)}>标签左移</button>
-      <button disabled={!canMoveTab(1)} onClick={()=>moveTab(1)}>标签右移</button>
-      <button onClick={() => {toolsReturnDialog.current='configuration';setConfigurationTarget(undefined);setConfigurationOpen(true);}}>连接配置</button>
-      <button onClick={()=>{toolsReturnDialog.current='batchConfig';setBatchConfigOpen(true);}}>批量修改配置</button>
-      <button onClick={()=>setImportConfigOpen(true)}>导入原生配置</button>
-      <button onClick={()=>{toolsReturnDialog.current='closeInfo';setCloseInfoOpen(true);}}>上次关闭信息</button>
-      <button onClick={()=>{toolsReturnDialog.current='saveRecovery';setSaveRecoveryOpen(true);}}>另存保全信息</button>
-      <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
-      <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
-
-      <button onClick={() => { drafts.current.invalidate();setComposeEnding('none');setComposeOrigin(undefined); setComposeOpen(open => !open); }}>基础撰写</button>
-      <button onClick={openQuickCommands}>常用命令</button>
-      <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed(undefined);setBroadcastOpen(true);}}>多目标发送</button>
-
-      <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setContinuousOpen(true);}}>连续同步键盘</button>
-      <button onClick={()=>setTriggersOpen(true)}>窗口触发器</button>
-
-      <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
-        <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
-        {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connectionLabel(connection)}{profileName(connection) ? ` · ${connection.connection_id.slice(0, 8)}` : ''} · 代次 {connection.generation}</option>)}
-      </select>
-      {service?.fixture && <><button disabled={busy || !!failure} onClick={() => void createFixture()}>新建合成会话</button><button disabled={busy || !selected || !!failure} onClick={() => void stress()}>高输出回放</button><button onClick={() => { stopped.current = true; }}>停止后续回放</button></>}
-      <button onClick={() => void clipboard.current?.copy()}>复制选区</button>
-      <button disabled={!selected} onClick={() => void clipboard.current?.paste()}>粘贴到终端</button>
-      <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
-      <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
-      <button onClick={() => {toolsReturnDialog.current='appearance';setAppearanceOpen(true);}}>外观</button>
-      <button onClick={()=>setGroupsOpen(true)}>标签分组</button>
-      <button disabled={!service} onClick={()=>{toolsReturnDialog.current='workspace';setWorkspaceOpen(true);}}>工作区</button>
-      <button disabled={paneSlots.length>=4||!active||active.state!=='CONNECTED'||!['SSH2','SERIAL'].includes(active.protocol)} onClick={()=>{if(active){const nonce=crypto.randomUUID();splitNonce.current=nonce;setSplitSource({owner:serviceRef.current!.service_id,first:{...active},nonce});}}}>分屏</button>
-      {paneSlots.length>1&&<button onClick={()=>collapseSplit()}>收起分屏，保留连接</button>}
-      <button onClick={() => setSerialOpen(open=>!open)}>串口高级工具</button>
-      <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
-      <button onClick={() => void getCurrentWindow().close()}>退出桌面</button>
-      <TerminalFontSizeControl label="字号" value={fontSize} state={fontSizing.state} disabled={preferencesBusy} change={setFontSize}/>
-
+        <section className="toolbar-group" aria-label="会话与终端">
+          <h3>会话与终端</h3>
+          <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
+          <button onClick={() => void clipboard.current?.copy()}>复制选区</button>
+          <button disabled={!selected} onClick={() => void clipboard.current?.paste()}>粘贴到终端</button>
+          <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
+          <button disabled={paneSlots.length>=4||!active||active.state!=='CONNECTED'||!['SSH2','SERIAL'].includes(active.protocol)} onClick={()=>{if(active){const nonce=crypto.randomUUID();splitNonce.current=nonce;setSplitSource({owner:serviceRef.current!.service_id,first:{...active},nonce});}}}>分屏</button>
+          {paneSlots.length>1&&<button onClick={()=>collapseSplit()}>收起分屏，保留连接</button>}
+          <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
+            <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
+            {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connectionLabel(connection)}{profileName(connection) ? ` · ${connection.connection_id.slice(0, 8)}` : ''} · 代次 {connection.generation}</option>)}
+          </select>
+        </section>
+        <section className="toolbar-group" aria-label="连接与布局">
+          <h3>连接与布局</h3>
+          <button onClick={() => {toolsReturnDialog.current='configuration';setConfigurationTarget(undefined);setConfigurationOpen(true);}}>连接配置</button>
+          <button onClick={() => setSshOpen(open => !open)}>SSH2 连接</button>
+          <button onClick={() => setSerialOpen(open=>!open)}>串口高级工具</button>
+          <button disabled={!service} onClick={()=>{toolsReturnDialog.current='workspace';setWorkspaceOpen(true);}}>工作区</button>
+          <button onClick={()=>setGroupsOpen(true)}>标签分组</button>
+          <button disabled={!canMoveTab(-1)} onClick={()=>moveTab(-1)}>标签左移</button>
+          <button disabled={!canMoveTab(1)} onClick={()=>moveTab(1)}>标签右移</button>
+          <button onClick={()=>{toolsReturnDialog.current='batchConfig';setBatchConfigOpen(true);}}>批量修改配置</button>
+          <button onClick={()=>setImportConfigOpen(true)}>导入原生配置</button>
+        </section>
+        <section className="toolbar-group" aria-label="命令与自动化">
+          <h3>命令与自动化</h3>
+          <button onClick={openQuickCommands}>常用命令</button>
+          <button onClick={() => { drafts.current.invalidate();setComposeEnding('none');setComposeOrigin(undefined); setComposeOpen(open => !open); }}>基础撰写</button>
+          <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed(undefined);setBroadcastOpen(true);}}>多目标发送</button>
+          <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setContinuousOpen(true);}}>连续同步键盘</button>
+          <button onClick={()=>setTriggersOpen(true)}>窗口触发器</button>
+          <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
+          <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
+        </section>
+        <section className="toolbar-group" aria-label="外观">
+          <h3>外观</h3>
+          <button onClick={() => {toolsReturnDialog.current='appearance';setAppearanceOpen(true);}}>外观</button>
+          <TerminalFontSizeControl label="字号" value={fontSize} state={fontSizing.state} disabled={preferencesBusy} change={setFontSize}/>
+        </section>
+        <section className="toolbar-group" aria-label="诊断与退出">
+          <h3>诊断与退出</h3>
+          <details className="diagnostic-menu"><summary>诊断</summary><button onClick={capture}>屏幕快照</button><button disabled={!selected} onClick={() => void captureServiceScreen()}>服务端屏幕</button></details>
+          <button onClick={()=>{toolsReturnDialog.current='closeInfo';setCloseInfoOpen(true);}}>上次关闭信息</button>
+          <button onClick={()=>{toolsReturnDialog.current='saveRecovery';setSaveRecoveryOpen(true);}}>另存保全信息</button>
+          {service?.fixture && <><button disabled={busy || !!failure} onClick={() => void createFixture()}>新建合成会话</button><button disabled={busy || !selected || !!failure} onClick={() => void stress()}>高输出回放</button><button onClick={() => { stopped.current = true; }}>停止后续回放</button></>}
+          <button className="toolbar-exit" onClick={() => void getCurrentWindow().close()}>退出桌面</button>
+        </section>
       </ToolbarMenu>}
-      {detached?<button onClick={()=>void appWindow.close()}>移回主窗口</button>:<button className="sidebar-toggle" aria-label="会话导航" title="显示或收起连接库" aria-expanded={sidebarOpen} aria-controls="connection-library" onClick={toggleSidebar}><span aria-hidden="true">◫</span></button>}
+      {detached&&<button onClick={()=>void appWindow.close()}>移回主窗口</button>}
     </nav>
     {!tabs.length && <section className="terminal-empty">{detached?<h1>{service?'原会话已移除或代次已变化':'正在加载独立会话'}</h1>:<><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button></div></>}</section>}
     <SessionDragPreview destination={drag.preview?.destination} detached={detached}/>

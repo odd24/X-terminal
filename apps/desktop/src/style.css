@@ -106,14 +106,27 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .context-menu { position: fixed; z-index: 100; min-width: var(--context-menu-width); max-width: calc(100vw - var(--space-4)); padding: var(--space-2); background: var(--surface-raised); color: var(--text); border: var(--border-width) solid var(--border); border-radius: var(--radius-control); }
 .context-menu > * { display: block; width: 100%; text-align: start; }
 .context-menu small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: var(--space-1); }
-.tools-menu-content { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); }
-.app-bar .tools-menu-content,.pane-tab-bar .new-menu .tools-menu-content {
-  position: absolute; z-index: 100; right: var(--space-2); top: calc(100% + var(--space-1));
-  width: min(28rem, calc(100vw - 2 * var(--space-4))); max-height: 70dvh; overflow: auto;
+.tools-menu-content {
+  position: fixed; z-index: 100; padding: var(--space-1);
+  width: min(18rem, calc(100vw - 16px)); max-height: 70dvh; overflow: auto; overscroll-behavior: contain;
+  white-space: normal;
   box-sizing: border-box; background: var(--surface-raised); border: var(--border-width) solid var(--border-subtle);
-  border-radius: var(--radius-panel); box-shadow: var(--float-shadow);
+  border-radius: var(--radius-control); box-shadow: var(--float-shadow);
 }
-.pane-tab-bar .new-menu .tools-menu-content { width: max-content; }
+.tools-menu-content:not([data-positioned]) { visibility: hidden; }
+.pane-tab-bar .new-menu .tools-menu-content { width: min(10rem, calc(100vw - 16px)); }
+.toolbar-group { display: grid; gap: 2px; padding: var(--space-1); }
+.toolbar-group + .toolbar-group { border-top: var(--border-width) solid var(--border-subtle); }
+.toolbar-group h3 { margin: 0; padding: 4px 8px; color: var(--text-muted); font-size: var(--text-xs); font-weight: 500; }
+.tools-menu-content :is(.toolbar-group > button, .new-menu button, .diagnostic-menu > button),
+.new-menu .tools-menu-content > button {
+  display: block; width: 100%; min-height: 28px; padding: 3px 8px;
+  border-color: transparent; background: transparent; text-align: start;
+}
+.tools-menu-content button:not(:disabled):hover { background: var(--control-hover); }
+.tools-menu-content .toolbar-group > .toolbar-exit { margin-top: var(--space-1); border-top-color: var(--border-subtle); }
+.toolbar-group select { width: 100%; max-width: 100%; }
+.terminal-context-menu[data-positioned] { box-sizing: border-box; max-width: calc(100vw - 16px); overflow: auto; overscroll-behavior: contain; }
 .app-bar > details > summary,.pane-tab-bar .new-menu > summary {
   display: grid; place-items: center; min-height: var(--control-height); padding: 0 var(--space-2);
   border-radius: var(--radius-control); list-style: none;
@@ -125,10 +138,10 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .app-bar > button, .app-bar > details { margin-bottom: var(--space-1); }
 .app-bar > button, .connection-tab button { min-height: var(--control-height); padding-block: 0; }
 .sidebar-toggle { font-size: var(--text-heading); }
-.app-bar > .tab-tools { flex: 1 1 0%; margin: 0; }
 .desktop-shell nav select { max-width: var(--list-height); }
 .diagnostic-menu { position: relative; }
-.diagnostic-menu[open] { display: flex; gap: var(--space-2); }
+.diagnostic-menu > summary { padding: 4px 8px; }
+.diagnostic-menu > button { padding-inline-start: 22px !important; }
 .desktop-body { min-height: 0; min-width: 0; display: grid; position: relative; grid-template-columns: var(--navigation-width) minmax(0, 1fr); gap: var(--space-2); }
 .desktop-body.sidebar-hidden { grid-template-columns: minmax(0, 1fr); }
 .sidebar-hidden .session-sidebar { display: none; }

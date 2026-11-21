@@ -14,6 +14,53 @@ function placeDialog(dialog: HTMLDialogElement, left: number, top: number) {
   dialog.dataset.positioned = '';
 }
 
+function placeAnchoredPopup(popup: HTMLElement, anchor: HTMLElement) {
+  const margin = 8, gap = 4;
+  const trigger = anchor.getBoundingClientRect();
+  const bounds = popup.getBoundingClientRect();
+  const desired = popup.scrollHeight + Math.ceil(bounds.height - popup.clientHeight);
+  const below = Math.max(0, innerHeight - trigger.bottom - gap - margin);
+  const above = Math.max(0, trigger.top - gap - margin);
+  const flip = below < Math.min(desired, innerHeight * .7) && above > below;
+  popup.style.maxHeight = `${Math.min(flip ? above : below, innerHeight * .7)}px`;
+  const {height,width} = popup.getBoundingClientRect();
+  const left = Math.max(margin, Math.min(trigger.left, innerWidth - width - margin));
+  const idealTop = flip ? trigger.top - height - gap : trigger.bottom + gap;
+  const top = Math.max(margin, Math.min(idealTop, innerHeight - height - margin));
+  popup.style.left = `${left}px`;
+  popup.style.top = `${top}px`;
+  popup.dataset.positioned = flip ? 'above' : 'below';
+}
+
+function followAnchor(anchor: HTMLElement, popup: HTMLElement, expanded: () => boolean) {
+  let frame = 0;
+  const place = () => {
+    if (expanded() && anchor.getClientRects().length) placeAnchoredPopup(popup, anchor);
+    else popup.removeAttribute('data-positioned');
+  };
+  const schedule = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; place(); });
+  };
+  const sizes = new ResizeObserver(schedule);
+  const layout = new MutationObserver(schedule);
+  sizes.observe(popup);
+  for (let parent: HTMLElement | null = anchor; parent; parent = parent.parentElement) {
+    sizes.observe(parent);
+    layout.observe(parent, { childList: true, attributes:true, attributeFilter:['class','style','open'] });
+  }
+  window.addEventListener('resize', schedule);
+  window.addEventListener('scroll', schedule, true);
+  place();
+  return () => {
+    cancelAnimationFrame(frame);
+    sizes.disconnect();
+    layout.disconnect();
+    window.removeEventListener('resize', schedule);
+    window.removeEventListener('scroll', schedule, true);
+  };
+}
+
 function raiseDialog(dialog: HTMLDialogElement) {
   const raised = document.querySelector('.app-dialog-modeless[data-raised]');
   if (raised === dialog) return;
@@ -111,10 +158,22 @@ export function ErrorNotice({ children, title='连接未完成' }: { children: R
   return <div ref={element} className="notice-error" role="alert"><strong><span aria-hidden="true">⚠ </span>{title}</strong><p>{children}</p></div>;
 }
 
-export function ContextMenu({x,y,anchor,close,children,label="会话配置菜单",className=""}:{x:number;y:number;anchor:HTMLElement;close():void;children:ReactNode;label?:string;className?:string}){
+export function ContextMenu({x,y,anchor,anchored=false,close,children,label="会话配置菜单",className=""}:{x:number;y:number;anchor:HTMLElement;anchored?:boolean;close():void;children:ReactNode;label?:string;className?:string}){
   const element=useRef<HTMLDivElement>(null),onClose=useRef(close);onClose.current=close;
-  useLayoutEffect(()=>{const menu=element.current;if(!menu)return;const place=()=>{const r=menu.getBoundingClientRect();menu.style.left=`${Math.max(4,Math.min(x,innerWidth-r.width-4))}px`;menu.style.top=`${Math.max(4,Math.min(y,innerHeight-r.height-4))}px`;};place();const observer=new ResizeObserver(place);observer.observe(menu);menu.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();return()=>observer.disconnect();},[x,y]);
-  useEffect(()=>{const outside=(event:PointerEvent)=>{if(!element.current?.contains(event.target as Node))onClose.current();};document.addEventListener('pointerdown',outside,true);return()=>document.removeEventListener('pointerdown',outside,true);},[]);
+  useLayoutEffect(()=>{
+    const menu=element.current;
+    if(!menu)return;
+    const place=()=>{const r=menu.getBoundingClientRect();menu.style.left=`${Math.max(4,Math.min(x,innerWidth-r.width-4))}px`;menu.style.top=`${Math.max(4,Math.min(y,innerHeight-r.height-4))}px`;};
+    let cleanup:()=>void;
+    if(anchored)cleanup=followAnchor(anchor,menu,()=>true);
+    else{place();const observer=new ResizeObserver(place);observer.observe(menu);cleanup=()=>observer.disconnect();}
+    menu.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus({preventScroll:true});
+    return cleanup;
+  },[x,y,anchor,anchored]);
+  useEffect(()=>{const outside=(event:PointerEvent)=>{
+    const target=event.target as Node;
+    if(!element.current?.contains(target)&&!(anchored&&anchor.contains(target)))onClose.current();
+  };document.addEventListener('pointerdown',outside,true);return()=>document.removeEventListener('pointerdown',outside,true);},[anchor,anchored]);
   return createPortal(<div ref={element} className={`context-menu ${className}`} role="menu" aria-label={label} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();onClose.current();if(anchor.isConnected)anchor.focus();}else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'));const index=items.indexOf(document.activeElement as HTMLElement);const next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowUp'?-1:1)+items.length)%items.length;items[next]?.focus();}}}>{children}</div>,document.body);
 }
 
@@ -141,6 +200,21 @@ export function ToolbarMenu({className,label,text,summary,children}: {
   className: string; label: string; text: string; summary?: RefObject<HTMLElement|null>; children: ReactNode;
 }) {
   const element=useRef<HTMLDetailsElement>(null);
+  const surface=useRef<HTMLDivElement>(null);
+  useLayoutEffect(()=>{
+    const menu=element.current, popup=surface.current, trigger=menu?.querySelector('summary');
+    if(!menu||!popup||!trigger)return;
+    let stop:(()=>void)|undefined;
+    const toggle=()=>{
+      if(menu.open)stop??=followAnchor(trigger,popup,()=>menu.open);
+      else{
+        stop?.();stop=undefined;
+        popup.removeAttribute('data-positioned');
+      }
+    };
+    menu.addEventListener('toggle',toggle);toggle();
+    return ()=>{menu.removeEventListener('toggle',toggle);stop?.();};
+  },[]);
   function close(restore: boolean) {
     const menu=element.current;
     if (!menu?.open) return;
@@ -157,17 +231,20 @@ export function ToolbarMenu({className,label,text,summary,children}: {
   }} onClick={event=>{
     if ((event.target as HTMLElement).closest('button')) close(true);
   }} onKeyDown={event=>{
-    if(event.key==='Escape'&&event.currentTarget.open){event.preventDefault();close(true);return;}
-    if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;
+    if(event.key==='Escape'&&event.currentTarget.open){event.preventDefault();event.stopPropagation();close(true);return;}
+    if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
     if((event.target as HTMLElement).matches('input,select,textarea'))return;
     event.preventDefault();
     event.currentTarget.open=true;
+    const trigger=event.currentTarget.querySelector('summary');
+    if(trigger&&surface.current)placeAnchoredPopup(surface.current,trigger);
     const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('.tools-menu-content button:not([disabled]), .tools-menu-content summary')).filter(item=>item.getClientRects().length);
     const index=controls.indexOf(document.activeElement as HTMLElement);
-    const next=index<0?(event.key==='ArrowDown'?0:controls.length-1):(index+(event.key==='ArrowDown'?1:-1)+controls.length)%controls.length;
+    const next=event.key==='Home'?0:event.key==='End'?controls.length-1:
+      index<0?(event.key==='ArrowDown'?0:controls.length-1):(index+(event.key==='ArrowDown'?1:-1)+controls.length)%controls.length;
     controls[next]?.focus();
   }}>
     <summary ref={summary} aria-label={label} title={label}>{text}</summary>
-    <div className="tools-menu-content">{children}</div>
+    <div ref={surface} className="tools-menu-content">{children}</div>
   </details>;
 }

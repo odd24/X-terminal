@@ -7,9 +7,13 @@ import {createInterface} from 'node:readline';
 import {requestId} from '../apps/desktop/src/request-id.ts';
 import {connectDesktopPage, delay, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
 import {closeSoakDesktop} from './lib/LoadSoak.mjs';
+import {checkMainToolbar,checkNewConnectionMenu,checkLogToolbar} from './lib/ToolbarMenuChecks.mjs';
 
 const root = await mkdtemp(path.join(tmpdir(), 'shared-terminal-pane-groups-ui-中文-'));
 const desktop = path.resolve(process.argv[2]);
+const toolbarChecks=process.argv.includes('--toolbar');
+const evidence=toolbarChecks?'0.1.3':'0.1.2';
+const toolbar=[];
 const processes = [];
 let main, child;
 const wait = async (check, label) => {
@@ -105,7 +109,7 @@ async function dockDrag(connection) {
   const done=new Promise(resolve=>mouse.once('exit',resolve));
   try {
     await main.waitFor(`!!document.querySelector('.tab-dock-preview')`);
-    await main.screenshot('desktop-0.1.2-dock-preview.png');
+    await main.screenshot(`desktop-${evidence}-dock-preview.png`);
   } finally {
     assert.equal(await done,0,errors);
   }
@@ -141,6 +145,7 @@ try{
   main=await launchDesktop(root,{executable:desktop,windowsHide:false});
   const service=await main.invoke('service_status');
   assert.equal(service.fixture,false);
+  if(toolbarChecks)toolbar.push(...await checkMainToolbar(main,fit));
   const a=await connect(left,'127.0.0.1'),b=await connect(right,'localhost'),c=await connect(lower,'127.0.0.1');
   await main.waitFor('document.querySelectorAll("[role=tab]").length===3');
   await choose(a);
@@ -163,7 +168,7 @@ try{
   }
   await fit(1100);
   await main.evaluate('void(window.originalPaneRenderer='+pane(a)+'.querySelector(".xterm"))');
-  await physical(tab(c),point(await geometry(host(a)),.55,.82),'.tab-split-preview[data-edge=bottom]','desktop-0.1.2-split-preview.png');
+  await physical(tab(c),point(await geometry(host(a)),.55,.82),'.tab-split-preview[data-edge=bottom]',`desktop-${evidence}-split-preview.png`);
   await main.waitFor(rendered(a,0)+' && '+rendered(c,1)+' && '+rendered(b,2));
   assert.equal(await main.evaluate(pane(a)+'.querySelector(".xterm")===window.originalPaneRenderer'),true);
   const upper=await geometry(pane(a)),below=await geometry(pane(c)),rightBounds=await geometry(pane(b));
@@ -175,8 +180,10 @@ try{
   await main.waitFor('Number('+separator+'.getAttribute("aria-valuenow"))>53');
 
   const addMenu=pane(a)+'.querySelector(".new-menu")';
+  if(toolbarChecks)toolbar.push(...await checkNewConnectionMenu(main,'[data-rendered-id="'+b.connection_id+'"]'));
   await main.evaluate(addMenu+'.open=true; '+addMenu+'.querySelector("button").click()');
   await main.waitFor('!!document.querySelector(\'dialog:modal[aria-label="连接服务器"]\')');
+  await main.waitFor('document.querySelector(\'dialog:modal button[type=submit]:not([disabled])\')?.textContent==="连接"');
   await main.fill('SSH服务器','127.0.0.1');await main.fill('SSH端口',added.port);
   await main.fill('SSH用户名','synthetic');await main.fill('SSH登录密码',added.password);
   await main.evaluate('document.querySelector(\'dialog:modal[aria-label="连接服务器"] form\').requestSubmit()');
@@ -188,7 +195,7 @@ try{
   const d=await wait(async()=>(await main.invoke('service_list')).find(item=>!ids.has(item.connection_id)&&item.state==='CONNECTED'),'group plus connection');
   await main.waitFor(rendered(d,0));
   assert.deepEqual(new Set(await tabIds(d)),new Set([a.connection_id,d.connection_id]));
-  await physical(tab(d),point(await geometry(host(b)),.55,.50),'.tab-merge-preview','desktop-0.1.2-merge-preview.png');
+  await physical(tab(d),point(await geometry(host(b)),.55,.50),'.tab-merge-preview',`desktop-${evidence}-merge-preview.png`);
   await main.waitFor(rendered(a,0)+' && '+rendered(c,1)+' && '+rendered(d,2));
   assert.deepEqual(new Set(await tabIds(d)),new Set([b.connection_id,d.connection_id]));
   assert.deepEqual(await tabIds(a),[a.connection_id]);
@@ -220,7 +227,8 @@ try{
   }
   for(const [peer,expected] of [[left,'PANE-A-INPUT'],[lower,'PANE-C-INPUT'],[added,'PANE-D-INPUT'],[right,'']])
     assert.equal(Buffer.from((await peer.control({op:'metrics'})).received.flat()).toString(),expected);
-  await main.screenshot('desktop-0.1.2-nested-pane-tabs.png');
+  await main.screenshot(`desktop-${evidence}-nested-pane-tabs.png`);
+  if(toolbarChecks)toolbar.push(await checkLogToolbar(main,'main log'));
 
   await physical(tab(d),point(await geometry(tab(c)),.75,.5),'[data-insertion=after]');
   await main.waitFor(rendered(d,1)+' && '+rendered(b,2));
@@ -234,6 +242,10 @@ try{
   await fit(1100);
   child=await outsideDrag(b);
   await child.waitFor('document.querySelector("[data-pane]")?.dataset.renderedId==='+JSON.stringify(b.connection_id));
+  if(toolbarChecks){
+    toolbar.push(await checkLogToolbar(child,'detached log'));
+    await child.screenshot('desktop-0.1.3-detached-toolbar.png');
+  }
   assert.deepEqual((await child.invoke('service_list')).map(ref),[ref(b)]);
   await main.waitFor('!'+tab(b));
   await dockDrag(b);child.close();child=undefined;
@@ -243,7 +255,8 @@ try{
   const close=await closeSoakDesktop(main,root,service,{});
   await main.close();main=undefined;
   report={result:'PASS',drops,layout:'left vertical split beside right pane',f6:true,exactInput:true,
-    recording:records.map(entry=>entry.marker),centerAndRailMerge:true,groupPlus:true,lastTabCollapse:true,detachedAndDocked:true,close};
+    recording:records.map(entry=>entry.marker),centerAndRailMerge:true,groupPlus:true,lastTabCollapse:true,detachedAndDocked:true,
+    ...(toolbarChecks?{toolbar}:{}),close};
 }finally{
   child?.close();
   await main?.close();
@@ -255,5 +268,5 @@ try{
   assert.ok(path.basename(root).startsWith('shared-terminal-pane-groups-ui-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }
-await writeFile('artifacts/windows-0.1.2-pane-groups.json',JSON.stringify(report,null,2)+'\n');
+await writeFile(`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
 console.log('PASS physical pane tabs, nested geometry, input, recording and docking');

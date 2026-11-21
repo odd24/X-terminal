@@ -98,7 +98,7 @@ export function TerminalLogMenu(props:Props){
  const pending=busy||!!task&&!task.finished,shown=logs.find(l=>l.active)??logs[0],supported=!!menu&&['SSH2','SERIAL'].includes(menu.target.protocol),completeFiles=logs.filter(l=>l.readable||!['REMOVED','RELEASED'].includes(l.phase));
  const source:ExportInfo|undefined=task?.info&&['COMPLETED','REMOVED','RELEASING'].includes(task.info.phase)?{connection:task.target.connection,log_id:task.request_id,request_id:task.request_id,phase:task.info.phase==='COMPLETED'?'COMPLETED':'REMOVED',failure:null,bytes:task.info.bytes,sha256:task.info.sha256,retained_records:task.info.retained_records,retained_raw_bytes:null,retained_gap_bytes:task.info.retained_gap_bytes,next_cursor:null}:undefined;
  return <>
-  {menu&&<ContextMenu className="terminal-context-menu" label="终端日志菜单" x={menu.x} y={menu.y} anchor={menu.anchor} close={props.close}>
+  {menu&&<ContextMenu className="terminal-context-menu" label="终端日志菜单" x={menu.x} y={menu.y} anchor={menu.anchor} anchored={menu.anchor.matches('.toolbar-log')} close={props.close}>
    <small className="log-menu-target">{menu.title} · {props.paneLabel}</small>
    <button role="menuitem" disabled={!supported||pending||!menu.buffer} onClick={()=>choose('prepare','BUFFER')}>保存终端缓冲内容…</button>
    <button role="menuitem" disabled={!supported||loading||!!loadError||pending||(!shown?.active&&!menu.writable)}
