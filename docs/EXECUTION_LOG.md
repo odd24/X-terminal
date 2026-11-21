@@ -1,6 +1,6 @@
 # 执行台账
 
-P26.2 按 [CR-025](changes/CR-025.md) 修正设备枚举、接入默认真实 PowerShell 和细线侧栏图标，准备直接运行的 Windows x64 目录。[P26.2](records/P26.2.md) · Step-ID: P26.2。
+P26.2 完成 Windows x64 0.1.15 直接运行目录交付。真实 PowerShell 软件专项和唯一授权设备的 adb shell、pwd、exit 通过，设备写入及长稳未纳入。[CR-025](changes/CR-025.md) · [P26.2](records/P26.2.md) · Step-ID: P26.2。
 
 P26.1 按 [CR-024](changes/CR-024.md) 完成 Windows x64 0.1.14 便携交付。实际宽窄窗、分屏、原位编辑、管理调用计数及解包软件复验通过。[P26.1](records/P26.1.md) · Step-ID: P26.1。
 

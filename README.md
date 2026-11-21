@@ -1,6 +1,6 @@
 # Windows 终端模拟器
 
-Windows x64 0.1.14 便携版已完成本机软件验证，本地窗格提供 ADB 快捷指令右侧栏。[使用说明](docs/WINDOWS_PORTABLE.md) · [交付与验收](docs/records/P26.1.md)
+Windows x64 0.1.15 已交付直接运行目录。本地命令行默认使用 Windows PowerShell，ADB 快捷指令可查看实际枚举诊断。[使用说明](docs/WINDOWS_PORTABLE.md) · [交付与验收](docs/records/P26.2.md)
 
 S1 SSH和S2串口/UART及两者基本日志软件阶段已完成：主连接使用共享弹窗、保存可选，串口初始DTR/RTS明确，可只接收抓取。S3已有标签分组与“更多工具→工作区”保存/打开布局；仅保存配置引用和布局，打开后逐项显式连接，不自动建连/发送，临时会话不纳入。另有本窗口左右/上下双窗格，点击或F6切换输入，收起保留连接；工作区可保存两窗格方向和活动项，打开后仍逐项明确连接，两个指定目标就绪才恢复，不猜同地址现有会话。软件、内存IPC与真实设备验证分列，用户暂时没有设备，真实COM/Android板端待验。当前状态以[主方案](docs/EXECUTION_PLAN.md#现行路线cr-006)、[P10.1](docs/records/P10.1.md)/[P17](docs/records/P17.md)为准，下文较早“待反馈/未展开S2”按历史理解。
 
