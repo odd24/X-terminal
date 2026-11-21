@@ -145,9 +145,11 @@ const pane = c => query('[data-rendered-id="'+c.connection_id+'"]');
 const host = c => pane(c)+'.querySelector(".terminal")';
 const tabIds = c => main.evaluate('[...'+pane(c)+'.querySelectorAll("[role=tab]")].map(tab=>tab.dataset.connectionId)');
 async function physical(source,destination,preview,screenshot){
-  const from=center(await geometry(source));
   await main.command('Page.bringToFront');
-  const points=[from,{x:from.x+12,y:from.y+14},{...destination,holdMs:700}];
+  await main.evaluate(`${source}.scrollIntoView({block:'nearest',inline:'nearest'})`);
+  const from=center(await geometry(source));
+  assert.equal(await main.evaluate(`${source}.contains(document.elementFromPoint(${from.x},${from.y}))`),true,'the original tab is physically visible at the drag start');
+  const points=[from,{x:from.x,y:from.y+30},{...destination,holdMs:700}];
   const mouse=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(main.app.pid),
     '-ExpectedExecutable',desktop,'-Points',JSON.stringify(points),'-Raise'],{windowsHide:true});
   let stderr='';
@@ -155,7 +157,10 @@ async function physical(source,destination,preview,screenshot){
   const done=new Promise((resolve,reject)=>{mouse.once('error',reject);mouse.once('exit',resolve);});
   try{
     await main.waitFor('!!'+query(preview));
-    if(screenshot)await main.screenshot(screenshot);
+    if(screenshot){
+      const image=await main.command('Page.captureScreenshot',{format:'png'});
+      await writeFile(path.join('artifacts',screenshot),Buffer.from(image.data,'base64'));
+    }
   }finally{assert.equal(await done,0,stderr);}
 }
 const point=(rect,x,y)=>({x:rect.left+x*rect.width,y:rect.top+y*rect.height});
@@ -330,7 +335,11 @@ try{
     report={result:'PASS',detachedLog,detachedAndDocked:true,close};
   }else{
   const settingsEntry=await main.evaluate(`[...document.querySelectorAll('.tools-menu button')].find(b=>b.textContent==='软件设置')?.textContent??'外观'`);
-  await tool(settingsEntry);await main.fill('应用主题','dark');await escape(main);
+  await tool(settingsEntry);
+  await main.waitFor("document.querySelector('[aria-label=\"应用主题\"]')?.disabled===false");
+  await main.fill('应用主题','dark');
+  await main.click(settingsEntry==='软件设置'?'关闭软件设置':'关闭外观');
+  await main.waitFor("!document.querySelector('dialog:modal')");
   const positions={left:[.18,.54],top:[.54,.18],bottom:[.54,.82],right:[.82,.54]};
   const drops=[];
   for(const width of [1100,900]){
