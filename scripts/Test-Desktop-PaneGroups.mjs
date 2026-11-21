@@ -12,7 +12,8 @@ import {checkMainToolbar,checkNewConnectionMenu,checkLogToolbar} from './lib/Too
 const root = await mkdtemp(path.join(tmpdir(), 'shared-terminal-pane-groups-ui-中文-'));
 const desktop = path.resolve(process.argv[2]);
 const toolbarChecks=process.argv.includes('--toolbar');
-const evidence=toolbarChecks?'0.1.3':'0.1.2';
+const dockProbe=process.argv.includes('--dock-toolbar');
+const evidence=toolbarChecks||dockProbe?'0.1.3':'0.1.2';
 const toolbar=[];
 const processes = [];
 let main, child;
@@ -98,19 +99,29 @@ async function dockDrag(connection) {
   const source=await child.evaluate(`document.querySelector('[role="tab"][data-connection-id="${connection.connection_id}"]').getBoundingClientRect().toJSON()`);
   const start=center(source);
   await child.command('Page.bringToFront');
+  await terminalFocus(child);
+  await child.waitFor('document.hasFocus()&&document.activeElement?.classList.contains("xterm-helper-textarea")');
+  await child.evaluate(`(()=>{
+    window.dockInputTrace=[];
+    for(const type of ['pointerdown','pointermove','pointerup','pointercancel','lostpointercapture']){
+      document.addEventListener(type,event=>{
+        if(window.dockInputTrace.length<48)window.dockInputTrace.push([type,event.clientX,event.clientY,
+          event.target.closest?.('[role=tab]')?.dataset.connectionId??null,innerWidth,innerHeight]);
+      },true);
+    }
+  })()`);
   const points=[start,{x:start.x+32,y:start.y+40},{landings,outside:true,holdMs:1300}];
   const mouse=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(main.app.pid),
     '-ExpectedExecutable',desktop,'-Title','共享终端 · 独立会话','-LandingTitle','共享终端','-Points',JSON.stringify(points),'-Raise'],{windowsHide:true});
   let errors='';
   mouse.stderr.on('data',chunk=>errors+=chunk);
   const done=new Promise(resolve=>mouse.once('exit',resolve));
-  try {
-    await main.waitFor(`!!document.querySelector('.tab-dock-preview')`);
-    await main.screenshot(`desktop-${evidence}-dock-preview.png`);
-  } finally {
-    assert.equal(await done,0,errors);
-  }
-  await wait(async()=>!(await main.otherPages()).length,'physical drop returns the native session to main');
+  const preview=main.waitFor(`!!document.querySelector('.tab-dock-preview')`)
+    .then(()=>main.screenshot(`desktop-${evidence}-dock-preview.png`)).catch(()=>{});
+  assert.equal(await done,0,errors);
+  try{await wait(async()=>!(await main.otherPages()).length,'physical drop returns the native session to main');}
+  catch(error){console.error(await child.evaluate('JSON.stringify(window.dockInputTrace)').catch(()=>''));throw error;}
+  await preview;
 }
 
 const tab = c => query('[role="tab"][data-connection-id="'+c.connection_id+'"]');
@@ -146,6 +157,17 @@ try{
   const a=await connect(left,'127.0.0.1'),b=await connect(right,'localhost'),c=await connect(lower,'127.0.0.1');
   await main.waitFor('document.querySelectorAll("[role=tab]").length===3');
   await choose(a);
+  if(dockProbe){
+    await fit(1100);
+    child=await outsideDrag(b);
+    await child.waitFor('document.querySelector("[data-pane]")?.dataset.renderedId==='+JSON.stringify(b.connection_id));
+    const detachedLog=await checkLogToolbar(child,'detached log');
+    await dockDrag(b);child.close();child=undefined;
+    await main.waitFor('!!'+tab(b));
+    const close=await closeSoakDesktop(main,root,service,{});
+    await main.close();main=undefined;
+    report={result:'PASS',detachedLog,detachedAndDocked:true,close};
+  }else{
   await tool('外观');await main.fill('应用主题','dark');await escape(main);
   const positions={left:[.18,.54],top:[.54,.18],bottom:[.54,.82],right:[.82,.54]};
   const drops=[];
@@ -254,6 +276,7 @@ try{
   report={result:'PASS',drops,layout:'left vertical split beside right pane',f6:true,exactInput:true,
     recording:records.map(entry=>entry.marker),centerAndRailMerge:true,groupPlus:true,lastTabCollapse:true,detachedAndDocked:true,
     ...(toolbarChecks?{toolbar}:{}),close};
+  }
 }finally{
   child?.close();
   await main?.close();
@@ -265,5 +288,6 @@ try{
   assert.ok(path.basename(root).startsWith('shared-terminal-pane-groups-ui-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }
-await writeFile(`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
-console.log('PASS physical pane tabs, nested geometry, input, recording and docking');
+await writeFile(dockProbe?'artifacts/windows-0.1.3-dock-toolbar.json':`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
+console.log(dockProbe?'PASS detached toolbar popup and native dock return':
+  'PASS physical pane tabs, nested geometry, input, recording and docking');
