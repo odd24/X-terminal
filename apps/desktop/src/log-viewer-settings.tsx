@@ -43,8 +43,9 @@ export function LogViewerSettings() {
   return <section className="log-viewer-settings" aria-label="日志打开方式">
     <h3>日志打开方式</h3>
     <p aria-label="当前日志打开方式" className="notice-ellipsis" title={value?.executable??undefined}>
-      {value?.executable??(value?'Windows 系统默认':busy?'正在读取…':'当前设置不可用')}
+      {value?.executable?.split('\\').at(-1)??(value?'Windows 系统默认':busy?'正在读取…':'当前设置不可用')}
     </p>
+    {value?.executable&&<small className="log-viewer-path notice-ellipsis" title={value.executable}>{value.executable}</small>}
     {value&&!value.available&&<small role="alert">所选程序不可用。请选择其他程序，或恢复 Windows 系统默认。</small>}
     <div className="config-actions">
       <button disabled={busy} aria-label="选择日志打开程序" onClick={()=>void change('choose_log_viewer')}>

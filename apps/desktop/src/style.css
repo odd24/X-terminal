@@ -333,6 +333,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .recording-notice-totals { color:var(--text-muted); }
 .recording-notice-totals:empty { display:none; }
 .log-viewer-settings { border-top:1px solid var(--border); margin-top:var(--space-3); padding-top:var(--space-2); }
+.log-viewer-path { display:block; color:var(--text-muted); }
 .log-viewer-settings [role="alert"] { color:var(--danger); }
 .context-menu { box-shadow: var(--float-shadow); }
 .log-menu-target, .app-dialog-corner h2 { font-weight: 400; }

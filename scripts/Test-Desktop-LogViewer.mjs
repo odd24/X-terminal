@@ -105,6 +105,10 @@ async function menu(text) {
   await ui.waitFor(`!!(${item})&&! (${item}).disabled`);
   await ui.evaluate(`(${item}).click()`);
 }
+async function closeOpenedFile() {
+  await ui.waitFor(`document.querySelector(${JSON.stringify(operation)})?.textContent.includes('已请求打开本次日志')`);
+  await ui.click('收起日志操作');
+}
 const checkTrace=async(program,file,index)=>{
   const rows=await wait(async()=>{const values=await traces();return values.length>index&&values;},'explicit viewer was launched');
   const [arity,image,argument,...extra]=rows[index].split('\t');
@@ -126,7 +130,7 @@ try{
   await chooseProgram();
   assert.deepEqual(await settings(),{executable:null,available:true});
   await chooseProgram(first);
-  await ui.waitFor(`${selected}.textContent===${JSON.stringify(firstPath)}`);
+  await ui.waitFor(`${selected}.title===${JSON.stringify(firstPath)}`);
   await chooseProgram();
   assert.deepEqual(await settings(),{executable:firstPath,available:true});
   await ui.evaluate(`document.querySelector('.log-viewer-settings').scrollIntoView({block:'nearest'})`);
@@ -164,7 +168,7 @@ try{
   assert.notEqual(file(live),file(stopped));
   await menu('打开当前日志文件');
   await checkTrace(first,file(live),1);
-  await ui.click('收起日志操作');
+  await closeOpenedFile();
   await rename(first,first+'.removed');
   await menu('打开当前日志文件');
   await ui.waitFor(`document.querySelector(${JSON.stringify(operation+'[data-tone="error"]')})?.textContent.includes('所选日志打开程序不存在')`);
@@ -180,7 +184,9 @@ try{
   await ui.click('关闭外观');
   await menu('打开当前日志文件');
   await checkTrace(second,file(live),2);
-  await ui.click('收起日志操作');
+  await closeOpenedFile();
+  await observeLogDirectory(ui,root,()=>ui.evaluate(`document.querySelector('.toolbar-log-directory').click()`));
+  assert.equal((await traces()).length,3);
   await appearance();
   await ui.evaluate(`(${button('.log-viewer-settings','恢复 Windows 系统默认')}).click()`);
   await ui.waitFor(`${selected}.textContent==='Windows 系统默认'`);
@@ -190,7 +196,7 @@ try{
     '-Root',root,'-TargetPath',file(live),'-Action','file','-LogId',live.log_id],
     {windowsHide:true,encoding:'utf8',timeout:30000}),/PASS actual readable log and exact header/);
   assert.equal((await traces()).length,3);
-  await ui.click('收起日志操作');
+  await closeOpenedFile();
   await observeLogDirectory(ui,root,()=>ui.evaluate(`document.querySelector('.toolbar-log-directory').click()`));
 
   // The normal save workflow remains interactive and then emits the same card.
