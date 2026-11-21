@@ -53,7 +53,7 @@ import { useTabLogging, logBadge } from './tab-logging';
 import { ControlIcon, ToolbarMenu, Dialog, Panel } from './ui';
 import { TerminalLogMenu } from './terminal-log-menu';
 import {RecordingNotice,useOpenLogDirectory,useRecordingNotices} from './recording-notice';
-import {CornerNotice,CornerNoticeHost} from './corner-notice';
+import {CornerNotice,CornerNoticeFailure,CornerNoticeHost} from './corner-notice';
 import type {TerminalMenuContext,RememberedLogTask} from './log-menu';
 import { TerminalPane } from './terminal-pane';
 import { PaneLayout, type PaneKey } from './pane-layout';
@@ -95,8 +95,8 @@ function App() {
   const [triggersOpen,setTriggersOpen]=useState(false);
   const [batchConfigOpen,setBatchConfigOpen]=useState(false);
   const [importConfigOpen,setImportConfigOpen]=useState(false);
-  const [triggerNotice,setTriggerNotice]=useState('');
-  useEffect(()=>{if(!triggerNotice)return;const timer=window.setTimeout(()=>setTriggerNotice(''),6000);return()=>window.clearTimeout(timer);},[triggerNotice]);
+  const [triggerNotice,setTriggerNotice]=useState<{id:string;text:string}>();
+  const dismissTriggerNotice=()=>setTriggerNotice(current=>current===triggerNotice?undefined:current);
   const [broadcastSeed,setBroadcastSeed]=useState<BroadcastSeed>();
   const panes=useRef(new PaneLayout());
   const [splitRatios,setSplitRatios]=useState<Record<number,number>>({});
@@ -139,6 +139,7 @@ function App() {
   const catalog = useRef(new ConnectionCatalog());
   const [, setCatalogEpoch] = useState(0);
   const [tabMessage, setTabMessage] = useState('');
+  const tabCloseFeedback=useRef(0);
   const [exitConfirm, setExitConfirm] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const allowExit = useRef(false);
@@ -406,7 +407,8 @@ function App() {
   const serviceStopped=useRef(false);
   const broadcastRun=useRef(new BroadcastRun({alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,id:requestId,ready:broadcastTargetReady,send:sendBroadcastTarget,query:queryBroadcastTarget}));
   const continuousRun=useRef(new ContinuousInput({alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,id:requestId,ready:continuousTargetReady,send:sendBroadcastTarget,query:queryBroadcastTarget}));
-  const triggers=useRef(new Triggers({...triggerDependencies,alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,notify:setTriggerNotice}));
+  const triggers=useRef(new Triggers({...triggerDependencies,alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,
+    notify:text=>setTriggerNotice(previous=>previous?.text===text?previous:{id:crypto.randomUUID(),text})}));
   function closeBroadcast(){broadcastRun.current.cancel();setBroadcastOpen(false);setBroadcastSeed(undefined);}
   function syncRoute(){const current=panes.current.current;selectedRef.current=current.requested;setSelected(current.requested);const c=controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
   function routeChanged(){firstSsh1Fit.current=undefined;setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
@@ -543,19 +545,14 @@ function App() {
   const pendingWorkspaceTabs=currentWorkspace?.tabs.filter(t=>{const ref=workspaceSession.current.binding(t.id),live=ref&&connections.find(c=>c.connection_id===ref.connection_id);return !live||['FAILED','DISCONNECTED'].includes(live.state);})??[];
   const activeDetails = active && catalog.current.get(active);
   const logOwner=serviceStopped.current?'':service?.service_id??'';
-  const recordingNotices=useRecordingNotices(logOwner);
   const logDirectory=useOpenLogDirectory();
+  const recordingNotices=useRecordingNotices(logOwner,logDirectory.openForNotice);
   const tabLogs=useTabLogging(logOwner,tabs,active,target=>!serviceStopped.current&&serviceRef.current?.service_id===target.service_id&&
     transferring.current!==target.connection.connection_id&&liveConnections.current.some(c=>c.protocol===target.protocol&&
       c.connection_id===target.connection.connection_id&&c.generation===target.connection.generation),tabName,recordingNotices.notify);
   const activeLogSummary=active?tabLogs.summary(active):undefined;
   const activeLog=active?activeLogSummary?.text??'正在查询本次日志状态':'尚无活动连接';
   const activeLogBadge=logBadge(activeLogSummary);
-  useEffect(()=>{
-    if(clipboardMessage!=='终端选区已复制')return;
-    const timer=window.setTimeout(()=>setClipboardMessage(''),2000);
-    return ()=>clearTimeout(timer);
-  },[clipboardMessage]);
   const inputReady = !!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure;
   const statusAttention=failure||inputFailure||decodeWarning||
     (['服务输出已同步','服务就绪 · 尚无活动连接','正在连接会话服务'].includes(status)?'':status)||
@@ -683,14 +680,17 @@ function App() {
     if(decision==='unknown'){setTabMessage('关闭结果尚未确认，未重复发送。请在连接面板核对当前状态。');return;}
     workspaceSession.current.cancelSplitFor(target);restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);
     if(decision==='hide'){hideTab(target);setTabMessage('已结束的会话标签已关闭。');return;}
-    setTabEpoch(value=>value+1);setTabMessage('正在关闭会话…');
+    const feedback=++tabCloseFeedback.current;
+    const progress='正在关闭会话…';
+    const finishFeedback=(message:string)=>setTabMessage(previous=>feedback===tabCloseFeedback.current&&previous===progress?message:previous);
+    setTabEpoch(value=>value+1);setTabMessage(progress);
     try {
       if (target.protocol === 'SSH2') await ssh({ op: 'close', connection: { connection_id: target.connection_id, generation: target.generation } });
       else if (target.protocol === 'SSH1') await disconnectSsh1({ connection_id: target.connection_id, generation: target.generation });
       else if (target.protocol === 'SERIAL') await serial({ op: 'close', connection: { connection_id: target.connection_id, generation: target.generation } });
       else throw new Error('此连接请使用对应控制面板关闭。');
-      tabClosures.current.finish(target,'accepted');hideTab(target);setTabMessage('关闭请求已提交；只关闭原代次标签，实际连接状态以服务为准。');
-    } catch (error) { tabClosures.current.finish(target,'unknown');setTabMessage((error instanceof Error?error.message:'关闭未获确认。') + ' 结果可能未知，未自动重试；请在连接面板核对实际状态。'); }
+      tabClosures.current.finish(target,'accepted');hideTab(target);finishFeedback('关闭请求已提交；只关闭原代次标签，实际连接状态以服务为准。');
+    } catch (error) { tabClosures.current.finish(target,'unknown');finishFeedback((error instanceof Error?error.message:'关闭未获确认。') + ' 结果可能未知，未自动重试；请在连接面板核对实际状态。'); }
     finally { setTabEpoch(value=>value+1); }
   }
   function connectProfile(profile: Profile,slot?:string,configRevision?:string) {
@@ -955,7 +955,8 @@ function App() {
       focus={t=>controllers.current.get(t.pane)?.runtime.term.focus()} menu={terminalMenu} close={()=>setTerminalMenu(undefined)} owner={serviceStopped.current?'':service?.service_id??''} valid={(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>)=>{const now=paneSelection(t.pane);return !now.suspended&&now.active&&now.owner===t.target.service_id&&now.epoch===t.epoch&&now.connection?.connection_id===t.target.connection.connection_id&&now.connection.generation===t.target.connection.generation&&now.connection.protocol===t.target.protocol;}} resume={t=>{const pane=panes.current.active,now=paneSelection(pane);return !now.suspended&&now.active&&now.owner===t.target.service_id&&now.connection?.connection_id===t.target.connection.connection_id&&now.connection.generation===t.target.connection.generation&&now.connection.protocol===t.target.protocol?{pane,epoch:now.epoch}:undefined;}} copy={c=>{void controllers.current.get(c.pane)?.clipboard.copy();}} paste={c=>{void controllers.current.get(c.pane)?.clipboard.paste();}}/>
     {currentWorkspace&&<div className="workspace-strip" aria-label="打开的工作区布局"><span>{currentWorkspace.name} · 待连接 {pendingWorkspaceTabs.length} 项</span>{currentWorkspace.split&&<><small aria-label="分屏恢复状态">{currentWorkspace.split.direction==='horizontal'?'左右':'上下'}分屏 · {workspaceSession.current.splitState==='pending'?'等待两个指定连接项就绪':workspaceSession.current.splitState==='applied'?'本次已恢复':'本次恢复已取消，可手动分屏或重新打开布局'}</small>{workspaceSession.current.splitState==='pending'&&<button onClick={cancelWorkspaceSplit}>取消分屏恢复</button>}</>}{pendingWorkspaceTabs.map(slot=>{const binding=workspaceSession.current.binding(slot.id),live=binding&&connections.find(c=>c.connection_id===binding.connection_id),profile=profiles.find(p=>p.id===slot.profile_id);return !live||['FAILED','DISCONNECTED'].includes(live.state)?<button key={slot.id} data-workspace-slot={slot.id} title={profile?.settings.protocol==='ssh1'?'SSH1 请从会话树连接':slot.id===currentWorkspace.selected_tab?'保存时的活动项':undefined} disabled={!profile||profile.settings.protocol==='ssh1'||quickOpen||serialDialog||!!ssh1Intent} onClick={()=>{if(profile)connectProfile(profile,slot.id);}}>{profile?`连接 ${currentWorkspace.tabs.indexOf(slot)+1}. ${profile.name}`:`${currentWorkspace.tabs.indexOf(slot)+1}. 配置已删除`}</button>:null;})}<button onClick={()=>{workspaceSession.current.close();restoredFocus.current=undefined;workspaceLaunch.current=undefined;workspacePlacements.current.clear();setWorkspaceEpoch(v=>v+1);}}>收起布局</button></div>}
 
-    {logDirectory.error&&<small role="alert" className="log-directory-error">{logDirectory.error}</small>}
+    {logDirectory.error&&<CornerNotice key={logDirectory.error} className="log-directory-error" heading="日志目录" tone="error" autoDismiss
+      dismiss={()=>logDirectory.dismiss(logDirectory.error)}>{logDirectory.error}</CornerNotice>}
     {!tabs.length && <section className="terminal-empty">{detached?<h1>{service?'原会话已移除或代次已变化':'正在加载独立会话'}</h1>:<><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button></div></>}</section>}
     <SessionDragPreview destination={drag.preview?.destination} detached={detached}/>
     {dockHover&&<div className="tab-dock-preview" aria-hidden="true">松开后移回主窗口</div>}
@@ -978,8 +979,10 @@ function App() {
         return <TerminalPane context={(pane,value)=>setTerminalMenu({...value,pane,title:c?tabName(c):value.target.protocol})} key={slot.key} rendered={view.renderedTarget} id={slot.key} position={index+1} split={paneSlots.length>1} active={panes.current.active===slot.key} tabs={rail} preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
       }} />
-    {clipboardMessage && <div className="clipboard-feedback" role="status" aria-label="剪贴板状态">{clipboardMessage}</div>}
-    {tabMessage && <div className="tab-feedback" role="status" aria-label="标签操作状态">{tabMessage}</div>}
+    {clipboardMessage&&<CornerNotice key={clipboardMessage} heading="剪贴板" autoDismiss
+      dismiss={()=>setClipboardMessage(previous=>previous===clipboardMessage?'':previous)}><span aria-label="剪贴板状态">{clipboardMessage}</span></CornerNotice>}
+    {tabMessage&&<CornerNotice key={tabMessage} heading="会话标签" autoDismiss
+      dismiss={()=>setTabMessage(previous=>previous===tabMessage?'':previous)}><span aria-label="标签操作状态">{tabMessage}</span></CornerNotice>}
     </section>
     {quickOpen && <Dialog label="连接服务器" close={closeQuick} fallbackFocus={restoreConnectEntry}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent}
       copySettings={copySource?.settings.protocol==='ssh2'?copySource.settings:undefined} canStart={copySource?canStartCopy:undefined}
@@ -1002,21 +1005,19 @@ function App() {
     {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={captureCurrentWorkspace} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <Dialog label="管理 Agent 授权" modal={false} close={()=>setAgentOpen(false)}><AgentPanel key={service.service_id} serviceId={service.service_id} target={active?.protocol==='SSH1'?undefined:active} profileId={active?.protocol==='SSH1'?undefined:activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} /></Dialog>}
-    {triggerNotice&&!triggersOpen&&<CornerNotice aria-label="触发器窗口通知" heading="触发器"
-      actions={<button onClick={()=>setTriggerNotice('')}>关闭触发通知</button>}>{visibleControls(triggerNotice)}</CornerNotice>}
+    {triggerNotice&&!triggersOpen&&<CornerNotice key={triggerNotice.id} aria-label="触发器窗口通知" heading="触发器" autoDismiss
+      dismiss={dismissTriggerNotice} dismissLabel="关闭触发通知">{visibleControls(triggerNotice.text)}</CornerNotice>}
     {!triggerNotice&&!closeNoticeDismissed&&service?.previous_close?.attention&&service.previous_close.receipt?.service_id!==service.service_id&&
-      <CornerNotice aria-label="上次关闭提示" heading="上次关闭" actions={<>
-        <button onClick={()=>setCloseInfoOpen(true)}>查看关闭信息</button><button onClick={()=>setCloseNoticeDismissed(true)}>收起关闭提示</button>
-      </>}>上次本地服务关闭有需查看的信息。</CornerNotice>}
+      <CornerNotice aria-label="上次关闭提示" heading="上次关闭" autoDismiss dismiss={()=>setCloseNoticeDismissed(true)} dismissLabel="收起关闭提示"
+        actions={activate=><button onClick={()=>activate(()=>setCloseInfoOpen(true))}>查看关闭信息</button>}>上次本地服务关闭有需查看的信息。</CornerNotice>}
     {closeInfoOpen&&<Dialog label="上次关闭信息" close={()=>setCloseInfoOpen(false)}><CloseReceiptPanel previous={service?.previous_close} close={()=>setCloseInfoOpen(false)}/></Dialog>}
     {!saveRecoveryDismissed&&saveRecovery&&saveRecoveryAttention(saveRecovery)&&
-      <CornerNotice aria-label="另存保全提示" heading="另存保全" actions={<>
-        <button onClick={()=>setSaveRecoveryOpen(true)}>查看另存保全信息</button><button onClick={()=>setSaveRecoveryDismissed(true)}>收起另存保全提示</button>
-      </>}>上次覆盖另存可能有遗留，当前结果未知。</CornerNotice>}
+      <CornerNotice aria-label="另存保全提示" heading="另存保全" autoDismiss dismiss={()=>setSaveRecoveryDismissed(true)} dismissLabel="收起另存保全提示"
+        actions={activate=><button onClick={()=>activate(()=>setSaveRecoveryOpen(true))}>查看另存保全信息</button>}>上次覆盖另存可能有遗留，当前结果未知。</CornerNotice>}
     {saveRecoveryOpen&&<Dialog label="另存保全信息" close={()=>setSaveRecoveryOpen(false)}><SaveRecoveryPanel snapshot={saveRecovery} close={()=>setSaveRecoveryOpen(false)}/></Dialog>}
     {importConfigOpen&&<Dialog label="原生连接配置导入" wide close={()=>{setImportConfigOpen(false);setTreeRevision(value=>value+1);}}><ImportConfigPanel owner={serviceStopped.current?'':service?.service_id??''} close={()=>{setImportConfigOpen(false);setTreeRevision(value=>value+1);}}/></Dialog>}
     {batchConfigOpen&&<Dialog label="批量修改连接配置" wide close={()=>{setBatchConfigOpen(false);setTreeRevision(value=>value+1);}}><BatchConfigPanel owner={serviceStopped.current?'':service?.service_id??''} close={()=>{setBatchConfigOpen(false);setTreeRevision(value=>value+1);}}/></Dialog>}
-    {triggersOpen&&<Dialog label="配置本窗口触发器" close={()=>{triggers.current.clear();setTriggersOpen(false);}}><TriggerPanel notice={triggerNotice} dismiss={()=>setTriggerNotice('')} owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={triggers.current} close={()=>setTriggersOpen(false)}/></Dialog>}
+    {triggersOpen&&<Dialog label="配置本窗口触发器" close={()=>{triggers.current.clear();setTriggersOpen(false);}}><TriggerPanel notice={triggerNotice} dismiss={dismissTriggerNotice} owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={triggers.current} close={()=>setTriggersOpen(false)}/></Dialog>}
     {continuousOpen&&<Dialog label="明确启停连续同步键盘" close={()=>{continuousRun.current.stop();setContinuousOpen(false);}}><ContinuousInputPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={continuousRun.current} close={()=>setContinuousOpen(false)}/></Dialog>}
     {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} seed={broadcastSeed} close={closeBroadcast}/></Dialog>}
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
@@ -1041,7 +1042,8 @@ function App() {
     <LoggingPanel connection={active} owner={logOwner} title={active?tabName(active):''} open={loggingOpen} close={()=>setLoggingOpen(false)}
       claimRecording={tabLogs.claim} recordingLocked={tabLogs.locked} notifyStopped={recordingNotices.notify}/>
     {recordingNotices.notice&&<RecordingNotice key={recordingNotices.notice.id} notice={recordingNotices.notice}
-      dismiss={recordingNotices.dismiss} openDirectory={logDirectory.open}/>}
+      dismiss={recordingNotices.dismiss} open={recordingNotices.open}/>}
+    <CornerNoticeFailure {...recordingNotices.failure}/>
     {snapshot && <Dialog label="查看屏幕快照" modal={false} close={()=>setSnapshot('')}><Panel title="屏幕快照" close={()=>setSnapshot('')} closeLabel="关闭屏幕快照"><pre aria-label="屏幕快照">{snapshot}</pre></Panel></Dialog>}
     {serviceScreen && <Dialog label="查看服务端屏幕快照" modal={false} close={()=>setServiceScreen(undefined)}><Panel title="服务端屏幕快照" close={()=>setServiceScreen(undefined)} closeLabel="关闭服务端快照"><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · {serviceScreen.resize_reflow ? '普通屏支持重排；复杂调整可能与桌面不同' : '宽度变化不重排，可能与桌面显示不同'} · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></Panel></Dialog>}
     </div>

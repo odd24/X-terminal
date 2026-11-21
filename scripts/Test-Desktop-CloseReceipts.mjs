@@ -63,7 +63,12 @@ try{
     }
     const encoded=JSON.stringify(r);assert.ok(!encoded.includes('SYNTHETIC_PRIVATE'));assert.ok(!encoded.includes(root));
     const second=await open(root);assert.notEqual(second.service_id,first.service_id);assert.equal(second.previous_close.receipt.service_id,first.service_id);assert.equal(second.previous_close.attention,mode==='close');
-    await notice(mode==='close');await details();
+    await notice(mode==='close');
+    if(mode==='close'){
+      await ui.click('查看关闭信息');
+      await notice(false);
+      await ui.waitFor(`!!document.querySelector('dialog[aria-label="上次关闭信息"]')`);
+    }else await details();
     assert.equal(await ui.evaluate(`document.querySelector('[aria-label="上次关闭服务"]').textContent`),first.service_id);
     assert.ok((await ui.evaluate(`document.querySelector('[aria-label="上次进程退出"]').textContent`)).includes(`代码 ${r.exit_code}`));
     if(mode==='drop-ack')assert.ok((await ui.evaluate(`document.querySelector('[aria-label="上次关闭确认"]').textContent`)).includes('未知；未重发'));
@@ -75,7 +80,7 @@ try{
       await ui.evaluate(`document.querySelector('dialog[aria-label="上次关闭信息"]').scrollTop=99999`);await ui.screenshot('P22-close-receipt-light-bottom.png');
       assert.ok((await ui.evaluate(`document.querySelector('dialog[aria-label="上次关闭信息"]').textContent`)).includes('关闭屏障 · I/O 类别失败'));
       await ui.click('关闭退出信息');
-      await ui.click('收起关闭提示');await notice(false);
+      await notice(false);
     }else await ui.click('关闭退出信息');
     const after=await ui.invoke('service_status');assert.equal(after.service_id,second.service_id);assert.deepEqual(await ui.invoke('service_list'),[]);
     await close(root,second.service_id);

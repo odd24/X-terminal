@@ -104,7 +104,7 @@ try {
   assert.equal(path.resolve(await release.invoke('config_directory')).toLowerCase(),path.resolve(root).toLowerCase());
   const title = psJson(`(Get-Process -Id ${release.app.pid}).MainWindowTitle | ConvertTo-Json -Compress`);
   assert.equal(title,'共享终端');
-  if(['0.1.9','0.1.10','0.1.11'].includes(manifest.version)){
+  if(['0.1.9','0.1.10','0.1.11','0.1.12'].includes(manifest.version)){
     const toolbar=await release.evaluate(`(()=>{
       const bar=document.querySelector('.window-chrome'),tools=bar.querySelector('.app-bar');
       return {transparent:getComputedStyle(tools).backgroundColor==='rgba(0, 0, 0, 0)',

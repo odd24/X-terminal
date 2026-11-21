@@ -1,14 +1,16 @@
-param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$TargetPath,[Parameter(Mandatory)][ValidateSet('directory','file','system-file')][string]$Action,[string]$LogId,[string]$ExistingExplorerWindows='[]')
+param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$TargetPath,[Parameter(Mandatory)][ValidateSet('directory','saved-directory','file','system-file')][string]$Action,[string]$LogId,[string]$ExistingExplorerWindows='[]')
 $ErrorActionPreference='Stop'
 $ErrorView='NormalView'
 trap { Write-Output $_.ScriptStackTrace; break }
 $rootFull=[IO.Path]::GetFullPath($Root)
 $tempFull=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
 $name=[IO.Path]::GetFileName($rootFull)
-if ([IO.Path]::GetDirectoryName($rootFull) -ne $tempFull -or $name -notmatch '^shared-terminal-(log-menu|pane-groups|log-viewer)-ui-中文-') { throw 'Only an owned log-test root is allowed.' }
+$rootPattern=if($Action -eq 'saved-directory'){'^shared-terminal-save-ui-中文-'}else{'^shared-terminal-(log-menu|pane-groups|log-viewer)-ui-中文-'}
+if ([IO.Path]::GetDirectoryName($rootFull) -ne $tempFull -or $name -notmatch $rootPattern) { throw 'Only an owned log-test root is allowed.' }
 $targetFull=[IO.Path]::GetFullPath($TargetPath)
 $common=[IO.Path]::Combine($rootFull,'logs')
-if (($Action -eq 'directory' -and $targetFull -ne $common) -or ($Action -eq 'file' -and ([IO.Path]::GetDirectoryName($targetFull) -ne $common -or [IO.Path]::GetExtension($targetFull) -ne '.log' -or $LogId -notmatch '^[0-9a-f-]{36}$'))) { throw 'Refuse an unrelated shell target.' }
+if (($Action -eq 'directory' -and $targetFull -ne $common) -or ($Action -eq 'saved-directory' -and $targetFull -ne $rootFull) -or
+    ($Action -in @('file','system-file') -and ([IO.Path]::GetDirectoryName($targetFull) -ne $common -or [IO.Path]::GetExtension($targetFull) -ne '.log' -or $LogId -notmatch '^[0-9a-f-]{36}$'))) { throw 'Refuse an unrelated shell target.' }
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -21,7 +23,7 @@ public static class LogShellLongPath {
 }
 '@
 $expected=[LogShellLongPath]::Of($targetFull)
-if ($Action -eq 'directory') {
+if ($Action -in @('directory','saved-directory')) {
  $shell=New-Object -ComObject Shell.Application
  $existing=@($ExistingExplorerWindows|ConvertFrom-Json)
  for($n=0;$n -lt 100;$n++) {

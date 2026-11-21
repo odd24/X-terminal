@@ -8,14 +8,17 @@ import {requestId} from '../apps/desktop/src/request-id.ts';
 import {connectDesktopPage, delay, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
 import {checkLogToolbar,checkMainToolbar,measureCompactToolbar,measurePopup} from './lib/ToolbarMenuChecks.mjs';
 import {checkConnectionPanels} from './lib/ConnectionPanelChecks.mjs';
+import {checkCornerNotices} from './lib/CornerNoticeChecks.mjs';
 
 const desktop=path.resolve(process.argv[2]);
 const uartMode=process.argv.includes('--uart');
 const panels=process.argv.includes('--connection-panels');
-const refresh=panels||process.argv.includes('--toolbar-refresh');
-const version=panels?'0.1.11':refresh?'0.1.10':'0.1.9';
-const artifact=panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh';
-const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-session-copy-ui-中文-'));
+const notices=process.argv.includes('--corner-notices');
+const refresh=notices||panels||process.argv.includes('--toolbar-refresh');
+const version=notices?'0.1.12':panels?'0.1.11':refresh?'0.1.10':'0.1.9';
+const artifact=notices?'corner-notices':panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh';
+const rootPrefix=notices?'shared-terminal-log-viewer-ui-中文-':'shared-terminal-session-copy-ui-中文-';
+const root=await mkdtemp(path.join(tmpdir(),rootPrefix));
 const processes=[];
 const title='共享终端';
 const childTitle='共享终端 · 独立会话';
@@ -364,7 +367,9 @@ try{
   ui=await launchDesktop(root,{executable:desktop,fixture:uartMode});
   service=await ui.invoke('service_status');
   assert.equal(service.fixture,uartMode);
-  if(panels){
+  if(notices){
+    evidence=await checkCornerNotices({ui,version,root,source,connect,activate,wait,fit,setTheme,webviewClick});
+  }else if(panels){
     evidence=await checkConnectionPanels({ui,version,root,source,connect,wait,fit,setTheme,splitRight,keyGoesTo,webviewClick});
   }else if(refresh){
     evidence=await toolbarRefresh();
@@ -491,7 +496,7 @@ try{
   }
   await close();
   await writeFile(`artifacts/windows-${version}-${artifact}.json`,JSON.stringify(evidence,null,2)+'\n');
-  console.log(panels?'PASS Windows connection panels, exact lifecycle receipts, pane controls and unchanged toolbar':refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
+  console.log(notices?'PASS Windows corner notices, immediate dismissal and exact native actions':panels?'PASS Windows connection panels, exact lifecycle receipts, pane controls and unchanged toolbar':refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
 }catch(error){
   if(ui)await ui.screenshot(`desktop-${version}-${artifact}-failure.png`).catch(()=>{});
   throw error;
@@ -506,6 +511,6 @@ try{
     }
   }
   assert.equal(path.dirname(root),path.resolve(tmpdir()));
-  assert.ok(path.basename(root).startsWith('shared-terminal-session-copy-ui-中文-'));
+  assert.ok(path.basename(root).startsWith(rootPrefix));
   await rm(root,{recursive:true,force:true,maxRetries:15,retryDelay:100});
 }

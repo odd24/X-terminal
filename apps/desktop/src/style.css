@@ -414,7 +414,6 @@ main.desktop-shell {
 .config-panel form :is(input:not([type="checkbox"]), select, button) { min-height: var(--control-height); padding-block: var(--space-1); }
 .config-panel form .primary-action { min-width: 8rem; }
 
-.log-directory-error { display:block; color:var(--danger); padding:0 var(--space-2); }
 .corner-notice-stack {
   position:fixed; inset:auto var(--space-4) var(--space-4) auto; z-index:80;
   display:grid; gap:var(--space-2); max-height:calc(100dvh - 2 * var(--space-4)); overflow:auto;
@@ -422,14 +421,16 @@ main.desktop-shell {
 }
 .corner-notice-stack:empty { display:none; }
 .corner-notice {
-  display:grid; grid-template-rows:minmax(0,1fr) auto; gap:var(--space-2); pointer-events:auto;
+  position:relative; display:grid; grid-template-rows:minmax(0,1fr) auto; gap:var(--space-2); pointer-events:auto;
   width:min(23rem,calc(100vw - 2 * var(--space-4))); height:min(11rem,calc(100dvh - 2 * var(--space-4)));
   padding:var(--space-3); border:var(--border-width) solid var(--border); border-radius:var(--radius-control);
   background:var(--surface-raised); color:var(--text); box-shadow:var(--float-shadow); font-size:var(--text-sm);
 }
 .corner-notice-local { position:fixed; inset:auto var(--space-4) var(--space-4) auto; z-index:80; }
+.corner-notice-close { position:absolute; inset:var(--space-2) var(--space-2) auto auto; }
 .corner-notice-message { min-width:0; display:grid; grid-template-rows:auto minmax(0,1fr); gap:var(--space-1); }
 .corner-notice-title,.notice-ellipsis { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.corner-notice-title { min-height:var(--control-height); display:block; padding-inline-end:calc(var(--control-height) + var(--space-2)); }
 .corner-notice-body { min-width:0; overflow:auto; overflow-wrap:anywhere; overscroll-behavior:contain; }
 .corner-notice-body p { margin:0 0 var(--space-1); }
 .corner-notice-actions { display:flex; flex-wrap:wrap; gap:var(--space-2); align-items:flex-end; min-height:var(--control-height); }
@@ -445,12 +446,6 @@ main.desktop-shell {
 .log-viewer-settings [role="alert"] { color:var(--danger); }
 .context-menu { box-shadow: var(--float-shadow); }
 .log-menu-target, .app-dialog-corner h2 { font-weight: 400; }
-.clipboard-feedback, .tab-feedback { position: fixed; bottom: 3rem; left: 50%; transform: translateX(-50%); z-index: 71; padding: var(--space-2) var(--space-3); background: var(--surface-raised); border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-control); box-shadow: var(--float-shadow); pointer-events: none; }
-
-
-.tab-feedback { left:auto; right:var(--space-4); bottom:3rem; transform:none; max-width:min(34rem, 80vw); }
-
-
 .terminal-grid.single .terminal-pane > .terminal { border-start-start-radius: 0; border-start-end-radius: 0; }
 .terminal .xterm .composition-view {
   color: var(--preedit-foreground);

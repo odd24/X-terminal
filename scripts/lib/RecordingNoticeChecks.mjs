@@ -17,12 +17,12 @@ export function checkLogSharing(root, filename, {remove=false, findHolders=false
     '-Filename',filename,...(remove?['-Delete']:[]),...(findHolders?['-FindHolders']:[])]));
 }
 
-export async function observeLogDirectory(page,root,activate) {
+export async function observeLogDirectory(page,root,activate,{saved=false}={}) {
   const windows=powerShell(['-Command',
     "ConvertTo-Json -Compress -InputObject @((New-Object -ComObject Shell.Application).Windows() | ForEach-Object {[string]$_.HWND})"]);
   await activate();
-  const opened=powerShell(['-File','scripts/lib/ObserveLogShell.ps1','-Root',root,'-TargetPath',path.join(root,'logs'),
-    '-Action','directory','-ExistingExplorerWindows',windows]);
+  const opened=powerShell(['-File','scripts/lib/ObserveLogShell.ps1','-Root',root,'-TargetPath',saved?root:path.join(root,'logs'),
+    '-Action',saved?'saved-directory':'directory','-ExistingExplorerWindows',windows]);
   assert.match(opened,/PASS exact shared test log directory/);
   await page.command('Page.bringToFront');
   assert.equal(await page.evaluate(`!!${legacyPanel}`),false);
@@ -42,7 +42,7 @@ export async function checkToolbarDirectory(page,root) {
     await writeFile(logs,'owned synthetic directory obstruction',{flag:'wx'});
     try{
       await click();
-      await page.waitFor(`document.querySelector('.log-directory-error[role="alert"]')?.textContent.includes('日志目录')`);
+      await page.waitFor(`document.querySelector('.log-directory-error')?.textContent.includes('日志目录')`);
       assert.equal(await page.evaluate(`!!${legacyPanel}||!!${notice}`),false);
     }finally{await unlink(logs);}
   }finally{await rename(backup,logs);}
@@ -54,7 +54,7 @@ export async function waitForStopNotice(page,label,log) {
   const data=await page.evaluate(`(() => {
     const card=${notice},rect=card.getBoundingClientRect();
     return {status:card.querySelector('[role=status]').textContent,
-      actions:[...card.querySelectorAll('button')].map(x=>x.textContent),right:innerWidth-rect.right,bottom:innerHeight-rect.bottom};
+      actions:[...card.querySelectorAll('.corner-notice-actions button')].map(x=>x.textContent),right:innerWidth-rect.right,bottom:innerHeight-rect.bottom};
   })()`);
   assert.ok(data.status.includes(label)&&data.status.includes('记录已停止并同步'));
   assert.ok(data.status.includes(log.readable.synced_bytes.toLocaleString('zh-CN')+' 字节'));
@@ -71,14 +71,14 @@ export async function checkNoticeActions(page,root,log,resumeRecording,switchTab
   assert.equal(await page.evaluate(`!!${notice}`),true,'hover paused dismissal');
   await switchTab();
   await resumeRecording();
-  const directoryButton=`${notice}.querySelector('button:last-child')`;
+  const directoryButton=`${notice}.querySelector('.corner-notice-actions button:last-child')`;
   await page.evaluate(`${directoryButton}.focus()`);
   await page.command('Input.dispatchMouseEvent',{type:'mouseMoved',x:20,y:90});
   await delay(5200);
   assert.equal(await page.evaluate(`document.activeElement===${directoryButton}`),true,'keyboard focus paused dismissal');
   await observeLogDirectory(page,root,()=>page.evaluate(`${directoryButton}.click()`));
 
-  const fileButton=`${notice}.querySelector('button:first-child')`;
+  const fileButton=`${notice}.querySelector('.corner-notice-actions button:first-child')`;
   assert.equal(await page.evaluate(`${noticeFile}.textContent`),log.readable.filename);
   await page.evaluate(`${fileButton}.focus()`);
   const opened=await page.interceptIpc({command:'terminal_log_request',op:'open_file'});
