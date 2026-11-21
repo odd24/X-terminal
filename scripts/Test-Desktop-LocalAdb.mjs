@@ -28,6 +28,14 @@ const log = async () => (await readFile(calls,'utf8').catch(()=> '')).trim().spl
 const actions = async () => (await log()).filter(line=>line.startsWith('pull|'));
 const setInventory = (...lines) => writeFile(inventory,lines.map(line=>line+'\n').join(''));
 const selected = name => ui.waitFor(`document.querySelector('.pane-active [role="tab"][aria-selected="true"]')?.textContent===${JSON.stringify(name)}`);
+async function exported(name) {
+  for(let attempt=0;attempt<120;attempt++){
+    const bytes=await readFile(path.join(workspace,name),'utf8').catch(()=>null);
+    if(bytes==='observed fixture download')return;
+    await delay(50);
+  }
+  assert.fail('missing exact output from current ADB invocation: '+name);
+}
 async function run(line) {
   await idle();
   await ui.command('Input.insertText',{text:line});
@@ -120,7 +128,7 @@ try {
   assert.equal(await ui.evaluate('document.querySelector(".adb-panel-toggle").getAttribute("aria-expanded")'),'true');
   await ui.click('导出样本');
   await show('ADB_FIXTURE_PULLED');
-  assert.equal(await readFile(path.join(workspace,'导出 文件.txt'),'utf8'),'observed fixture download');
+  await exported('导出 文件.txt');
   assert.equal((await actions()).at(-1),'pull|good|-s|good|pull|/sdcard/a b|./导出 文件.txt');
   evidence.cases.push('expanded preference and saved list survive application reopening; executable, argv, cwd and exported bytes verified');
   await idle();
@@ -206,7 +214,8 @@ try {
   await ui.click('导出样本');
   await show('ADB_FIXTURE_PULLED');
   await idle();
-  assert.equal(await readFile(path.join(workspace,'edited.txt'),'utf8'),'observed fixture download');
+  await exported('edited.txt');
+  await idle();
   assert.match((await actions()).at(-1),/^pull\|good\|-s\|good\|pull\|\/sdcard\/ok\|edited.txt$/);
   await ui.screenshot('local-adb-software.png');
   evidence.cases.push('invalid edit retained without applying; explicit serial and corrected saved command preserved');
@@ -228,7 +237,8 @@ try {
   await idle();
   assert.equal((await log()).length,callCount+1,'inherited device does not enumerate or rewrite');
   assert.equal((await actions()).at(-1),'pull|other|pull|/sdcard/ok|environment.txt');
-  assert.equal(await readFile(path.join(workspace,'environment.txt'),'utf8'),'observed fixture download');
+  await exported('environment.txt');
+  await idle();
   await ui.click('导出样本');
   await idle();
   await ui.waitFor(`document.querySelector('.local-terminal-output')?.innerText.includes('edited.txt')`);
