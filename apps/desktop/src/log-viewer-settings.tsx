@@ -53,7 +53,7 @@ export function LogViewerSettings() {
       </button>
       <button disabled={busy||!value?.executable} onClick={()=>void change('reset_log_viewer')}>恢复 Windows 系统默认</button>
     </div>
-    <small>此设置立即保存。Windows 没有关联 .log 时使用记事本。</small>
+    <small>此设置立即保存。Windows 没有可用的 .log 打开方式时使用记事本。</small>
     {message&&<p role="status">{message}</p>}
     {error&&<small role="alert">{error}</small>}
   </section>;

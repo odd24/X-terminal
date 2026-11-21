@@ -308,25 +308,32 @@ pub(crate) fn open_directory(path: &Path, owner: usize) -> Result<(), String> {
 }
 pub(crate) fn open_with_system_default(path: &Path) -> Result<(), String> {
     use windows::{
-        Win32::UI::Shell::{ASSOCF_NONE, ASSOCSTR_PROGID, AssocQueryStringW},
+        Win32::UI::Shell::{
+            ASSOCF_NONE, ASSOCSTR_COMMAND, ASSOCSTR_DELEGATEEXECUTE, AssocQueryStringW,
+        },
         core::PWSTR,
     };
     let _apartment = Apartment::enter().map_err(|_| "SHELL_UNAVAILABLE")?;
-    let mut progid = [0u16; 1024];
-    let mut len = progid.len() as u32;
-    // Keep the previous Notepad behavior on machines with no .log association.
-    let associated = unsafe {
-        AssocQueryStringW(
-            ASSOCF_NONE,
-            ASSOCSTR_PROGID,
-            w!(".log"),
-            PCWSTR::null(),
-            Some(PWSTR(progid.as_mut_ptr())),
-            &mut len,
-        )
-    }
-    .is_ok()
-        && progid[0] != 0;
+    // A ProgID can outlive its open handler. Query the actual verb, including
+    // delegated open handlers, before asking Explorer to open the document.
+    let associated = [ASSOCSTR_COMMAND, ASSOCSTR_DELEGATEEXECUTE]
+        .into_iter()
+        .any(|kind| {
+            let mut registration = [0u16; 4096];
+            let mut len = registration.len() as u32;
+            unsafe {
+                AssocQueryStringW(
+                    ASSOCF_NONE,
+                    kind,
+                    w!(".log"),
+                    w!("open"),
+                    Some(PWSTR(registration.as_mut_ptr())),
+                    &mut len,
+                )
+            }
+            .is_ok()
+                && registration[0] != 0
+        });
     if !associated {
         return crate::log_viewer::open_notepad(path);
     }
