@@ -1,6 +1,6 @@
 # 执行台账
 
-P26.1 按 [CR-024](changes/CR-024.md) 验证本地窗格 ADB 快捷指令侧栏及 Windows x64 便携交付。[P26.1](records/P26.1.md) · Step-ID: P26.1。
+P26.1 按 [CR-024](changes/CR-024.md) 完成 Windows x64 0.1.14 便携交付。实际宽窄窗、分屏、原位编辑、管理调用计数及解包软件复验通过。[P26.1](records/P26.1.md) · Step-ID: P26.1。
 
 P26 本地命令行和 ADB 快捷操作完成 Windows x64 0.1.13 便携交付。解包软件回归、混合会话和受控性能数据已记录，真实设备与日常 PowerShell 对照待验。[CR-023](changes/CR-023.md) · [P26](records/P26.md) · Step-ID: P26。
 
