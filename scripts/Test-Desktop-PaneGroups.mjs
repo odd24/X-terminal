@@ -142,6 +142,7 @@ async function dockDrag(connection) {
 }
 
 const tab = c => query('[role="tab"][data-connection-id="'+c.connection_id+'"]');
+const tabBox = c => tab(c)+".closest('.connection-tab')";
 const pane = c => query('[data-rendered-id="'+c.connection_id+'"]');
 const host = c => pane(c)+'.querySelector(".terminal")';
 const tabIds = c => main.evaluate('[...'+pane(c)+'.querySelectorAll("[role=tab]")].map(tab=>tab.dataset.connectionId)');
@@ -405,7 +406,7 @@ try{
   assert.deepEqual(new Set(await tabIds(d)),new Set([b.connection_id,d.connection_id]));
   assert.deepEqual(await tabIds(a),[a.connection_id]);
   assert.deepEqual(await tabIds(c),[c.connection_id]);
-  await physical(tab(b),point(await geometry(tab(d)+".closest('.connection-tab')"),.85,.5),'[data-insertion=after]');
+  await physical(tab(b),point(await geometry(tabBox(d)),.85,.5),'[data-insertion=after]');
   await main.waitFor('document.querySelectorAll(\'[data-rendered-id="'+d.connection_id+'"] [role=tab]\')[1]?.dataset.connectionId==="'+b.connection_id+'"');
   await choose(a);
   for(const target of [c,d,a]){
@@ -435,7 +436,7 @@ try{
   await main.screenshot(`desktop-${evidence}-nested-pane-tabs.png`);
   if(toolbarChecks)toolbar.push(await checkLogToolbar(main,'main log'));
 
-  await physical(tab(d),point(await geometry(tab(c)),.75,.5),'[data-insertion=after]');
+   await physical(tab(d),point(await geometry(tabBox(c)),.75,.5),'[data-insertion=after]');
   await main.waitFor(rendered(d,1)+' && '+rendered(b,2));
   assert.deepEqual(new Set(await tabIds(d)),new Set([c.connection_id,d.connection_id]));
   await fit(900);
