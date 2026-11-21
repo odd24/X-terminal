@@ -106,6 +106,8 @@ export async function checkMainToolbar(page,fit,version='0.1.4'){
 
 export async function measureCompactToolbar(page,detached=false){
   await page.command('Input.dispatchMouseEvent',{type:'mouseMoved',x:2,y:95});
+  await page.waitFor(`[...document.querySelectorAll('.window-chrome > .sidebar-toggle, .app-bar > button, .app-bar > .tools-menu > summary')]
+    .every(node=>getComputedStyle(node).backgroundColor==='rgba(0, 0, 0, 0)')`);
   const result=await page.evaluate(`(()=>{
     const header=document.querySelector('.window-chrome'),nav=header.querySelector('.app-bar');
     const title=header.querySelector('.window-title'),sidebar=header.querySelector('.sidebar-toggle');

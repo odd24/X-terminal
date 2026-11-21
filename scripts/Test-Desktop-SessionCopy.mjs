@@ -233,6 +233,8 @@ async function checkMoreTools(){
   const anchored=await measurePopup(ui,'.tools-menu > summary','.tools-menu-content','compact more tools');
   const expanded=await ui.evaluate(`getComputedStyle(document.querySelector('.tools-menu > summary')).backgroundColor`);
   assert.notEqual(expanded,'rgba(0, 0, 0, 0)');
+  const image=await ui.command('Page.captureScreenshot',{format:'png'});
+  await writeFile(`artifacts/desktop-${version}-toolbar-more-tools.png`,Buffer.from(image.data,'base64'));
   for(const type of ['keyDown','keyUp'])await ui.command('Input.dispatchKeyEvent',{type,key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
   await ui.waitFor("!document.querySelector('.tools-menu').open");
   return anchored;
@@ -264,6 +266,7 @@ async function toolbarRefresh(){
       const k=theme+'-'+name;
       geometry[k]=await measureCompactToolbar(ui);
       verifySeam(await seam(ui));
+      await ui.evaluate(`${pane}.querySelector('.xterm-helper-textarea').focus()`);
       await ui.screenshot(`desktop-${version}-toolbar-${k}.png`);
     }
   }
