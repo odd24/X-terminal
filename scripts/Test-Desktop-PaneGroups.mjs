@@ -15,6 +15,7 @@ const desktop = path.resolve(process.argv[2]);
 const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
 const notices=process.argv.includes('--recording-notices');
+const webviewDrags=process.argv.includes('--webview-drags');
 const requestedVersion=process.argv.find(arg=>/^--ui-version=0\.1\.[5-9]$/.test(arg))?.split('=')[1];
 const version=requestedVersion??'0.1.5';
 const tabRecording=notices||process.argv.includes('--tab-recording');
@@ -150,17 +151,30 @@ async function physical(source,destination,preview,screenshot){
   const from=center(await geometry(source));
   assert.equal(await main.evaluate(`${source}.contains(document.elementFromPoint(${from.x},${from.y}))`),true,'the original tab is physically visible at the drag start');
   const points=[from,{x:from.x,y:from.y+30},{...destination,holdMs:700}];
+  const verify=async()=>{
+    await main.waitFor('!!'+query(preview));
+    if(screenshot){
+      const image=await main.command('Page.captureScreenshot',{format:'png'});
+      await writeFile(path.join('artifacts',screenshot),Buffer.from(image.data,'base64'));
+    }
+  };
+  if(webviewDrags){
+    await main.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...from});
+    try{
+      for(const {x,y} of points.slice(1))await main.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x,y});
+      await verify();
+    }finally{
+      await main.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...destination});
+    }
+    return;
+  }
   const mouse=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(main.app.pid),
     '-ExpectedExecutable',desktop,'-Points',JSON.stringify(points),'-Raise'],{windowsHide:true});
   let stderr='';
   mouse.stderr.on('data',chunk=>stderr+=chunk);
   const done=new Promise((resolve,reject)=>{mouse.once('error',reject);mouse.once('exit',resolve);});
   try{
-    await main.waitFor('!!'+query(preview));
-    if(screenshot){
-      const image=await main.command('Page.captureScreenshot',{format:'png'});
-      await writeFile(path.join('artifacts',screenshot),Buffer.from(image.data,'base64'));
-    }
+    await verify();
   }finally{assert.equal(await done,0,stderr);}
 }
 const point=(rect,x,y)=>({x:rect.left+x*rect.width,y:rect.top+y*rect.height});
@@ -348,7 +362,7 @@ try{
       const bounds=await geometry(host(a));
       const to=point(bounds,x,y);
       assert.ok(Math.min(to.x-bounds.left,bounds.right-to.x,to.y-bounds.top,bounds.bottom-to.y)>24);
-      console.log('Native drop',width,edge);
+      console.log(webviewDrags?'WebView drop':'Native drop',width,edge);
       await physical(tab(b),to,'.tab-split-preview[data-edge="'+edge+'"]');
       const leading=edge==='left'||edge==='top';
       await main.waitFor(rendered(leading?b:a,0)+' && '+rendered(leading?a:b,1));
@@ -445,6 +459,7 @@ try{
   const close=await closeSoakDesktop(main,root,service,{});
   await main.close();main=undefined;
   report={result:'PASS',drops,layout:'left vertical split beside right pane',f6:true,exactInput:true,
+    paneDragSource:webviewDrags?'WebView input events':'native mouse',
     recording:records.map(entry=>entry.marker),centerAndRailMerge:true,groupPlus:true,lastTabCollapse:true,detachedAndDocked:true,
     ...(toolbarChecks?{toolbar}:{}),close};
   }
@@ -468,4 +483,4 @@ try{
 }
 await writeFile(notices?`artifacts/windows-${evidence}-recording-notices.json`:tabRecording?`artifacts/windows-${evidence}-tab-recording-ssh.json`:dockProbe?`artifacts/windows-${evidence}-dock-toolbar.json`:`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
 console.log(notices?'PASS fixed log directory, verified stop notices, timeouts and exact original file':tabRecording?'PASS SSH tab recording, exact unknown recovery, synced file, split and detached window':dockProbe?'PASS detached toolbar popup and native dock return':
-  'PASS physical pane tabs, nested geometry, input, recording and docking');
+  `PASS pane tabs, nested geometry, input, recording and docking (${webviewDrags?'WebView in-window drags':'native in-window drags'})`);
