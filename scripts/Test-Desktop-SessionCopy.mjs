@@ -84,6 +84,16 @@ async function click(page,expression,kind='Left',caption=title){
   native('scripts/lib/Drag-TestWindow.ps1',['-TargetProcessId',String(ui.app.pid),'-ExpectedExecutable',desktop,'-Title',caption,
     '-Points',JSON.stringify([point]),'-Click',kind,'-Raise']);
 }
+async function webviewClick(page,expression){
+  const point=await page.evaluate(`(()=>{
+    const target=(${expression}),b=target.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;
+    return {x,y,visible:target.contains(document.elementFromPoint(x,y))};
+  })()`);
+  const {x,y,visible}=point;
+  assert.equal(visible,true,'toolbar control is visible at its click point');
+  await page.command('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',buttons:1,clickCount:1});
+  await page.command('Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',buttons:0,clickCount:1});
+}
 async function activate(connection){
   await ui.selectTab(connection.connection_id);
   await ready(connection);
@@ -179,14 +189,16 @@ async function verifyWindow(page,caption,label='main'){
   dragNativeWindow(ui.app,[start,{x:start.x+32,y:start.y+24},{x:start.x+62,y:start.y+40}],{executable:desktop,title:caption,raise:true});
   const moved=await windowQuery(page,'outer_position',label);
   assert.ok(Math.abs(moved.x-before.x)>20||Math.abs(moved.y-before.y)>20,JSON.stringify({before,moved}));
-  await click(page,q('button[aria-label="最大化窗口"]'),'Left',caption);
+  const control=expression=>refresh?webviewClick(page,expression):click(page,expression,'Left',caption);
+  await control(q('button[aria-label="最大化窗口"]'));
   await wait(()=>windowQuery(page,'is_maximized',label),'native maximize button maximized');
-  await click(page,q('button[aria-label="还原窗口"]'),'Left',caption);
+  await control(q('button[aria-label="还原窗口"]'));
   await wait(async()=>!(await windowQuery(page,'is_maximized',label)),'native window restored');
   return {moved:true,maximized:true,restored:true};
 }
 async function close(){
-  await click(ui,q('.window-close'));
+  if(refresh)await webviewClick(ui,q('.window-close'));
+  else await click(ui,q('.window-close'));
   await ui.waitFor(`!!document.querySelector('dialog[aria-label="退出桌面确认"]')`);
   await ui.click('确认退出并停止服务');
   await wait(()=>ui.app.exitCode===0,'owned desktop exited');
@@ -214,7 +226,7 @@ async function setTheme(theme){
   await ui.waitFor(`document.documentElement.dataset.theme===${JSON.stringify(theme)}&&!document.querySelector('dialog:modal')`);
 }
 
-async function exerciseDirectory(page,caption){
+async function exerciseDirectory(page){
   await page.evaluate(`(()=>{
     const original=window.fetch;
     window.toolbarDirectory={original,result:[]};
@@ -225,7 +237,7 @@ async function exerciseDirectory(page,caption){
     };
    })()`);
   try{
-    await click(page,q('.toolbar-log-directory'),'Left',caption);
+    await webviewClick(page,q('.toolbar-log-directory'));
     await page.waitFor("window.toolbarDirectory.result.length===1");
     assert.deepEqual(await page.evaluate('window.toolbarDirectory.result'),['ok']);
   }finally{
@@ -235,7 +247,7 @@ async function exerciseDirectory(page,caption){
 }
 
 async function checkMoreTools(){
-  await click(ui,q('.tools-menu > summary'));
+  await webviewClick(ui,q('.tools-menu > summary'));
   const anchored=await measurePopup(ui,'.tools-menu > summary','.tools-menu-content','compact more tools');
   const expanded=await ui.evaluate(`getComputedStyle(document.querySelector('.tools-menu > summary')).backgroundColor`);
   assert.notEqual(expanded,'rgba(0, 0, 0, 0)');
@@ -252,12 +264,12 @@ async function toolbarRefresh(){
   const a=await connect(first,false),b=await connect(second,false);
   await activate(b);
   await ui.waitFor(`${tab(a)}?.getAttribute('aria-label')==='localhost'&&${tab(b)}?.getAttribute('aria-label')==='localhost'`);
-  await exerciseDirectory(ui,title);
+  await exerciseDirectory(ui);
   assert.equal((await stat(path.join(root,'logs'))).isDirectory(),true);
   const aRecord=`${tab(a)}.parentElement.querySelector('.tab-record-button')`;
   const bRecord=`${tab(b)}.parentElement.querySelector('.tab-record-button')`;
   await ui.waitFor(`${aRecord}?.getAttribute('aria-disabled')==='false'`);
-  await click(ui,aRecord);
+  await webviewClick(ui,aRecord);
   await ui.waitFor(`${aRecord}.dataset.recording==='recording'&&${bRecord}.dataset.recording==='idle'
     &&${tab(b)}.getAttribute('aria-selected')==='true'&&${q('.toolbar-log')}.dataset.logPhase!=='RECORDING'`);
   await activate(a);
@@ -295,15 +307,15 @@ async function toolbarRefresh(){
   verifySeam(await seam(detached));
   await detached.screenshot(`desktop-${version}-toolbar-detached.png`);
   menus.push(await checkLogToolbar(detached,'detached log','开始记录'));
-  await exerciseDirectory(detached,childTitle);
+  await exerciseDirectory(detached);
   const label=await detached.evaluate('window.__TAURI_INTERNALS__.metadata.currentWindow.label');
   const detachedWindow=await verifyWindow(detached,childTitle,label);
-  await click(detached,q('.app-bar button:last-child'),'Left',childTitle);
+  await webviewClick(detached,q('.app-bar button:last-child'));
   await wait(async()=> !(await ui.otherPages()).length,'dedicated move-back control returned the original window');
   detached.close();detached=undefined;
   await ui.waitFor(`!!${tab(b)}`);
   await activate(a);
-  await click(ui,aRecord);
+  await webviewClick(ui,aRecord);
   await wait(async()=> (await logs(a,{op:'list'})).logs[0]?.durable,'original recording stopped independently');
   assert.deepEqual((await logs(b,{op:'list'})).logs,[]);
   const window=await verifyWindow(ui,title);
