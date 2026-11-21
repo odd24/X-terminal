@@ -1,13 +1,27 @@
-import { Fragment, type RefObject, type DragEvent } from 'react';
+import { Fragment, useLayoutEffect, useRef, type ReactNode, type DragEvent } from 'react';
 import type { GroupConnection, TabGroup } from './tab-groups';
 import type { SessionDrag } from './session-drag';
 type Connection=GroupConnection&{state:string};
-export function SessionTabs({tabs,groups,groupOf,owner,selected,list,name,badge,select,close,pending,assign,drag,detached}:{tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;list:RefObject<HTMLDivElement|null>;name(c:Connection):string;badge(c:Connection):string|undefined;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean}){
+export function SessionTabs({tabs,groups,groupOf,owner,selected,name,badge,select,close,pending,assign,drag,detached,children}:{tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;badge(c:Connection):string|undefined;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;children?:ReactNode}){
+  const list=useRef<HTMLDivElement>(null);
+  const order=tabs.map(tab=>tab.connection_id+':'+groupOf(tab.connection_id)).join(',');
+  useLayoutEffect(()=>{
+    const rail=list.current;
+    const tab=Array.from(rail?.querySelectorAll<HTMLElement>('[role="tab"]')??[]).find(item=>item.dataset.connectionId===selected);
+    if(!rail||!tab)return;
+    const reveal=()=>{
+      const viewport=rail.getBoundingClientRect(),bounds=(tab.parentElement??tab).getBoundingClientRect();
+      if(bounds.left<viewport.left)rail.scrollLeft+=bounds.left-viewport.left;
+      else if(bounds.right>viewport.right)rail.scrollLeft+=bounds.right-viewport.right;
+    };
+    reveal();const observer=new ResizeObserver(reveal);
+    observer.observe(rail);return()=>observer.disconnect();
+  },[selected,order]);
   const sections=groups.length?[{id:'',name:'未分组'},...groups]:[{id:'',name:''}];
   function drop(event:DragEvent,group:string){event.preventDefault();const raw=event.dataTransfer.getData('application/x-shared-terminal-tab');if(raw.length>512)return;try{const t=JSON.parse(raw);if(t.owner!==owner)return;const live=tabs.find(c=>c.connection_id===t.connection_id&&c.generation===t.generation&&c.protocol===t.protocol);if(live)assign(live,group);}catch{/* unrelated/corrupt drag data never becomes an action */}}
   const {preview, bindings, cancelOnKey, allowedClick}=drag;
   const destination=preview?.destination;
-  return <div className="tab-tools"><div role="tablist" aria-label="连接标签" ref={list} data-tab-drag={preview?'true':undefined} onWheel={event=>{
+  return <div className="tab-tools pane-tab-bar"><div role="tablist" aria-label="连接标签" ref={list} data-tab-drag={preview?'true':undefined} onWheel={event=>{
     const rail=event.currentTarget;
     if(event.deltaX||event.shiftKey||rail.scrollWidth<=rail.clientWidth)return;
     const scale=event.deltaMode===1?16:event.deltaMode===2?rail.clientWidth:1;
@@ -22,7 +36,7 @@ export function SessionTabs({tabs,groups,groupOf,owner,selected,list,name,badge,
           if(event.isTrusted){event.preventDefault();return;}
           event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-shared-terminal-tab',JSON.stringify({owner,...connection}));
         }}>
-        <button role="tab" data-connection-id={id} tabIndex={selected===id?0:-1}
+        <button role="tab" className={selected===id?'pane-focus':undefined} data-connection-id={id} tabIndex={selected===id?0:-1}
           {...bindings(connection)}
           onKeyDown={event=>{
             if(cancelOnKey(event))return;
@@ -40,6 +54,6 @@ export function SessionTabs({tabs,groups,groupOf,owner,selected,list,name,badge,
         {close&&<button aria-label={`关闭标签 ${id}`} disabled={pending(connection)} onClick={()=>close({...connection})}>×</button>}
       </div>;
     })}
-    </Fragment>)}</div>
+    </Fragment>)}</div>{children}
   </div>;
 }

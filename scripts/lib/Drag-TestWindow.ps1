@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory=$true)][int]$TargetProcessId,
     [Parameter(Mandatory=$true)][string]$ExpectedExecutable,
     [Parameter(Mandatory=$true)][string]$Points,
-    [string]$Title
+    [string]$Title,
+    [switch]$Raise
 )
 $ErrorActionPreference = 'Stop'
 $target = Get-Process -Id $TargetProcessId
@@ -21,6 +22,11 @@ public static class TerminalTestMouse {
  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h,uint flags);
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+ [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int width,int height,uint flags);
+ [DllImport("user32.dll")] public static extern int GetWindowLongW(IntPtr h,int index);
+ [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int command);
+ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+ [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra);
  delegate bool WindowCallback(IntPtr h, IntPtr state);
@@ -52,7 +58,15 @@ if (!$previousDpi) { throw 'Unable to measure physical screen coordinates' }
 $original = New-Object TerminalTestMouse+Point
 [void][TerminalTestMouse]::GetCursorPos([ref]$original)
 $pressed = $false
+$raised = $false
 try {
+    if ($Raise) {
+        $raised = -not ([TerminalTestMouse]::GetWindowLongW($window,-20) -band 8)
+        [void][TerminalTestMouse]::ShowWindow($window,5)
+        if (![TerminalTestMouse]::SetWindowPos($window,[IntPtr](-1),0,0,0,0,67)) { throw 'Unable to raise the verified test window' }
+        [void][TerminalTestMouse]::SetForegroundWindow($window)
+        Start-Sleep -Milliseconds 150
+    }
     $scale = [TerminalTestMouse]::GetDpiForWindow($window) / 96
     $steps = @($Points | ConvertFrom-Json)
     for ($i=0; $i -lt $steps.Count; $i++) {
@@ -61,7 +75,16 @@ try {
         $point.Y = [int][Math]::Round($steps[$i].y * $scale)
         if (![TerminalTestMouse]::ClientToScreen($window,[ref]$point)) { throw 'Window coordinates unavailable' }
         $hit = [TerminalTestMouse]::GetAncestor([TerminalTestMouse]::WindowFromPoint($point),2)
-        if ($i -eq 0 -and $hit -ne $window) { throw 'The owned test window is not under the starting point' }
+        if ($i -eq 0 -and $hit -ne $window) {
+            [uint32]$hitOwner = 0
+            if ($hit) { [void][TerminalTestMouse]::GetWindowThreadProcessId($hit,[ref]$hitOwner) }
+            $rootOwner = [TerminalTestMouse]::GetAncestor($hit,3)
+            $webView = if ($Raise -and $hitOwner) { Get-CimInstance Win32_Process -Filter "ProcessId=$hitOwner" }
+            if ($rootOwner -ne $window -and !($webView.Name -eq 'msedgewebview2.exe' -and $webView.ParentProcessId -eq $TargetProcessId)) {
+                $foreground = [TerminalTestMouse]::GetForegroundWindow() -eq $window
+                throw "The owned test window is not under the starting point ($($steps[$i].x), $($steps[$i].y)); hit $($webView.Name) PID $hitOwner parent $($webView.ParentProcessId); expected $TargetProcessId; foreground $foreground"
+            }
+        }
         if ($i -eq $steps.Count-1 -and $steps[$i].outside -and $hit -eq $window) { throw 'The ending point is inside the owned test window' }
         if (![TerminalTestMouse]::SetCursorPos($point.X,$point.Y)) { throw 'Cursor positioning failed' }
         Start-Sleep -Milliseconds 100
@@ -75,6 +98,7 @@ try {
 } finally {
     if ($pressed) { [TerminalTestMouse]::mouse_event(4,0,0,0,[UIntPtr]::Zero) }
     Start-Sleep -Milliseconds 200
+    if ($raised) { [void][TerminalTestMouse]::SetWindowPos($window,[IntPtr](-2),0,0,0,0,19) }
     [void][TerminalTestMouse]::SetCursorPos($original.X,$original.Y)
     [void][TerminalTestMouse]::SetThreadDpiAwarenessContext($previousDpi)
 }

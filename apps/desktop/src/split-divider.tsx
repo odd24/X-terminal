@@ -10,15 +10,14 @@ export function SplitDivider({direction,ratio,change}:{direction:'horizontal'|'v
     onPointerDown={event=>{
       if(!event.isPrimary||event.button!==0)return;
       const rect=event.currentTarget.getBoundingClientRect();
-      offset.current=columns?event.clientX-rect.left:event.clientY-rect.top;
+      offset.current=columns?event.clientX-rect.left-rect.width/2:event.clientY-rect.top-rect.height/2;
       event.currentTarget.setPointerCapture(event.pointerId);
     }}
     onPointerMove={event=>{
       if(!event.currentTarget.hasPointerCapture(event.pointerId))return;
       const grid=event.currentTarget.parentElement!.getBoundingClientRect();
-      const handle=event.currentTarget.getBoundingClientRect();
       const offsetInGrid=columns?event.clientX-grid.left:event.clientY-grid.top;
-      const available=columns?grid.width-handle.width:grid.height-handle.height;
+      const available=columns?grid.width:grid.height;
       if(available>0)adjust(Math.round((offsetInGrid-offset.current)*100/available));
     }}
     onKeyDown={event=>{

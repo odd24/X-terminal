@@ -196,12 +196,12 @@ try {
   assert.equal(await main.evaluate(`${tab(a)}.getAttribute('aria-selected')`),'true');
 
   for(const edge of ['left','right','top','bottom']){
-    const grid=await geometry(query('.terminal-grid'));
+    const grid=await geometry(query(`[data-rendered-id="${a.connection_id}"] > .terminal`));
     const point=center(grid);
-    if(edge==='left')point.x=grid.left+grid.width*.26;
-    if(edge==='right')point.x=grid.left+grid.width*.74;
-    if(edge==='top')point.y=grid.top+grid.height*.26;
-    if(edge==='bottom')point.y=grid.top+grid.height*.74;
+    if(edge==='left')point.x=grid.left+grid.width*.20;
+    if(edge==='right')point.x=grid.left+grid.width*.80;
+    if(edge==='top')point.y=grid.top+grid.height*.20;
+    if(edge==='bottom')point.y=grid.top+grid.height*.80;
     assert.ok(Math.min(point.x-grid.left,grid.right-point.x,point.y-grid.top,grid.bottom-point.y)>42);
     const leading=edge==='left'||edge==='top';
     const direction=['left','right'].includes(edge)?'horizontal':'vertical';
@@ -253,8 +253,8 @@ try {
   await left.control({op:'push',text:'RETAINED-INDEPENDENT-A\r\n'});
   const log = await main.invoke('logging_request',{request:{op:'start',connection:ref(a),request_id:requestId(),limits:{segment_bytes:131072,segments:2}}});
 
-  const grid=await geometry(query('.terminal-grid'));
-  await drag(center(await geometry(tab(b))),{x:grid.left+grid.width*.75,y:center(grid).y});
+  const grid=await geometry(query('.terminal-pane > .terminal'));
+  await drag(center(await geometry(tab(b))),{x:grid.left+grid.width*.80,y:center(grid).y});
   await main.waitFor(`${rendered(a,0)} && ${rendered(b,1)}`);
   child=await outsideDrag(a,true);
   await child.waitFor(`document.querySelector('footer')?.dataset.serviceId===${JSON.stringify(service.service_id)} && ${terminalText('RETAINED-INDEPENDENT-A')}`);

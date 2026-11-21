@@ -81,9 +81,10 @@ try {
     assert.match(probe.stderr,/SERIAL_MCP_FIXTURE_DISABLED/);
     assert.deepEqual(await readdir(guards),[]);
   }
-  const previousRelease=manifest.version!=='0.1.0';
-  const previousDirectory=previousRelease
-    ?path.resolve('artifacts/SharedTerminal-0.1.0-windows-x64')
+  const previousPatch=Number(manifest.version.split('.')[2])-1;
+  const previousVersion=previousPatch>=0?'0.1.'+previousPatch:undefined;
+  const previousDirectory=previousVersion
+    ?path.resolve('artifacts/SharedTerminal-'+previousVersion+'-windows-x64')
     :(await readJson('artifacts/terminal-font-size-preview.json')).directory;
   owner = await launch(path.join(previousDirectory,'shared-terminal-desktop.exe'),'prior-webview');
   const ownerStatus = await owner.invoke('service_status');
@@ -146,7 +147,7 @@ try {
   const close=await closeIdle(release,reopened);
   release=undefined;
   evidence={result:'PASS',title,version:manifest.version,toolCount:catalog.tools.length,observations,close,
-    priorVersion:previousRelease?'0.1.0':'development preview',priorConfigLock:true,
+    priorVersion:previousVersion??'development preview',priorConfigLock:true,
     sameServiceRecheck:true,priorProfileAndPreferences:true,isolatedRoot:true,ordinaryService:true,
     sameDirectoryBridge:true,guardedFixturesRejected:true,auditHealthyAfterRestart:true,modelTurns:0};
 }finally{

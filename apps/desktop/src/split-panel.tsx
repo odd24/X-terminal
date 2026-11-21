@@ -8,5 +8,5 @@ export function SplitPanel({first,connections,label,apply,close}:{first:PaneLive
  <form onSubmit={e=>{e.preventDefault();if(!second||busy)return;setBusy(true);setError('');void apply({...second},direction).catch(()=>setError('会话、代次或布局已变化，请关闭后重新选择。没有新建连接或发送输入。')).finally(()=>setBusy(false));}}>
  <Field label="排列方向"><select aria-label="分屏排列方向" disabled={busy} value={direction} onChange={e=>setDirection(e.target.value as typeof direction)}><option value="horizontal">左右</option><option value="vertical">上下</option></select></Field>
  <Field label="第二个会话"><select aria-label="分屏第二个会话" value={selected} disabled={busy} onChange={e=>setSelected(e.target.value)}><option value="">请选择另一个已连接会话</option>{eligible.map(c=><option key={`${c.connection_id}/${c.generation}`} value={`${c.connection_id}/${c.generation}`}>{label(c)} · {c.protocol} · 代次 {c.generation} · {c.connection_id.slice(0,8)}</option>)}</select></Field>
- {!eligible.length&&<p>请先连接另一个SSH或串口会话，再设置分屏。</p>}<small>最多两个窗格；已有保存配置的目标可从工作区保存排列。</small><button disabled={busy||!second}>创建分屏</button></form></Panel>;
+ {!eligible.length&&<p>请先连接另一个SSH或串口会话，再设置分屏。</p>}<small>在当前窗格内分出新窗格；最多四个窗格。</small><button disabled={busy||!second}>创建分屏</button></form></Panel>;
 }

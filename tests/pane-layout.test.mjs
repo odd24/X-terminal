@@ -11,3 +11,28 @@ test('collapse keeps focused identity; exact close removes only its pane without
 test('authoritative same-target selection keeps authentication stable; expected new generation cannot bind old list',()=>{const m=ready();m.select(a.connection_id,a,1);assert.equal(m.current.pending,false);assert.deepEqual(m.current.binding,{connection_id:a.connection_id,generation:1,protocol:'SSH2'});m.select(a.connection_id,a,2);assert.equal(m.current.pending,true);m.retain('service',[a,b]);assert.equal(m.current.pending,true);m.retain('service',[{...a,generation:2},b]);assert.equal(m.current.pending,false);assert.equal(m.current.binding.generation,2);});
 
 test('restoring a validated plan uses ordered exact identities and the saved active member without accepting foreign owner or fallback',()=>{const m=ready();assert.throws(()=>m.restore('wrong',a,b,'horizontal',b));assert.throws(()=>m.restore('service',a,a,'horizontal',a));assert.throws(()=>m.restore('service',a,b,'vertical',serial));assert.throws(()=>m.restore('service',a,{...b,state:'DISCONNECTED'},'horizontal',a));const before=m.epoch;m.restore('service',a,b,'vertical',b);assert.deepEqual(m.slots.map(s=>s.binding.connection_id),[a.connection_id,b.connection_id]);assert.equal(m.active,'second');assert.equal(m.direction,'vertical');assert.ok(m.epoch>before);});
+
+test('nested positioning keeps existing pane keys, moves a tab once and removes an empty group',()=>{
+ const m=ready(),extra={...a,connection_id:'extra'},live=[a,b,serial,extra];
+ m.split('service',a,b,'horizontal',false,live);
+ m.split('service',a,serial,'vertical',false,live);
+ assert.deepEqual(m.slots.map(slot=>slot.binding.connection_id),[a.connection_id,serial.connection_id,b.connection_id]);
+ assert.equal(m.tree.first.direction,'vertical');
+ assert.equal(m.paneOf(extra.connection_id),'first');
+ assert.equal(m.move(extra,'second',live),true);
+ assert.equal(m.paneOf(extra.connection_id),'second');
+ m.select(extra.connection_id,extra);
+ assert.equal(m.current.key,'second');
+ assert.equal(m.remove(extra,live),true);
+ assert.equal(m.current.binding.connection_id,b.connection_id);
+ m.move(serial,'second',[a,b,serial]);m.select(serial.connection_id,serial);
+ assert.deepEqual(m.slots.map(slot=>slot.key),['first','second']);
+ assert.equal(m.current.binding.connection_id,serial.connection_id);
+});
+
+test('an isolated tab dragged to the other pane edge retains its renderer key',()=>{
+ const m=ready();m.split('service',a,b,'horizontal',false,[a,b]);
+ m.split('service',a,b,'vertical',true,[a,b]);
+ assert.deepEqual(m.slots.map(slot=>slot.key),['second','first']);
+ assert.equal(m.active,'first');
+});

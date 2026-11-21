@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { locateTabDrop, type TabDrop } from './tab-drag';
 import type { PaneLive } from './pane-layout';
 
-export function useSessionDrag(tabs: PaneLive[], owner: string, railRef: RefObject<HTMLDivElement | null>,
+export function useSessionDrag(tabs: PaneLive[], owner: string,
   drop: (source: PaneLive, destination: TabDrop) => void, detached: boolean) {
   const gesture = useRef<{ source: PaneLive; owner: string; pointer: number; x: number; y: number; moving: boolean }>(undefined);
   const frame = useRef(0);
@@ -23,17 +23,18 @@ export function useSessionDrag(tabs: PaneLive[], owner: string, railRef: RefObje
   }, [tabs, owner]);
 
   function target(x: number, y: number) {
-    const rail = railRef.current;
-    if (!rail) return;
-    const destination = locateTabDrop(x, y, rail);
+    const destination = locateTabDrop(x, y);
     return !detached || destination?.kind === 'detach' ? destination : undefined;
   }
   function update(current: NonNullable<typeof gesture.current>) {
     setPreview({ id: current.source.connection_id, destination: target(current.x, current.y) });
   }
   function scrollRail() {
-    const current = gesture.current, rail = railRef.current;
-    if (!current?.moving || !rail) return;
+    const current = gesture.current;
+    if (!current?.moving) return;
+    const rail=document.elementFromPoint(current.x,current.y)?.closest<HTMLElement>('[role="tablist"]');
+    frame.current = requestAnimationFrame(scrollRail);
+    if(!rail)return;
     const bounds = rail.getBoundingClientRect();
     if (current.y >= bounds.top && current.y < bounds.bottom && current.x >= bounds.left && current.x < bounds.right) {
       const delta = current.x < bounds.left + 24 ? -8 : current.x > bounds.right - 24 ? 8 : 0;
@@ -41,7 +42,6 @@ export function useSessionDrag(tabs: PaneLive[], owner: string, railRef: RefObje
       rail.scrollLeft += delta;
       if (before !== rail.scrollLeft) update(current);
     }
-    frame.current = requestAnimationFrame(scrollRail);
   }
   function finish(event: PointerEvent<HTMLButtonElement>, commit: boolean) {
     const current = gesture.current;
@@ -112,16 +112,19 @@ export function useSessionDrag(tabs: PaneLive[], owner: string, railRef: RefObje
 export type SessionDrag = ReturnType<typeof useSessionDrag>;
 const directions = { left: '左侧', right: '右侧', top: '上方', bottom: '下方' } as const;
 
-export function SessionDragPreview({ destination, detached, ratios }: { destination?: TabDrop; detached: boolean; ratios:{horizontal:number;vertical:number} }) {
+export function SessionDragPreview({ destination, detached }: { destination?: TabDrop; detached: boolean }) {
   if (destination?.kind === 'detach') return createPortal(
     <div className="tab-detach-preview" aria-hidden="true">{detached ? '拖到主窗口可移回会话' : '松开后移到独立窗口'}</div>, document.body);
+  if(destination?.kind==='merge'){
+    const {bounds}=destination;
+    return createPortal(<div className="tab-merge-preview" aria-hidden="true"
+      style={{left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height}}>并入此窗格</div>,document.body);
+  }
   if (destination?.kind !== 'split') return null;
   const { bounds, edge } = destination;
-  const leading = edge === 'left' || edge === 'top';
-  const ratio = edge === 'left' || edge === 'right' ? ratios.horizontal : ratios.vertical;
   return createPortal(<div className="tab-split-preview" data-edge={edge} aria-hidden="true"
     style={{ left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height,
-      '--drop-size': `${leading ? ratio : 100 - ratio}%` } as CSSProperties}>
+      '--drop-size': '50%' } as CSSProperties}>
     <span className="tab-split-fill" />
     <div className="tab-direction-guide">{Object.entries(directions).map(([direction, name]) =>
       <span key={direction} data-direction={direction} data-chosen={direction === edge ? '' : undefined}>{name}</span>)}</div>

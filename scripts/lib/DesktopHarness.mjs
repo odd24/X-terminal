@@ -5,9 +5,9 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
-export function dragNativeWindow(app, points, {executable=path.resolve('target/debug/shared-terminal-desktop.exe'), title}={}) {
+export function dragNativeWindow(app, points, {executable=path.resolve('target/debug/shared-terminal-desktop.exe'), title, raise=false}={}) {
   execFileSync('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(app.pid),'-ExpectedExecutable',executable,
-    '-Points',JSON.stringify(points),...(title?['-Title',title]:[])],{windowsHide:true,timeout:12000,stdio:'pipe'});
+    '-Points',JSON.stringify(points),...(title?['-Title',title]:[]),...(raise?['-Raise']:[])],{windowsHide:true,timeout:12000,stdio:'pipe'});
 }
 
 export async function connectDesktopPage(target) {
