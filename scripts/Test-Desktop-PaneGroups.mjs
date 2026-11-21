@@ -90,10 +90,19 @@ const write=async(page,peer,value)=>{
 };
 async function outsideDrag(c, fromPane=false) {
   const source=fromPane?`[data-rendered-id="${c.connection_id}"] .pane-focus`:`[role="tab"][data-connection-id="${c.connection_id}"]`;
-  const start=center(await geometry(query(source)));
   await main.command('Page.bringToFront');
-  dragNativeWindow(main.app,[start,{x:start.x-20,y:start.y+35},{x:50,y:120},{x:-40,y:150,outside:true}],
-    {executable:desktop,raise:true,placeAtWorkAreaStart:tabRecording});
+  await main.evaluate(`${query(source)}.scrollIntoView({block:'nearest',inline:'nearest'})`);
+  const start=center(await geometry(query(source)));
+  assert.equal(await main.evaluate(`document.elementFromPoint(${start.x},${start.y})?.closest('[role="tab"]')?.dataset.connectionId`),c.connection_id);
+  const points=[start,{x:start.x,y:start.y+36},{x:50,y:120},{x:-40,y:150,outside:true,holdMs:450}];
+  const mouse=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(main.app.pid),
+    '-ExpectedExecutable',desktop,'-Points',JSON.stringify(points),'-Raise',...(tabRecording?['-PlaceAtWorkAreaStart']:[])],{windowsHide:true});
+  let errors='';
+  mouse.stderr.on('data',text=>errors+=text);
+  const done=new Promise((resolve,reject)=>{mouse.once('exit',resolve);mouse.once('error',reject);});
+  const preview=main.waitFor("!!document.querySelector('.tab-detach-preview')").then(()=>true,()=>false);
+  assert.equal(await done,0,errors);
+  assert.equal(await preview,true,'physical outside drag showed the detach preview before release');
   const target=await wait(async()=>(await main.otherPages())[0],'native detached WebView');
   return connectDesktopPage(target);
 }
