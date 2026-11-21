@@ -12,7 +12,7 @@ const output = path.resolve(process.argv[3]);
 const readJson = async file => JSON.parse(await readFile(file,'utf8'));
 const manifest = await readJson(path.join(packageDir,'manifest.json'));
 const expectedFiles = ['README.md','session-service.exe','shared-terminal-desktop.exe','terminal-mcp.exe'];
-assert.equal(manifest.version,'0.1.0');
+assert.equal(manifest.version,(await readJson('package.json')).version);
 assert.equal(manifest.target,'x86_64-pc-windows-msvc');
 assert.equal(manifest.buildProfile,'release');
 assert.deepEqual(manifest.files.map(file=>file.name).sort(),expectedFiles);

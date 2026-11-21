@@ -70,6 +70,13 @@ type Connection = { connection_id: string; generation: number; protocol: string;
 type Ref = Pick<Connection, 'connection_id' | 'generation'>;
 type ServiceScreen = { connection: Ref; encoding: string; parser: string; resize_reflow: boolean; rows: number; cols: number; contents: string; contents_truncated: boolean; cursor_row: number; cursor_col: number; alternate: boolean; source_cursor: number; completed: boolean; gap_bytes: number; decode_error_events: number };
 type Status = { service_id: string; pid: number; fixture: boolean; ssh1_preview: boolean; exit_policy: string; previous_close?:PreviousClose };
+function sameConnectionList(previous: Connection[], next: Connection[]) {
+  return previous.length === next.length && previous.every((connection, index) => {
+    const current = next[index];
+    return connection.connection_id === current.connection_id && connection.generation === current.generation
+      && connection.protocol === current.protocol && connection.state === current.state;
+  });
+}
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
 const appWindow = getCurrentWindow();
 const detached = appWindow.label !== 'main';
@@ -265,7 +272,6 @@ function App() {
   const runtime = useRef<{ term: Terminal; fit: FitAddon; connection?: Ref; fixture: boolean; inputs: number; protocol: string; writable: boolean } | null>(null);
   const [service, setService] = useState<Status>();
   const [connections, setConnections] = useState<Connection[]>([]);
-  liveConnections.current = connections;
   const [selected, setSelected] = useState('');
   const selectedRef = useRef('');
   const [serviceFailure, setFailure] = useState('');
@@ -388,7 +394,7 @@ function App() {
     if(!allowExit.current){closingDesktop.current=undefined;setExitConfirm(false);}
   }
 
-  const serviceRef=useRef<Status|undefined>(undefined);serviceRef.current=service;
+  const serviceRef=useRef<Status|undefined>(undefined);
   const serviceStopped=useRef(false);
   const broadcastRun=useRef(new BroadcastRun({alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,id:requestId,ready:broadcastTargetReady,send:sendBroadcastTarget,query:queryBroadcastTarget}));
   const continuousRun=useRef(new ContinuousInput({alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,id:requestId,ready:continuousTargetReady,send:sendBroadcastTarget,query:queryBroadcastTarget}));
@@ -432,7 +438,20 @@ function App() {
   },[renderedTarget]);
   useEffect(()=>{let disposed=false,timer=0;
     async function poll(){try{const epoch=panes.current.epoch;const native=await invoke<Status>('service_status');if(disposed)return;const sessions=await invoke<Connection[]>('service_list');if(disposed)return;
-      composeHistory.current.retain(native.service_id);serviceRef.current=native;setService(native);liveConnections.current=sessions;setConnections(sessions);triggers.current.validate(native.service_id,sessions);
+      composeHistory.current.retain(native.service_id);
+      const previous = serviceRef.current;
+      // The native service captures previous_close once when this owner starts.
+      if (!previous || previous.service_id !== native.service_id || previous.pid !== native.pid
+        || previous.fixture !== native.fixture || previous.ssh1_preview !== native.ssh1_preview
+        || previous.exit_policy !== native.exit_policy) {
+        serviceRef.current = native;
+        setService(native);
+      }
+      if (!sameConnectionList(liveConnections.current, sessions)) {
+        liveConnections.current = sessions;
+        setConnections(sessions);
+      }
+      triggers.current.validate(native.service_id,sessions);
       const beforeRetain=panes.current.epoch;if(panes.current.retain(native.service_id,sessions,epoch===panes.current.epoch)){if(panes.current.epoch!==beforeRetain)routeChanged();else syncRoute();}
       if(panes.current.direction==='single'&&!panes.current.current.requested){const first=sessions.find(c=>!tabClosures.current.isHidden(c));if(first){panes.current.select(first.connection_id);panes.current.retain(native.service_id,sessions);syncRoute();}}
       timer=window.setTimeout(()=>void poll(),100);

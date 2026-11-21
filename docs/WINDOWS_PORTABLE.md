@@ -1,4 +1,4 @@
-# 共享终端 0.1.0 · Windows x64 便携版
+# 共享终端 0.1.1 · Windows x64 便携版
 
 1. 将 ZIP 完整解压到固定目录。三个 EXE 需放在同一目录中。
 2. 先在旧预览中正常退出桌面，再双击 `shared-terminal-desktop.exe`。应用需要 Microsoft Edge WebView2 运行时。

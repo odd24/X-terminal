@@ -4,7 +4,7 @@ Push-Location -LiteralPath $repo
 try {
     $version = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).version
     $tauri = Get-Content -LiteralPath 'apps/desktop/src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
-    if ($version -ne '0.1.0' -or $tauri.version -ne $version) { throw 'Version files do not match the release' }
+    if ($version -notmatch '^\d+\.\d+\.\d+$' -or $tauri.version -ne $version) { throw 'Version files do not match the release' }
     $commit = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Cannot resolve source commit' }
     $triple = 'x86_64-pc-windows-msvc'
