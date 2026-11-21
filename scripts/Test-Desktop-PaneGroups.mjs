@@ -178,6 +178,14 @@ try{
     const original=(page,c,id)=>page.invoke('logging_request',{request:{op:'start_status',connection:ref(c),request_id:id}});
     await fit(1100);
     await recordState(main,a,'idle');await recordState(main,b,'idle');
+    const controlBounds=await main.evaluate(`(()=>{
+      const label=${tab(b)}.querySelector('.tab-label'),button=${recordButton(b)};
+      return {label:label.textContent,labelRight:label.getBoundingClientRect().right,recordLeft:button.getBoundingClientRect().left,
+        fitted:label.scrollWidth<=label.clientWidth,tabIndex:button.tabIndex,action:button.getAttribute('aria-label')};
+    })()`);
+    assert.equal(controlBounds.label,'localhost');
+    assert.ok(controlBounds.fitted&&controlBounds.labelRight<=controlBounds.recordLeft&&controlBounds.tabIndex===0);
+    assert.match(controlBounds.action,/开始记录$/);
     await terminalFocus(main);
     const lostStart=await main.interceptIpc({op:'start',connectionId:b.connection_id,mode:'hold_error'});
     await recordClick(main,b);
@@ -360,6 +368,13 @@ try{
     recording:records.map(entry=>entry.marker),centerAndRailMerge:true,groupPlus:true,lastTabCollapse:true,detachedAndDocked:true,
     ...(toolbarChecks?{toolbar}:{}),close};
   }
+}catch(error){
+  if(tabRecording&&main) {
+    await main.screenshot('desktop-0.1.4-tab-recording-failure.png').catch(()=>{});
+    const state=await main.evaluate(`[...document.querySelectorAll('.connection-tab')].map(e=>({label:e.querySelector('.tab-label').textContent,record:e.querySelector('.tab-record-button')?.outerHTML}))`).catch(String);
+    console.error('Recording controls at failure:',state);
+  }
+  throw error;
 }finally{
   child?.close();
   await main?.close();
