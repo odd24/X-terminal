@@ -405,7 +405,7 @@ try{
   assert.deepEqual(new Set(await tabIds(d)),new Set([b.connection_id,d.connection_id]));
   assert.deepEqual(await tabIds(a),[a.connection_id]);
   assert.deepEqual(await tabIds(c),[c.connection_id]);
-  await physical(tab(b),point(await geometry(tab(d)),.85,.5),'[data-insertion=after]');
+  await physical(tab(b),point(await geometry(tab(d)+".closest('.connection-tab')"),.85,.5),'[data-insertion=after]');
   await main.waitFor('document.querySelectorAll(\'[data-rendered-id="'+d.connection_id+'"] [role=tab]\')[1]?.dataset.connectionId==="'+b.connection_id+'"');
   await choose(a);
   for(const target of [c,d,a]){
