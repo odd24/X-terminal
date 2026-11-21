@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
+import {requestId} from '../../apps/desktop/src/request-id.ts';
 import {desktopKeyboard} from './DesktopKeyboard.mjs';
 import {measureCompactToolbar} from './ToolbarMenuChecks.mjs';
 
@@ -57,8 +58,19 @@ export async function checkConnectionPanels({ui, version, root, source, connect,
     assert.match(id,/^[0-9a-f]{8}-[0-9a-f]{4}-7/);
     await checkBeforeQuery();
     assert.equal(await ui.evaluate("document.querySelector('.ssh-receipt code').textContent"),id);
-    await action('查询原请求', '.ssh-panel button');
-    await ui.waitFor("!document.querySelector('.ssh-receipt')");
+    const queryOp = {disconnect:'disconnect_status',reconnect:'reconnect_status',forget_start:'forget_status'}[op];
+    const queryHook = await ui.interceptIpc({command:'ssh_request',op:queryOp,mode:'delay',delayMs:50,connectionId:connection.connection_id});
+    try {
+      const queryButton = button('查询原请求','.ssh-panel button');
+      await ui.evaluate(`(${queryButton}).focus()`);
+      await enter();
+      await wait(async()=>await queryHook.count()===1,`${queryOp} dispatched through the native command`);
+      try { await ui.waitFor("!document.querySelector('.ssh-receipt')"); }
+      catch (error) {
+        const reply = await ssh({op:queryOp,connection:ref(connection),request_id:id}).catch(String);
+        throw new Error(`${queryOp} did not settle in the panel. Original read result: ${JSON.stringify(reply)}`,{cause:error});
+      }
+    } finally { await queryHook.restore(); }
     return id;
   }
 
@@ -172,28 +184,26 @@ export async function checkConnectionPanels({ui, version, root, source, connect,
   const next = (await list()).find(c=>c.connection_id===a.connection_id);
   assert.equal(next.generation,a.generation+1);
   assert.equal((await first.control({op:'metrics'})).accepted_connections,attempts+1);
-  await tools('终端日志');
-  await action('开始记录终端');
-  await action('关闭日志面板');
-  await closeSsh();
-  await keyGoesTo(next,'KEEP_THIS_LOG_AFTER_FORGET',[b]);
-  await tools('终端日志');
-  await action('停止记录终端');
-  await action('关闭日志面板');
-  const recorded = await wait(async()=>{
-    const {logs} = await ui.invoke('logging_request',{request:{op:'list',connection:ref(next)}});
-    return logs.find(entry=>entry.durable&&entry.readable);
+  const logging = request => ui.invoke('logging_request',{request:{connection:ref(next),...request}});
+  await logging({op:'start',request_id:requestId(),limits:{segment_bytes:131072,segments:2}});
+  const readLogs = () => logging({op:'list'});
+  const liveLog = await wait(async()=>(await readLogs()).logs.find(entry=>entry.active&&entry.readable),'logging is active on the reconnected generation');
+  assert.equal(path.basename(liveLog.readable.filename),liveLog.readable.filename);
+  const logPath = path.join(root,'logs',liveLog.readable.filename);
+  await first.control({op:'push',text:'KEEP_THIS_LOG_AFTER_FORGET\r\n'});
+  await wait(async()=>(await readFile(logPath)).includes('KEEP_THIS_LOG_AFTER_FORGET'),'the recording contains fixture output');
+  await logging({op:'stop',log_id:liveLog.log_id});
+  await wait(async()=>{
+    return (await readLogs()).logs.some(entry=>entry.log_id===liveLog.log_id&&entry.durable&&entry.worker_finished);
   },'recording of the exact ended generation synced to a user-visible file');
-  assert.equal(path.basename(recorded.readable.filename),recorded.readable.filename);
-  const logPath = path.join(root,'logs',recorded.readable.filename);
   const recordedBytes = await readFile(logPath);
   assert.ok(recordedBytes.includes('KEEP_THIS_LOG_AFTER_FORGET'));
-  await openSsh();
   await state('CONNECTED');
   await action('断开连接','.ssh-panel button');
   await state('DISCONNECTED');
   async function showRemoval() {
     await click(menu);
+    await ui.waitFor("!!document.querySelector('.ssh-session-menu .tools-menu-content[data-positioned]')");
     await action('移除连接记录','.ssh-session-menu button');
     await ui.waitFor("!!document.querySelector('.ssh-forget')");
   }
@@ -229,7 +239,13 @@ export async function checkConnectionPanels({ui, version, root, source, connect,
     await ui.waitFor(`!!(${icon})`);
     assert.equal(await ui.evaluate(`(${icon}).querySelector('svg').getBoundingClientRect().width`),16);
     if (label === '终端日志') await action('开始记录终端');
-    if (label === '连接配置') await action('刷新配置');
+    if (label === '连接配置') {
+      const refresh = button('刷新配置');
+      await ui.waitFor(`!!(${refresh})`);
+      await ui.evaluate(`(${refresh}).scrollIntoView({block:'center'})`);
+      await action('刷新配置');
+      await ui.waitFor("document.querySelector('dialog:modal .config-message')?.textContent.includes('配置已刷新')");
+    }
     await action(close);
   }
   const logs = await ui.invoke('logging_request',{request:{op:'list',connection:ref(b)}});
