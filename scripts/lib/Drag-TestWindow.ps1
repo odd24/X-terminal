@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory=$true)][string]$Points,
     [string]$Title,
     [switch]$Raise,
+    [switch]$PlaceAtWorkAreaStart,
     [string]$LandingTitle
 )
 $ErrorActionPreference = 'Stop'
@@ -16,7 +17,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 public static class TerminalTestMouse {
  [StructLayout(LayoutKind.Sequential)] public struct Point { public int X,Y; }
+ [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left,Top,Right,Bottom; }
+ [StructLayout(LayoutKind.Sequential)] public struct MonitorInfo { public int Size; public Rect Monitor,Work; public uint Flags; }
  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h,ref Point point);
+ [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out Rect rect);
+ [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h,uint flags);
+ [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor,ref MonitorInfo info);
  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
@@ -63,6 +69,21 @@ $raised = $false
 $raisedLanding = $false
 $landing = [IntPtr]::Zero
 try {
+    if ($PlaceAtWorkAreaStart) {
+        $area = New-Object TerminalTestMouse+MonitorInfo
+        $area.Size = [Runtime.InteropServices.Marshal]::SizeOf($area)
+        $rect = New-Object TerminalTestMouse+Rect
+        $monitor = [TerminalTestMouse]::MonitorFromWindow($window,2)
+        if (![TerminalTestMouse]::GetMonitorInfo($monitor,[ref]$area) -or ![TerminalTestMouse]::GetWindowRect($window,[ref]$rect)) {
+            throw 'The owned test window work area is unavailable'
+        }
+        $x = $area.Work.Left + 64
+        $y = $area.Work.Top + 32
+        if ($x+$rect.Right-$rect.Left -gt $area.Work.Right -or $y+$rect.Bottom-$rect.Top -gt $area.Work.Bottom) {
+            throw 'The owned test window would not fit at the work area start'
+        }
+        if (![TerminalTestMouse]::SetWindowPos($window,[IntPtr]::Zero,$x,$y,0,0,21)) { throw 'Unable to place the owned test window' }
+    }
     if ($LandingTitle) {
         $landing = [TerminalTestMouse]::FindWindow($TargetProcessId,$LandingTitle)
         [uint32]$landingOwner = 0

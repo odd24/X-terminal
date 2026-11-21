@@ -49,6 +49,7 @@ try {
   await ui.screenshot('desktop-0.1.4-serial-recording.png');
   const lost=await ui.interceptIpc({op:'stop',connectionId:uart.connection_id,mode:'error'});
   await click();await state('unknown');
+  assert.equal(await ui.evaluate(`document.querySelector('.toolbar-log').textContent`),'状态未知');
   assert.equal(await lost.count(),1);
   const pending=await ui.evaluate(`JSON.parse(sessionStorage.getItem('terminal-tab-recording-v1'))[0][1]`);
   assert.deepEqual(pending,{kind:'stop',id:log.log_id});

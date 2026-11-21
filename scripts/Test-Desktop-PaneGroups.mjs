@@ -89,7 +89,8 @@ async function outsideDrag(c, fromPane=false) {
   const source=fromPane?`[data-rendered-id="${c.connection_id}"] .pane-focus`:`[role="tab"][data-connection-id="${c.connection_id}"]`;
   const start=center(await geometry(query(source)));
   await main.command('Page.bringToFront');
-  dragNativeWindow(main.app,[start,{x:start.x-20,y:start.y+35},{x:50,y:120},{x:-40,y:150,outside:true}],{executable:desktop,raise:true});
+  dragNativeWindow(main.app,[start,{x:start.x-20,y:start.y+35},{x:50,y:120},{x:-40,y:150,outside:true}],
+    {executable:desktop,raise:true,placeAtWorkAreaStart:tabRecording});
   const target=await wait(async()=>(await main.otherPages())[0],'native detached WebView');
   return connectDesktopPage(target);
 }
@@ -113,7 +114,8 @@ async function dockDrag(connection) {
   })()`);
   const points=[start,{x:start.x+32,y:start.y+40},{landings,outside:true,holdMs:1300}];
   const mouse=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(main.app.pid),
-    '-ExpectedExecutable',desktop,'-Title','共享终端 · 独立会话','-LandingTitle','共享终端','-Points',JSON.stringify(points),'-Raise'],{windowsHide:true});
+    '-ExpectedExecutable',desktop,'-Title','共享终端 · 独立会话','-LandingTitle','共享终端','-Points',JSON.stringify(points),'-Raise',
+    ...(tabRecording?['-PlaceAtWorkAreaStart']:[])],{windowsHide:true});
   let errors='';
   mouse.stderr.on('data',chunk=>errors+=chunk);
   const done=new Promise(resolve=>mouse.once('exit',resolve));
