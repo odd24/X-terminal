@@ -209,6 +209,8 @@ pub struct DeviceSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Status {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_settings: Option<config_model::Settings>,
     pub hardware_rts: bool,
     pub encoding: config_model::Encoding,
     pub connection: ConnectionInfo,

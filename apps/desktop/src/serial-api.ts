@@ -4,7 +4,7 @@ import type { Settings } from './config-api';
 export { reference };
 export type Device = { device_id: string; port: string; instance_id: string };
 export type Inventory = { result: 'inventory'; revision: string; devices: Device[]; unidentified_ports: string[]; metadata_failures: number };
-export type SerialStatus = { result: 'status'; connection: Connection; profile_id: string; port: string; encoding: string; hardware_rts: boolean; cleanup_pending: boolean; failure: string | null; read_bytes: number; dropped_bytes: number; break_cleanup_failure: string | null };
+export type SerialStatus = { result: 'status'; connection: Connection; profile_id: string; port: string; source_settings?: Settings; encoding: string; hardware_rts: boolean; cleanup_pending: boolean; failure: string | null; read_bytes: number; dropped_bytes: number; break_cleanup_failure: string | null };
 export type SerialReceipt = { result: 'input'; request_id: string; state: 'PENDING' | 'DRIVER_ACCEPTED' | 'CONTROL_APPLIED' | 'CANCELLED_BEFORE_DISPATCH' | 'UNKNOWN'; driver_accepted: number | null; failure: string | null };
 type Request =
   | { op: 'inventory' }

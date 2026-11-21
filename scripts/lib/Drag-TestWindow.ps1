@@ -5,6 +5,7 @@ param(
     [string]$Title,
     [switch]$Raise,
     [switch]$PlaceAtWorkAreaStart,
+    [ValidateSet('Left','Right','Double')][string]$Click,
     [string]$LandingTitle
 )
 $ErrorActionPreference = 'Stop'
@@ -102,6 +103,7 @@ try {
     }
     $scale = [TerminalTestMouse]::GetDpiForWindow($window) / 96
     $steps = @($Points | ConvertFrom-Json)
+    if ($Click -and ($steps.Count -ne 1 -or $steps[0].outside -or $steps[0].landings)) { throw 'A click requires one owned client point' }
     for ($i=0; $i -lt $steps.Count; $i++) {
         $point = New-Object TerminalTestMouse+Point
         if ($steps[$i].landings) {
@@ -139,6 +141,17 @@ try {
         Start-Sleep -Milliseconds 100
         if ($steps[$i].holdMs -gt 0) { Start-Sleep -Milliseconds ([int]$steps[$i].holdMs) }
         if ($i -eq 0) {
+            if ($Click) {
+                $down,$up=if($Click -eq 'Right'){8,16}else{2,4}
+                [TerminalTestMouse]::mouse_event($down,0,0,0,[UIntPtr]::Zero)
+                [TerminalTestMouse]::mouse_event($up,0,0,0,[UIntPtr]::Zero)
+                if ($Click -eq 'Double') {
+                    Start-Sleep -Milliseconds 80
+                    [TerminalTestMouse]::mouse_event($down,0,0,0,[UIntPtr]::Zero)
+                    [TerminalTestMouse]::mouse_event($up,0,0,0,[UIntPtr]::Zero)
+                }
+                continue
+            }
             [TerminalTestMouse]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
             $pressed = $true
             Start-Sleep -Milliseconds 100

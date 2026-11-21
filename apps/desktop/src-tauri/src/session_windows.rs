@@ -1,7 +1,11 @@
 use crate::Desktop;
 use session_core::session::{ConnectionInfo, ConnectionRef, Protocol, State as ConnectionState};
 use session_protocol::{Reply, Request};
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use uuid::Uuid;
 use windows::Win32::{
@@ -11,8 +15,157 @@ use windows::Win32::{
 
 pub const MAIN: &str = "main";
 
+struct DetachedCopy {
+    id: Uuid,
+    owner: Uuid,
+    label: String,
+    connection: ConnectionRef,
+    created: Instant,
+}
+
 #[derive(Default)]
-pub struct SessionWindows(Mutex<HashMap<String, ConnectionRef>>);
+pub struct SessionWindows(
+    Mutex<HashMap<String, ConnectionRef>>,
+    Mutex<Option<DetachedCopy>>,
+);
+
+#[derive(serde::Serialize)]
+pub struct CopySource {
+    owner: Uuid,
+    connection: ConnectionInfo,
+    settings: config_model::Settings,
+    saved_profile: Option<Uuid>,
+}
+
+#[tauri::command]
+pub async fn request_detached_copy(
+    window: WebviewWindow,
+    state: State<'_, Desktop>,
+    windows: State<'_, SessionWindows>,
+    service_id: Uuid,
+    connection: ConnectionRef,
+) -> Result<(), String> {
+    if window.label() == MAIN {
+        return Err("DETACHED_WINDOW_REQUIRED".into());
+    }
+    let app = window.app_handle();
+    let main = app.get_webview_window(MAIN).ok_or("MAIN_WINDOW_REQUIRED")?;
+    let id = Uuid::new_v4();
+    {
+        let mut shared = state.0.lock().await;
+        let service = shared.as_mut().map_err(|error| error.clone())?;
+        if service.endpoint()?.2 != service_id {
+            return Err("STALE_SERVICE".into());
+        }
+        windows.permits(window.label(), Some(&connection))?;
+        let mut pending = windows.1.lock().map_err(|_| "WINDOW_STATE_UNAVAILABLE")?;
+        if pending
+            .as_ref()
+            .is_some_and(|copy| copy.created.elapsed() < Duration::from_secs(10))
+        {
+            return Err("COPY_ALREADY_PENDING".into());
+        }
+        *pending = Some(DetachedCopy {
+            id,
+            owner: service_id,
+            label: window.label().into(),
+            connection,
+            created: Instant::now(),
+        });
+    }
+    main.unminimize().map_err(|_| "WINDOW_UNAVAILABLE")?;
+    main.set_focus().map_err(|_| "WINDOW_UNAVAILABLE")?;
+    app.emit_to(MAIN, "detached-session-copy", id)
+        .map_err(|_| "WINDOW_UNAVAILABLE".into())
+}
+
+#[tauri::command]
+pub async fn take_detached_copy(
+    window: WebviewWindow,
+    state: State<'_, Desktop>,
+    windows: State<'_, SessionWindows>,
+    id: Uuid,
+) -> Result<CopySource, String> {
+    if window.label() != MAIN {
+        return Err("MAIN_WINDOW_REQUIRED".into());
+    }
+    let copy = {
+        let mut pending = windows.1.lock().map_err(|_| "WINDOW_STATE_UNAVAILABLE")?;
+        if !pending
+            .as_ref()
+            .is_some_and(|copy| copy.id == id && copy.created.elapsed() < Duration::from_secs(10))
+        {
+            return Err("COPY_EXPIRED".into());
+        }
+        pending.take().ok_or("COPY_EXPIRED")?
+    };
+    let mut shared = state.0.lock().await;
+    let service = shared.as_mut().map_err(|error| error.clone())?;
+    if service.endpoint()?.2 != copy.owner {
+        return Err("STALE_SERVICE".into());
+    }
+    windows.permits(&copy.label, Some(&copy.connection))?;
+    let source = list(service)
+        .await?
+        .into_iter()
+        .find(|session| {
+            session.reference() == copy.connection && session.state == ConnectionState::Connected
+        })
+        .ok_or("STALE_TARGET")?;
+    let (settings, saved_profile) = match source.protocol {
+        Protocol::Ssh2 => {
+            use session_protocol::ssh::{Reply as SshReply, Request as SshRequest};
+            let Reply::Ssh(SshReply::Status(status)) = service
+                .request(Request::Ssh {
+                    request: SshRequest::Status {
+                        connection: copy.connection,
+                    },
+                })
+                .await?
+            else {
+                return Err("INVALID_REPLY".into());
+            };
+            if status.connection.reference() != copy.connection
+                || status.connection.state != ConnectionState::Connected
+            {
+                return Err("STALE_TARGET".into());
+            }
+            (
+                status.source_settings,
+                status
+                    .temporary_settings
+                    .is_none()
+                    .then_some(status.profile_id),
+            )
+        }
+        Protocol::Serial => {
+            use session_protocol::serial::{Reply as SerialReply, Request as SerialRequest};
+            let Reply::Serial(SerialReply::Status(status)) = service
+                .request(Request::Serial {
+                    request: SerialRequest::Status {
+                        connection: copy.connection,
+                    },
+                })
+                .await?
+            else {
+                return Err("INVALID_REPLY".into());
+            };
+            if status.connection.reference() != copy.connection
+                || status.connection.state != ConnectionState::Connected
+            {
+                return Err("STALE_TARGET".into());
+            }
+            (status.source_settings, None)
+        }
+        _ => return Err("INVALID_SOURCE".into()),
+    };
+    Ok(CopySource {
+        owner: copy.owner,
+        connection: source,
+        settings: settings.ok_or("INVALID_SOURCE")?,
+        saved_profile,
+    })
+}
 
 impl SessionWindows {
     pub fn permits(&self, label: &str, target: Option<&ConnectionRef>) -> Result<(), String> {
@@ -183,6 +336,7 @@ pub async fn detach_session(
 
     let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
         .title("共享终端 · 独立会话")
+        .decorations(false)
         .focused(true)
         .inner_size(880.0, 580.0)
         .min_inner_size(480.0, 320.0);

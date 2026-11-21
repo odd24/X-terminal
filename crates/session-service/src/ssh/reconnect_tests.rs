@@ -44,6 +44,7 @@ fn setup(config: Access, lifetime: u64) -> (Manager, ConnectionRef, Uuid, Identi
     manager.inner.lock().unwrap().entries.insert(
         c.connection_id,
         Entry {
+            source_settings: None,
             server_host: "synthetic".into(),
             temporary: None,
             reference: c,

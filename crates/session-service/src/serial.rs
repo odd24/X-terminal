@@ -69,6 +69,7 @@ struct Record {
     receipt: InputReceipt,
 }
 struct Entry {
+    source_settings: config_store::Settings,
     hardware_rts: bool,
     encoding: config_store::Encoding,
     device: Device,
@@ -393,6 +394,7 @@ impl Manager {
                         let cleanup_pending =
                             !entry.joined && (entry.closing || info.state == State::Failed);
                         Ok(Reply::Status(serial::Status {
+                            source_settings: owner.is_none().then(|| entry.source_settings.clone()),
                             hardware_rts: entry.hardware_rts,
                             encoding: entry.encoding.clone(),
                             connection: info,

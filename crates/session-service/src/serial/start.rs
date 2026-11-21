@@ -255,6 +255,7 @@ impl Manager {
         inner.entries.insert(
             connection.connection_id,
             Entry {
+                source_settings: profile.settings,
                 hardware_rts,
                 encoding,
                 device,

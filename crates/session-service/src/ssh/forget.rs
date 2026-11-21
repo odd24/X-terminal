@@ -162,6 +162,7 @@ mod tests {
         manager.inner.lock().unwrap().entries.insert(
             connection.connection_id,
             Entry {
+                source_settings: None,
                 server_host: "synthetic".into(),
                 temporary: None,
                 reference: connection,

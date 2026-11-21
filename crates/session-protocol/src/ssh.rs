@@ -468,6 +468,8 @@ pub enum Failure {
 #[serde(deny_unknown_fields)]
 pub struct Status {
     pub server_host: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_settings: Option<config_model::Settings>,
     pub temporary_settings: Option<config_model::Settings>,
     pub connection: ConnectionInfo,
     pub profile_id: Uuid,

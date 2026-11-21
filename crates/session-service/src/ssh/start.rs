@@ -257,6 +257,7 @@ impl Manager {
             connection.connection_id,
             Entry {
                 server_host: host,
+                source_settings: (protocol == Protocol::Ssh2).then(|| profile.settings.clone()),
                 temporary,
                 reference: connection.reference(),
                 restart_gate: Arc::new(tokio::sync::Mutex::new(())),

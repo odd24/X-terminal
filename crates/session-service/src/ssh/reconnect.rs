@@ -360,6 +360,8 @@ impl Manager {
             connection.connection_id,
             Entry {
                 server_host: host,
+                source_settings: (current.protocol == Protocol::Ssh2)
+                    .then(|| profile.settings.clone()),
                 temporary,
                 reference,
                 restart_gate: gate.clone(),
