@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict';
 import {execFileSync,spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
-import {copyFile,mkdir,mkdtemp,readFile,realpath,rename,rm,writeFile} from 'node:fs/promises';
+import {copyFile,mkdir,mkdtemp,readFile,realpath,rename,rm,unlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 import {closeSoakDesktop} from './lib/LoadSoak.mjs';
-import {observeLogDirectory,waitForStopNotice} from './lib/RecordingNoticeChecks.mjs';
+import {checkLogSharing,observeLogDirectory,waitForStopNotice} from './lib/RecordingNoticeChecks.mjs';
 import {requestId} from '../apps/desktop/src/request-id.ts';
 
 const desktop=path.resolve(process.argv[2]);
 const probe=path.resolve(process.argv[3]);
 const softwareSettings=process.argv.includes('--software-settings');
-const version=softwareSettings?'0.1.7':'0.1.6';
+const stopReleaseRepro=process.argv.includes('--stop-release-repro');
+const stopRelease=process.argv.includes('--stop-release');
+const version=stopReleaseRepro?'0.1.7-stop-release-repro':stopRelease?'0.1.8':softwareSettings?'0.1.7':'0.1.6';
 const legacyDesktop=softwareSettings?path.resolve('artifacts/SharedTerminal-0.1.6-windows-x64/shared-terminal-desktop.exe'):desktop;
 const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-log-viewer-ui-中文-含 空格-'));
 const saveRoot=await mkdtemp(path.join(tmpdir(),'shared-terminal-save-ui-中文-'));
@@ -35,6 +37,7 @@ const category=name=>ui.evaluate(`(${button('.settings-categories',name)}).click
 const operation='[aria-label="终端右键日志操作"]';
 const completed='.recording-notice';
 const measurements={};
+const releaseChecks={};
 async function fit(width) {
   const args=['-NoProfile','-File','scripts/lib/Resize-TestWindow.ps1','-TargetProcessId',String(ui.app.pid),
     '-ExpectedExecutable',desktop,'-Width',String(width),'-Height',width===720?'480':'760'];
@@ -228,16 +231,16 @@ try{
     assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端字号"]').value`),'17');
     assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端文字亮度"]').value`),'72');
     assert.equal(await ui.evaluate(`!!${dropdown}||!!document.querySelector('[aria-label="Ctrl+V粘贴"]')`),false);
-    await ui.screenshot('desktop-0.1.7-software-settings-appearance.png');
+    await ui.screenshot(`desktop-${version}-software-settings-appearance.png`);
     await category('输入与剪贴板');
     assert.equal(await ui.evaluate(`document.querySelector('[aria-label="Ctrl+V粘贴"]').checked`),true);
     assert.equal(await ui.evaluate(`document.querySelector('[aria-label="Ctrl+C选区复制"]').checked`),false);
     assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="终端字号"]')`),false);
-    await ui.screenshot('desktop-0.1.7-software-settings-input.png');
+    await ui.screenshot(`desktop-${version}-software-settings-input.png`);
     await category('日志');
     await ui.waitFor(`${dropdown}?.value==='custom'&&!${dropdown}.disabled`);
     assert.deepEqual((await ui.invoke('config_request',{request:{op:'preferences'}})).preferences,legacyPreferences);
-    await ui.screenshot('desktop-0.1.7-software-settings-log-custom.png');
+    await ui.screenshot(`desktop-${version}-software-settings-log-custom.png`);
     await closeAppearance();
   }
   const {ref,push}=await connect();
@@ -254,16 +257,69 @@ try{
   await menu('停止记录');
   const stopped=await wait(async()=>{const [log]=await logs();return log?.durable&&log.worker_finished&&log;},'first durable stop');
   await waitForStopNotice(ui,'localhost',stopped);
+  const openButton=button(completed,'打开该日志');
+  if(stopReleaseRepro){
+    assert.deepEqual(await traces(),[],'no viewer has been launched');
+    const sharing=checkLogSharing(root,stopped.readable.filename,{remove:true,findHolders:true});
+    const result={...sharing,desktopPid:ui.app.pid,servicePid:service.pid,phase:stopped.phase,durable:stopped.durable};
+    console.log('0.1.7 STOPPED sharing',JSON.stringify(result));
+    await writeFile('artifacts/windows-0.1.7-stop-release-repro.json',JSON.stringify(result,null,2));
+    assert.ok([5,32].includes(sharing.rename)&&[5,32].includes(sharing.delete));
+    assert.deepEqual(sharing.holders,[service.pid]);
+  }
+  if(stopRelease){
+    assert.equal(stopped.phase,'STOPPED');
+    assert.ok(!('file_identity' in stopped.readable),'only native callers see the file identity');
+    assert.deepEqual(await traces(),[],'no viewer has been launched');
+    releaseChecks.stopped=checkLogSharing(root,stopped.readable.filename,{findHolders:true});
+    assert.deepEqual(releaseChecks.stopped,{rename:0,delete:null,holders:[]});
+    const original=file(stopped),moved=original+'.original';
+    const bytes=await readFile(original);
+    assert.equal(bytes.length,stopped.readable.synced_bytes);
+    await ui.evaluate(`(${openButton}).focus()`);
+    await rename(original,moved);
+    try{
+      await ui.evaluate(`(${openButton}).click()`);
+      await ui.waitFor(`document.querySelector('.recording-notice [role="alert"]')?.textContent.includes('本次文件已不存在')`);
+      await writeFile(original,bytes,{flag:'wx'});
+      try{
+        await ui.evaluate(`(${openButton}).click()`);
+        await ui.waitFor(`document.querySelector('.recording-notice [role="alert"]')?.textContent.includes('本次日志文件已变化')`);
+        await ui.screenshot('desktop-0.1.8-replaced-log-refused.png');
+        const target={service_id:service.service_id,protocol:'SSH2',connection:ref};
+        const id=requestId(),request={target,request_id:id};
+        const native=body=>ui.invoke('terminal_log_request',{request:{...request,...body}});
+        await native({op:'prepare',source:{kind:'recorded',log_ids:[stopped.log_id]}});
+        const result=await wait(async()=>{
+          const info=await native({op:'status'});
+          return !['QUEUED','RUNNING'].includes(info.phase)&&info;
+        },'replacement rejected by recorded export');
+        assert.equal(result.phase,'FAILED');
+        assert.equal(result.failure,'SOURCE_CHANGED');
+        assert.deepEqual(await traces(),[]);
+        releaseChecks.missingAndIdenticalReplacementRejected=true;
+      }finally{await unlink(original);}
+    }finally{await rename(moved,original);}
+  }
   await measure('stop',completed,720);
   await ui.screenshot(`desktop-${version}-stop-notice-narrow.png`);
   await measure('stop',completed,1100);
   await ui.screenshot(`desktop-${version}-stop-notice-wide.png`);
-  await ui.evaluate(`(${button(completed,'打开该日志')}).click()`);
+  await ui.evaluate(`(${openButton}).click()`);
   await checkTrace(first,file(stopped),0);
 
   await menu('开始记录');
   const live=await wait(async()=>(await logs()).find(l=>l.active&&l.readable),'another recording');
   assert.notEqual(file(live),file(stopped));
+  if(stopRelease){
+    releaseChecks.active=checkLogSharing(root,live.readable.filename,{remove:true});
+    assert.ok([5,32].includes(releaseChecks.active.rename)&&[5,32].includes(releaseChecks.active.delete));
+    releaseChecks.firstRound=checkLogSharing(root,stopped.readable.filename,{remove:true});
+    assert.deepEqual(releaseChecks.firstRound,{rename:0,delete:0,holders:[]});
+    await assert.rejects(readFile(file(stopped)),{code:'ENOENT'});
+    assert.equal((await ui.invoke('service_status')).service_id,service.service_id);
+    assert.equal((await logs()).find(log=>log.log_id===live.log_id).phase,'RECORDING');
+  }
   await menu('打开当前日志文件');
   await checkTrace(first,file(live),1);
   await closeOpenedFile();
@@ -294,7 +350,7 @@ try{
   await appearance();
   if(softwareSettings){
     candidates=await chooseRegistered(registered);
-    await ui.screenshot('desktop-0.1.7-software-settings-log-registered.png');
+    await ui.screenshot(`desktop-${version}-software-settings-log-registered.png`);
     await closeAppearance();
     await menu('打开当前日志文件');
     await closeOpenedFile();
@@ -355,6 +411,7 @@ try{
   await idleClose(softwareSettings?await ui.invoke('service_status'):restored);
   report={result:'PASS',pickerCancelled:true,retainedAcrossRestart:true,customLaunches:3,singleArgument:true,missingShown:true,
     windowsDefaultObserved:systemViewer,resetPersisted:true,directoryExplorer:true,measurements,close,
+    ...(stopRelease?{releaseChecks}:{}),
     ...(softwareSettings?{legacyPreferences:true,legacyCustomViewer:true,registeredCandidates:candidates,
       verifiedRegisteredApplication:registered.name,registeredViewerSurvivedRestart:true,windowsAssociationPreserved:true}:{}),
   };

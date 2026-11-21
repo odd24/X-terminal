@@ -124,9 +124,6 @@ impl Journal for Timed {
     fn readable(&self) -> Option<ReadableStatus> {
         self.inner.readable()
     }
-    fn readable_guard(&self) -> io::Result<Option<File>> {
-        self.inner.readable_guard()
-    }
     fn finish(&mut self, s: &Status) -> io::Result<()> {
         self.inner.finish(s)
     }

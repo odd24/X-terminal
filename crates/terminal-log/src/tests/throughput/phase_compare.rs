@@ -97,10 +97,6 @@ impl Journal for Phased {
         self.journal.readable()
     }
 
-    fn readable_guard(&self) -> io::Result<Option<File>> {
-        self.journal.readable_guard()
-    }
-
     fn finish(&mut self, status: &Status) -> io::Result<()> {
         self.journal.finish(status)
     }

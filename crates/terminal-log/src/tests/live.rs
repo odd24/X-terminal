@@ -67,16 +67,43 @@ fn live_text_grows_before_stop_flushes_then_syncs_and_denies_external_replacemen
         assert!(fs::remove_file(&path).is_err());
         assert!(fs::write(&path, b"replacement").is_err());
     }
-    let stopped = logger.join();
+    logger.stop();
+    wait(|| logger.status().worker_finished);
+    let stopped = logger.status();
     assert!(stopped.durable);
-    assert_eq!(stopped.readable.unwrap().synced_records, 2);
+    assert_eq!(stopped.phase, Phase::Stopped);
+    let readable = stopped.readable.unwrap();
+    assert_eq!(readable.synced_records, 2);
     // Internal retirement must not silently delete independently retained user text.
-    #[cfg(windows)]
-    {
-        assert!(fs::remove_file(&path).is_err());
-    }
-    drop(logger);
     assert_eq!(fs::read_dir(temp.0.join("logs")).unwrap().count(), 1);
+    let open = || {
+        UserLogFile::open(
+            &temp.0,
+            &name,
+            meta.connection,
+            stopped.log_id,
+            readable.file_identity,
+            false,
+        )
+    };
+    let source = open().unwrap();
+    assert_eq!(source.path(), path);
+    #[cfg(windows)]
+    assert!(
+        fs::remove_file(&path).is_err(),
+        "only the read operation pins the file"
+    );
+    drop(source);
+    let renamed = path.with_extension("saved");
+    fs::rename(&path, &renamed).unwrap();
+    assert_eq!(open().err().unwrap().kind(), io::ErrorKind::NotFound);
+    fs::copy(&renamed, &path).unwrap();
+    assert_eq!(open().err().unwrap().kind(), io::ErrorKind::InvalidData);
+    fs::remove_file(&path).unwrap();
+    fs::rename(&renamed, &path).unwrap();
+    assert!(open().is_ok());
+    fs::remove_file(&path).unwrap();
+    assert!(logger.join().durable);
 }
 
 #[test]
@@ -191,6 +218,8 @@ fn active_bundle_reads_all_frozen_flushed_bytes_beyond_preview_without_stopping(
         log_id: status.log_id,
         connection: meta.connection,
         filename: live.filename.clone(),
+        file_identity: live.file_identity,
+        writer_may_be_open: true,
         bytes: live.flushed_bytes,
         flushed_records: live.flushed_records,
         synced_records: live.synced_records,
@@ -224,11 +253,23 @@ fn active_bundle_reads_all_frozen_flushed_bytes_beyond_preview_without_stopping(
                 generation: 2,
                 ..meta.connection
             },
-            status.log_id
+            status.log_id,
+            live.file_identity,
+            true,
         )
         .is_err()
     );
-    assert!(UserLogFile::open(&temp.0, "../other.log", meta.connection, status.log_id).is_err());
+    assert!(
+        UserLogFile::open(
+            &temp.0,
+            "../other.log",
+            meta.connection,
+            status.log_id,
+            live.file_identity,
+            true,
+        )
+        .is_err()
+    );
     logger.join();
 }
 

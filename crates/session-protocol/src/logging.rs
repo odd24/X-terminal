@@ -390,6 +390,8 @@ pub enum Failure {
 #[serde(deny_unknown_fields)]
 pub struct ReadableInfo {
     pub filename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_identity: Option<[u8; 32]>,
     pub written_records: u64,
     pub flushed_records: u64,
     pub synced_records: u64,

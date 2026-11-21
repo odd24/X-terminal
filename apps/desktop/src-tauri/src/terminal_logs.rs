@@ -175,6 +175,12 @@ struct Registry {
     entries: HashMap<Uuid, Entry>,
     window: RequestWindow,
 }
+pub(crate) struct OpenSource {
+    pub log_id: Uuid,
+    pub filename: String,
+    pub file_identity: [u8; 32],
+    pub writer_may_be_open: bool,
+}
 enum Job {
     Prepare {
         target: Target,
@@ -186,9 +192,7 @@ enum Job {
     Open {
         target: Target,
         id: Uuid,
-        log_id: Uuid,
-        filename: Option<String>,
-        file: bool,
+        source: Option<OpenSource>,
     },
     Release {
         id: Uuid,
@@ -206,6 +210,7 @@ fn error(e: std::io::Error) -> String {
         std::io::ErrorKind::StorageFull => "CAPACITY",
         std::io::ErrorKind::FileTooLarge => "TOO_LARGE",
         std::io::ErrorKind::NotFound => "SOURCE_MISSING",
+        std::io::ErrorKind::InvalidData => "SOURCE_CHANGED",
         std::io::ErrorKind::Interrupted => "CANCELLED",
         _ => "STORAGE",
     }
@@ -349,19 +354,15 @@ impl Manager {
                                         Some(artifact.summary.retained_gap_bytes);
                                     Ok(())
                                 }
-                                Job::Open {
-                                    target,
-                                    id,
-                                    log_id,
-                                    filename,
-                                    file,
-                                } => {
-                                    if file {
+                                Job::Open { target, id, source } => {
+                                    if let Some(source) = source {
                                         let source = UserLogFile::open(
                                             &directory,
-                                            filename.as_deref().ok_or("SOURCE_MISSING")?,
+                                            &source.filename,
                                             target.connection,
-                                            log_id,
+                                            source.log_id,
+                                            source.file_identity,
+                                            source.writer_may_be_open,
                                         )
                                         .map_err(error)?;
                                         crate::log_viewer::open(&directory, source.path())?;
@@ -445,7 +446,7 @@ impl Manager {
     pub fn submit(
         &self,
         request: Request,
-        filename: Option<String>,
+        open_source: Option<OpenSource>,
         snapshots: Vec<terminal_log::ReadableSnapshot>,
     ) -> Result<Info, String> {
         if !request.valid() {
@@ -496,19 +497,15 @@ impl Manager {
                 Job::Open {
                     target: target.clone(),
                     id,
-                    log_id: Uuid::nil(),
-                    filename: None,
-                    file: false,
+                    source: None,
                 },
             ),
-            Request::OpenFile { log_id, .. } => (
+            Request::OpenFile { .. } => (
                 "FILE".into(),
                 Job::Open {
                     target: target.clone(),
                     id,
-                    log_id,
-                    filename,
-                    file: true,
+                    source: Some(open_source.ok_or("SOURCE_MISSING")?),
                 },
             ),
             _ => return Err("INVALID_REQUEST".into()),

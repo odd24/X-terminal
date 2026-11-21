@@ -14,6 +14,7 @@ static CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[serde(deny_unknown_fields)]
 pub struct ReadableStatus {
     pub filename: String,
+    pub file_identity: [u8; 32],
     pub written_records: u64,
     pub flushed_records: u64,
     pub synced_records: u64,
@@ -188,18 +189,14 @@ impl LiveText {
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(e),
             };
-            if !file.metadata()?.is_file() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "readable target is not a regular file",
-                ));
-            }
+            let file_identity = crate::user_file::identity(&file)?;
             let mut result = Self {
                 _guards: guards,
                 output: BufWriter::with_capacity(8192, file),
                 max: max.min(MAX_LIVE_BYTES),
                 status: ReadableStatus {
                     filename,
+                    file_identity,
                     written_records: 0,
                     flushed_records: 0,
                     synced_records: 0,
@@ -279,10 +276,6 @@ impl LiveText {
         }
         Ok(())
     }
-    pub fn guard(&self) -> io::Result<File> {
-        self.output.get_ref().try_clone()
-    }
-
     #[cfg(all(windows, any(test, feature = "log-timeline-fixture")))]
     pub(crate) fn probe_sync_file(&self) -> &File {
         self.output.get_ref()

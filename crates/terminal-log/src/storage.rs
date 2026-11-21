@@ -285,9 +285,6 @@ impl Journal for FileJournal {
     fn readable(&self) -> Option<crate::ReadableStatus> {
         self.live.as_ref().map(|live| live.status.clone())
     }
-    fn readable_guard(&self) -> io::Result<Option<File>> {
-        self.live.as_ref().map(|live| live.guard()).transpose()
-    }
 
     fn append(&mut self, record: &Record) -> io::Result<(u64, u64)> {
         let raw = format::raw_frame(record);

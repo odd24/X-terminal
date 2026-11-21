@@ -210,7 +210,6 @@ pub struct Status {
 struct Shared {
     #[cfg(feature = "log-timeline-fixture")]
     timeline: Option<timeline_fixture::Context>,
-    _readable_guard: Option<std::fs::File>,
     sender: Option<SyncSender<Record>>,
     status: Status,
     source_cursor: u64,
@@ -280,9 +279,6 @@ trait Journal: Send {
     fn readable(&self) -> Option<ReadableStatus> {
         None
     }
-    fn readable_guard(&self) -> io::Result<Option<std::fs::File>> {
-        Ok(None)
-    }
     fn append(&mut self, record: &Record) -> io::Result<(u64, u64)>;
     fn finish(&mut self, status: &Status) -> io::Result<()>;
 }
@@ -348,7 +344,6 @@ impl Logger {
         let shared = Arc::new(Mutex::new(Shared {
             #[cfg(feature = "log-timeline-fixture")]
             timeline: timeline.clone(),
-            _readable_guard: None,
             sender: Some(sender),
             source_cursor: metadata.source_cursor,
             text_cursor: metadata.text_cursor,
@@ -386,7 +381,6 @@ impl Logger {
                         let mut journal = factory(id, header)?;
                         {
                             let mut state = state.lock().unwrap();
-                            state._readable_guard = journal.readable_guard()?;
                             state.status.readable = journal.readable();
                             if state.status.phase == Phase::Opening {
                                 state.status.phase = Phase::Recording;
@@ -441,6 +435,9 @@ impl Logger {
                             journal.finish(&status)?;
                             state.lock().unwrap().status.readable = journal.readable();
                         }
+                        // Release the writer and directory pins before publishing the
+                        // terminal phase. Only the captured file identity survives.
+                        drop(journal);
                         Ok(())
                     }));
                 let mut state = state.lock().unwrap_or_else(|e| e.into_inner());

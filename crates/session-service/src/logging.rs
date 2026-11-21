@@ -146,6 +146,7 @@ impl Manager {
         Ok(wire::Info {
             readable: status.readable.map(|v| wire::ReadableInfo {
                 filename: v.filename,
+                file_identity: Some(v.file_identity),
                 written_records: v.written_records,
                 flushed_records: v.flushed_records,
                 synced_records: v.synced_records,

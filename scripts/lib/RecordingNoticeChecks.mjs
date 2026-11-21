@@ -12,6 +12,11 @@ function powerShell(args) {
   return execFileSync('pwsh',['-NoProfile','-STA',...args],{encoding:'utf8',windowsHide:true,timeout:30000}).trim();
 }
 
+export function checkLogSharing(root, filename, {remove=false, findHolders=false}={}) {
+  return JSON.parse(powerShell(['-File','scripts/lib/Test-OwnedLogSharing.ps1','-Root',root,
+    '-Filename',filename,...(remove?['-Delete']:[]),...(findHolders?['-FindHolders']:[])]));
+}
+
 export async function observeLogDirectory(page,root,activate) {
   const windows=powerShell(['-Command',
     "ConvertTo-Json -Compress -InputObject @((New-Object -ComObject Shell.Application).Windows() | ForEach-Object {[string]$_.HWND})"]);

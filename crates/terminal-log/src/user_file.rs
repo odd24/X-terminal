@@ -40,6 +40,62 @@ pub struct UserLogFile {
     _file: File,
     path: PathBuf,
 }
+
+pub(crate) fn identity(file: &File) -> io::Result<[u8; 32]> {
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(io::Error::other("readable target is not a regular file"));
+    }
+    let mut identity = [0; 32];
+    #[cfg(windows)]
+    {
+        use std::os::windows::{fs::MetadataExt, io::AsRawHandle};
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ID_INFO, FileIdInfo,
+            GetFileInformationByHandle, GetFileInformationByHandleEx,
+        };
+        let handle = file.as_raw_handle();
+        let mut legacy = BY_HANDLE_FILE_INFORMATION::default();
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || unsafe { GetFileInformationByHandle(handle, &mut legacy) } == 0
+            || legacy.nNumberOfLinks != 1
+        {
+            return Err(io::Error::other("invalid readable file"));
+        }
+        let mut full = FILE_ID_INFO::default();
+        if unsafe {
+            GetFileInformationByHandleEx(
+                handle,
+                FileIdInfo,
+                (&mut full as *mut FILE_ID_INFO).cast(),
+                std::mem::size_of::<FILE_ID_INFO>() as u32,
+            )
+        } != 0
+        {
+            identity[..8].copy_from_slice(&full.VolumeSerialNumber.to_le_bytes());
+            identity[8..24].copy_from_slice(&full.FileId.Identifier);
+        } else {
+            identity[..8].copy_from_slice(&u64::from(legacy.dwVolumeSerialNumber).to_le_bytes());
+            let index = (u64::from(legacy.nFileIndexHigh) << 32) | u64::from(legacy.nFileIndexLow);
+            identity[8..16].copy_from_slice(&index.to_le_bytes());
+        }
+        if identity[8..24].iter().all(|byte| *byte == 0) {
+            return Err(io::Error::other("unavailable readable file identity"));
+        }
+        identity[24..].copy_from_slice(&meta.creation_time().to_le_bytes());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if meta.nlink() != 1 {
+            return Err(io::Error::other("invalid readable file"));
+        }
+        identity[..8].copy_from_slice(&meta.dev().to_le_bytes());
+        identity[8..16].copy_from_slice(&meta.ino().to_le_bytes());
+    }
+    Ok(identity)
+}
+
 impl UserLogFile {
     /// Copy a fixed, whole-record flushed prefix while a live writer may append.
     pub fn copy_prefix(
@@ -72,13 +128,15 @@ impl UserLogFile {
         }
         Ok(())
     }
-    /// Filename comes only from the authenticated service capture receipt.
-    /// The logger retains its creator handle; reads cannot substitute a writer.
+    /// Reacquire the original file under short-lived path and file pins.
+    /// Both the filename and creator identity come from the service capture receipt.
     pub fn open(
         data: &Path,
         filename: &str,
         connection: ConnectionRef,
         log_id: Uuid,
+        file_identity: [u8; 32],
+        writer_may_be_open: bool,
     ) -> io::Result<Self> {
         if filename.len() > 1024
             || filename.encode_utf16().count() > 255
@@ -100,30 +158,34 @@ impl UserLogFile {
         #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
-            options.share_mode(3).custom_flags(0x00200000);
-        }
-        let mut file = options.open(&path)?;
-        let meta = file.metadata()?;
-        if !meta.is_file() || meta.len() > crate::live_text::MAX_LIVE_BYTES {
-            return Err(io::Error::other("invalid readable file"));
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::{fs::MetadataExt, io::AsRawHandle};
             use windows_sys::Win32::Storage::FileSystem::{
-                BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+                FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
             };
-            let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
-            if meta.file_attributes() & 0x400 != 0
-                || unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0
-                || info.nNumberOfLinks != 1
-            {
-                return Err(io::Error::other("readable file changed"));
-            }
+            let share = FILE_SHARE_READ
+                | if writer_may_be_open {
+                    FILE_SHARE_WRITE
+                } else {
+                    0
+                };
+            options
+                .share_mode(share)
+                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+        }
+        #[cfg(not(windows))]
+        let _ = writer_may_be_open;
+        let mut file = options.open(&path)?;
+        if file.metadata()?.len() > crate::live_text::MAX_LIVE_BYTES {
+            return Err(io::Error::other("invalid readable file"));
         }
         #[cfg(not(windows))]
         if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
             return Err(io::Error::other("readable symlink"));
+        }
+        if identity(&file)? != file_identity {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "readable file changed",
+            ));
         }
         let header = format!(
             "# 终端通信日志 UTF-8\r\n# 日志 {log_id}；连接 {} / {}\r\n",
@@ -132,7 +194,10 @@ impl UserLogFile {
         let mut bytes = vec![0; header.len()];
         file.read_exact(&mut bytes)?;
         if bytes != header.as_bytes() {
-            return Err(io::Error::other("readable identity mismatch"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "readable header mismatch",
+            ));
         }
         Ok(Self {
             _directory: directory,
@@ -150,6 +215,10 @@ pub struct ReadableSnapshot {
     pub log_id: Uuid,
     pub connection: ConnectionRef,
     pub filename: String,
+    #[serde(skip_serializing)]
+    pub file_identity: [u8; 32],
+    #[serde(skip_serializing)]
+    pub writer_may_be_open: bool,
     pub bytes: u64,
     pub flushed_records: u64,
     pub synced_records: u64,

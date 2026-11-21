@@ -184,10 +184,6 @@ impl Journal for PackedJournal {
         Some(self.live.status.clone())
     }
 
-    fn readable_guard(&self) -> io::Result<Option<File>> {
-        self.live.guard().map(Some)
-    }
-
     fn finish(&mut self, status: &Status) -> io::Result<()> {
         self.checkpoint(true)?;
         let marker = self.directory.join("completion.partial");

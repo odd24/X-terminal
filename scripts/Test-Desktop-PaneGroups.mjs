@@ -15,7 +15,7 @@ const desktop = path.resolve(process.argv[2]);
 const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
 const notices=process.argv.includes('--recording-notices');
-const version=process.argv.find(arg=>/^--ui-version=0\.1\.[567]$/.test(arg))?.split('=')[1]??'0.1.5';
+const version=process.argv.find(arg=>/^--ui-version=0\.1\.[5-8]$/.test(arg))?.split('=')[1]??'0.1.5';
 const tabRecording=notices||process.argv.includes('--tab-recording');
 const evidence=notices?version:toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2';
 const toolbar=[];

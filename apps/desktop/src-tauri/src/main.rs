@@ -289,7 +289,7 @@ async fn terminal_log_request(
             return Err("STALE_TARGET".into());
         }
     }
-    let mut filename = None;
+    let mut open_source = None;
     let mut snapshots = Vec::new();
     match &request {
         R::OpenFile { log_id, .. } => {
@@ -310,7 +310,13 @@ async fn terminal_log_request(
             {
                 return Err("INVALID_SOURCE".into());
             }
-            filename = Some(info.readable.ok_or("SOURCE_NOT_READY")?.filename);
+            let readable = info.readable.ok_or("SOURCE_NOT_READY")?;
+            open_source = Some(terminal_logs::OpenSource {
+                log_id: *log_id,
+                filename: readable.filename,
+                file_identity: readable.file_identity.ok_or("INVALID_SOURCE")?,
+                writer_may_be_open: !info.worker_finished,
+            });
         }
         R::Prepare {
             source: Source::Recorded { log_ids },
@@ -376,7 +382,10 @@ async fn terminal_log_request(
                     };
                     info = *next;
                 }
-                if info.connection != target.connection || info.protocol != target.protocol {
+                if info.connection != target.connection
+                    || info.protocol != target.protocol
+                    || info.log_id != *log_id
+                {
                     return Err("INVALID_SOURCE".into());
                 }
                 let live = info.readable.ok_or("SOURCE_NOT_READY")?;
@@ -384,6 +393,8 @@ async fn terminal_log_request(
                     log_id: *log_id,
                     connection: target.connection,
                     filename: live.filename,
+                    file_identity: live.file_identity.ok_or("INVALID_SOURCE")?,
+                    writer_may_be_open: !info.worker_finished,
                     bytes: live.flushed_bytes,
                     flushed_records: live.flushed_records,
                     synced_records: live.synced_records,
@@ -397,7 +408,7 @@ async fn terminal_log_request(
         }
         _ => {}
     }
-    manager.submit(request, filename, snapshots)
+    manager.submit(request, open_source, snapshots)
 }
 
 #[tauri::command]
@@ -585,7 +596,18 @@ async fn logging_request(
         }
         _ => {}
     }
-    forward_logging(state, request).await
+    let mut reply = forward_logging(state, request).await?;
+    let logs = match &mut reply {
+        session_protocol::logging::Reply::Info(info) => std::slice::from_mut(info.as_mut()),
+        session_protocol::logging::Reply::List { logs } => logs.as_mut_slice(),
+        _ => &mut [],
+    };
+    for info in logs {
+        if let Some(readable) = &mut info.readable {
+            readable.file_identity = None;
+        }
+    }
+    Ok(reply)
 }
 
 async fn forward_logging(

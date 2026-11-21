@@ -18,10 +18,6 @@ impl Journal for PausedJournal {
         self.journal.readable()
     }
 
-    fn readable_guard(&self) -> io::Result<Option<fs::File>> {
-        self.journal.readable_guard()
-    }
-
     fn append(&mut self, record: &Record) -> io::Result<(u64, u64)> {
         if record.text.seq == 2 {
             timeline_io!(TestPause, None, {
