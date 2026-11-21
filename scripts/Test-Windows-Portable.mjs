@@ -81,9 +81,11 @@ try {
     assert.match(probe.stderr,/SERIAL_MCP_FIXTURE_DISABLED/);
     assert.deepEqual(await readdir(guards),[]);
   }
-  const oldPreview = await readJson('artifacts/terminal-font-size-preview.json');
-  assert.equal(oldPreview.result,'PASS');
-  owner = await launch(path.join(oldPreview.directory,'shared-terminal-desktop.exe'),'prior-webview');
+  const previousRelease=manifest.version!=='0.1.0';
+  const previousDirectory=previousRelease
+    ?path.resolve('artifacts/SharedTerminal-0.1.0-windows-x64')
+    :(await readJson('artifacts/terminal-font-size-preview.json')).directory;
+  owner = await launch(path.join(previousDirectory,'shared-terminal-desktop.exe'),'prior-webview');
   const ownerStatus = await owner.invoke('service_status');
   assert.equal(ownerStatus.fixture,false);
   const profile = {id:randomUUID(),folder_id:null,name:'便携版兼容验证',settings:{
@@ -144,7 +146,8 @@ try {
   const close=await closeIdle(release,reopened);
   release=undefined;
   evidence={result:'PASS',title,version:manifest.version,toolCount:catalog.tools.length,observations,close,
-    priorPreviewLock:true,sameServiceRecheck:true,priorProfileAndPreferences:true,isolatedRoot:true,ordinaryService:true,
+    priorVersion:previousRelease?'0.1.0':'development preview',priorConfigLock:true,
+    sameServiceRecheck:true,priorProfileAndPreferences:true,isolatedRoot:true,ordinaryService:true,
     sameDirectoryBridge:true,guardedFixturesRejected:true,auditHealthyAfterRestart:true,modelTurns:0};
 }finally{
   await client?.close();await release?.close();await owner?.close();
