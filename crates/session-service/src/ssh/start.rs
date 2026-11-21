@@ -40,7 +40,7 @@ impl Manager {
         if start.owner != owner
             || start.revision.is_none()
             || start.previous.is_some()
-            || (owner.is_none() && connection.protocol != Protocol::Ssh1)
+            || (owner.is_none() && !matches!(connection.protocol, Protocol::Ssh1 | Protocol::Ssh2))
         {
             return Err(ErrorCode::PermissionDenied);
         }
@@ -208,10 +208,11 @@ impl Manager {
             && !matches!(
                 &lookup,
                 Ok(Value::Profile(Profile {
-                    settings: Settings::Ssh1 {
-                        explicitly_enabled: true,
-                        ..
-                    },
+                    settings: Settings::Ssh2 { .. }
+                        | Settings::Ssh1 {
+                            explicitly_enabled: true,
+                            ..
+                        },
                     ..
                 }))
             )

@@ -102,6 +102,14 @@ async function childOf(previous,protocol){
 async function verifyAdjacent(source,copy){
   await ui.waitFor(`(${tab(source)}.closest('.connection-tab').nextElementSibling?.querySelector('[role="tab"]'))?.dataset.connectionId===${JSON.stringify(copy.connection_id)}`);
 }
+async function splitRight(connection){
+  const points=await ui.evaluate(`(()=>{
+    const a=${tab(connection)}.getBoundingClientRect(),b=${pane}.querySelector('.terminal').getBoundingClientRect();
+    return [{x:a.x+a.width/2,y:a.y+a.height/2},{x:a.x+a.width/2,y:a.bottom+32},{x:b.x+b.width*.84,y:b.y+b.height*.5,holdMs:260}];
+  })()`);
+  dragNativeWindow(ui.app,points,{executable:desktop,title,raise:true});
+  await ui.waitFor(`document.querySelectorAll('[data-pane]').length===2&&${tab(connection)}?.closest('[data-pane]')?.dataset.pane!==${pane}.dataset.pane`);
+}
 async function readOutput(c){
   const reply=await ui.invoke('service_read',{connection:ref(c),cursor:1});
   return Buffer.from(reply.events.flatMap(event=>event.bytes)).toString();
@@ -198,10 +206,18 @@ try{
     await wait(async()=> (await readOutput(a)).includes('ORIGINAL_OUTPUT_REMAINS'),'original output marker arrived');
     const rates={segment_bytes:131072,segments:2};
     const oldLog=await logs(a,{op:'start',request_id:requestId(),limits:rates});
-    const aAction=await openCopy(ui,a);
+    let aAction=await openCopy(ui,a);
     assert.equal(await ui.evaluate(`${tab(b)}.getAttribute('aria-selected')`),'true');
-    await ui.screenshot('desktop-0.1.9-copy-background-ssh.png');
-    await click(ui,aAction);
+    const menuImage=await ui.command('Page.captureScreenshot',{format:'png'});
+    await writeFile('artifacts/desktop-0.1.9-copy-background-ssh.png',Buffer.from(menuImage.data,'base64'));
+    if(!(await ui.evaluate(`!!${copyMenu}`)))aAction=await openCopy(ui,a);
+    const fixedReply=await ui.interceptIpc({command:'ssh_request',op:'start_fixed',mode:'error'});
+    try{
+      await click(ui,aAction);
+      await ui.waitFor("[...document.querySelectorAll('dialog:modal button')].some(button=>button.textContent==='查询本次连接')");
+      assert.equal(await fixedReply.count(),1,'one attempt with a lost Desktop start-fixed answer');
+    }finally{await fixedReply.restore();}
+    await ui.click('查询本次连接');
     const aCopy=await childOf(new Set([a.connection_id,b.connection_id]),'SSH2');
     await ui.waitFor("!document.querySelector('dialog:modal')");
     await verifyAdjacent(a,aCopy);
@@ -212,7 +228,10 @@ try{
     assert.equal((await logs(a,{op:'status',log_id:oldLog.log_id})).active,true);
     await keyGoesTo(aCopy,'COPY_A_EXACT',[a,b]);
     assert.equal(Buffer.from((await metric(second)).received.flat()).length,0);
+    console.log('PASS saved background copy and fixed-revision receipt recovery with no duplicate start');
 
+    await splitRight(b);
+    const copyPane=await ui.evaluate(`${tab(b)}.closest('[data-pane]').dataset.pane`);
     const bAction=await openCopy(ui,b);
     await click(ui,bAction);
     await ui.waitFor(`document.querySelector('dialog:modal[aria-label="连接服务器"]')&&${q('[aria-label="SSH服务器"]')}.value==='localhost'`);
@@ -227,13 +246,20 @@ try{
     await ui.waitFor("!document.querySelector('dialog:modal')");
     await verifyAdjacent(b,bCopy);
     await keyGoesTo(bCopy,'COPY_B_EXACT',[a,b,aCopy]);
+    assert.equal(await ui.evaluate(`${tab(bCopy)}.closest('[data-pane]').dataset.pane`),copyPane);
+    await ui.screenshot('desktop-0.1.9-copy-in-split.png');
+    console.log('PASS temporary copy, manual authentication and exact split pane/input placement');
     assert.equal((await metric(second)).accepted_connections,2);
+    await ui.click('收起窗格 2');
+    await ui.waitFor(`document.querySelectorAll('[data-pane]').length===1&&!!${tab(bCopy)}`);
+    await activate(bCopy);
     const wide=await seam(ui);verifySeam(wide);
     await ui.screenshot('desktop-0.1.9-integrated-title.png');
     fit(720,480);await ui.waitFor('innerWidth<=725');
     const narrow=await seam(ui);verifySeam(narrow);
     await ui.screenshot('desktop-0.1.9-integrated-title-narrow.png');
     const window=await verifyWindow(ui,title);
+    console.log('PASS native window movement, maximize/restore and wide/narrow title seams');
     await logs(a,{op:'stop',log_id:oldLog.log_id});
     await wait(async()=> (await logs(a,{op:'status',log_id:oldLog.log_id})).durable,'original completes separately');
 
@@ -255,7 +281,7 @@ try{
     await wait(async()=> !(await ui.otherPages()).length,'detached close returned its original scope');
     detached.close();detached=undefined;
     await ui.waitFor(`!!${tab(b)}`);
-    evidence={result:'PASS',sameAddress:true,savedCopy:true,temporaryCopy:true,isolatedInput:true,isolatedRecording:true,
+    evidence={result:'PASS',sameAddress:true,savedCopy:true,temporaryCopy:true,isolatedInput:true,isolatedRecording:true,copyPane,
       wide,narrow,window,detachedSeam,detachedWindow,detachedCopyRouting:true};
   }
   await close();
