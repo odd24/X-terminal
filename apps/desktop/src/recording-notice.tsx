@@ -3,6 +3,7 @@ import {invoke} from '@tauri-apps/api/core';
 import type {LogInfo,ReadableInfo} from './logging-api';
 import {checkedMenu,menuFailure,type LogTarget,type MenuInfo} from './log-menu';
 import {requestId} from './request-id';
+import {CornerNotice} from './corner-notice';
 
 type Notice={target:LogTarget;title:string;id:string;file?:ReadableInfo;gap:number};
 export type NotifyStopped=(target:LogTarget,title:string,log:LogInfo)=>void;
@@ -110,22 +111,20 @@ export function RecordingNotice({notice,dismiss,openDirectory}:{notice:Notice;di
     }finally{busy.current=false;setOpening(false);}
   }
   const {file,gap}=notice;
-  return <aside className="recording-notice" aria-label="录制完成通知"
+  return <CornerNotice className="recording-notice" aria-label="录制完成通知"
     onPointerEnter={()=>setHover(true)} onPointerLeave={()=>setHover(false)}
-    onFocus={()=>setFocus(true)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setFocus(false);}}>
-    <div role="status">
-      <strong title={`${notice.title} · ${notice.target.protocol} · ${notice.target.connection.connection_id} / ${notice.target.connection.generation}`}>{notice.title} · 记录已停止并同步</strong>
-      <div className="recording-notice-file" title={file?.filename}>{file?.filename??'可读文件暂不可用'}</div>
-      <small className="recording-notice-totals">
-        {file&&count(file.synced_bytes)&&<>已同步 {file.synced_bytes.toLocaleString('zh-CN')} 字节</>}
-        {file&&count(file.synced_records)&&<> · {file.synced_records.toLocaleString('zh-CN')} 条输出</>}
-        {count(gap)&&gap>0&&<> · 源缺口 {gap.toLocaleString('zh-CN')} 字节</>}
-      </small>
-    </div>
-    <div className="recording-notice-actions">
+    onFocus={()=>setFocus(true)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setFocus(false);}}
+    heading={<span title={`${notice.title} · ${notice.target.protocol} · ${notice.target.connection.connection_id} / ${notice.target.connection.generation}`}>{notice.title} · 记录已停止并同步</span>}
+    actions={<>
       {file&&<button aria-disabled={opening} onClick={()=>void open('file')}>打开该日志</button>}
       <button aria-disabled={opening} onClick={()=>void open('directory')}>打开日志目录</button>
-    </div>
+    </>}>
+    <div className="recording-notice-file notice-ellipsis" title={file?.filename}>{file?.filename??'可读文件暂不可用'}</div>
+    <small className="recording-notice-totals">
+      {file&&count(file.synced_bytes)&&<>已同步 {file.synced_bytes.toLocaleString('zh-CN')} 字节</>}
+      {file&&count(file.synced_records)&&<> · {file.synced_records.toLocaleString('zh-CN')} 条输出</>}
+      {count(gap)&&gap>0&&<> · 源缺口 {gap.toLocaleString('zh-CN')} 字节</>}
+    </small>
     {error&&<small role="alert">{error}</small>}
-  </aside>;
+  </CornerNotice>;
 }

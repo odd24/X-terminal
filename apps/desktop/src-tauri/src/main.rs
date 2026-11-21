@@ -11,6 +11,7 @@ mod config_import;
 mod export_save;
 #[cfg(feature = "load-observer-test")]
 mod load_observer_test;
+mod log_viewer;
 #[cfg(feature = "save-recovery-fixture")]
 mod save_recovery_fixture;
 #[cfg(feature = "serial-mcp-fixture")]
@@ -982,6 +983,7 @@ fn main() {
             app.manage(export_save::Manager::new(directory.clone())?);
             app.manage(SaveRecoverySnapshot::load(&directory));
             app.manage(terminal_logs::Manager::new(directory.clone())?);
+            app.manage(log_viewer::Editor::new());
             app.manage(trigger_match::Manager::default());
             app.manage(config_import::Manager::default());
             app.manage(Desktop(shared, configuration, directory));
@@ -1038,6 +1040,9 @@ fn main() {
             protected_export_desktop_request,
             terminal_log_request,
             open_managed_log_directory,
+            log_viewer::log_viewer_settings,
+            log_viewer::choose_log_viewer,
+            log_viewer::reset_log_viewer,
             config_directory
         ])
         .build(tauri::generate_context!())

@@ -52,6 +52,7 @@ import { useTabLogging, logBadge } from './tab-logging';
 import { ToolbarMenu, Dialog, Panel } from './ui';
 import { TerminalLogMenu } from './terminal-log-menu';
 import {RecordingNotice,useOpenLogDirectory,useRecordingNotices} from './recording-notice';
+import {CornerNotice,CornerNoticeHost} from './corner-notice';
 import type {TerminalMenuContext,RememberedLogTask} from './log-menu';
 import { TerminalPane } from './terminal-pane';
 import { PaneLayout, type PaneKey } from './pane-layout';
@@ -895,10 +896,17 @@ function App() {
     {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={captureCurrentWorkspace} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <Dialog label="管理 Agent 授权" modal={false} close={()=>setAgentOpen(false)}><AgentPanel key={service.service_id} serviceId={service.service_id} target={active?.protocol==='SSH1'?undefined:active} profileId={active?.protocol==='SSH1'?undefined:activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} /></Dialog>}
-    {triggerNotice&&!triggersOpen&&<div className="terminal-log-feedback" role="status" aria-label="触发器窗口通知"><span>{visibleControls(triggerNotice)}</span><button onClick={()=>setTriggerNotice('')}>关闭触发通知</button></div>}
-    {!triggerNotice&&!closeNoticeDismissed&&service?.previous_close?.attention&&service.previous_close.receipt?.service_id!==service.service_id&&<div className="terminal-log-feedback" role="status" aria-label="上次关闭提示"><span>上次本地服务关闭有需查看的信息。</span><button onClick={()=>setCloseInfoOpen(true)}>查看关闭信息</button><button onClick={()=>setCloseNoticeDismissed(true)}>收起关闭提示</button></div>}
+    {triggerNotice&&!triggersOpen&&<CornerNotice aria-label="触发器窗口通知" heading="触发器"
+      actions={<button onClick={()=>setTriggerNotice('')}>关闭触发通知</button>}>{visibleControls(triggerNotice)}</CornerNotice>}
+    {!triggerNotice&&!closeNoticeDismissed&&service?.previous_close?.attention&&service.previous_close.receipt?.service_id!==service.service_id&&
+      <CornerNotice aria-label="上次关闭提示" heading="上次关闭" actions={<>
+        <button onClick={()=>setCloseInfoOpen(true)}>查看关闭信息</button><button onClick={()=>setCloseNoticeDismissed(true)}>收起关闭提示</button>
+      </>}>上次本地服务关闭有需查看的信息。</CornerNotice>}
     {closeInfoOpen&&<Dialog label="上次关闭信息" close={()=>setCloseInfoOpen(false)}><CloseReceiptPanel previous={service?.previous_close} close={()=>setCloseInfoOpen(false)}/></Dialog>}
-    {!saveRecoveryDismissed&&saveRecovery&&saveRecoveryAttention(saveRecovery)&&<div className="terminal-log-feedback" role="status" aria-label="另存保全提示"><span>上次覆盖另存可能有遗留，当前结果未知。</span><button onClick={()=>setSaveRecoveryOpen(true)}>查看另存保全信息</button><button onClick={()=>setSaveRecoveryDismissed(true)}>收起另存保全提示</button></div>}
+    {!saveRecoveryDismissed&&saveRecovery&&saveRecoveryAttention(saveRecovery)&&
+      <CornerNotice aria-label="另存保全提示" heading="另存保全" actions={<>
+        <button onClick={()=>setSaveRecoveryOpen(true)}>查看另存保全信息</button><button onClick={()=>setSaveRecoveryDismissed(true)}>收起另存保全提示</button>
+      </>}>上次覆盖另存可能有遗留，当前结果未知。</CornerNotice>}
     {saveRecoveryOpen&&<Dialog label="另存保全信息" close={()=>setSaveRecoveryOpen(false)}><SaveRecoveryPanel snapshot={saveRecovery} close={()=>setSaveRecoveryOpen(false)}/></Dialog>}
     {importConfigOpen&&<Dialog label="原生连接配置导入" wide close={()=>{setImportConfigOpen(false);setTreeRevision(value=>value+1);}}><ImportConfigPanel owner={serviceStopped.current?'':service?.service_id??''} close={()=>{setImportConfigOpen(false);setTreeRevision(value=>value+1);}}/></Dialog>}
     {batchConfigOpen&&<Dialog label="批量修改连接配置" wide close={()=>{setBatchConfigOpen(false);setTreeRevision(value=>value+1);}}><BatchConfigPanel owner={serviceStopped.current?'':service?.service_id??''} close={()=>{setBatchConfigOpen(false);setTreeRevision(value=>value+1);}}/></Dialog>}
@@ -968,4 +976,4 @@ function App() {
   </main>;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(<CornerNoticeHost><App/></CornerNoticeHost>);

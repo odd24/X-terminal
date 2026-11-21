@@ -57,9 +57,9 @@ export async function waitForStopNotice(page,label,log) {
   assert.ok(data.right>=8&&data.right<=24&&data.bottom>=8&&data.bottom<=24);
 }
 
-export async function checkNoticeActions(page,root,log,resumeRecording,switchTab) {
+export async function checkNoticeActions(page,root,log,resumeRecording,switchTab,version='0.1.5') {
   assert.equal(await page.evaluate(`document.activeElement.classList.contains('xterm-helper-textarea')`),true,'toast did not move focus');
-  await page.screenshot('desktop-0.1.5-recording-stopped.png');
+  await page.screenshot(`desktop-${version}-recording-stopped.png`);
   const xy=await page.evaluate(`(()=>{const r=${notice}.getBoundingClientRect();return{x:r.left+12,y:r.top+12};})()`);
   await page.command('Input.dispatchMouseEvent',{type:'mouseMoved',...xy});
   await delay(5200);

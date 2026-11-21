@@ -2,6 +2,7 @@ import type { ThemeChoice, TerminalFont } from './appearance';
 import type { DesktopPreferences } from './config-api';
 import type { ReactNode } from 'react';
 import { Field, Panel } from './ui';
+import {LogViewerSettings} from './log-viewer-settings';
 
 export function AppearancePanel({ theme, font, setTheme, setFont, preferences, fontSizeControl, busy, canSave, message, update, save, read, close }: {
   theme: ThemeChoice; font: TerminalFont; setTheme: (theme: ThemeChoice) => void;
@@ -34,5 +35,6 @@ export function AppearancePanel({ theme, font, setTheme, setFont, preferences, f
     </fieldset>
     <div role="status" aria-label="桌面偏好状态">{message}</div>
     <small>字号立即生效并自动保存。其他调整点击「保存桌面偏好」后写入本数据目录，重新读取会丢弃未保存的调整。中文使用系统字体回退。Ctrl+Shift+C/V及复制/粘贴按钮始终可用；无选区Ctrl+C仍发送终端中断。粘贴的预览与目标确认规则保持。草稿、正文和同意不保存。</small>
+    <LogViewerSettings/>
   </Panel>;
 }

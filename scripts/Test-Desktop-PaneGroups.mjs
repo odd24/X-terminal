@@ -15,8 +15,9 @@ const desktop = path.resolve(process.argv[2]);
 const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
 const notices=process.argv.includes('--recording-notices');
+const version=process.argv.find(arg=>/^--ui-version=0\.1\.[56]$/.test(arg))?.split('=')[1]??'0.1.5';
 const tabRecording=notices||process.argv.includes('--tab-recording');
-const evidence=notices?'0.1.5':toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2';
+const evidence=notices?version:toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2';
 const toolbar=[];
 const processes = [];
 let main, child;
@@ -264,7 +265,7 @@ try{
       assert.notEqual(active.log_id,stopped.log_id);
       assert.notEqual(active.readable.filename,stopped.readable.filename);
     };
-    if(notices)noticeChecks=await checkNoticeActions(main,root,stopped,resumeRecording,()=>choose(c));
+    if(notices)noticeChecks=await checkNoticeActions(main,root,stopped,resumeRecording,()=>choose(c),version);
     else await resumeRecording();
     const live=(await logs(main,b)).find(entry=>entry.active);
     await right.control({op:'push',text:'\r\nDETACHED_TAB_RECORD\r\n'});
@@ -285,7 +286,7 @@ try{
     assert.ok((await readFile(path.join(root,'logs',detachedStop.readable.filename),'utf8')).includes('DETACHED_TAB_RECORD'));
     if(notices){
       await waitForStopNotice(child,'localhost',detachedStop);
-      await child.screenshot('desktop-0.1.5-detached-stop-notice.png');
+      await child.screenshot(`desktop-${version}-detached-stop-notice.png`);
       await observeLogDirectory(child,root,()=>child.evaluate(`document.querySelector('.toolbar-log-directory').click()`));
     }
     await dockDrag(b);child.close();child=undefined;

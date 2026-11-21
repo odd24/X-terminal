@@ -3,6 +3,7 @@ import {Panel,Field,ErrorNotice} from './ui';
 import {visibleControls} from './log-search';
 import {broadcastPayload} from './broadcast';
 import type {Triggers,TriggerActions} from './triggers';
+import {CornerNotice} from './corner-notice';
 type Candidate={connection_id:string;generation:number;protocol:string;state:string;label:string};
 const key=(c:Pick<Candidate,'connection_id'|'generation'|'protocol'>)=>`${c.connection_id}/${c.generation}/${c.protocol}`;
 export function TriggerPanel({owner,connections,run,close,notice,dismiss}:{owner:string;connections:readonly Candidate[];run:Triggers;close():void;notice:string;dismiss():void}){
@@ -18,7 +19,8 @@ export function TriggerPanel({owner,connections,run,close,notice,dismiss}:{owner
  const locked=snapshot.preparing||snapshot.working,proposal=snapshot.prepared;
  const excerpt=(r:NonNullable<typeof snapshot.last>)=><>{r.highlight?<mark>{visibleControls(r.excerpt)}</mark>:visibleControls(r.excerpt)}{r.truncated&&' …摘录截断'}</>;
  return <Panel title="窗口触发器" label="窗口触发器面板" close={()=>{run.clear();close();}} closeLabel="关闭触发器">
-  {notice&&<div className="terminal-log-feedback" role="status" aria-label="触发器窗口通知"><span>{visibleControls(notice)}</span><button onClick={dismiss}>关闭触发通知</button></div>}
+  {notice&&<CornerNotice local aria-label="触发器窗口通知" heading="触发器"
+    actions={<button onClick={dismiss}>关闭触发通知</button>}>{visibleControls(notice)}</CornerNotice>}
   {error&&<ErrorNotice title="触发器操作未完成">{error}</ErrorNotice>}
   <p>本窗口一个来源、一个活动规则，仅匹配明确启用后的服务解码文本；不会重放保留历史。四动作独立选，默认全关。编辑、来源/代次变化或缺口会停用；关闭此工具清空规则和命中记录。</p>
   <fieldset disabled={locked||!owner}><legend>来源与匹配规则</legend>

@@ -51,7 +51,7 @@ export async function checkMainToolbar(page,fit,version='0.1.4'){
   const result=[];
   await page.command('Page.bringToFront');
   assert.deepEqual(await page.evaluate('[...document.querySelector(".app-bar").children].map(element=>element.className)'),
-    version==='0.1.5'?['sidebar-toggle','toolbar-log','toolbar-log-directory','tools-menu']:['sidebar-toggle','toolbar-log','tools-menu']);
+    ['0.1.5','0.1.6'].includes(version)?['sidebar-toggle','toolbar-log','toolbar-log-directory','tools-menu']:['sidebar-toggle','toolbar-log','tools-menu']);
   for(const width of [1100,720]){
     await fit(width);
     await clickVisible(page,tools);

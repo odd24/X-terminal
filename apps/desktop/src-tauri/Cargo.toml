@@ -18,6 +18,7 @@ tauri-build = { version = "=2.7.4", features = [] }
 
 [dependencies]
 config-model = { path = "../../../crates/config-model" }
+credential-vault = { path = "../../../crates/credential-vault" }
 tauri = { version = "=2.12.5", features = [] }
 session-core = { path = "../../../crates/session-core" }
 session-protocol = { path = "../../../crates/session-protocol" }

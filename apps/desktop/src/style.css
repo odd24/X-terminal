@@ -287,9 +287,7 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .terminal-context-menu [role="menuitem"] { min-height:var(--control-height); padding-block:var(--space-1); border-color:transparent; background:transparent; }
 .terminal-context-menu [role="menuitem"]:hover:not(:disabled) { background:var(--control-hover); }
 
-.terminal-log-feedback { position:fixed; right:var(--space-4); bottom:var(--space-4); z-index:70; max-width:min(var(--auxiliary-width),calc(100vw - 2 * var(--space-4))); display:flex; flex-wrap:wrap; gap:var(--space-2); align-items:center; padding:var(--space-3); border:var(--border-width) solid var(--border); border-radius:var(--radius-control); background:var(--surface-raised); color:var(--text); font-size:var(--text-sm); overflow-wrap:anywhere; }
 
-.terminal-log-feedback > span { min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 /* Dedicated keyboard control uses the shared terminal palette; no local output echo. */
 .synchronized-keyboard { height:calc(4 * var(--text-sm) * var(--line-height) + 2 * var(--space-3)); border-color:var(--accent); margin-block:var(--space-2); }
@@ -313,18 +311,29 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .log-folder-glyph { position:relative; width:15px; height:11px; margin-top:3px; border:1px solid currentColor; border-radius:2px; }
 .log-folder-glyph::before { content:''; position:absolute; width:6px; height:3px; left:-1px; top:-4px; border:1px solid currentColor; border-bottom:0; border-radius:2px 2px 0 0; }
 .log-directory-error { display:block; color:var(--danger); padding:0 var(--space-2); }
-.recording-notice {
+.corner-notice-stack {
   position:fixed; inset:auto var(--space-4) var(--space-4) auto; z-index:80;
-  display:grid; gap:var(--space-2); width:min(23rem,calc(100vw - 2 * var(--space-4)));
+  display:grid; gap:var(--space-2); max-height:calc(100dvh - 2 * var(--space-4)); overflow:auto;
+  box-shadow:var(--float-shadow); pointer-events:none;
+}
+.corner-notice-stack:empty { display:none; }
+.corner-notice {
+  display:grid; grid-template-rows:minmax(0,1fr) auto; gap:var(--space-2); pointer-events:auto;
+  width:min(23rem,calc(100vw - 2 * var(--space-4))); height:min(11rem,calc(100dvh - 2 * var(--space-4)));
   padding:var(--space-3); border:var(--border-width) solid var(--border); border-radius:var(--radius-control);
   background:var(--surface-raised); color:var(--text); box-shadow:var(--float-shadow); font-size:var(--text-sm);
 }
-.recording-notice [role="status"] { min-width:0; display:grid; gap:var(--space-1); }
-.recording-notice strong, .recording-notice-file { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.corner-notice-local { position:fixed; inset:auto var(--space-4) var(--space-4) auto; z-index:80; }
+.corner-notice-message { min-width:0; display:grid; grid-template-rows:auto minmax(0,1fr); gap:var(--space-1); }
+.corner-notice-title,.notice-ellipsis { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.corner-notice-body { min-width:0; overflow:auto; overflow-wrap:anywhere; overscroll-behavior:contain; }
+.corner-notice-body p { margin:0 0 var(--space-1); }
+.corner-notice-actions { display:flex; flex-wrap:wrap; gap:var(--space-2); align-items:flex-end; min-height:var(--control-height); }
+.corner-notice[data-tone="error"] .corner-notice-title,.corner-notice-body [role="alert"] { color:var(--danger); }
 .recording-notice-totals { color:var(--text-muted); }
 .recording-notice-totals:empty { display:none; }
-.recording-notice-actions { display:flex; flex-wrap:wrap; gap:var(--space-2); }
-.recording-notice > [role="alert"] { color:var(--danger); }
+.log-viewer-settings { border-top:1px solid var(--border); margin-top:var(--space-3); padding-top:var(--space-2); }
+.log-viewer-settings [role="alert"] { color:var(--danger); }
 .context-menu { box-shadow: var(--float-shadow); }
 .log-menu-target, .app-dialog-corner h2 { font-weight: 400; }
 .clipboard-feedback, .tab-feedback { position: fixed; bottom: 3rem; left: 50%; transform: translateX(-50%); z-index: 71; padding: var(--space-2) var(--space-3); background: var(--surface-raised); border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-control); box-shadow: var(--float-shadow); pointer-events: none; }

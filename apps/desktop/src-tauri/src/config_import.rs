@@ -218,7 +218,10 @@ fn final_matches(file: &std::fs::File, path: &str) -> bool {
                 .is_some_and(|final_path| final_path.eq_ignore_ascii_case(path))
         })
 }
-fn read_selected(path: &Path) -> Result<String, String> {
+pub(crate) fn open_local_file(
+    path: &Path,
+    extension: &str,
+) -> Result<(std::fs::File, String), String> {
     let text = path.to_str().ok_or("IMPORT_PATH_REJECTED")?;
     let b = text.as_bytes();
     if b.len() < 4
@@ -230,7 +233,7 @@ fn read_selected(path: &Path) -> Result<String, String> {
         || text.chars().any(char::is_control)
         || !path
             .extension()
-            .is_some_and(|s| s.eq_ignore_ascii_case("json"))
+            .is_some_and(|s| s.eq_ignore_ascii_case(extension))
     {
         return Err("IMPORT_PATH_REJECTED".into());
     }
@@ -271,7 +274,7 @@ fn read_selected(path: &Path) -> Result<String, String> {
         }
     }
     let expected = expanded_name(text)?;
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .share_mode(FILE_SHARE_READ)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
@@ -284,6 +287,11 @@ fn read_selected(path: &Path) -> Result<String, String> {
     {
         return Err("IMPORT_PATH_REJECTED".into());
     }
+    Ok((file, expected))
+}
+fn read_selected(path: &Path) -> Result<String, String> {
+    let (mut file, expected) = open_local_file(path, "json")?;
+    let metadata = file.metadata().map_err(|_| "IMPORT_FILE_UNAVAILABLE")?;
     if metadata.len() > 65536 {
         return Err("IMPORT_CAPACITY".into());
     }

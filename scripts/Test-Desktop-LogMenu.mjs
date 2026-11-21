@@ -84,7 +84,7 @@ try{
  await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...point});
  await focus('first');
  const clip=await ui.interceptIpc({command:'terminal_clipboard_read',mode:'error'});await right('second');await ui.screenshot('P11.4-log-menu-native.png');assert.equal(await clip.count(),0);await clip.restore();
- const notice='document.querySelector(".app-dialog-corner")';
+ const notice='document.querySelector(".terminal-log-operation-notice")';
  async function clickMenuAt(label, twice=false){
    return ui.evaluate(`(()=>{
      const time=performance.now();
@@ -111,7 +111,7 @@ try{
  const lbInitial=await active(b);let lb=lbInitial;
  assert.equal((await list(b)).logs.length,1);assert.equal((await list(a)).logs.length,0);assert.equal((await slot()).target.connection.connection_id,b.connection_id);
  const original=await slot();
- assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.app-dialog-corner h2')).fontWeight`),'400');
+ assert.ok(await ui.evaluate(`!!document.querySelector('.terminal-log-operation-notice .corner-notice-title')`));
  if(pureBlack){
    assert.equal(await ui.evaluate(`getComputedStyle(document.querySelector('.app-bar')).backgroundColor`),'rgb(20, 31, 43)');
    await ui.screenshot('terminal-black-only-log.png');
@@ -169,7 +169,7 @@ try{
    await writeFile('artifacts/CR-022-editor-OCR-failure.png',image);
    console.error('Editor title observed; exact in-editor content and safe own-tab cleanup could not be confirmed.');
  }
- await ui.waitFor(`document.querySelector('[aria-label="右键日志操作状态"]')?.textContent.includes('编辑器未必自动刷新')`);
+ await ui.waitFor(`document.querySelector('[aria-label="右键日志操作状态"]')?.textContent.includes('可重新打开查看新增内容')`);
  assert.ok((await readFile(file(lb),'utf8')).includes(lb.log_id));
  await two.control({op:'push',text:'B-AFTER-OPEN\r\n'});await wait(async()=>(await readFile(file(lb),'utf8')).includes('B-AFTER-OPEN'),'actual opened file continues');
  const lostStop=await ui.interceptIpc({op:'stop',connectionId:b.connection_id,mode:'error'});await choose('second','停止记录');await ui.waitFor(`document.querySelector('[aria-label="终端右键日志操作"]').textContent.includes('查询结果')`);assert.equal(await lostStop.count(),1);await lostStop.restore();await ui.command('Page.reload');assert.equal((await slot()).target.connection.connection_id,b.connection_id);await ui.click('查询本次日志操作');await ui.waitFor(`document.querySelector('.recording-notice [role="status"]')?.textContent.includes('停止并同步')`);assert.equal((await list(b)).logs.length,1);assert.equal((await active(a)).log_id,la.log_id);await split(a,b);const lostStart=await ui.interceptIpc({op:'start',connectionId:b.connection_id,mode:'error'});await choose('second','开始记录');await ui.waitFor(`document.querySelector('[aria-label="终端右键日志操作"]').textContent.includes('查询结果')`);assert.equal(await lostStart.count(),1);await lostStart.restore();await ui.click('查询本次日志操作');await ui.waitFor(`document.querySelector('[aria-label="右键日志操作状态"]')?.textContent.includes('正在记录')`);lb=await active(b);assert.equal((await list(b)).logs.length,2);await two.control({op:'push',text:'B-SECOND-ROUND\r\n'});await wait(async()=>(await readFile(file(lb),'utf8')).includes('B-SECOND-ROUND'),'B second round');const rounds=await exportMenu('second','另存全部已记录日志…','B两轮.log');assert.equal(rounds.info.ranges.length,2);assert.ok(rounds.bytes.includes(Buffer.from('B-FIRST-ROUND')));assert.ok(rounds.bytes.includes(Buffer.from('B-SECOND-ROUND')));

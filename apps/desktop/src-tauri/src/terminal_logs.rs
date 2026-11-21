@@ -364,7 +364,7 @@ impl Manager {
                                             log_id,
                                         )
                                         .map_err(error)?;
-                                        crate::export_save::open_readable(source.path())?;
+                                        crate::log_viewer::open(&directory, source.path())?;
                                     } else {
                                         open_managed_directory(&directory)?;
                                     }

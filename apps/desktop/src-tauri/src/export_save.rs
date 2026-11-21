@@ -306,30 +306,45 @@ pub(crate) fn open_directory(path: &Path, owner: usize) -> Result<(), String> {
         Ok(())
     }
 }
-pub(crate) fn open_readable(path: &Path) -> Result<(), String> {
+pub(crate) fn open_with_system_default(path: &Path) -> Result<(), String> {
+    use windows::{
+        Win32::UI::Shell::{ASSOCF_NONE, ASSOCSTR_PROGID, AssocQueryStringW},
+        core::PWSTR,
+    };
     let _apartment = Apartment::enter().map_err(|_| "SHELL_UNAVAILABLE")?;
-    // Fixed Windows text editor, never a command or association supplied by content.
-    let system = std::env::var_os("SystemRoot").ok_or("SHELL_UNAVAILABLE")?;
-    let executable = PathBuf::from(system).join("System32").join("notepad.exe");
-    if !executable.is_file() {
-        return Err("SHELL_UNAVAILABLE".into());
+    let mut progid = [0u16; 1024];
+    let mut len = progid.len() as u32;
+    // Keep the previous Notepad behavior on machines with no .log association.
+    let associated = unsafe {
+        AssocQueryStringW(
+            ASSOCF_NONE,
+            ASSOCSTR_PROGID,
+            w!(".log"),
+            PCWSTR::null(),
+            Some(PWSTR(progid.as_mut_ptr())),
+            &mut len,
+        )
     }
-    let executable = HSTRING::from(executable.to_string_lossy().as_ref());
-    let parameters = HSTRING::from(format!("\"{}\"", display(path)));
+    .is_ok()
+        && progid[0] != 0;
+    if !associated {
+        return crate::log_viewer::open_notepad(path);
+    }
+    let file = HSTRING::from(display(path));
     let result = unsafe {
         ShellExecuteW(
             None,
             w!("open"),
-            &executable,
-            &parameters,
+            &file,
+            PCWSTR::null(),
             PCWSTR::null(),
             SW_SHOWNORMAL,
         )
     };
-    if result.0 as isize <= 32 {
-        Err("SHELL_UNAVAILABLE".into())
-    } else {
-        Ok(())
+    match result.0 as isize {
+        31 => crate::log_viewer::open_notepad(path),
+        i if i <= 32 => Err("LOG_VIEWER_SYSTEM_FAILED".into()),
+        _ => Ok(()),
     }
 }
 impl Manager {

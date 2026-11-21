@@ -6,6 +6,7 @@ import {LogSavePanel} from './log-save-panel';
 import {checkedSave,saveDiagnosticNotice,terminalSave,type SaveInfo} from './log-save';
 import {requestId} from './request-id';
 import {syncedStop,type NotifyStopped} from './recording-notice';
+import {CornerNotice} from './corner-notice';
 import {checkedMenu,restoreLogTask,sameLogTarget,knownMenuRejection,menuFailure,type LogTarget,type MenuInfo,type RememberedLogTask,type TerminalMenuContext} from './log-menu';
 type Props={paneLabel:string; claimRecording(target:LogTarget):(()=>void)|undefined;recordingLocked(target:LogTarget):boolean;notifyStopped:NotifyStopped;completedLogId?:string;openDirectory():Promise<void>;focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
 type Receipt={target:RememberedLogTask;info:SaveInfo};
@@ -63,7 +64,7 @@ export function TerminalLogMenu(props:Props){
      if(t.cancelled||t.auto&&!latest.current.valid(t)){t.auto=false;t.cancelled=true;t.message='目标已变化，已放弃本次准备的临时副本。';void cancelNative(t);}
      else{t.message=t.subkind==='RECORDED'?`已准备 ${result.ranges.length} 份日志的完整已刷新范围。起录前未记录、源缺口和快照后新输出不在文件；正在记录的文件继续追加。`:t.subkind==='VIEWPORT'?'已冻结打开菜单时实际可见屏幕的物理行、空行及尾部空格；这是显示文本，不是完整通信记录。':'已冻结当前活动终端保留缓冲；最多含512行历史，不代表从连接开始的全部日志。';if(t.auto)t.saveVisible=true;}
      t.finished=false;
-    }else if(result.phase==='OPENED'){t.finished=true;t.message=t.kind==='file'?'已请求系统文本编辑器打开本次实际日志文件。记录继续，文件周期刷新；编辑器未必自动刷新，可重新打开此文件查看新增内容。':'已请求打开所有窗口共用的日志目录。';}
+    }else if(result.phase==='OPENED'){t.finished=true;t.message=t.kind==='file'?'已请求打开本次日志。记录继续，文件周期刷新，可重新打开查看新增内容。':'已请求打开所有窗口共用的日志目录。';}
     else if(result.phase==='FAILED'){t.finished=true;t.message=menuFailure(result.failure??'');}
     else if(result.phase==='REMOVED'){t.finished=!t.saveVisible;t.auto=false;t.message=t.saveVisible?'临时副本已回收，可查询原另存回执；不会重新生成。':'本次临时副本已放弃，原实时日志保持。';}
     else{t.finished=false;t.message=result.phase==='RELEASING'?'正在回收本次临时副本…':t.kind==='prepare'?'正在准备固定范围日志…':'正在打开本次日志来源…';}
@@ -140,8 +141,24 @@ export function TerminalLogMenu(props:Props){
     <button role="menuitem" onClick={()=>{setVisible(true);props.close();}}>查看上次日志操作</button>}
    {pending&&<button role="menuitem" onClick={()=>{setVisible(true);props.close();if(current.current&&!busy)void run(current.current);}}>查询上次日志操作结果</button>}
   </ContextMenu>}
-  {notice&&props.valid(notice.target)&&<div className="terminal-log-feedback" role="status" aria-label="日志保存反馈"><span title={notice.info.path??undefined}>{notice.target.title} · {notice.info.phase==='COMPLETED'?`日志已保存：${notice.info.path?.split(/[\\/]/).at(-1)}`:'日志保存已取消。'}{saveDiagnosticNotice(notice.info)}</span>{notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开所在目录</button>}{directoryError&&<small role="alert">{directoryError}</small>}</div>}
-  {task&&visible&&(!props.completedLogId||task.kind!=='start'||task.log_id!==props.completedLogId)&&<Dialog label="日志操作结果" modal={false} passive close={closeStatus}><Panel title={`${task.title} · 终端日志`} label="终端右键日志操作" close={closeStatus} closeLabel="收起日志操作">
+  {notice&&props.valid(notice.target)&&<CornerNotice aria-label="日志保存反馈"
+    heading={`${notice.target.title} · ${notice.info.phase==='COMPLETED'?'日志已保存':'日志保存已取消'}`}
+    actions={notice.info.phase==='COMPLETED'&&<button onClick={()=>void openSaved(notice)}>打开所在目录</button>}>
+    {notice.info.path&&<div className="notice-ellipsis" title={notice.info.path}>{notice.info.path.split(/[\\/]/).at(-1)}</div>}
+    {saveDiagnosticNotice(notice.info)}{directoryError&&<small role="alert">{directoryError}</small>}
+  </CornerNotice>}
+  {task&&visible&&task.kind!=='prepare'&&(!props.completedLogId||task.kind!=='start'||task.log_id!==props.completedLogId)&&
+   <CornerNotice aria-label="终端右键日志操作" className="terminal-log-operation-notice" tone={task.error?'error':undefined}
+    heading={<span title={task.title}>{task.title} · {task.error?'日志操作未完成':'终端日志'}</span>}
+    actions={<>
+     {(task.uncertain||task.recovery)&&<button disabled={busy} onClick={()=>{if(current.current)void run(current.current);}}>查询本次日志操作</button>}
+     <button onClick={closeStatus}>收起日志操作</button>
+    </>}>
+    {task.log?.readable&&<div className="notice-ellipsis" title={task.log.readable.filename} aria-label="实时日志文件名">{task.log.readable.filename}</div>}
+    <p aria-label="右键日志操作状态">{task.message}</p>
+    <details><summary>固定范围与编号</summary><p>{task.target.protocol} · {task.target.connection.connection_id} / {task.target.connection.generation} · {task.request_id}</p></details>
+   </CornerNotice>}
+  {task&&visible&&task.kind==='prepare'&&<Dialog label="日志操作结果" modal={false} passive close={closeStatus}><Panel title={`${task.title} · 终端日志`} label="终端右键日志操作" close={closeStatus} closeLabel="收起日志操作">
    {task.error?<ErrorNotice title="日志操作未完成">{task.message}</ErrorNotice>:<p role="status" aria-label="右键日志操作状态">{task.message}</p>}
    {task.log?.readable&&<><p className="data-location" aria-label="实时日志文件名">{task.log.readable.filename}</p><small>同一应用数据目录的所有窗口共用 logs 文件夹。文件刷新目标100ms、持久同步目标1秒，系统阻塞时可能延迟；停止后核对最终同步状态。</small></>}
    {(task.uncertain||task.recovery)&&<button disabled={busy} onClick={()=>{if(current.current)void run(current.current);}}>查询本次日志操作</button>}

@@ -5,7 +5,7 @@ trap { Write-Output $_.ScriptStackTrace; break }
 $rootFull=[IO.Path]::GetFullPath($Root)
 $tempFull=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
 $name=[IO.Path]::GetFileName($rootFull)
-if ([IO.Path]::GetDirectoryName($rootFull) -ne $tempFull -or $name -notmatch '^shared-terminal-(log-menu|pane-groups)-ui-中文-') { throw 'Only an owned log-test root is allowed.' }
+if ([IO.Path]::GetDirectoryName($rootFull) -ne $tempFull -or $name -notmatch '^shared-terminal-(log-menu|pane-groups|log-viewer)-ui-中文-') { throw 'Only an owned log-test root is allowed.' }
 $targetFull=[IO.Path]::GetFullPath($TargetPath)
 $common=[IO.Path]::Combine($rootFull,'logs')
 if (($Action -eq 'directory' -and $targetFull -ne $common) -or ($Action -eq 'file' -and ([IO.Path]::GetDirectoryName($targetFull) -ne $common -or [IO.Path]::GetExtension($targetFull) -ne '.log' -or $LogId -notmatch '^[0-9a-f-]{36}$'))) { throw 'Refuse an unrelated shell target.' }
