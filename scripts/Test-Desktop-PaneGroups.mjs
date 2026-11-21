@@ -398,6 +398,7 @@ try{
   const ids=new Set([a,b,c].map(c=>c.connection_id));
   const d=await wait(async()=>(await main.invoke('service_list')).find(item=>!ids.has(item.connection_id)&&item.state==='CONNECTED'),'group plus connection');
   await main.waitFor(rendered(d,0));
+  await main.waitFor("!document.querySelector('dialog:modal')");
   assert.deepEqual(new Set(await tabIds(d)),new Set([a.connection_id,d.connection_id]));
   await physical(tab(d),point(await geometry(host(b)),.55,.50),'.tab-merge-preview',`desktop-${evidence}-merge-preview.png`);
   await main.waitFor(rendered(a,0)+' && '+rendered(c,1)+' && '+rendered(d,2));
