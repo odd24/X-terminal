@@ -211,13 +211,7 @@ try{
     const menuImage=await ui.command('Page.captureScreenshot',{format:'png'});
     await writeFile('artifacts/desktop-0.1.9-copy-background-ssh.png',Buffer.from(menuImage.data,'base64'));
     if(!(await ui.evaluate(`!!${copyMenu}`)))aAction=await openCopy(ui,a);
-    const fixedReply=await ui.interceptIpc({command:'ssh_request',op:'start_fixed',mode:'error'});
-    try{
-      await click(ui,aAction);
-      await ui.waitFor("[...document.querySelectorAll('dialog:modal button')].some(button=>button.textContent==='查询本次连接')");
-      assert.equal(await fixedReply.count(),1,'one attempt with a lost Desktop start-fixed answer');
-    }finally{await fixedReply.restore();}
-    await ui.click('查询本次连接');
+    await click(ui,aAction);
     const aCopy=await childOf(new Set([a.connection_id,b.connection_id]),'SSH2');
     await ui.waitFor("!document.querySelector('dialog:modal')");
     await verifyAdjacent(a,aCopy);
@@ -228,7 +222,7 @@ try{
     assert.equal((await logs(a,{op:'status',log_id:oldLog.log_id})).active,true);
     await keyGoesTo(aCopy,'COPY_A_EXACT',[a,b]);
     assert.equal(Buffer.from((await metric(second)).received.flat()).length,0);
-    console.log('PASS saved background copy and fixed-revision receipt recovery with no duplicate start');
+    console.log('PASS saved background copy with ordinary saved credential and host trust');
 
     await splitRight(b);
     const copyPane=await ui.evaluate(`${tab(b)}.closest('[data-pane]').dataset.pane`);
@@ -263,26 +257,41 @@ try{
     await logs(a,{op:'stop',log_id:oldLog.log_id});
     await wait(async()=> (await logs(a,{op:'status',log_id:oldLog.log_id})).durable,'original completes separately');
 
-    const origin=await ui.evaluate(`(()=>{const b=${tab(b)}.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2};})()`);
+    fit(1100,760);
+    await ui.waitFor('innerWidth>=1080');
+    await activate(a);
+    await ui.waitFor(`(()=>{const r=${tab(a)}.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})()`);
+    const origin=await ui.evaluate(`(()=>{const b=${tab(a)}.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2};})()`);
     dragNativeWindow(ui.app,[origin,{x:origin.x-25,y:origin.y+35},{x:45,y:120},{x:-35,y:150,outside:true}],
       {executable:desktop,title,raise:true,placeAtWorkAreaStart:true});
     const target=await wait(async()=> (await ui.otherPages())[0],'native detached WebView created');
     detached=await connectDesktopPage(target);
-    await detached.waitFor(`${tab(b)}?.getAttribute('aria-selected')==='true'`);
+    await detached.waitFor(`${tab(a)}?.getAttribute('aria-selected')==='true'`);
     const detachedSeam=await seam(detached);verifySeam(detachedSeam);
     await detached.screenshot('desktop-0.1.9-integrated-title-detached.png');
     const label=await detached.evaluate('window.__TAURI_INTERNALS__.metadata.currentWindow.label');
     const detachedWindow=await verifyWindow(detached,childTitle,label);
-    await click(detached,await openCopy(detached,b,childTitle),'Left',childTitle);
-    await ui.waitFor(`document.querySelector('dialog:modal[aria-label="连接服务器"]')&&${q('[aria-label="SSH端口"]')}.value===${JSON.stringify(String(second.port))}`);
-    await ui.click('收起连接窗口');
-    assert.equal((await metric(second)).accepted_connections,2);
+    const fixedReply=await ui.interceptIpc({command:'ssh_request',op:'start_fixed',mode:'error'});
+    try{
+      await click(detached,await openCopy(detached,a,childTitle),'Left',childTitle);
+      await ui.waitFor("[...document.querySelectorAll('dialog:modal button')].some(button=>button.textContent==='查询本次连接')");
+      assert.equal(await fixedReply.count(),1,'one attempt with a lost Desktop start-fixed answer');
+    }finally{await fixedReply.restore();}
+    await wait(async()=> (await metric(first)).accepted_connections===3,'fixed start reached the original saved endpoint');
+    await ui.click('查询本次连接');
+    await ui.waitFor("[...document.querySelectorAll('dialog:modal button')].some(button=>button.textContent==='使用已记住的凭据')");
+    await ui.click('使用已记住的凭据');
+    const routedCopy=await childOf(new Set([a,b,aCopy,bCopy].map(c=>c.connection_id)),'SSH2');
+    await ui.waitFor("!document.querySelector('dialog:modal')");
+    assert.equal((await metric(first)).accepted_connections,3);
+    assert.deepEqual((await detached.invoke('service_list')).map(ref),[ref(a)]);
+    await keyGoesTo(routedCopy,'DETACHED_COPY_EXACT',[b,aCopy,bCopy]);
     await click(detached,q('.window-close'),'Left',childTitle);
     await wait(async()=> !(await ui.otherPages()).length,'detached close returned its original scope');
     detached.close();detached=undefined;
-    await ui.waitFor(`!!${tab(b)}`);
+    await ui.waitFor(`!!${tab(a)}`);
     evidence={result:'PASS',sameAddress:true,savedCopy:true,temporaryCopy:true,isolatedInput:true,isolatedRecording:true,copyPane,
-      wide,narrow,window,detachedSeam,detachedWindow,detachedCopyRouting:true};
+      wide,narrow,window,detachedSeam,detachedWindow,detachedCopyRouting:true,lostReplyRecoveredWithoutReplay:true};
   }
   await close();
   await writeFile(`artifacts/windows-0.1.9-session-copy-${uartMode?'uart':'ssh'}.json`,JSON.stringify(evidence,null,2)+'\n');

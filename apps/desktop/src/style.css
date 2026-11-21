@@ -304,10 +304,11 @@ main.desktop-shell { max-width: none; margin: 0; padding: 0 var(--space-2) var(-
 }
 .pane-tab-bar .connection-tab:has([aria-selected="true"]) > [role="tab"] { padding-block: 0; }
 .window-tab-slot .connection-tab button,.window-tab-slot .new-menu summary { min-height: 31px; }
-.window-tab-slot [role="tablist"] { align-items: end; }
+.window-tab-slot [role="tablist"] { align-items: end; flex: 0 1 auto; }
+.tab-lane-drag { flex: 1; align-self: stretch; }
 .window-tab-slot .pane-tab-bar .new-menu > summary { border-color: transparent; background: transparent; }
 .terminal-workspace .terminal-pane > .terminal { border-start-start-radius: 0; border-start-end-radius: 0; }
-.session-tab-menu { position: fixed; width: min(12rem,calc(100vw - 16px)); }
+.terminal-context-menu.session-tab-menu { position: fixed; width: min(13rem,calc(100vw - 16px)); }
 .session-tab-menu [aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; }
 .pane-tab-bar .new-menu,.pane-collapse { flex: 0 0 auto; }
 .pane-tab-bar .new-menu { position: relative; }

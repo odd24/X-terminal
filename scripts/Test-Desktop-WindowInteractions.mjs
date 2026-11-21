@@ -266,7 +266,8 @@ try {
   assert.equal(await main.evaluate(`!!${tab(a)}`),false);
   await child.screenshot('desktop-detached-session.png');
   const position=await child.evaluate('({x:screenX,y:screenY})');
-  dragNativeWindow(main.app,[{x:200,y:-14},{x:237,y:15},{x:274,y:55}],{title:'共享终端 · 独立会话'});
+  const titlePoint=center(await child.evaluate(`document.querySelector('.window-title').getBoundingClientRect().toJSON()`));
+  dragNativeWindow(main.app,[titlePoint,{x:titlePoint.x+37,y:titlePoint.y+29},{x:titlePoint.x+74,y:titlePoint.y+69}],{title:'共享终端 · 独立会话'});
   await child.waitFor(`Math.abs(screenX-${position.x})>40 && Math.abs(screenY-${position.y})>30`);
   await assert.rejects(main.invoke('ssh_request',{request:{op:'write_text',connection:ref(a),request_id:requestId(),text:'WRONG-WINDOW'}}),/SESSION_IN_OTHER_WINDOW/);
   await assert.rejects(child.invoke('ssh_request',{request:{op:'write_text',connection:ref(b),request_id:requestId(),text:'WRONG-WINDOW'}}),/SESSION_IN_OTHER_WINDOW/);
