@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { readConfiguration, type Folder, type Profile } from './config-api';
-import { ContextMenu } from './ui';
+import { ContextMenu, IconButton } from './ui';
 
 export function revealProfileConnectionFocus(target: HTMLElement) {
   if (!(target instanceof HTMLButtonElement)) return;
@@ -55,7 +55,7 @@ export function SessionTree({ revision, connect, configure, loaded, connecting=f
     return <ul className="session-tree-list">{children.map(folder=>{const open=expanded[folder.id]??!!needle,empty=!folders.some(f=>f.parent_id===folder.id)&&!profiles.some(p=>p.folder_id===folder.id);return <li key={folder.id} data-folder-id={folder.id}><button className="tree-folder" title={folder.name} aria-expanded={open} onClick={()=>setExpanded(value=>({...value,[folder.id]:!open}))}><span aria-hidden="true">{open?'▾':'▸'} </span>{folder.name}{empty&&<span className="tree-folder-hint">（空）</span>}</button>{open&&<>{empty?<p className="tree-empty">此目录暂无配置</p>:branch(folder.id,new Set([...visited,folder.id]))}</>}</li>;})}{profiles.filter(item => item.folder_id === parent && matches(item)).map(leaf)}</ul>;
   }
   return <>
-    <div className="config-heading"><h2>会话配置</h2><button disabled={busy} onClick={() => void refresh()}>刷新会话树</button></div>
+    <div className="config-heading"><h2>会话配置</h2><IconButton icon="refresh" label="刷新会话树" disabled={busy} onClick={() => void refresh()} /></div>
     <label className="tree-search"><input aria-label="搜索会话配置" value={query} onChange={event => {setQuery(event.target.value);setExpanded({});}} placeholder="名称、协议或主机" /></label>
     <div className="tree-scroll" aria-label="会话配置树"><small className="tree-root-label">根目录</small>{branch(null)}{!profiles.length && <p>尚无配置。<button onClick={()=>configure()}>新建连接配置</button></p>}</div>
     {message && <p role="status">{message}</p>}

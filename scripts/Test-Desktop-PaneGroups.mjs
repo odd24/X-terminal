@@ -16,7 +16,7 @@ const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
 const notices=process.argv.includes('--recording-notices');
 const webviewDrags=process.argv.includes('--webview-drags');
-const requestedVersion=process.argv.find(arg=>/^--ui-version=0\.1\.([5-9]|10)$/.test(arg))?.split('=')[1];
+const requestedVersion=process.argv.find(arg=>/^--ui-version=0\.1\.([5-9]|1[01])$/.test(arg))?.split('=')[1];
 const version=requestedVersion??'0.1.5';
 const tabRecording=notices||process.argv.includes('--tab-recording');
 const evidence=requestedVersion??(notices?version:toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2');
@@ -456,7 +456,7 @@ try{
   await main.waitFor('!'+tab(b));
   await dockDrag(b);child.close();child=undefined;
   await main.waitFor('!!'+tab(b));
-  await main.click('收起窗格 2');
+  await main.evaluate(`document.querySelector('[aria-label="终端窗格 2"] .pane-collapse, [aria-label="收起窗格 2"]').click()`);
   await main.waitFor('document.querySelectorAll("[data-pane]").length===1 && document.querySelectorAll("[role=tab]").length===3');
   const close=await closeSoakDesktop(main,root,service,{});
   await main.close();main=undefined;

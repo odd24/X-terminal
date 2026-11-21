@@ -75,7 +75,7 @@ export async function verifyDesktopSsh1Keyboard({ ui, saved, peer, executable, f
     if (!await ui.evaluate(`!!${query(row)}?.getClientRects().length`)) {
       await tabTo(activeText('会话导航'), '会话导航', { backward: true });
       if (await ui.evaluate(`document.activeElement.getAttribute('aria-expanded')==='false'`)) await enter();
-      await tabTo(activeText('刷新会话树'), '刷新会话树');
+      await tabTo(active('[aria-label="刷新会话树"]'), '刷新会话树');
       await enter();
     }
     await ui.waitFor(`!!${query(row)}?.getClientRects().length`);

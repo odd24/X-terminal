@@ -112,8 +112,9 @@ export async function checkSilentLink({ ui, link, call, success, control, manage
   assert.equal(pair.peer.readable, true, 'upstream remained TCP-open until the owned proxy retired it');
   assert.equal(link.connections.length, 1);
   await ui.click('关闭Agent授权');
-  const failedUi = `FAILED · 代次 ${ref.generation} · 编码 utf8 · TRANSPORT`;
-  await ui.waitFor(`${statusSelector}?.textContent===${JSON.stringify(failedUi)} && ${statusSelector}.getClientRects().length>0`);
+  await ui.waitFor(`${statusSelector}?.dataset.state==='FAILED' && ${statusSelector}.getClientRects().length>0
+    && document.querySelector('.ssh-problem[role="alert"]')?.textContent.includes('TRANSPORT')
+    && document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes('代次 ${ref.generation}')`);
   const grant = await management({ op: 'grant_status', request_id: grantId });
   assert.deepEqual(grant.data.effective_scopes, []);
   assert.equal((await success('input_lease', { connection: ref })).data, null);
@@ -130,11 +131,10 @@ export async function checkSilentLink({ ui, link, call, success, control, manage
   assert.equal(idle.accepted_connections, 1);
   assert.equal(idle.attempts, 1);
   assert.deepEqual(idle.received, baseline.received);
-  assert.equal(await ui.evaluate(`${statusSelector}?.textContent`), failedUi);
+  assert.equal(await ui.evaluate(`${statusSelector}?.dataset.state`), 'FAILED');
 
-  await ui.click('显式重连 SSH2');
+  await ui.click('重新连接');
   const next = { ...ref, generation: ref.generation + 1 };
-  const connectedUi = `CONNECTED · 代次 ${next.generation} · 编码 utf8`;
   const hostAction = `!!${button('拒绝 SSH2 主机')}`;
   const authAction = `!!${button('使用保存的 SSH2 凭据')}`;
   await ui.waitFor(`${hostAction} || ${authAction}`);
@@ -145,7 +145,8 @@ export async function checkSilentLink({ ui, link, call, success, control, manage
     await ui.waitFor(authAction);
   }
   await ui.click('使用保存的 SSH2 凭据');
-  await ui.waitFor(`${statusSelector}?.textContent===${JSON.stringify(connectedUi)} && ${statusSelector}.getClientRects().length>0`);
+  await ui.waitFor(`${statusSelector}?.dataset.state==='CONNECTED' && ${statusSelector}.getClientRects().length>0
+    && document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes('代次 ${next.generation}')`);
   assert.equal((await ssh({ op: 'status', connection: next })).connection.state, 'CONNECTED');
   assert.equal(link.connections.length, 2);
   assert.equal((await success('input_lease', { connection: next })).data, null);

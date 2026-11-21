@@ -158,7 +158,7 @@ try {
       if (!await ui.evaluate(`document.querySelector('.sidebar-toggle').getAttribute('aria-expanded')==='true'`)) {
         await tabTo(activeText('会话导航'), '打开会话导航');
         await enter();
-        await tabTo(`(${activeText('刷新会话树')}) && !document.activeElement.disabled`, '加载预置会话树');
+        await tabTo(`(${active('[aria-label="刷新会话树"]')}) && !document.activeElement.disabled`, '加载预置会话树');
         await enter();
       }
       await ui.waitFor(`!!document.querySelector(${JSON.stringify(row)})`);

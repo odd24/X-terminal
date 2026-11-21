@@ -23,7 +23,6 @@ export async function checkSshInterruption({ ui, call, success, ref, management,
     assert.equal(reply.structuredContent.error_code, code, name);
   };
   const statusSelector = `document.querySelector('[aria-label="SSH2 状态"]')`;
-  const readStatus = () => ui.evaluate(`${statusSelector}?.textContent`);
 
   const accepted = await receipt(send.request_id);
   assert.equal(accepted.state, 'PIPELINE_QUEUED');
@@ -61,9 +60,9 @@ export async function checkSshInterruption({ ui, call, success, ref, management,
   }, 'the original generation did not become FAILED');
   assert.equal(failed.failure, 'TRANSPORT');
   await ui.click('关闭Agent授权');
-  const failedUi = `FAILED · 代次 ${ref.generation} · 编码 utf8 · TRANSPORT`;
-  await ui.waitFor(`${statusSelector}?.textContent === ${JSON.stringify(failedUi)} && ${statusSelector}.getClientRects().length > 0`);
-  assert.equal(await readStatus(), failedUi);
+  await ui.waitFor(`${statusSelector}?.dataset.state==='FAILED' && ${statusSelector}.getClientRects().length > 0
+    && document.querySelector('.ssh-problem[role="alert"]')?.textContent.includes('TRANSPORT')
+    && document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes('代次 ${ref.generation}')`);
   const unknown = await receipt(dispatching.request_id);
   const cancelled = await receipt(tail.request_id);
   assert.deepEqual(await receipt(send.request_id), accepted);
@@ -83,7 +82,7 @@ export async function checkSshInterruption({ ui, call, success, ref, management,
   assert.equal(idle.attempts, 0);
   assert.equal(await readStatus(), failedUi);
 
-  await ui.click('显式重连 SSH2');
+  await ui.click('重新连接');
   const next = { ...ref, generation: ref.generation + 1 };
   const host = await until(async () => {
     const connection = (await ui.invoke('service_list')).find(item => item.connection_id === ref.connection_id);
@@ -102,8 +101,8 @@ export async function checkSshInterruption({ ui, call, success, ref, management,
   assert.equal(beforeAuth.attempts, 0);
   await ui.fill('SSH2 临时密码', server.password);
   await ui.click('提交本次 SSH2 密码');
-  const connectedUi = `CONNECTED · 代次 ${next.generation} · 编码 utf8`;
-  await ui.waitFor(`${statusSelector}?.textContent === ${JSON.stringify(connectedUi)} && ${statusSelector}.getClientRects().length > 0`);
+  await ui.waitFor(`${statusSelector}?.dataset.state==='CONNECTED' && ${statusSelector}.getClientRects().length > 0
+    && document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes('代次 ${next.generation}')`);
   assert.equal((await ssh({ op: 'status', connection: next })).connection.state, 'CONNECTED');
 
   assert.equal((await success('input_lease', { connection: next })).data, null);

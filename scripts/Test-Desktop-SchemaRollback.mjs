@@ -78,7 +78,7 @@ async function authenticateSaved(profile, pin, priorAttempts) {
   await ui.waitFor(`!!(${button('使用保存的 SSH2 凭据')})`);
   await checkMetrics(priorAttempts, priorAttempts + 1);
   await ui.click('使用保存的 SSH2 凭据');
-  await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.textContent.startsWith('CONNECTED')`);
+  await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.dataset.state==='CONNECTED'`);
   const [session, ...others] = await ui.invoke('service_list');
   assert.equal(session.protocol, 'SSH2');
   assert.deepEqual(others, []);

@@ -51,7 +51,7 @@ try {
   const { enter, tabTo } = desktopKeyboard(ui, focusTrace);
   await tabTo(activeText('会话导航'), '打开实际会话导航');
   await enter();
-  await tabTo(`(${activeText('刷新会话树')}) && !document.activeElement.disabled`, '刷新已预置配置');
+  await tabTo(`(${active('[aria-label="刷新会话树"]')}) && !document.activeElement.disabled`, '刷新已预置配置');
   await enter();
   const selector = `.session-tree-list button[data-profile-id="${profile.id}"]`;
   await ui.waitFor(`!!document.querySelector(${JSON.stringify(selector)})`);

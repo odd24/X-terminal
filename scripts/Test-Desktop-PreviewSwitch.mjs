@@ -121,7 +121,7 @@ try {
   await oldUi.waitFor(`!!document.querySelector('[aria-label="SSH2 临时密码"]')`);
   await oldUi.fill('SSH2 临时密码', server.password);
   await oldUi.click('提交本次 SSH2 密码');
-  await oldUi.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.textContent.startsWith('CONNECTED')`);
+  await oldUi.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.matches('[data-state=CONNECTED]')||document.querySelector('[aria-label="SSH2 状态"]')?.textContent.startsWith('CONNECTED')`);
   const [session] = await sessions(oldUi);
   assert.equal(session.protocol, 'SSH2');
   const ref = { connection_id: session.connection_id, generation: session.generation };

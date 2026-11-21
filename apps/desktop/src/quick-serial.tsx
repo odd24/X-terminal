@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Panel, Field, ErrorNotice, keepCompositionInField } from './ui';
+import { Panel, Field, IconButton, ErrorNotice, keepCompositionInField } from './ui';
 import { config, readConfiguration, ConfigRequestError, type Profile, type Settings } from './config-api';
 import { serial, SerialRequestError, reference, type Inventory, type SerialReply } from './serial-api';
 import { requestId } from './request-id';
@@ -77,15 +77,19 @@ export function QuickSerial({requestedProfile,copySettings,canStart,select,close
   }
   async function query(){const a=attempt.current;if(!a||flight.current)return;flight.current=true;setBusy(true);setError('');try{await accept(await serial({op:'start_status',request_id:a.id}),a);}catch(e){if(mounted.current)setError(`${safe(e)} 仍只查询原编号，没有重新打开。`);}finally{flight.current=false;if(mounted.current)setBusy(false);}}
   const blocked=busy||loading||unknown||saveUnknown;
-  return <Panel title="串口连接" label="串口快速连接" close={close} closeLabel="取消连接窗口">
+  return <Panel title="串口连接" label="串口快速连接" close={close} closeLabel="取消连接窗口" compact>
     {copySettings&&<p>原会话正在使用 {copySettings.port}。请选择另一端口，原连接会继续运行。</p>}
     {configurationError&&<ErrorNotice title="配置尚未就绪">{configurationError}</ErrorNotice>}{configurationCode==='LOCKED'&&<ConfigurationRecheck disabled={busy||loading} ready={()=>load()}/>}
     {inventoryError&&<ErrorNotice title="端口清单尚未就绪">{inventoryError}</ErrorNotice>}
     {error&&<ErrorNotice>{error}</ErrorNotice>}<p role="status">{loading?'正在读取端口与配置…':message}</p>
     <form noValidate onKeyDown={keepCompositionInField} onSubmit={e=>void connect(e)}>
       {!copySettings&&profiles.length>0&&<Field label="已保存的连接（可选）"><select aria-label="串口已保存连接" disabled={blocked} value={profileId} onChange={e=>{setProfileId(e.target.value);const p=profiles.find(p=>p.id===e.target.value);if(p?.settings.protocol==='serial')setSettings(p.settings);setDeviceId('');}}><option value="">直接填写新连接</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>}
-      <Field label="端口" error={fieldErrors.device} errorId="uart-device-error"><select aria-label="UART端口" aria-invalid={!!fieldErrors.device} aria-describedby={fieldErrors.device?"uart-device-error":undefined} autoFocus required disabled={blocked} value={deviceId} onChange={e=>{setFieldErrors(old=>({...old,device:undefined}));setDeviceId(e.target.value);const d=devices.find(d=>d.device_id===e.target.value);if(d){if(profileId&&settings.port!==d.port)setProfileId('');setSettings(s=>({...s,port:d.port}));}}}><option value="">请选择端口</option>{devices.map(d=><option key={d.device_id} value={d.device_id}>{d.port} · {d.instance_id}</option>)}</select></Field>
-      <button type="button" disabled={busy||loading} onClick={()=>void load()}>刷新端口</button>
+      <label htmlFor="uart-device">端口</label>
+      <div className="field-refresh-row">
+        <select id="uart-device" aria-label="UART端口" aria-invalid={!!fieldErrors.device} aria-describedby={fieldErrors.device?"uart-device-error":undefined} autoFocus required disabled={blocked} value={deviceId} onChange={e=>{setFieldErrors(old=>({...old,device:undefined}));setDeviceId(e.target.value);const d=devices.find(d=>d.device_id===e.target.value);if(d){if(profileId&&settings.port!==d.port)setProfileId('');setSettings(s=>({...s,port:d.port}));}}}><option value="">请选择端口</option>{devices.map(d=><option key={d.device_id} value={d.device_id}>{d.port} · {d.instance_id}</option>)}</select>
+        <IconButton icon="refresh" label="刷新端口" disabled={busy||loading} onClick={()=>void load()} />
+      </div>
+      {fieldErrors.device&&<span id="uart-device-error" className="field-error" role="alert">{fieldErrors.device}</span>}
       {inventory&&<small>{devices.length===0?(copySettings?'没有其他可选端口。连接另一设备后可刷新端口。':'没有可识别端口，请连接设备后刷新。'):`可选择 ${devices.length} 个端口。`}{inventory.unidentified_ports.length>0&&` 无法确认身份的端口：${inventory.unidentified_ports.join('、')}（不可打开）。`}{inventory.metadata_failures>0&&` 身份读取失败 ${inventory.metadata_failures} 项。`}</small>}
       <Field label="波特率" error={fieldErrors.baud} errorId="uart-baud-error"><input aria-label="UART波特率" aria-invalid={!!fieldErrors.baud} aria-describedby={fieldErrors.baud?"uart-baud-error":undefined} type="number" min="1" max="4000000" required disabled={blocked} value={settings.baud_rate} onChange={e=>{setFieldErrors(old=>({...old,baud:undefined}));patch({baud_rate:Number(e.target.value)});}}/></Field>
       <p aria-label="UART初始控制线">打开时：DTR {settings.dtr_on_open?'高电平':'低电平'} · RTS {settings.flow==='hardware'?'由硬件流控管理':settings.rts_on_open?'高电平':'低电平'}。控制线变化可能使设备复位，请按接线确认。</p>

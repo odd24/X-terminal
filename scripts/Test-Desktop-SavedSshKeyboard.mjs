@@ -195,7 +195,7 @@ try {
 
   await tabTo(activeText('会话导航'), '工作区会话导航');
   await enter();
-  await tabTo(activeText('刷新会话树'), '加载预置的配置');
+  await tabTo(active('[aria-label="刷新会话树"]'), '加载预置的配置');
   await enter();
   const first = await connect(a);
   await leaveTerminal(first);

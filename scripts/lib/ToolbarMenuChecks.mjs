@@ -49,7 +49,7 @@ export async function measurePopup(page,trigger,popup,label){
 
 export async function checkMainToolbar(page,fit,version='0.1.4'){
   const result=[];
-  const compact=version==='0.1.10';
+  const compact=['0.1.10','0.1.11'].includes(version);
   const softwareSettings=compact||['0.1.7','0.1.8','0.1.9'].includes(version);
   await page.command('Page.bringToFront');
   assert.deepEqual(await page.evaluate('[...document.querySelector(".app-bar").children].map(element=>element.className)'),

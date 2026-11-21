@@ -69,7 +69,7 @@ try {
   assert.equal(await ui.evaluate(`document.querySelector('.ssh-panel .fingerprint').textContent`),server.pin);
   await ui.evaluate(`document.querySelector('[aria-label="已核对 SSH2 主机指纹"]').click()`);await ui.click('信任本次 SSH2 主机');
   await ui.waitFor(`!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='使用保存的 SSH2 凭据')`);await ui.click('使用保存的 SSH2 凭据');
-  await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.textContent.startsWith('CONNECTED')`);
+  await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.dataset.state==='CONNECTED'`);
   const connection=(await ui.invoke('service_list')).find(c=>c.protocol==='SSH2');
   const ref={connection_id:connection.connection_id,generation:connection.generation};
   const management=request=>ui.invoke('agent_management_request',{request});

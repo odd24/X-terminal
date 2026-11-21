@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { HostKeysPanel } from './host-keys-panel';
 import { ArchivesPanel } from './archives-panel';
 import { CredentialsPanel } from './credentials-panel';
+import { IconButton, PanelHeading } from './ui';
 import { config, ConfigRequestError, readConfiguration, type Auth, type CredentialEdit, type Encoding, type Folder, type Profile, type Settings } from './config-api';
 
 type Draft = {
@@ -98,7 +99,7 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
   async function checkDeletion(){if(!deletion||deleteFlight.current)return;deleteFlight.current=true;setBusy(true);try{const data=await readConfiguration();const exists=data.profiles.some(p=>p.id===deletion.profile.id);setFolders(data.folders);setProfiles(data.profiles);setDeletion(undefined);if(!exists)setDraft(blank());onChanged?.();setMessage(exists?'原配置仍存在；未重放删除。请核对后重新选择操作。':'原配置已不存在；未重放删除。');}catch{setMessage('读取配置失败，请稍后只读核对；未重试删除。');}finally{deleteFlight.current=false;setBusy(false);}}
   const filtered = profiles.filter(profile => (filter === '*' || (profile.folder_id ?? '') === filter) && profile.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <section className="config-panel" aria-label="连接配置">
-    <div className="config-heading"><h2>连接配置</h2><button onClick={() => { clearSecrets(); close(); }}>关闭配置</button></div>
+    <PanelHeading title="连接配置" close={() => { clearSecrets(); close(); }} closeLabel="关闭配置" />
     <p className="config-notice">保存配置不会建立连接。可在会话树选择保存项，再明确连接。SSH1 需要启用旧协议的本机预览。</p>
     <div className="config-message" role="status" aria-label="配置状态">{message}</div>
     {deletion&&<section className="notice-error" aria-label="删除保存配置确认"><strong>删除保存配置“{deletion.profile.name}”？</strong><p>{deletion.profile.settings.protocol.toUpperCase()} · {'host' in deletion.profile.settings?`${deletion.profile.settings.host}:${deletion.profile.settings.port}`:deletion.profile.settings.port}</p><small>仅删除此配置（ID：{deletion.profile.id}）。不关闭现有连接，不删除日志或共享凭据记录。</small><div className="config-actions">{deletion.uncertain?<button ref={deleteControl} disabled={busy} onClick={()=>void checkDeletion()}>只读核对删除结果</button>:<button ref={deleteControl} disabled={busy} onClick={()=>void deleteSelected()}>确认删除此配置</button>}<button disabled={busy} onClick={()=>setDeletion(undefined)}>取消删除</button></div></section>}
@@ -107,7 +108,7 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
         <label>目录筛选<select aria-label="目录筛选" value={filter} onChange={event => setFilter(event.target.value)}><option value="*">全部目录</option>{options}</select></label>
         <label>搜索配置<input aria-label="搜索配置" value={search} onChange={event => setSearch(event.target.value)} /></label>
         <ul className="profile-list">{filtered.map(profile => <li key={profile.id}><button className={draft.id === profile.id ? 'selected' : ''} onClick={() => { clearSecrets(); setDraft(edit(profile)); }}>{profile.name}<small>{profile.settings.protocol.toUpperCase()} · {profile.credential_missing ? '凭据引用缺失' : profile.credential_ref ? '有凭据引用' : '无凭据引用'}</small></button></li>)}</ul>
-        <div className="config-actions"><button disabled={busy || !ready} onClick={() => { clearSecrets(); setDraft({ ...blank(), folder: filter === '*' ? '' : filter }); }}>新建配置</button><button disabled={busy} onClick={() => void run(async () => {}, '配置已刷新')}>刷新配置</button></div>
+        <div className="config-actions aligned-actions"><button disabled={busy || !ready} onClick={() => { clearSecrets(); setDraft({ ...blank(), folder: filter === '*' ? '' : filter }); }}>新建配置</button><IconButton icon="refresh" label="刷新配置" disabled={busy} onClick={() => void run(async () => {}, '配置已刷新')} /></div>
         <form aria-label="目录编辑" onSubmit={event => { event.preventDefault(); void run(async () => { await config({ op: 'save_folder', folder: folderDraft }); }, '目录已保存'); }}>
           <fieldset disabled={busy || !ready}><legend>目录管理</legend>
             <label>编辑目录<select aria-label="编辑目录" value={folders.some(f => f.id === folderDraft.id) ? folderDraft.id : ''} onChange={event => setFolderDraft(folders.find(folder => folder.id === event.target.value) ?? { id: crypto.randomUUID(), parent_id: null, name: '' })}><option value="">新目录</option>{folders.map(folder => <option key={folder.id} value={folder.id}>{folderName(folder)}</option>)}</select></label>

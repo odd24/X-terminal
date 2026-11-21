@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ComponentPropsWithoutRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 function dialogControls(dialog: HTMLDialogElement) {
@@ -177,11 +177,36 @@ export function ContextMenu({x,y,anchor,anchored=false,close,children,label="会
   return createPortal(<div ref={element} className={`context-menu ${className}`} role="menu" aria-label={label} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();onClose.current();if(anchor.isConnected)anchor.focus();}else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'));const index=items.indexOf(document.activeElement as HTMLElement);const next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowUp'?-1:1)+items.length)%items.length;items[next]?.focus();}}}>{children}</div>,document.body);
 }
 
-export function Panel({ title, label = title, close, closeLabel = '关闭', children }: {
-  title: string; label?: string; close?: () => void; closeLabel?: string; children: ReactNode;
+const iconPaths = {
+  close: 'M4 4l8 8M12 4l-8 8',
+  refresh: 'M13.5 7A5.5 5.5 0 1 0 13 10.5M13.5 3.5V7H10',
+  plus: 'M8 3v10M3 8h10',
+  collapse: 'M6 3H2.5v10H6m4-10h3.5v10H10M11 8H5m2-2L5 8l2 2',
+} as const;
+
+export function ControlIcon({ icon }: { icon: keyof typeof iconPaths | 'more' }) {
+  return <svg className="control-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    {icon === 'more' ? [3, 8, 13].map(x => <circle key={x} cx={x} cy="8" r="1.15" fill="currentColor" />)
+      : <path d={iconPaths[icon]} fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />}
+  </svg>;
+}
+
+export function IconButton({ icon, label, className = '', ...props }: ComponentPropsWithoutRef<'button'> & {
+  icon: keyof typeof iconPaths; label: string;
+}) {
+  return <button {...props} type="button" className={`icon-button ${className}`} aria-label={label} title={label}><ControlIcon icon={icon} /></button>;
+}
+
+export function PanelHeading({title, close, closeLabel = '关闭'}: {title: string; close?: () => void; closeLabel?: string}) {
+  return <div className="config-heading"><h2>{title}</h2>{close && <IconButton icon="close" label={closeLabel} onClick={close} />}</div>;
+}
+
+export function Panel({ title, label = title, close, closeLabel = '关闭', compact = false, children }: {
+  title: string; label?: string; close?: () => void; closeLabel?: string; compact?: boolean; children: ReactNode;
 }) {
   return <section className="config-panel" aria-label={label}>
-    <div className="config-heading"><h2>{title}</h2>{close && <button onClick={close}>{closeLabel}</button>}</div>
+    {compact ? <PanelHeading title={title} close={close} closeLabel={closeLabel} />
+      : <div className="config-heading"><h2>{title}</h2>{close && <button onClick={close}>{closeLabel}</button>}</div>}
     {children}
   </section>;
 }

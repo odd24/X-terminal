@@ -7,11 +7,14 @@ import {createInterface} from 'node:readline';
 import {requestId} from '../apps/desktop/src/request-id.ts';
 import {connectDesktopPage, delay, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
 import {checkLogToolbar,checkMainToolbar,measureCompactToolbar,measurePopup} from './lib/ToolbarMenuChecks.mjs';
+import {checkConnectionPanels} from './lib/ConnectionPanelChecks.mjs';
 
 const desktop=path.resolve(process.argv[2]);
 const uartMode=process.argv.includes('--uart');
-const refresh=process.argv.includes('--toolbar-refresh');
-const version=refresh?'0.1.10':'0.1.9';
+const panels=process.argv.includes('--connection-panels');
+const refresh=panels||process.argv.includes('--toolbar-refresh');
+const version=panels?'0.1.11':refresh?'0.1.10':'0.1.9';
+const artifact=panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh';
 const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-session-copy-ui-中文-'));
 const processes=[];
 const title='共享终端';
@@ -361,7 +364,9 @@ try{
   ui=await launchDesktop(root,{executable:desktop,fixture:uartMode});
   service=await ui.invoke('service_status');
   assert.equal(service.fixture,uartMode);
-  if(refresh){
+  if(panels){
+    evidence=await checkConnectionPanels({ui,version,root,source,connect,wait,fit,setTheme,splitRight,keyGoesTo,webviewClick});
+  }else if(refresh){
     evidence=await toolbarRefresh();
   }else if(uartMode){
     const inventory=await serial({op:'inventory'});
@@ -431,7 +436,7 @@ try{
     await ui.screenshot('desktop-0.1.9-copy-in-split.png');
     console.log('PASS temporary copy, manual authentication and exact split pane/input placement');
     assert.equal((await metric(second)).accepted_connections,2);
-    await ui.click('收起窗格 2');
+    await ui.evaluate("document.querySelector('[aria-label=\"终端窗格 2\"] .pane-collapse, [aria-label=\"收起窗格 2\"]').click()");
     await ui.waitFor(`document.querySelectorAll('[data-pane]').length===1&&!!${tab(bCopy)}`);
     await activate(bCopy);
     const wide=await seam(ui);verifySeam(wide);
@@ -485,10 +490,10 @@ try{
       detachedCopyRouting:true,lostReplyRecoveredWithoutReplay:true};
   }
   await close();
-  await writeFile(`artifacts/windows-${version}-${refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh'}.json`,JSON.stringify(evidence,null,2)+'\n');
-  console.log(refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
+  await writeFile(`artifacts/windows-${version}-${artifact}.json`,JSON.stringify(evidence,null,2)+'\n');
+  console.log(panels?'PASS Windows connection panels, exact lifecycle receipts, pane controls and unchanged toolbar':refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
 }catch(error){
-  if(ui)await ui.screenshot(`desktop-${version}-${refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh'}-failure.png`).catch(()=>{});
+  if(ui)await ui.screenshot(`desktop-${version}-${artifact}-failure.png`).catch(()=>{});
   throw error;
 }finally{
   detached?.close();

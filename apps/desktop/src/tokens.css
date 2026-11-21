@@ -59,6 +59,7 @@
   --border-subtle: #314054;
   --accent: #84d9ca;
   --accent-text: #b9e9df;
+  --status-connected: #83d6a0;
   --danger: #ffb3a7;
   --recording: #ff5b63;
   --terminal-background: #000000;
@@ -97,6 +98,7 @@
   --border-subtle: #ced4de;
   --accent: #215eb5;
   --accent-text: #174b96;
+  --status-connected: #187541;
   --danger: #a32424;
   --recording: #bd2636;
   --terminal-background: #ffffff;

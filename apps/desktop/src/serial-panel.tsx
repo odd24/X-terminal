@@ -4,6 +4,7 @@ import { requestId } from './request-id';
 import { serial, serialResult, reference, type Inventory, type SerialStatus } from './serial-api';
 import type { Connection } from './ssh-api';
 import { invoke } from '@tauri-apps/api/core';
+import { IconButton, PanelHeading } from './ui';
 
 export function SerialPanel({ connection, select, requestedProfile, controlsOnly=false, summaryOnly=false, tools, closePanel }: { connection?: Connection; select(id: string,expected?:{connection_id:string;generation:number}): void; requestedProfile?: string; controlsOnly?:boolean; summaryOnly?:boolean; tools?():void; closePanel?():void }) {
   const [profiles,setProfiles]=useState<Profile[]>([]); const [profileId,setProfileId]=useState('');
@@ -34,17 +35,17 @@ export function SerialPanel({ connection, select, requestedProfile, controlsOnly
     return <div aria-label="串口快捷操作"><div className="config-actions"><span role="status" aria-label="UART连接状态">{status?`${status.port} · ${labels[status.connection.state]??'正在读取状态'} · 接收 ${status.read_bytes} 字节${status.dropped_bytes?` · 缺口 ${status.dropped_bytes} 字节`:''}`:'正在读取串口状态…'}</span><button onClick={tools}>发送与接收详情</button><button disabled={!status||['DISCONNECTED','FAILED'].includes(status.connection.state)} onClick={()=>void close()}>断开串口</button></div>{status?.failure&&<p role="alert">{failures[status.failure]??'串口发生错误，请打开详情核对；没有自动重连。'}</p>}{message!=='选择配置并只读刷新设备；核对端口、身份及开口控制线后手动连接。'&&<p role="status">{message}</p>}</div>;}
   return <section className="config-panel serial-panel" aria-label="串口连接面板">
     {!controlsOnly&&<>
-    <div className="config-heading"><h2>串口连接与发送</h2><button onClick={closePanel}>关闭串口高级工具</button></div>
-    <button disabled={busy} onClick={()=>void act(refresh)}>刷新串口配置与设备</button>
+    <PanelHeading title="串口连接与发送" close={closePanel} closeLabel="关闭串口高级工具" />
     <p role="status">{message}</p>
     <div className="form-grid"><label>配置<select aria-label="串口配置" value={profileId} onChange={event=>{setProfileId(event.target.value);setApproved(false);}}><option value="">请选择配置</option>{profiles.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>当前设备<select aria-label="串口设备" value={deviceId} onChange={event=>{setDeviceId(event.target.value);setApproved(false);}}><option value="">请选择设备</option>{inventory?.devices.map(item=><option key={item.device_id} value={item.device_id}>{item.port} · {item.instance_id}</option>)}</select></label></div>
+      <div className="field-refresh-row"><label>当前设备<select aria-label="串口设备" value={deviceId} onChange={event=>{setDeviceId(event.target.value);setApproved(false);}}><option value="">请选择设备</option>{inventory?.devices.map(item=><option key={item.device_id} value={item.device_id}>{item.port} · {item.instance_id}</option>)}</select></label>
+        <IconButton icon="refresh" label="刷新串口配置与设备" disabled={busy} onClick={()=>void act(refresh)} /></div></div>
     {inventory&&<small>可识别 {inventory.devices.length} 项；未识别端口：{inventory.unidentified_ports.join('、')||'无'}；元数据失败 {inventory.metadata_failures} 项。刷新后须重新选择，未识别项不按 COM 号回退打开。</small>}
     {settings&&<p aria-label="串口参数">{settings.port} · {settings.baud_rate} · {settings.data_bits}/{settings.parity}/{settings.stop_bits} · 流控 {settings.flow} · 编码 {settings.encoding} · DTR {String(settings.dtr_on_open)} · RTS {settings.rts_on_open===null?'由硬件流控管理':String(settings.rts_on_open)}</p>}
     <label className="check"><input aria-label="确认串口设备与控制线" type="checkbox" checked={approved} onChange={event=>setApproved(event.target.checked)} />已核对设备身份与参数；打开期间控制线变化可能使设备复位</label>
     <button disabled={busy||!approved||!settings||!device||device.port!==settings.port} onClick={()=>void act(async()=>{if(!inventory||!device)throw new Error('请刷新并选择设备。');const reply=await serial({op:'start',profile_id:profileId,request_id:requestId(),revision:inventory.revision,device_id:device.device_id});if(reply.result!=='started')throw new Error('串口启动响应不匹配。');if(mounted.current){select(reply.connection.connection_id,reply.connection);setApproved(false);setMessage('已提交打开请求，请等待实际连接状态。');}})}>打开串口</button>
     </>}
-    {controlsOnly&&<><div className="config-heading"><h2>串口通信</h2>{closePanel&&<button onClick={closePanel}>关闭串口详情</button>}</div><p role="status">{message==='选择配置并只读刷新设备；核对端口、身份及开口控制线后手动连接。'?'连接后持续接收；只抓取UART输出无需发送。':message}</p></>}
+    {controlsOnly&&<><PanelHeading title="串口通信" close={closePanel} closeLabel="关闭串口详情" /><p role="status">{message==='选择配置并只读刷新设备；核对端口、身份及开口控制线后手动连接。'?'连接后持续接收；只抓取UART输出无需发送。':message}</p></>}
     {status&&<><p aria-label="串口状态">{status.connection.state} · {status.port} · {status.connection.connection_id} · 代次 {status.connection.generation} · 编码 {status.encoding}{status.failure&&` · ${status.failure}`}{status.cleanup_pending&&' · 正在清理句柄'} · 接收 {status.read_bytes} 字节 / 丢失 {status.dropped_bytes} 字节{status.break_cleanup_failure&&` · Break 清理失败 ${status.break_cleanup_failure}`}</p>
       <div className="config-actions"><button disabled={['DISCONNECTED','FAILED'].includes(status.connection.state)} onClick={()=>void close()}>停止发送并关闭串口</button><button disabled={busy||status.cleanup_pending||!['DISCONNECTED','FAILED'].includes(status.connection.state)} onClick={()=>void act(async()=>{const connection=target();const reply=await serial({op:'forget',connection});if(reply.result!=='accepted')throw new Error('移除响应不匹配。');if(mounted.current&&current.current?.connection_id===connection.connection_id){setStatus(undefined);select('');setMessage('连接记录及保留输出/回执已移除，配置仍保留。');}})}>移除串口记录</button></div>
       <details open={!controlsOnly}><summary>发送、HEX与控制线</summary><small>终端按本连接的 UTF-8/GBK/GB18030 编码快照增量解码；输出缺口会清屏并重置解析状态。发送按本连接的编码快照处理；HEX 字节不转码。关闭面板或重载不会撤销已提交发送。</small>

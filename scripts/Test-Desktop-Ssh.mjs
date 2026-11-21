@@ -32,14 +32,21 @@ try {
   await ui.click('SSH2 连接');
   await ui.waitFor(`document.querySelector('[aria-label="SSH2 配置"]').options.length === 4`);
   const choose = async profile => { await ui.fill('SSH2 配置',profile.id); await ui.click('建立 SSH2 连接'); };
-  const state = value => ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.textContent.startsWith(${JSON.stringify(value)})`);
+  const state = value => ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.dataset.state===${JSON.stringify(value)}`);
   const waitButton = label => ui.waitFor(`Array.from(document.querySelectorAll('button')).some(button=>button.textContent===${JSON.stringify(label)} && !button.disabled)`);
+  const removeRecord = async () => {
+    await waitButton('移除连接记录');
+    await ui.evaluate("document.querySelector('.ssh-session-menu > summary').click()");
+    await ui.click('移除连接记录');
+    await waitButton('确认移除连接记录');
+    await ui.click('确认移除连接记录');
+  };
   await choose(password); await waitButton('拒绝 SSH2 主机');
   assert.equal((await control({op:'metrics'})).attempts,0,'no authentication before trust');
   assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='信任本次 SSH2 主机').disabled`),true);
   assert.equal(await ui.evaluate(`document.querySelector('.ssh-panel .fingerprint').textContent===${JSON.stringify(server.pin)}`),true);
   await ui.click('拒绝 SSH2 主机'); await state('FAILED');
-  await ui.click('显式重连 SSH2'); await waitButton('拒绝 SSH2 主机');
+  await ui.click('重新连接'); await waitButton('拒绝 SSH2 主机');
   await ui.evaluate(`document.querySelector('[aria-label="已核对 SSH2 主机指纹"]').click()`);
   await ui.click('信任本次 SSH2 主机'); await waitButton('提交本次 SSH2 密码');
   await ui.fill('SSH2 临时密码','wrong synthetic password'); await ui.click('提交本次 SSH2 密码');
@@ -222,22 +229,22 @@ try {
   assert.equal(Buffer.from((await control({op:'metrics'})).received.flat()).toString(),'firstsecond','oversized paste is not sent');
 
   await control({op:'end'}); await state('DISCONNECTED');
-  await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]').textContent.includes('shell 退出码 7')`);
+  await ui.waitFor(`document.querySelector('.ssh-connection-detail')?.textContent.includes('shell 退出码 7')`);
   // Corrupt the remembered public pin to exercise an actual changed-key GUI decision.
   const database=new DatabaseSync(path.join(directory,'config.sqlite'));
   database.prepare('UPDATE host_keys SET key=?').run(Buffer.from('synthetic changed remembered key')); database.close();
-  await ui.click('显式重连 SSH2'); await waitButton('拒绝 SSH2 主机');
+  await ui.click('重新连接'); await waitButton('拒绝 SSH2 主机');
   await ui.waitFor(`document.querySelector('.ssh-panel').textContent.includes('主机密钥已变化')`);
   await ui.screenshot('desktop-ssh2-changed-key.png');
   const before=(await control({op:'metrics'})).attempts;
   await ui.click('拒绝 SSH2 主机'); await state('FAILED'); assert.equal((await control({op:'metrics'})).attempts,before);
-  await ui.click('显式重连 SSH2');await waitButton('拒绝 SSH2 主机');
+  await ui.click('重新连接');await waitButton('拒绝 SSH2 主机');
   await ui.evaluate(`document.querySelector('[aria-label="已核对 SSH2 主机指纹"]').click()`);await ui.click('信任本次 SSH2 主机');
   await waitButton('提交本次 SSH2 密码');await ui.fill('SSH2 临时密码',server.password);await ui.click('提交本次 SSH2 密码');await state('CONNECTED');
-  await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');
+  await ui.click('断开连接');await state('DISCONNECTED');
   await choose(keyProfile); await waitButton('使用保存的 SSH2 凭据');await ui.click('使用保存的 SSH2 凭据');await state('CONNECTED');
   await control({op:'disconnect'});await state('FAILED');
-  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="SSH2 状态"]').textContent.includes('shell 退出码')`),false,'disconnect cannot invent status');
+  assert.equal(await ui.evaluate(`document.querySelector('.ssh-connection-detail').textContent.includes('shell 退出码')`),false,'disconnect cannot invent status');
   await choose(keyboard);await ui.waitFor(`document.querySelector('[aria-label="SSH2 认证回答 1"]')?.type === 'password'`);
   await ui.fill('SSH2 认证回答 1',server.password);await ui.click('提交 SSH2 认证回答');await state('CONNECTED');
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="SSH2 认证回答 1"]') === null`),true);
@@ -262,7 +269,7 @@ try {
   await ui.click('取消选中 exec 任务');await ui.waitFor(`document.querySelector('[aria-label="exec 任务状态"]')?.textContent.includes('CANCELLED')`);
   await ui.click('SSH2 连接');await state('CONNECTED');
   assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='移除连接记录').disabled`),true);
-  await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');
+  await ui.click('断开连接');await state('DISCONNECTED');
   let retained=await ui.invoke('service_list');
   // Hold one real list response while the real UI removes its first entry.
   // The next metadata lookup must see actual NotFound, then refresh the list.
@@ -290,9 +297,8 @@ try {
     await ui.waitFor('window.__listRemovalRace.held===1');
     await ui.selectTab(removedDuringPoll.connection_id);
     await ui.waitFor(`document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes(${JSON.stringify(removedDuringPoll.connection_id)})`);
-    await waitButton('移除连接记录');
-    await ui.click('移除连接记录');
-    await ui.waitFor(`document.querySelector('.ssh-panel [role="status"]')?.textContent.includes('已移除')`);
+    await removeRecord();
+    await ui.waitFor(`[...document.querySelectorAll('.ssh-panel [role="status"]')].some(element=>element.textContent.includes('已移除'))`);
     await ui.evaluate('window.__listRemovalRace.release()');
     await ui.waitFor(`![...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(removedDuringPoll.connection_id)})`);
     const race=await ui.evaluate('({held:window.__listRemovalRace.held,notFound:window.__listRemovalRace.notFound})');
@@ -306,7 +312,7 @@ try {
   for(const item of retained){
     await ui.selectTab(item.connection_id);
     await ui.waitFor(`document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);
-    await waitButton('移除连接记录');await ui.click('移除连接记录');
+    await removeRecord();
     await ui.waitFor(`![...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(item.connection_id)})`);
   }
   await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
@@ -315,7 +321,7 @@ try {
   await ui.fill('SSH2 临时密码',server.password);await ui.click('提交本次 SSH2 密码');await state('CONNECTED');
   const replacement=(await ui.invoke('service_list'))[0];
   assert.notEqual(replacement.connection_id,connection.connection_id);
-  await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');await ui.click('移除连接记录');
+  await ui.click('断开连接');await state('DISCONNECTED');await removeRecord();
   await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
   assert.equal((await ui.invoke('service_list')).length,0);
   // P11.5: real WebView text input, frozen metadata, split legacy exec streams and reload.
@@ -382,8 +388,8 @@ try {
       assert.equal((await control({op:'metrics'})).received.flat().length,beforeRejected);
     }
     await ui.screenshot(`desktop-ssh-${encoding}-synthetic.png`);
-    await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');
-    await ui.click('显式重连 SSH2');await waitButton('提交本次 SSH2 密码');
+    await ui.click('断开连接');await state('DISCONNECTED');
+    await ui.click('重新连接');await waitButton('提交本次 SSH2 密码');
     await ui.fill('SSH2 临时密码',server.password);await ui.click('提交本次 SSH2 密码');await state('CONNECTED');
     const restarted=(await ui.invoke('service_list')).find(item=>item.connection_id===scope.connection_id);
     assert.equal(restarted.generation,scope.generation+1);
@@ -429,7 +435,7 @@ try {
       assert.deepEqual((await control({op:'metrics'})).received.flat().slice(before),[3],'Ctrl+C without selection preserves SSH interrupt byte');
     }
 
-    await ui.click('关闭 SSH2 连接');await state('DISCONNECTED');await ui.click('移除连接记录');
+    await ui.click('断开连接');await state('DISCONNECTED');await removeRecord();
     await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
   }
   await ui.close();ui=null;

@@ -50,7 +50,7 @@ import { PaneGrid } from './pane-grid';
 import { WorkspaceSession, captureWorkspace } from './workspace-session';
 import { WorkspacesPanel } from './workspaces-panel';
 import { useTabLogging, logBadge } from './tab-logging';
-import { ToolbarMenu, Dialog, Panel } from './ui';
+import { ControlIcon, ToolbarMenu, Dialog, Panel } from './ui';
 import { TerminalLogMenu } from './terminal-log-menu';
 import {RecordingNotice,useOpenLogDirectory,useRecordingNotices} from './recording-notice';
 import {CornerNotice,CornerNoticeHost} from './corner-notice';
@@ -968,12 +968,12 @@ function App() {
           owner={service?.service_id??''} selected={slot.requested} name={tabName} recording={tabLogs.control} toggleRecording={tabLogs.toggle}
           select={id=>{panes.current.focus(key);selectConnection(id);controllers.current.get(key)?.runtime.term.focus();}}
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached} copy={(source,owner)=>copyTab(key,source,owner)}>
-          {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text="＋">
+          {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSsh();}}>连接服务器</button>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSerial();}}>串口连接</button>
           </ToolbarMenu>}
-          {paneSlots.length>1&&<button className="pane-collapse" aria-label={'收起窗格 '+(index+1)} title="收起窗格，保留连接"
-            onClick={()=>{cancelWorkspaceSplit();if(panes.current.closePane(key,panes.current.active))routeChanged();}}>−</button>}
+          {paneSlots.length>1&&<button type="button" className="pane-collapse" aria-label="收起此窗格，保留连接" title="收起此窗格，保留连接"
+            onClick={()=>{cancelWorkspaceSplit();if(panes.current.closePane(key,panes.current.active))routeChanged();}}><ControlIcon icon="collapse" /></button>}
         </SessionTabs>;
         return <TerminalPane context={(pane,value)=>setTerminalMenu({...value,pane,title:c?tabName(c):value.target.protocol})} key={slot.key} rendered={view.renderedTarget} id={slot.key} position={index+1} split={paneSlots.length>1} active={panes.current.active===slot.key} tabs={rail} preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
@@ -1023,7 +1023,7 @@ function App() {
     {composeOpen && <Dialog label="撰写终端输入" modal={false} close={()=>{drafts.current.invalidate();setComposeOpen(false);}}><ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text, pacing) => composeSend.current?.(target, text, pacing) ?? false} close={() => setComposeOpen(false)} /></Dialog>}
     {softwareSettingsOpen && <Dialog label="软件设置" close={()=>setSoftwareSettingsOpen(false)}><SoftwareSettings preferences={preferences} fontSizeControl={<TerminalFontSizeControl label="终端字号" value={fontSize} state={fontSizing.state} change={setFontSize}/>} busy={preferencesBusy} canSave={!!preferenceRevision.current} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setSoftwareSettingsOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel key={configurationTarget?.id??'new'} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget?.id} initialAction={configurationTarget?.action} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
-    {sshOpen && <Dialog label="SSH2 连接工具" modal={false} close={()=>setSshOpen(false)}><SshPanel connection={active} select={selectConnection} closePanel={()=>setSshOpen(false)} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} /></Dialog>}
+    <Dialog label="SSH2 连接工具" modal={false} open={sshOpen} close={()=>setSshOpen(false)}><SshPanel key={service?.service_id} open={sshOpen} connection={active} requested={selected} select={selectConnection} closePanel={()=>setSshOpen(false)} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} /></Dialog>
     <Dialog label="独立 exec 任务" modal={false} open={execOpen} close={()=>setExecOpen(false)}><ExecPanel open={execOpen} connection={active} close={()=>setExecOpen(false)} /></Dialog>
     {serialOpen && <Dialog label="串口高级工具" modal={false} close={()=>setSerialOpen(false)}><SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} closePanel={()=>setSerialOpen(false)} /></Dialog>}
     {serialToolsOpen&&active?.protocol==='SERIAL'&&<Dialog label="串口收发详情" close={()=>setSerialToolsOpen(false)}><SerialPanel controlsOnly connection={active} select={selectConnection} closePanel={()=>setSerialToolsOpen(false)}/></Dialog>}

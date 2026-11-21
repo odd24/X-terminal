@@ -91,7 +91,7 @@ try {
   await ui.evaluate(`document.querySelector('[aria-label="已核对 SSH2 主机指纹"]').click()`);
   await ui.click('信任本次 SSH2 主机');
   await ui.waitFor(`!!(${button('使用保存的 SSH2 凭据')})`); await ui.click('使用保存的 SSH2 凭据');
-  await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.textContent.startsWith('CONNECTED')`);
+  await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.dataset.state==='CONNECTED'`);
   const sshId = await ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);
   const sshConnection = (await ui.invoke('service_list')).find(c => c.connection_id === sshId);
   const sshRef = { connection_id: sshId, generation: sshConnection.generation };
