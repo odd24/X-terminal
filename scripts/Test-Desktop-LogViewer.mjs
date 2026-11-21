@@ -189,7 +189,9 @@ try{
   await observeLogDirectory(ui,root,()=>ui.evaluate(`document.querySelector('.toolbar-log-directory').click()`));
   assert.equal((await traces()).length,3);
   await appearance();
-  await ui.evaluate(`(${button('.log-viewer-settings','恢复 Windows 系统默认')}).click()`);
+  const reset=button('.log-viewer-settings','恢复 Windows 系统默认');
+  await ui.waitFor(`(${reset})?.disabled===false`);
+  await ui.evaluate(`(${reset}).click()`);
   await ui.waitFor(`${selected}.textContent==='Windows 系统默认'`);
   await ui.click('关闭外观');
   await menu('打开当前日志文件');
