@@ -176,8 +176,8 @@ async function verifyWindow(page,caption,label='main'){
   dragNativeWindow(ui.app,[start,{x:start.x+32,y:start.y+24},{x:start.x+62,y:start.y+40}],{executable:desktop,title:caption,raise:true});
   const moved=await windowQuery(page,'outer_position',label);
   assert.ok(Math.abs(moved.x-before.x)>20||Math.abs(moved.y-before.y)>20,JSON.stringify({before,moved}));
-  await click(page,chrome,'Double',caption);
-  await wait(()=>windowQuery(page,'is_maximized',label),'native title double click maximized');
+  await click(page,q('button[aria-label="最大化窗口"]'),'Left',caption);
+  await wait(()=>windowQuery(page,'is_maximized',label),'native maximize button maximized');
   await click(page,q('button[aria-label="还原窗口"]'),'Left',caption);
   await wait(async()=>!(await windowQuery(page,'is_maximized',label)),'native window restored');
   return {moved:true,maximized:true,restored:true};

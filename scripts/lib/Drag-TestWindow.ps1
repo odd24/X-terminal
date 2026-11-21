@@ -5,7 +5,7 @@ param(
     [string]$Title,
     [switch]$Raise,
     [switch]$PlaceAtWorkAreaStart,
-    [ValidateSet('Left','Right','Double')][string]$Click,
+    [ValidateSet('Left','Right')][string]$Click,
     [string]$LandingTitle
 )
 $ErrorActionPreference = 'Stop'
@@ -145,11 +145,6 @@ try {
                 $down,$up=if($Click -eq 'Right'){8,16}else{2,4}
                 [TerminalTestMouse]::mouse_event($down,0,0,0,[UIntPtr]::Zero)
                 [TerminalTestMouse]::mouse_event($up,0,0,0,[UIntPtr]::Zero)
-                if ($Click -eq 'Double') {
-                    Start-Sleep -Milliseconds 80
-                    [TerminalTestMouse]::mouse_event($down,0,0,0,[UIntPtr]::Zero)
-                    [TerminalTestMouse]::mouse_event($up,0,0,0,[UIntPtr]::Zero)
-                }
                 continue
             }
             [TerminalTestMouse]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
