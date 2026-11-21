@@ -6,6 +6,7 @@ param(
     [switch]$Raise,
     [switch]$PlaceAtWorkAreaStart,
     [switch]$MeasureMovement,
+    [switch]$HoldOutside,
     [ValidateSet('Left','Right')][string]$Click,
     [string]$LandingTitle
 )
@@ -104,6 +105,25 @@ try {
     }
     $scale = [TerminalTestMouse]::GetDpiForWindow($window) / 96
     $steps = @($Points | ConvertFrom-Json)
+    if ($HoldOutside) {
+        if ($steps.Count -ne 1 -or !$steps[0].outside -or $Click -or $MeasureMovement) {
+            throw 'The cursor hold requires one outside point and no mouse clicks'
+        }
+        $point = New-Object TerminalTestMouse+Point
+        $point.X = [int][Math]::Round($steps[0].x * $scale)
+        $point.Y = [int][Math]::Round($steps[0].y * $scale)
+        $rect = New-Object TerminalTestMouse+Rect
+        if (![TerminalTestMouse]::ClientToScreen($window,[ref]$point) -or ![TerminalTestMouse]::GetWindowRect($window,[ref]$rect)) {
+            throw 'Could not locate the owned window and cursor point'
+        }
+        if ($point.X -ge $rect.Left -and $point.X -lt $rect.Right -and $point.Y -ge $rect.Top -and $point.Y -lt $rect.Bottom) {
+            throw 'The cursor hold point is inside the owned test window'
+        }
+        if (![TerminalTestMouse]::SetCursorPos($point.X,$point.Y)) { throw 'Cursor positioning failed' }
+        Write-Output 'OWNED_POINTER_OUTSIDE'
+        Start-Sleep -Seconds 3
+        return
+    }
     if ($Click -and ($steps.Count -ne 1 -or $steps[0].outside -or $steps[0].landings)) { throw 'A click requires one owned client point' }
     if ($MeasureMovement) {
         if ($Click) { throw 'Movement measurements require a drag.' }

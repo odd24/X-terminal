@@ -188,6 +188,31 @@ function fit(width,height){
     '-Width',String(width),'-Height',String(height)]);
 }
 const windowQuery=(page,operation,label='main')=>page.invoke(`plugin:window|${operation}`,{label});
+async function detachOwnedSession(connection){
+  const pointer=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1',
+    '-TargetProcessId',String(ui.app.pid),'-ExpectedExecutable',desktop,'-Title',title,
+    '-Points',JSON.stringify([{x:-35,y:150,outside:true}]),'-PlaceAtWorkAreaStart','-HoldOutside'],
+    {windowsHide:true,stdio:['ignore','pipe','pipe']});
+  let error='';
+  pointer.stderr.setEncoding('utf8').on('data',chunk=>{error+=chunk;});
+  const closed=new Promise(resolve=>pointer.once('close',resolve));
+  const lines=createInterface({input:pointer.stdout});
+  try{
+    const first=await Promise.race([
+      new Promise((resolve,reject)=>{
+        lines.once('line',resolve);
+        pointer.once('error',reject);
+      }),
+      closed.then(()=>error),
+    ]);
+    assert.equal(first,'OWNED_POINTER_OUTSIDE');
+    await ui.invoke('detach_session',{serviceId:service.service_id,connection:ref(connection)});
+  }finally{
+    lines.close();
+    const code=await closed;
+    assert.equal(code,0,error);
+  }
+}
 async function verifyWindow(page,caption,label='main'){
   const chrome=q('.window-title');
   const start=await page.evaluate(`(()=>{const b=${chrome}.getBoundingClientRect();return{x:b.left+Math.min(116,b.width/2),y:b.top+b.height/2};})()`);
@@ -306,9 +331,7 @@ async function toolbarRefresh(){
   await ui.screenshot(`desktop-${version}-toolbar-split.png`);
   await webviewClick(ui,q('.sidebar-toggle'));
   await ui.waitFor("document.querySelector('.desktop-body').classList.contains('sidebar-hidden')");
-  const origin=await ui.evaluate(`(()=>{const r=${tab(a)}.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-  dragNativeWindow(ui.app,[origin,{x:origin.x,y:origin.y+35},{x:45,y:120},{x:-35,y:150,outside:true,holdMs:350}],
-    {executable:desktop,title,raise:true,placeAtWorkAreaStart:true});
+  await detachOwnedSession(a);
   detached=await connectDesktopPage(await wait(async()=> (await ui.otherPages())[0],'native detached toolbar window'));
   await detached.waitFor(`${tab(a)}?.getAttribute('aria-selected')==='true'&&document.documentElement.dataset.theme==='dark'`);
   geometry.detached=await measureCompactToolbar(detached,true);
