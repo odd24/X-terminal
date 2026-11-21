@@ -1,15 +1,16 @@
-param([Parameter(Mandatory)][int]$TargetProcessId, [Parameter(Mandatory)][string]$Root, [ValidateSet('select','cancel')][string]$Action, [string]$TargetPath, [ValidateSet('Import','ProtectedExport','SaveRecovery')][string]$Purpose='Import')
+param([Parameter(Mandatory)][int]$TargetProcessId, [Parameter(Mandatory)][string]$Root, [ValidateSet('select','cancel')][string]$Action, [string]$TargetPath, [ValidateSet('Import','ProtectedExport','SaveRecovery','LogViewer','TextLog')][string]$Purpose='Import')
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 $testRoot=[IO.Path]::GetFullPath($Root)
-$protected=$Purpose -ne 'Import'
-$rootPrefix=switch($Purpose){'ProtectedExport'{'shared-terminal-save-ui-中文-protected-'} 'SaveRecovery'{'shared-terminal-save-ui-中文-recovery-'} default{'shared-terminal-import-config-ui-中文-'}}
-$pickerTitle=switch($Purpose){'ProtectedExport'{'另存受保护文本'} 'SaveRecovery'{'另存终端导出'} default{'选择原生连接配置 JSON'}}
-if (![IO.Path]::GetFileName($testRoot).StartsWith($rootPrefix) -or ($protected -and [IO.Path]::GetDirectoryName($testRoot) -ne [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar))) { throw 'Only the explicitly owned test root is allowed.' }
+$save=$Purpose -in @('ProtectedExport','SaveRecovery','TextLog')
+$nativeEditorFallback=$Purpose -ne 'Import'
+$rootPrefix=switch($Purpose){'ProtectedExport'{'shared-terminal-save-ui-中文-protected-'} 'SaveRecovery'{'shared-terminal-save-ui-中文-recovery-'} 'LogViewer'{'shared-terminal-log-viewer-ui-中文-'} 'TextLog'{'shared-terminal-save-ui-中文-'} default{'shared-terminal-import-config-ui-中文-'}}
+$pickerTitle=switch($Purpose){'ProtectedExport'{'另存受保护文本'} 'SaveRecovery'{'另存终端导出'} 'LogViewer'{'选择日志打开程序'} 'TextLog'{'保存文本日志'} default{'选择原生连接配置 JSON'}}
+if (![IO.Path]::GetFileName($testRoot).StartsWith($rootPrefix) -or ($nativeEditorFallback -and [IO.Path]::GetDirectoryName($testRoot) -ne [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar))) { throw 'Only the explicitly owned test root is allowed.' }
 if ($Action -eq 'select') {
  $resolved=[IO.Path]::GetFullPath($TargetPath)
- if (!$resolved.StartsWith($testRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or (!$protected -and ![IO.File]::Exists($resolved))) { throw 'Only a target under the exact owned test root is allowed.' }
+ if (!$resolved.StartsWith($testRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or (!$save -and ![IO.File]::Exists($resolved)) -or ($Purpose -eq 'LogViewer' -and [IO.Path]::GetExtension($resolved) -ne '.exe')) { throw 'Only a target under the exact owned test root is allowed.' }
 }
 Add-Type -TypeDefinition @'
 using System;
@@ -56,14 +57,14 @@ function Find-PickerButton($handle) {
     if ((Get-NativeClass $candidate) -ne 'Button' -or ![NativeImportTestWindow]::IsWindowEnabled($candidate)) { return [IntPtr]::Zero }
     $label=[Text.StringBuilder]::new(128);[void][NativeImportTestWindow]::GetWindowText($candidate,$label,128)
     $normal=$label.ToString().Replace('&','')
-    $matches=if($Action -eq 'cancel'){$normal -match '^(取消|Cancel)'}elseif($protected){$normal -eq '保存'}else{$normal -match '^(打开|Open)(\([Oo]\))?$'}
+    $matches=if($Action -eq 'cancel'){$normal -match '^(取消|Cancel)'}elseif($save){$normal -eq '保存'}else{$normal -match '^(打开|Open)(\([Oo]\))?$'}
     if (!$matches) { return [IntPtr]::Zero }; return $candidate
 }
 function Find-NativeFileEditor($handle) {
     $container=[NativeImportTestWindow]::GetDlgItem($handle,1148)
     if ((Get-NativeClass $container) -eq 'Edit') { return $container }
     if ((Get-NativeClass $container) -notmatch '^ComboBox') {
-        if (!$protected) { return [IntPtr]::Zero }
+        if (!$nativeEditorFallback) { return [IntPtr]::Zero }
         $containers=[Collections.Generic.List[IntPtr]]::new()
         $knownEditors=[Collections.Generic.List[IntPtr]]::new()
         $findKnown=[NativeImportTestWindow+Callback]{param($child,$unused)
@@ -115,7 +116,7 @@ for($attempt=0;$attempt -lt 100;$attempt++) {
                     $controlClass=[Text.StringBuilder]::new(128);[void][NativeImportTestWindow]::GetClassName($knownHandle,$controlClass,128)
                     if($controlClass.ToString() -eq 'Button'){$label=[Text.StringBuilder]::new(128);[void][NativeImportTestWindow]::GetWindowText($knownHandle,$label,128);Write-Output "KNOWN native Button id=$controlId label=$label"} else {Write-Output "KNOWN native id=$controlId class=$controlClass present=$($knownHandle -ne [IntPtr]::Zero)"}
                 }
-                if($protected) {
+                if($nativeEditorFallback) {
                     $known=[Collections.Generic.List[string]]::new()
                     $describe=[NativeImportTestWindow+Callback]{param($child,$unused)
                         $class=Get-NativeClass $child
@@ -132,7 +133,7 @@ for($attempt=0;$attempt -lt 100;$attempt++) {
     if($dialog) { break }; Start-Sleep -Milliseconds 100
 }
 if(!$dialog) {
-    if($lastPicker -and !$protected) {
+    if($lastPicker -and !$nativeEditorFallback) {
         # Diagnostics are bounded to the exact owned test picker, never the desktop tree.
         $nodes=$lastPicker.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)
         Write-Output "PICKER diagnostic target=$TargetProcessId children=$($nodes.Count) rootType=$($lastPicker.Current.ControlType.ProgrammaticName) rootProcess=$($lastPicker.Current.ProcessId)"

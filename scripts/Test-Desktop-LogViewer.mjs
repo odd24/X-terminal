@@ -20,8 +20,9 @@ const wait=async(check,label)=>{
   throw Error('Timeout: '+label);
 };
 const traces=()=>readFile(trace,'utf8').then(s=>s.trim().split(/\r?\n/).filter(Boolean)).catch(e=>{if(e.code==='ENOENT')return [];throw e;});
-const pick=(action,filename)=>execFileSync('pwsh',['-NoProfile','-STA','-File','scripts/lib/NativeSaveDialog.ps1',
-  '-TargetProcessId',String(ui.app.pid),'-Action',action,...(filename?['-TargetPath',filename]:[])],
+const pick=(purpose,action,filename)=>execFileSync('pwsh',['-NoProfile','-STA','-File','scripts/lib/NativeImportDialog.ps1',
+  '-TargetProcessId',String(ui.app.pid),'-Purpose',purpose,'-Root',purpose==='LogViewer'?root:saveRoot,
+  '-Action',action,...(filename?['-TargetPath',filename]:[])],
   {windowsHide:true,encoding:'utf8',timeout:18000});
 const settings=()=>ui.invoke('log_viewer_settings');
 const selected='document.querySelector(\'[aria-label="当前日志打开方式"]\')';
@@ -55,7 +56,7 @@ async function appearance() {
 }
 async function chooseProgram(filename) {
   await ui.evaluate(`document.querySelector('[aria-label="选择日志打开程序"]').click()`);
-  assert.match(pick(filename?'program':'program-cancel',filename),/PASS native save picker/);
+  assert.match(pick('LogViewer',filename?'select':'cancel',filename),/PASS native/);
   await ui.waitFor(`!document.querySelector('[aria-label="选择日志打开程序"]').disabled`);
 }
 async function idleClose(service) {
@@ -192,7 +193,7 @@ try{
   // The normal save workflow remains interactive and then emits the same card.
   const saved=path.join(saveRoot,'长文件名用于完整路径提示和宽度验证'.repeat(4)+'.log');
   await menu('保存终端缓冲内容…');
-  assert.match(pick('select',saved),/PASS native save picker/);
+  assert.match(pick('TextLog','select',saved),/PASS native/);
   const feedback='[aria-label="日志保存反馈"]';
   await ui.waitFor(`document.querySelector(${JSON.stringify(feedback)})?.textContent.includes('日志已保存')`);
   await measure('save',feedback,720);

@@ -1,14 +1,10 @@
-param([Parameter(Mandatory)][int]$TargetProcessId, [ValidateSet('select','cancel','explorer','program','program-cancel')][string]$Action, [string]$TargetPath)
+param([Parameter(Mandatory)][int]$TargetProcessId, [ValidateSet('select','cancel','explorer')][string]$Action, [string]$TargetPath)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
-$program = $Action -in @('program','program-cancel')
-$select = $Action -in @('select','program')
-if ($Action -eq 'explorer' -or $select) {
+if ($Action -eq 'explorer' -or $Action -eq 'select') {
     $resolved=[IO.Path]::GetFullPath($TargetPath)
     $temporary=[IO.Path]::GetFullPath([IO.Path]::GetTempPath())
-    $rootName=[IO.Path]::GetRelativePath($temporary,$resolved).Split([IO.Path]::DirectorySeparatorChar)[0]
-    $prefix=if($program){'shared-terminal-log-viewer-ui-中文-'}else{'shared-terminal-save-ui-中文-'}
-    if (!$resolved.StartsWith($temporary,[StringComparison]::OrdinalIgnoreCase) -or !$rootName.StartsWith($prefix) -or ($program -and [IO.Path]::GetExtension($resolved) -ne '.exe')) { throw 'Only the isolated test target is allowed.' }
+    if (!$resolved.StartsWith($temporary,[StringComparison]::OrdinalIgnoreCase) -or !([IO.Path]::GetRelativePath($temporary,$resolved).Split([IO.Path]::DirectorySeparatorChar)[0].StartsWith('shared-terminal-save-ui-中文-'))) { throw 'Only the isolated save-test temporary root is allowed.' }
 }
 if ($Action -eq 'explorer') {
     $shell=New-Object -ComObject Shell.Application
@@ -49,7 +45,7 @@ function Find-FileNameEditor($picker) {
 function Find-PickerButton($picker) {
     $buttons=$picker.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty,[Windows.Automation.ControlType]::Button))
     foreach($candidate in $buttons) {
-        $pickerButtonMatches=if($Action -eq 'program') { $candidate.Current.Name -match '^(打开|Open)' } elseif($select) { $candidate.Current.Name -eq '保存' } else { $candidate.Current.Name -match '^(取消|Cancel)' }
+        $pickerButtonMatches=if($Action -eq 'select') { $candidate.Current.Name -eq '保存' } else { $candidate.Current.Name -match '^(取消|Cancel)' }
         $invokePattern=$null
         if($pickerButtonMatches -and $candidate.Current.IsEnabled -and $candidate.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern,[ref]$invokePattern)) { return $candidate }
     }
@@ -63,19 +59,18 @@ for($attempt=0;$attempt -lt 100;$attempt++) {
         [void][NativeSaveTestWindow]::GetWindowThreadProcessId($window,[ref]$windowProcess)
         if($windowProcess -eq $TargetProcessId) {
             $caption=[Text.StringBuilder]::new(1024);[void][NativeSaveTestWindow]::GetWindowText($window,$caption,1024)
-            $title=$caption.ToString()
-            if(($program -and $title -eq '选择日志打开程序') -or (!$program -and ($title.StartsWith('另存终端导出') -or $title -eq '保存文本日志'))) { $candidates.Add($window) }
+            if($caption.ToString().StartsWith('另存终端导出') -or $caption.ToString() -eq '保存文本日志') { $candidates.Add($window) }
         }
         return $true
     }
     [void][NativeSaveTestWindow]::EnumWindows($callback,[IntPtr]::Zero)
     if($candidates.Count) { $handle=$candidates[0];[void][NativeSaveTestWindow]::ShowWindow($handle,9);$dialog=[Windows.Automation.AutomationElement]::FromHandle($handle);$lastPicker=$dialog }
     if($dialog) {
-        $edit=if($select) { Find-FileNameEditor $dialog } else { $null }
+        $edit=if($Action -eq 'select') { Find-FileNameEditor $dialog } else { $null }
         $button=Find-PickerButton $dialog
         # A titled window/editor can precede the requested button. Cancellation
         # needs the same readiness check; do not act on another process or label.
-        if(!$button -or ($select -and !$edit)) {
+        if(!$button -or ($Action -eq 'select' -and !$edit)) {
             $controlWaits++
             if($controlWaits -eq 1) { Write-Output "WAIT native picker controls action=$Action editor=$([bool]$edit) button=$([bool]$button)" }
             $dialog=$null
@@ -93,7 +88,7 @@ if(!$dialog) {
     throw "The native save picker controls were not ready in the test process: action=$Action attempts=$attempt controlWaits=$controlWaits"
 }
 Write-Output "READY native picker action=$Action attempts=$attempt controlWaits=$controlWaits"
-if($select) {
+if($Action -eq 'select') {
     if(!$edit) { throw 'Native file-name editor 1001 not found.' }
     $pattern=$edit.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
     $pattern.SetValue($resolved)
