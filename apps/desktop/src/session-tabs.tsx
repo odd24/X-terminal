@@ -2,9 +2,8 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode,
 import type { GroupConnection, TabGroup } from './tab-groups';
 import type { SessionDrag } from './session-drag';
 import type { TabRecording } from './tab-logging';
-import type { PaneKey } from './pane-layout';
 type Connection=GroupConnection&{state:string};
-export function SessionTabs({pane,inTitle,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,children}:{pane:PaneKey;inTitle:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;children?:ReactNode}){
+export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;children?:ReactNode}){
   const list=useRef<HTMLDivElement>(null);
   const menuNode=useRef<HTMLDivElement>(null);
   const [menu,setMenu]=useState<{connection:Connection;owner:string;x:number;y:number;focus:HTMLElement|null}>();
@@ -47,7 +46,7 @@ export function SessionTabs({pane,inTitle,tabs,groups,groupOf,owner,selected,nam
   function drop(event:DragEvent,group:string){event.preventDefault();const raw=event.dataTransfer.getData('application/x-shared-terminal-tab');if(raw.length>512)return;try{const t=JSON.parse(raw);if(t.owner!==owner)return;const live=tabs.find(c=>c.connection_id===t.connection_id&&c.generation===t.generation&&c.protocol===t.protocol);if(live)assign(live,group);}catch{/* unrelated/corrupt drag data never becomes an action */}}
   const {preview, bindings, cancelOnKey, allowedClick}=drag;
   const destination=preview?.destination;
-  return <div className="tab-tools pane-tab-bar" data-rail-pane={pane}><div role="tablist" aria-label="连接标签" ref={list} data-tab-drag={preview?'true':undefined} onWheel={event=>{
+  return <div className="tab-tools pane-tab-bar"><div role="tablist" aria-label="连接标签" ref={list} data-tab-drag={preview?'true':undefined} onWheel={event=>{
     const rail=event.currentTarget;
     if(event.deltaX||event.shiftKey||rail.scrollWidth<=rail.clientWidth)return;
     const scale=event.deltaMode===1?16:event.deltaMode===2?rail.clientWidth:1;
@@ -95,7 +94,7 @@ export function SessionTabs({pane,inTitle,tabs,groups,groupOf,owner,selected,nam
       </div>;
     })}
     </Fragment>)}</div>{children}
-    {inTitle&&<div className="tab-lane-drag" aria-hidden="true" data-tauri-drag-region="" />}
+    {singlePane&&<div className="tab-lane-drag" aria-hidden="true" data-tauri-drag-region="" />}
     {menu&&source&&<div className="terminal-context-menu context-menu session-tab-menu" role="menu" aria-label="会话标签菜单" ref={menuNode}
       onKeyDown={event=>{if(event.key==='Escape'||event.key==='Tab'){event.preventDefault();event.stopPropagation();closeMenu(true);}}}
       onContextMenu={event=>event.preventDefault()}>

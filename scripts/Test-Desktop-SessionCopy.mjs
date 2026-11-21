@@ -123,9 +123,9 @@ async function keyGoesTo(connection,value,others){
 }
 async function seam(page){
   return page.evaluate(`(()=>{
-    const bar=document.querySelector('.window-chrome'),active=bar.querySelector('.connection-tab:has([aria-selected="true"])');
-    const terminal=document.querySelector('[data-pane][data-active="true"] .terminal');
-    const rules=getComputedStyle(active),inactive=bar.querySelector('.connection-tab:has([aria-selected="false"])');
+    const bar=document.querySelector('.window-chrome'),pane=document.querySelector('[data-pane][data-active="true"]');
+    const active=pane.querySelector('.connection-tab:has([aria-selected="true"])'),terminal=pane.querySelector('.terminal');
+    const rules=getComputedStyle(active),inactive=pane.querySelector('.connection-tab:has([aria-selected="false"])');
     return {gap:terminal.getBoundingClientRect().top-active.getBoundingClientRect().bottom,
       left:active.getBoundingClientRect().left,terminalLeft:terminal.getBoundingClientRect().left,
       active:getComputedStyle(active).backgroundColor,terminal:getComputedStyle(terminal).backgroundColor,
@@ -133,6 +133,27 @@ async function seam(page){
       toolbar:getComputedStyle(bar).backgroundColor,topRadius:rules.borderTopLeftRadius,bottomRadius:rules.borderBottomLeftRadius,
       overshoot:bar.scrollWidth-bar.clientWidth,width:innerWidth};
   })()`);
+}
+async function toolbar(page,{detachedWindow=false}={}){
+  const result=await page.evaluate(`(()=>{
+    const header=document.querySelector('.window-chrome'),nav=header.querySelector('.app-bar');
+    const limits=nav.getBoundingClientRect();
+    const selectors=['.sidebar-toggle','.toolbar-log','.toolbar-log-directory','.tools-menu'];
+    const controls=[...nav.children].map(node=>{
+      const r=node.getBoundingClientRect(), style=getComputedStyle(node);
+      return {kind:selectors.find(selector=>node.matches(selector))??node.textContent.trim(),
+        fits:r.width>0&&r.height>0&&r.left>=limits.left&&r.right<=limits.right&&style.visibility==='visible'};
+    });
+    return {controls,grouped:getComputedStyle(header).backgroundColor!==getComputedStyle(nav).backgroundColor,
+      toolbarBottom:limits.bottom,tabTops:[...document.querySelectorAll('.terminal-pane .pane-tab-bar')].map(rail=>rail.getBoundingClientRect().top),
+      tabsInHeader:!!header.querySelector('.pane-tab-bar')};
+  })()`);
+  const expected=detachedWindow?['.toolbar-log','.toolbar-log-directory','移回主窗口']:['.sidebar-toggle','.toolbar-log','.toolbar-log-directory','.tools-menu'];
+  assert.deepEqual(result.controls,expected.map(kind=>({kind,fits:true})));
+  assert.equal(result.grouped,true);
+  assert.equal(result.tabsInHeader,false);
+  assert.ok(result.tabTops.length>0&&result.tabTops.every(top=>top>=result.toolbarBottom),JSON.stringify(result));
+  return result;
 }
 function verifySeam(visual){
   assert.ok(Math.abs(visual.gap)<1,JSON.stringify(visual));
@@ -226,6 +247,7 @@ try{
 
     await splitRight(b);
     const copyPane=await ui.evaluate(`${tab(b)}.closest('[data-pane]').dataset.pane`);
+    const splitToolbar=await toolbar(ui);
     const bAction=await openCopy(ui,b);
     await click(ui,bAction);
     await ui.waitFor(`document.querySelector('dialog:modal[aria-label="连接服务器"]')&&${q('[aria-label="SSH服务器"]')}.value==='localhost'`);
@@ -248,9 +270,11 @@ try{
     await ui.waitFor(`document.querySelectorAll('[data-pane]').length===1&&!!${tab(bCopy)}`);
     await activate(bCopy);
     const wide=await seam(ui);verifySeam(wide);
+    const wideToolbar=await toolbar(ui);
     await ui.screenshot('desktop-0.1.9-integrated-title.png');
     fit(720,480);await ui.waitFor('innerWidth<=725');
     const narrow=await seam(ui);verifySeam(narrow);
+    const narrowToolbar=await toolbar(ui);
     await ui.screenshot('desktop-0.1.9-integrated-title-narrow.png');
     const window=await verifyWindow(ui,title);
     console.log('PASS native window movement, maximize/restore and wide/narrow title seams');
@@ -268,6 +292,7 @@ try{
     detached=await connectDesktopPage(target);
     await detached.waitFor(`${tab(a)}?.getAttribute('aria-selected')==='true'`);
     const detachedSeam=await seam(detached);verifySeam(detachedSeam);
+    const detachedToolbar=await toolbar(detached,{detachedWindow:true});
     await detached.screenshot('desktop-0.1.9-integrated-title-detached.png');
     const label=await detached.evaluate('window.__TAURI_INTERNALS__.metadata.currentWindow.label');
     const detachedWindow=await verifyWindow(detached,childTitle,label);
@@ -291,7 +316,8 @@ try{
     detached.close();detached=undefined;
     await ui.waitFor(`!!${tab(a)}`);
     evidence={result:'PASS',sameAddress:true,savedCopy:true,temporaryCopy:true,isolatedInput:true,isolatedRecording:true,copyPane,
-      wide,narrow,window,detachedSeam,detachedWindow,detachedCopyRouting:true,lostReplyRecoveredWithoutReplay:true};
+      wide,narrow,window,splitToolbar,wideToolbar,narrowToolbar,detachedSeam,detachedWindow,detachedToolbar,
+      detachedCopyRouting:true,lostReplyRecoveredWithoutReplay:true};
   }
   await close();
   await writeFile(`artifacts/windows-0.1.9-session-copy-${uartMode?'uart':'ssh'}.json`,JSON.stringify(evidence,null,2)+'\n');

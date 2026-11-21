@@ -12,10 +12,9 @@ export function locateTabDrop(x: number, y: number): TabDrop | undefined {
 
   const hit = document.elementFromPoint(x, y);
   if (!hit) return;
-  const bar=hit.closest<HTMLElement>('.pane-tab-bar');
-  const pane=(bar?.dataset.railPane??hit.closest<HTMLElement>('[data-pane]')?.dataset.pane) as PaneKey|undefined;
+  const pane=hit.closest<HTMLElement>('[data-pane]')?.dataset.pane as PaneKey|undefined;
   if(!pane)return;
-  const rail=bar?.querySelector<HTMLElement>('[role="tablist"]');
+  const rail=hit.closest('.pane-tab-bar')?.querySelector<HTMLElement>('[role="tablist"]');
   if (rail) {
     const marker = hit.closest<HTMLElement>('.tab-group-marker');
     if (marker?.dataset.groupId !== undefined) return { kind: 'group', group: marker.dataset.groupId, pane };

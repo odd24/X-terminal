@@ -3,9 +3,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const windowHandle = getCurrentWindow();
 
-export function WindowChrome({ detached, rail, children }: {
+export function WindowChrome({ detached, children }: {
   detached: boolean;
-  rail(node: HTMLDivElement | null): void;
   children: ReactNode;
 }) {
   const [maximized, setMaximized] = useState(false);
@@ -27,8 +26,6 @@ export function WindowChrome({ detached, rail, children }: {
     <div className="window-title" title={detached ? '共享终端 · 独立会话' : '共享终端'} data-tauri-drag-region="">
       共享终端
     </div>
-    <div className="window-tab-slot" ref={rail} />
-    <div className="window-drag-space" data-tauri-drag-region="" aria-hidden="true" />
     {children}
     <div className="window-buttons" aria-label="窗口控制">
       <button type="button" aria-label="最小化窗口" title="最小化" onClick={() => action(() => windowHandle.minimize())}>

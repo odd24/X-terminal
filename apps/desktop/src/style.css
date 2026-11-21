@@ -82,20 +82,26 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 
 /* Terminal-first shell. Dialogs float above the live terminal. */
 html, body, #root { height: 100%; overflow: hidden; }
-main.desktop-shell { max-width: none; margin: 0; padding: 0 var(--space-2) var(--space-2); box-sizing: border-box; height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; }
+main.desktop-shell {
+  max-width: none; margin: 0; padding: 0 var(--space-2) var(--space-2); box-sizing: border-box;
+  height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
+}
 .window-chrome {
   display: flex; align-items: stretch; min-width: 0; min-height: 38px;
   margin-inline: calc(-1 * var(--space-2)); background: var(--surface); user-select: none;
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
-.window-title { flex: none; display: flex; align-items: center; padding-inline: var(--space-3); color: var(--text-muted); white-space: nowrap; font-size: var(--text-sm); }
-[data-navigation="true"] .window-title { width: calc(var(--navigation-width) + 2 * var(--space-2)); }
-.window-tab-slot { min-width: 0; display: flex; align-items: end; }
-[data-single-pane="true"] .window-tab-slot { flex: 1; }
-.window-tab-slot .pane-tab-bar { flex: 1; align-items: end; }
-.window-drag-space { flex: 1; min-width: 12px; }
-[data-single-pane="true"] .window-drag-space { flex: 0 0 18px; }
-.window-chrome .app-bar { flex: none; align-items: center; margin: 0; padding-inline-end: var(--space-2); flex-wrap: nowrap; }
+.window-title {
+  flex: 1; display: flex; align-items: center; padding-inline: var(--space-3);
+  min-width: 0; overflow: hidden; color: var(--text-muted); white-space: nowrap; font-size: var(--text-sm);
+}
+.window-chrome .app-bar {
+  flex: none; align-self: center; align-items: center; margin: 2px var(--space-1);
+  padding: 0 2px; flex-wrap: nowrap; background: var(--surface-raised);
+  border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-control);
+}
 .window-chrome .app-bar > :is(button,details) { flex-shrink: 0; }
+.window-chrome .app-bar > button { min-height: 28px; }
 .window-chrome .toolbar-log { width: clamp(4.2em, 8.5vw, 8em); white-space: nowrap; }
 .window-buttons { display: flex; flex: none; }
 .window-buttons button { display: grid; place-items: center; width: 34px; padding: 0; border: 0; border-radius: 0; background: transparent; }
@@ -107,13 +113,10 @@ main.desktop-shell { max-width: none; margin: 0; padding: 0 var(--space-2) var(-
 .window-restore { position: relative; width: 8px; height: 8px; }
 .window-restore::before { position: absolute; content: ''; inset: -4px -4px 2px 2px; border: 1px solid currentColor; border-bottom: 0; border-left: 0; }
 .window-action-error { position: fixed; top: 40px; right: var(--space-2); z-index: 120; color: var(--danger); background: var(--surface); padding: var(--space-2); }
-@media (max-width: 850px) {
-  [data-navigation="true"] .window-title { width: calc(min(var(--navigation-width), (100vw - 2 * var(--space-2)) * .38) + 2 * var(--space-2)); }
-}
 @media (max-width: 560px) {
   .window-title { padding-inline: var(--space-2); font-size: var(--text-xs); }
   .window-buttons button { width: 30px; }
-  .window-chrome .app-bar { padding-inline-end: var(--space-1); }
+  .window-chrome .app-bar { gap: 2px; }
 }
 .app-bar { min-width: 0; display: flex; align-items: end; gap: var(--space-1); }
 .primary-action:not(:disabled) { border-color: var(--accent); background: var(--accent); color: var(--page); font-weight: var(--weight-heading); }
@@ -303,10 +306,11 @@ main.desktop-shell { max-width: none; margin: 0; padding: 0 var(--space-2) var(-
   background: var(--terminal-background); color: var(--terminal-foreground); box-shadow: none;
 }
 .pane-tab-bar .connection-tab:has([aria-selected="true"]) > [role="tab"] { padding-block: 0; }
-.window-tab-slot .connection-tab button,.window-tab-slot .new-menu summary { min-height: 31px; }
-.window-tab-slot [role="tablist"] { align-items: end; flex: 0 1 auto; }
+.terminal-grid.single .pane-tab-bar { align-items: end; }
+.terminal-grid.single .pane-tab-bar .connection-tab button,.terminal-grid.single .pane-tab-bar .new-menu summary { min-height: 31px; }
+.terminal-grid.single .pane-tab-bar [role="tablist"] { align-items: end; flex: 0 1 auto; }
 .tab-lane-drag { flex: 1; align-self: stretch; }
-.window-tab-slot .pane-tab-bar .new-menu > summary { border-color: transparent; background: transparent; }
+.terminal-grid.single .pane-tab-bar .new-menu > summary { border-color: transparent; background: transparent; }
 .terminal-workspace .terminal-pane > .terminal { border-start-start-radius: 0; border-start-end-radius: 0; }
 .terminal-context-menu.session-tab-menu { position: fixed; width: min(13rem,calc(100vw - 16px)); }
 .session-tab-menu [aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; }
