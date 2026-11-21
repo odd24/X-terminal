@@ -186,9 +186,11 @@ try{
     if(notices){
       await observeLogDirectory(main,root,async()=>{
         await main.evaluate(`document.querySelector('.toolbar-log').click()`);
-        await main.waitFor(`[...document.querySelectorAll('.terminal-context-menu button')].some(b=>b.textContent==='打开日志目录'&&!b.disabled)`);
-        await main.click('打开日志目录');
+        const folder=`[...document.querySelectorAll('.terminal-context-menu button')].find(b=>b.textContent==='打开日志目录'&&!b.disabled)`;
+        await main.waitFor(`!!(${folder})`);
+        await main.evaluate(`(${folder}).click()`);
       });
+      await main.waitFor(`!document.querySelector('.terminal-context-menu')`);
       assert.equal(await main.evaluate(`!!document.querySelector('.recording-notice')`),false);
     }
     await recordState(main,a,'idle');await recordState(main,b,'idle');
