@@ -184,5 +184,13 @@ export function useTabLogging(owner:string,tabs:Connection[],active:Connection|u
     return {state,label,detail:entry?.error??(state==='recording'?'记录中':entry?.summary?.text??label),
       disabled:!owner||!!pending||running.current.has(id)||!querying&&(!entry?.summary||entry.summary.unknown||!entry?.log?.active&&c.state!=='CONNECTED')};
   }
-  return {summary:(c:Connection)=>visible[key(target(c))]?.summary,control,toggle,claim,locked};
+  function summary(c:Connection):LoggingSummary|undefined {
+    const t=target(c),id=key(t),entry=visible[id];
+    if(entry?.pending==='start')return {connection:t.connection,phase:'OPENING',text:'正在开始记录'};
+    if(entry?.pending==='stop')return {connection:t.connection,phase:'STOPPING',text:'正在停止并同步记录'};
+    if(entry?.pending==='query'||entry?.uncertain||operations.current.has(id))
+      return {connection:t.connection,unknown:true,text:entry?.error??'正在核对本次记录结果'};
+    return entry?.summary;
+  }
+  return {summary,control,toggle,claim,locked};
 }

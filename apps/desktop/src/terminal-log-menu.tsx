@@ -122,6 +122,7 @@ export function TerminalLogMenu(props:Props){
    {receiptMatches&&receipt&&<><hr/><small aria-label="最近日志保存路径">上次已保存：{receipt.info.path}</small><button role="menuitem" onClick={()=>{void openSaved(receipt);props.close();}}>打开上次保存目录</button></>}
    {directoryError&&<small role="alert">{directoryError}</small>}
    {loadError&&<small role="alert">{loadError}</small>}{menu.warning&&<small role="alert">{menu.warning}</small>}
+   {props.recordingLocked(menu.target)&&!pending&&<small role="status">此标签的记录操作仍在处理。若开关提示查询，可点标签上的录制开关核对。</small>}
    {!pending&&!visible&&task&&recordingStatusId&&sameLogTarget(task.target,menu.target)&&
     <button role="menuitem" onClick={()=>{setVisible(true);props.close();}}>查看上次日志操作</button>}
    {pending&&<button role="menuitem" onClick={()=>{setVisible(true);props.close();if(current.current&&!busy)void run(current.current);}}>查询上次日志操作结果</button>}
