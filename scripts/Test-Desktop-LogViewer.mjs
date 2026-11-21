@@ -155,6 +155,9 @@ async function connect() {
   },'synthetic connection');
   await ui.selectTab(connection.connection_id);
   await ui.waitFor(`document.querySelector('[data-pane]')?.dataset.renderedId===${JSON.stringify(ref.connection_id)}`);
+  await ui.waitFor(`document.querySelector('footer')?.textContent.includes('输入就绪')&&
+    document.querySelector('.xterm-rows')?.textContent.includes('service-shared-shell')&&
+    document.querySelector('.tab-record-button')?.getAttribute('aria-disabled')==='false'`);
   return {ref,push:async text=>{fixture.stdin.write(JSON.stringify({op:'push',text})+'\n');await next();}};
 }
 async function menu(text) {
