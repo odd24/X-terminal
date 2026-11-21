@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26 按 [CR-023](changes/CR-023.md) 集成本地命令行及隔离生命周期，验证 ADB 快捷操作、设备绑定和配置重开，再核对 Windows x64 便携交付。[P26 验收记录](records/P26.md)
+
 2026-11-20，P22/T18 按 [CR-021](changes/CR-021.md) 与 [ADR-098](decisions/ADR-098.md) 完成一次固定两小时的 `node scripts/Test-Desktop-LoadObserver.mjs --soak` 正式验收。20 个精确代次、14400 帧、两端 SHA-256、五次换票、资源门、管理关闭和最终审计均通过。独立 120 秒高负载证据与旧八小时记录见 [P22](records/P22.md)。
 
 2026-11-10 P15 [ADR-095](decisions/ADR-095.md) 增加独立单次保护导出，v11 保持原二十六项。第56入口覆盖已结束精确代次、同票据回执、保护后落盘及桌面另存，见[P15](records/P15.md)。

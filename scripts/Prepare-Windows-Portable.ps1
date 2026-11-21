@@ -21,11 +21,17 @@ try {
     $files = @(
         foreach ($name in @('shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe','README.md')) {
             $binary = $name.EndsWith('.exe')
-            $inputFile = if ($binary) { Join-Path $source $name } else { Join-Path $repo 'docs/WINDOWS_PORTABLE.md' }
             $destination = Join-Path $candidate $name
-            Copy-Item -LiteralPath $inputFile -Destination $destination
+            if ($binary) {
+                $inputFile = Join-Path $source $name
+                Copy-Item -LiteralPath $inputFile -Destination $destination
+            } else {
+                $readme = git show "${commit}:docs/WINDOWS_PORTABLE.md"
+                if ($LASTEXITCODE -ne 0 -or !$readme) { throw 'Cannot read the release README at the source commit' }
+                [IO.File]::WriteAllText($destination, ($readme -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+            }
             $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($hash -ne (Get-FileHash -LiteralPath $inputFile -Algorithm SHA256).Hash.ToLowerInvariant()) {
+            if ($binary -and $hash -ne (Get-FileHash -LiteralPath $inputFile -Algorithm SHA256).Hash.ToLowerInvariant()) {
                 throw "Copy hash mismatch for $name"
             }
             $file = [ordered]@{name=$name;version=$version;bytes=(Get-Item -LiteralPath $destination).Length;sha256=$hash}
@@ -53,12 +59,22 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Extracted release smoke failed. Candidate: $staging" }
     node scripts/Test-Desktop-Mcp.mjs --official-client --read-boundaries (Join-Path $unpacked 'manifest.json')
     if ($LASTEXITCODE -ne 0) { throw "Extracted release MCP read regression failed. Candidate: $staging" }
+    $desktop = Join-Path $unpacked 'shared-terminal-desktop.exe'
+    node scripts/Test-Desktop-LocalTerminal.mjs $desktop
+    if ($LASTEXITCODE -ne 0) { throw "Extracted local terminal regression failed. Candidate: $staging" }
+    node scripts/Test-Desktop-LocalAdb.mjs $desktop
+    if ($LASTEXITCODE -ne 0) { throw "Extracted ADB shortcut regression failed. Candidate: $staging" }
     $sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     "$sha256  $artifactName.zip" | Set-Content -LiteralPath (Join-Path $staging "$artifactName.zip.sha256") -Encoding ascii
     $verified = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
     $mcp = Get-Content -LiteralPath 'artifacts/windows-x64-release-terminal-read-result.json' -Raw | ConvertFrom-Json
-    if ($verified.result -ne 'PASS' -or $mcp.result -ne 'PASS' -or $mcp.preview -ne $unpacked) { throw 'Release evidence mismatch' }
-    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close}
+    $local = Get-Content -LiteralPath 'artifacts/local-terminal-software-result.json' -Raw | ConvertFrom-Json
+    $adb = Get-Content -LiteralPath 'artifacts/local-adb-software-result.json' -Raw | ConvertFrom-Json
+    if ($verified.result -ne 'PASS' -or $mcp.result -ne 'PASS' -or $mcp.preview -ne $unpacked -or
+        $local.result -ne 'PASS' -or $local.executable -ne $desktop -or $adb.result -ne 'PASS' -or $adb.executable -ne $desktop) {
+        throw 'Release evidence mismatch'
+    }
+    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
 
     $resolvedStage = (Resolve-Path -LiteralPath $staging).Path

@@ -11,6 +11,7 @@ mod config_import;
 mod export_save;
 #[cfg(feature = "load-observer-test")]
 mod load_observer_test;
+mod local_terminal;
 mod log_viewer;
 #[cfg(feature = "save-recovery-fixture")]
 mod save_recovery_fixture;
@@ -1007,6 +1008,7 @@ fn main() {
             app.manage(terminal_logs::Manager::new(directory.clone())?);
             app.manage(log_viewer::Editor::new());
             app.manage(trigger_match::Manager::default());
+            app.manage(local_terminal::Terminals::default());
             app.manage(config_import::Manager::default());
             app.manage(Desktop(shared, configuration, directory));
             // Renderer reload/suspension must not expire the native IPC client.
@@ -1035,6 +1037,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             terminal_clipboard::terminal_clipboard_read,
+            local_terminal::local_terminal,
+            local_terminal::local_adb_settings,
+            local_terminal::prepare_local_adb,
             service_status,
             session_windows::desktop_live_sessions,
             session_windows::detach_session,
@@ -1092,6 +1097,7 @@ fn main() {
             }
         }
         if let tauri::RunEvent::Exit = event {
+            handle.state::<local_terminal::Terminals>().close_all();
             handle.state::<export_save::Manager>().cancel_all();
             let state = handle.state::<Desktop>();
             tauri::async_runtime::block_on(async {

@@ -93,13 +93,14 @@ fn directory_guards(path: &Path) -> Result<Vec<File>, String> {
         .collect()
 }
 
-fn with_store<T>(
+pub(crate) fn with_native_settings<T>(
     root: &Path,
+    name: &str,
     create: bool,
     use_store: impl FnOnce(Option<&mut Vault>) -> Result<T, String>,
 ) -> Result<T, String> {
     let _root = directory_guards(root).map_err(|_| STORE_ERROR)?;
-    let path = root.join(STORE);
+    let path = root.join(name);
     let guard = match OpenOptions::new()
         .read(true)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
@@ -122,6 +123,14 @@ fn with_store<T>(
     drop(vault);
     drop(guard);
     result
+}
+
+fn with_store<T>(
+    root: &Path,
+    create: bool,
+    use_store: impl FnOnce(Option<&mut Vault>) -> Result<T, String>,
+) -> Result<T, String> {
+    with_native_settings(root, STORE, create, use_store)
 }
 
 fn saved_path(root: &Path) -> Result<Option<String>, String> {
