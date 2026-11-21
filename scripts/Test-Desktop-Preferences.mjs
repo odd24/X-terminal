@@ -65,7 +65,7 @@ try {
     for(let attempt=0;attempt<150;attempt++){result=await read(cursor);if(result.events.length)break;await delay(20);}
     assert.deepEqual(Buffer.from(result.events.flatMap(item=>item.bytes)),Buffer.from(expectedBytes)); cursor=result.next_cursor;
   }
-  await ui.click('关闭外观');await ui.click('查找终端'); await ui.fill('终端查找文字','中文宽字'); await ui.click('下一个匹配');
+  await ui.click('关闭外观');await ui.searchTerminal(); await ui.fill('终端查找文字','中文宽字'); await ui.click('下一个匹配');
   await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 1')`);
   await key('c'); await bytes([3]); // disabled selection-copy keeps terminal Ctrl+C
   await ui.click('下一个匹配'); await key('c',true); await ui.waitFor(`document.querySelector('[aria-label="剪贴板状态"]')?.textContent==='终端选区已复制'`);

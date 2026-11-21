@@ -18,7 +18,7 @@ export async function checkForgetApproval(ui, connection, protocol) {
   };
   const open = async () => {
     if (await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权面板"]')`)) await ui.click('关闭Agent授权');
-    await ui.fill('会话', connection.connection_id);
+    await ui.selectTab(connection.connection_id);
     await ui.click('Agent 授权');
     await ui.waitFor(`!!document.querySelector('[aria-label=${JSON.stringify(label)}]')`);
     assert.equal(await ui.evaluate(`document.querySelector('[aria-label=${JSON.stringify(label)}]').checked`), false);
@@ -46,12 +46,12 @@ export async function checkForgetApproval(ui, connection, protocol) {
   await preview(); await ui.click('取消Agent批准'); assert.equal(await count(), before);
   await preview();
   const other = await ui.invoke('fixture_create');
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(o=>o.value===${JSON.stringify(other.connection_id)})`);
-  await ui.fill('会话', other.connection_id);
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(other.connection_id)})`);
+  await ui.selectTab(other.connection_id);
   await ui.waitFor(`!(${button('确认批准Agent')})`);
   await open(); await toggle(label); await preview();
   await ui.command('Page.reload');
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(connection.connection_id)})`);
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(connection.connection_id)})`);
   await open();
   assert.equal(await count(), before, 'preview consent does not survive reload');
   assert.equal(await ui.evaluate(`!!(${button('确认批准Agent')})`), false);
@@ -81,7 +81,7 @@ export async function checkForgetApproval(ui, connection, protocol) {
   await ui.waitFor(`document.querySelector('[aria-label="Agent授权详情"]')?.textContent.includes(${JSON.stringify(lost.data.summary.ticket_id)})`);
   assert.deepEqual((await call({ op: 'grant_status', request_id: slot.request_id })).data, lost.data);
   await ui.command('Page.reload');
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(connection.connection_id)})`);
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(connection.connection_id)})`);
   await open(); await ui.click('查询原Agent编号');
   await ui.waitFor(`document.querySelector('[aria-label="Agent授权详情"]')?.textContent.includes(${JSON.stringify(lost.data.summary.ticket_id)})`);
   assert.equal(await count(), before + 2);

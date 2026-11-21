@@ -25,9 +25,9 @@ try {
   const show=()=>ui.click('连接服务器');
   const fill=async(port=server.port)=>{await ui.waitFor(`!!document.querySelector('[aria-label="SSH服务器"]')&&!document.querySelector('[aria-label="SSH服务器"]').disabled`);await ui.fill('SSH服务器','127.0.0.1');await ui.fill('SSH用户名','synthetic');await ui.evaluate(`Array.from(document.querySelectorAll('summary')).find(s=>s.textContent==='高级连接设置').parentElement.open=true`);await ui.fill('SSH端口',port);};
   const panelReady=()=>wait(async()=>await ui.evaluate(`document.querySelector('[aria-label="SSH快速状态"]')?.textContent.startsWith('已连接')`),'connected panel ready');
-  const connected=()=>wait(async()=>{const id=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);return (await ui.invoke('service_list')).some(c=>c.connection_id===id&&c.state==='CONNECTED')&&!(await ui.evaluate(`!!document.querySelector('dialog:modal')`));},'quick SSH connected and dialog closed');
+  const connected=()=>wait(async()=>{const id=await ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);return (await ui.invoke('service_list')).some(c=>c.connection_id===id&&c.state==='CONNECTED')&&!(await ui.evaluate(`!!document.querySelector('dialog:modal')`));},'quick SSH connected and dialog closed');
   const disconnect=async()=>{if(!(await ui.evaluate(`!!document.querySelector('[aria-label="SSH快速连接"]')`)))await show();await panelReady();await ui.click('断开连接');};
-  const current=async()=>{const list=await ui.invoke('service_list');const selected=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);const c=list.find(c=>c.connection_id===selected);return {connection_id:c.connection_id,generation:c.generation};};
+  const current=async()=>{const list=await ui.invoke('service_list');const selected=await ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);const c=list.find(c=>c.connection_id===selected);return {connection_id:c.connection_id,generation:c.generation};};
   assert.equal((await configuration()).profiles.length,0);
   assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='连接服务器').getBoundingClientRect().height>0`),true);
   assert.equal(await ui.evaluate(`document.querySelector('.tools-menu').open`),false);

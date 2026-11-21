@@ -70,7 +70,7 @@ export async function checkMcpSerialConnect({ directory, ui, call, success, ref,
   await rebind(legacyId);
   await deny(start, deniedTarget, 'PERMISSION_DENIED');
   const end = { connection: ref, request_id: randomUUID() };
-  await ui.fill('会话', other.connection_id);
+  await ui.selectTab(other.connection_id);
   await serial({ op: 'disconnect', ...end });
   await until(async () => (await serial({ op: 'disconnect_status', ...end })).state === 'TRANSPORT_ENDED', 'original fixture did not join');
   assert.deepEqual(await snapshot(), baseline);

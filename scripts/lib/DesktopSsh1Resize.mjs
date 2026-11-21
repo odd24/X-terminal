@@ -111,9 +111,7 @@ export async function verifyDesktopSsh1Resize({ ui, keyboard, ref, executable, p
   const tab = `[role="tab"][data-connection-id="${ref.connection_id}"]`;
   const pane = `.terminal-pane[data-active="true"][data-rendered-id="${ref.connection_id}"][data-rendered-generation="${ref.generation}"]`;
   try {
-    await waitForResult(() => pauseList.count(), 'real service list response must be held during deselection');
-    await ui.fill('会话', '');
-    await ui.waitFor(`!document.querySelector(${JSON.stringify(pane)}) && document.querySelector(${JSON.stringify(tab)}).getAttribute('aria-selected')==='false'`);
+    await waitForResult(() => pauseList.count(), 'real service list response must be held during repeated selection');
     await ui.evaluate(`document.querySelector(${JSON.stringify(tab)}).click()`);
     await ui.waitFor(`!!document.querySelector(${JSON.stringify(pane)})`);
   } finally { await pauseList.restore(); }

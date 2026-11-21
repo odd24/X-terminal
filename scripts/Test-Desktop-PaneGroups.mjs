@@ -13,7 +13,8 @@ const root = await mkdtemp(path.join(tmpdir(), 'shared-terminal-pane-groups-ui-�
 const desktop = path.resolve(process.argv[2]);
 const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
-const evidence=toolbarChecks||dockProbe?'0.1.3':'0.1.2';
+const tabRecording=process.argv.includes('--tab-recording');
+const evidence=toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2';
 const toolbar=[];
 const processes = [];
 let main, child;
@@ -147,6 +148,21 @@ const choose=async c=>{
   await main.evaluate(tab(c)+'.click()');
   await main.waitFor('document.querySelector(".pane-active")?.dataset.renderedId==='+JSON.stringify(c.connection_id));
 };
+const recordButton=c=>`(${tab(c)}?.parentElement.querySelector('.tab-record-button'))`;
+const recordState=(page,c,status)=>page.waitFor(`${recordButton(c)}?.dataset.recording===${JSON.stringify(status)}`);
+const recordClick=async(page,c,keyboard=false)=>{
+  const button=recordButton(c);
+  await page.waitFor(`${button}?.getAttribute('aria-disabled')==='false'`);
+  if(keyboard){
+    await page.evaluate(`${button}.focus()`);
+    for(const type of ['keyDown','keyUp'])await page.command('Input.dispatchKeyEvent',{type,key:' ',code:'Space',windowsVirtualKeyCode:32});
+  }else{
+    const point=center(await page.evaluate(`${button}.getBoundingClientRect().toJSON()`));
+    assert.ok(await page.evaluate(`${button}.contains(document.elementFromPoint(${point.x},${point.y}))`),'recording control visible');
+    await page.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...point});
+    await page.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...point});
+  }
+};
 let report;
 try{
   const left=await synthetic('left'),right=await synthetic('right'),lower=await synthetic('lower'),added=await synthetic('added');
@@ -157,7 +173,74 @@ try{
   const a=await connect(left,'127.0.0.1'),b=await connect(right,'localhost'),c=await connect(lower,'127.0.0.1');
   await main.waitFor('document.querySelectorAll("[role=tab]").length===3');
   await choose(a);
-  if(dockProbe){
+  if(tabRecording){
+    const logs=(page,c)=>page.invoke('logging_request',{request:{op:'list',connection:ref(c)}}).then(value=>value.logs);
+    const original=(page,c,id)=>page.invoke('logging_request',{request:{op:'start_status',connection:ref(c),request_id:id}});
+    await fit(1100);
+    await recordState(main,a,'idle');await recordState(main,b,'idle');
+    await terminalFocus(main);
+    const lostStart=await main.interceptIpc({op:'start',connectionId:b.connection_id,mode:'hold_error'});
+    await recordClick(main,b);
+    await recordState(main,b,'pending');
+    await wait(async()=>await lostStart.count()===1,'original start accepted once');
+    await main.evaluate(`${recordButton(b)}.click();${recordButton(b)}.click()`);
+    assert.equal(await lostStart.count(),1);
+    assert.equal(await main.evaluate('document.activeElement.classList.contains("xterm-helper-textarea")'),true);
+    assert.equal(await main.evaluate('document.querySelector(".pane-active").dataset.renderedId'),a.connection_id);
+    assert.deepEqual(await logs(main,a),[]);
+    const saved=await main.evaluate(`JSON.parse(sessionStorage.getItem('terminal-tab-recording-v1'))[0][1]`);
+    await lostStart.restore();await recordState(main,b,'unknown');
+    await main.command('Page.reload');await recordState(main,b,'unknown');
+    await choose(a);
+    const verifyStart=await main.interceptIpc({op:'start',connectionId:b.connection_id});
+    await recordClick(main,b,true);await recordState(main,b,'recording');
+    assert.equal(await verifyStart.count(),0);await verifyStart.restore();
+    const log=await original(main,b,saved.id);
+    assert.equal(log.log_id,(await logs(main,b))[0].log_id);
+    assert.equal(await main.evaluate('document.querySelector(".pane-active").dataset.renderedId'),a.connection_id);
+    await right.control({op:'push',text:'\r\nTAB_RECORD_SSH_FILE\r\n'});
+    await wait(async()=>{const [latest]=await logs(main,b);return latest?.readable?.flushed_bytes>0&&
+      (await readFile(path.join(root,'logs',latest.readable.filename),'utf8')).includes('TAB_RECORD_SSH_FILE');},'flushed SSH text');
+    await main.screenshot('desktop-0.1.4-tab-recording.png');
+
+    await main.splitTab(b.connection_id);
+    await main.waitFor(rendered(a,0)+' && '+rendered(b,1));
+    await recordState(main,b,'recording');
+    await recordClick(main,b);
+    await recordState(main,b,'idle');
+    assert.equal(await main.evaluate('document.querySelector(".pane-active").dataset.renderedId'),a.connection_id);
+    const [stopped]=await logs(main,b);
+    assert.equal(stopped.log_id,log.log_id);
+    assert.equal(stopped.worker_finished&&stopped.durable,true);
+    assert.equal(stopped.readable.flushed_bytes,stopped.readable.synced_bytes);
+    const bytes=await readFile(path.join(root,'logs',stopped.readable.filename));
+    assert.equal(bytes.byteLength,stopped.readable.synced_bytes);
+    assert.ok(bytes.includes(Buffer.from('TAB_RECORD_SSH_FILE')));
+    await right.control({op:'push',text:'\r\nAFTER_TAB_STOP\r\n'});
+    await main.waitFor(`${pane(b)}?.querySelector('.xterm-rows')?.textContent.includes('AFTER_TAB_STOP')`);
+    assert.deepEqual(await readFile(path.join(root,'logs',stopped.readable.filename)),bytes);
+
+    await recordClick(main,b);
+    await recordState(main,b,'recording');
+    const live=(await logs(main,b)).find(entry=>entry.active);
+    await right.control({op:'push',text:'\r\nDETACHED_TAB_RECORD\r\n'});
+    child=await outsideDrag(b,true);
+    await child.waitFor('document.querySelector("[data-pane]")?.dataset.renderedId==='+JSON.stringify(b.connection_id));
+    await recordState(child,b,'recording');
+    await checkLogToolbar(child,'detached recording log','停止记录');
+    await child.screenshot('desktop-0.1.4-detached-recording.png');
+    await recordClick(child,b,true);await recordState(child,b,'idle');
+    const detachedStop=(await logs(child,b)).find(entry=>entry.log_id===live.log_id);
+    assert.equal(detachedStop.worker_finished&&detachedStop.durable,true);
+    assert.ok((await readFile(path.join(root,'logs',detachedStop.readable.filename),'utf8')).includes('DETACHED_TAB_RECORD'));
+    await dockDrag(b);child.close();child=undefined;
+    await recordState(main,b,'idle');
+    assert.deepEqual(await logs(main,a),[]);
+    const close=await closeSoakDesktop(main,root,service,{});
+    await main.close();main=undefined;
+    report={result:'PASS',background:true,sameRequestOnReload:true,keyboard:true,split:true,detached:true,fileBytes:bytes.length,
+      syncedBytes:stopped.readable.synced_bytes,untouchedOther:true,toolbar,close};
+  }else if(dockProbe){
     await fit(1100);
     child=await outsideDrag(b);
     await child.waitFor('document.querySelector("[data-pane]")?.dataset.renderedId==='+JSON.stringify(b.connection_id));
@@ -263,7 +346,7 @@ try{
   await child.waitFor('document.querySelector("[data-pane]")?.dataset.renderedId==='+JSON.stringify(b.connection_id));
   if(toolbarChecks){
     toolbar.push(await checkLogToolbar(child,'detached log'));
-    await child.screenshot('desktop-0.1.3-detached-toolbar.png');
+    await child.screenshot(`desktop-${evidence}-detached-toolbar.png`);
   }
   assert.deepEqual((await child.invoke('service_list')).map(ref),[ref(b)]);
   await main.waitFor('!'+tab(b));
@@ -288,6 +371,6 @@ try{
   assert.ok(path.basename(root).startsWith('shared-terminal-pane-groups-ui-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }
-await writeFile(dockProbe?'artifacts/windows-0.1.3-dock-toolbar.json':`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
-console.log(dockProbe?'PASS detached toolbar popup and native dock return':
+await writeFile(tabRecording?`artifacts/windows-${evidence}-tab-recording-ssh.json`:dockProbe?`artifacts/windows-${evidence}-dock-toolbar.json`:`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
+console.log(tabRecording?'PASS SSH tab recording, exact unknown recovery, synced file, split and detached window':dockProbe?'PASS detached toolbar popup and native dock return':
   'PASS physical pane tabs, nested geometry, input, recording and docking');

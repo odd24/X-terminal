@@ -60,6 +60,7 @@
   --accent: #84d9ca;
   --accent-text: #b9e9df;
   --danger: #ffb3a7;
+  --recording: #ff5b63;
   --terminal-background: #000000;
   --terminal-foreground: #e7edf5;
   --terminal-cursor: #e7edf5;
@@ -97,6 +98,7 @@
   --accent: #215eb5;
   --accent-text: #174b96;
   --danger: #a32424;
+  --recording: #bd2636;
   --terminal-background: #ffffff;
   --terminal-foreground: #172b40;
   --terminal-cursor: #172b40;

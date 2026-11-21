@@ -221,7 +221,19 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .tab-direction-guide [data-chosen] { border-color: var(--accent); background: var(--control-hover); }
 .tab-detach-preview { left: 50%; bottom: var(--space-8); transform: translateX(-50%); padding: var(--space-3); border: 1px solid var(--accent); border-radius: var(--radius-control); background: var(--surface-raised); color: var(--text); }
 .tab-dock-preview { position: fixed; inset: var(--space-2); z-index: 110; display: grid; place-items: center; border: 2px solid var(--accent); border-radius: var(--radius-panel); color: var(--text); font-weight: var(--weight-heading); background: color-mix(in srgb, var(--surface) 65%, transparent); pointer-events: none; }
-.connection-tab .tab-log-badge { flex: 0 0 auto; }
+.connection-tab .tab-record-button {
+  display: grid; place-items: center; flex: none; inline-size: 23px; padding-inline: 0; color: var(--text-muted);
+}
+.tab-record-icon {
+  display: grid; place-items: center; box-sizing: border-box; inline-size: 10px; block-size: 10px;
+  border: 1.5px solid currentColor; border-radius: 50%; font-size: 9px; line-height: 1;
+}
+.connection-tab .tab-record-button[data-recording="recording"] { color: var(--recording); }
+.tab-record-button[data-recording="recording"] .tab-record-icon { background: currentColor; border-radius: 2px; }
+.tab-record-button:is([data-recording="pending"],[data-recording="unknown"],[data-recording="failed"]) .tab-record-icon { border-color: transparent; }
+.connection-tab .tab-record-button[data-recording="failed"] { color: var(--danger); }
+.tab-record-button[aria-disabled="true"] { cursor: default; }
+.connection-tab .tab-record-button[aria-disabled="false"]:hover { background: var(--control-hover); }
 .connection-tab [aria-selected="true"]:hover { background: transparent; }
 .tab-tools > button { flex-shrink: 0; padding: var(--space-1); font-size: var(--text-xs); }
 .terminal-empty { flex: 1; display: grid; align-content: center; justify-items: center; gap: var(--space-4); padding: var(--space-4); background: var(--surface); border-radius: var(--radius-panel); }
@@ -297,8 +309,6 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .config-panel form .primary-action { min-width: 8rem; }
 
 .toolbar-log { width: 8em; text-overflow: ellipsis; overflow: hidden; }
-.tab-log-badge { flex: none; width: 6px; height: 6px; border: 1px solid var(--accent-text); border-radius: 50%; }
-.tab-log-badge[data-recording] { background: var(--accent-text); }
 .context-menu { box-shadow: var(--float-shadow); }
 .log-menu-target, .app-dialog-corner h2 { font-weight: 400; }
 .clipboard-feedback, .tab-feedback { position: fixed; bottom: 3rem; left: 50%; transform: translateX(-50%); z-index: 71; padding: var(--space-2) var(--space-3); background: var(--surface-raised); border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-control); box-shadow: var(--float-shadow); pointer-events: none; }

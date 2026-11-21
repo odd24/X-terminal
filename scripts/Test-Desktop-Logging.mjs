@@ -159,7 +159,7 @@ try {
   await ui.waitFor(`document.querySelector('[aria-label="捕获维护目标"]')?.textContent.includes(${JSON.stringify(info.log_id)})`);
   assert.ok((await ui.evaluate(`document.querySelector('[aria-label="捕获维护目标"]').textContent`)).includes('/ 1'));
   await ui.click('新建合成会话');
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).filter(option=>option.value).length===2`);
+  await ui.waitFor(`document.querySelectorAll('[role="tab"]').length===2`);
   const other=ref((await ui.invoke('service_list')).find(item=>item.connection_id!==target.connection_id));
   await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes(${JSON.stringify(other.connection_id)})`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="捕获维护选择"]').value`),info.log_id,'switching active connections cannot change the maintenance target');
@@ -180,7 +180,7 @@ try {
   assert.deepEqual((await readdir(failedDirectory)).sort(),[...retained.keys()].sort());for(const [name,bytes]of retained)assert.deepEqual(await readFile(path.join(failedDirectory,name)),bytes);
   assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='解除失败记录关联（不删除文件）').disabled`),true);
   await ui.screenshot('desktop-logging-released-synthetic.png');
-  await ui.fill('会话',renewed.connection_id);await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes(${JSON.stringify(renewed.connection_id)})`);
+  await ui.selectTab(renewed.connection_id);await ui.waitFor(`document.querySelector('[aria-label="日志目标"]')?.textContent.includes(${JSON.stringify(renewed.connection_id)})`);
   await ui.click('开始记录终端');
   await ui.waitFor(`document.querySelector('[aria-label="日志状态"]')?.textContent.includes('正在记录')`);
   await request({op:'release_failed',connection:target,log_id:info.log_id});

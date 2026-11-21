@@ -25,8 +25,8 @@ try {
   await ui.waitFor(`!document.querySelector('[aria-label="粘贴确认"]')`);await delay(200);
   page=await read(cursor);assert.equal(Buffer.from(page.events.flatMap(e=>e.bytes)).toString(),'k');cursor=page.next_cursor;
   await paste('SWITCH\n');await preview();await ui.click('新建合成会话');
-  await ui.waitFor(`document.querySelector('[aria-label="会话"]').value!==${JSON.stringify(ref.connection_id)}`);
-  await ui.fill('会话',ref.connection_id);await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
+  await ui.waitFor(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId!==${JSON.stringify(ref.connection_id)}`);
+  await ui.selectTab(ref.connection_id);await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="粘贴确认"]')`),false);await unchanged();
   await ui.invoke('fixture_append',{connection:ref,bytes:[...Buffer.from('\x1b[?2004h')]});await delay(300);cursor=(await read(cursor)).next_cursor;
   await paste('BRACKET\n');await preview();await ui.click('确认发送粘贴');await delay(200);

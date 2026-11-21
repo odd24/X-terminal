@@ -92,15 +92,15 @@ try {
   await ui.click('信任本次 SSH2 主机');
   await ui.waitFor(`!!(${button('使用保存的 SSH2 凭据')})`); await ui.click('使用保存的 SSH2 凭据');
   await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.textContent.startsWith('CONNECTED')`);
-  const sshId = await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);
+  const sshId = await ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);
   const sshConnection = (await ui.invoke('service_list')).find(c => c.connection_id === sshId);
   const sshRef = { connection_id: sshId, generation: sshConnection.generation };
   const reopenAfterReload = async () => {
     // Page.reload completes before React/service inventory is ready. click() is
     // deliberately optional in the harness, so require the actual controls first.
-    await ui.waitFor(`!!(${button('Agent 授权')})&&Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(sshId)})`);
+    await ui.waitFor(`!!(${button('Agent 授权')})&&[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(sshId)})`);
     assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权面板"]')`), false);
-    await ui.fill('会话', sshId); await ui.click('Agent 授权');
+    await ui.selectTab(sshId); await ui.click('Agent 授权');
     await ui.waitFor(`document.querySelector('[aria-label="Agent批准目标"]')?.textContent.includes(${JSON.stringify(sshId)})&&!!document.querySelector('[aria-label="授权读取终端"]')`);
   };
   await ui.click('Agent 授权');
@@ -120,9 +120,9 @@ try {
   await prepare(true); await ui.click('取消Agent批准');
   assert.equal(await count(), initialCount, 'cancel preview does not grant');
   // The cancelled preview retained choices; switching must clear them and consent.
-  await ui.fill('会话', ref.connection_id);
+  await ui.selectTab(ref.connection_id);
   await ui.waitFor(`document.querySelector('[aria-label="Agent批准目标"]').textContent.includes(${JSON.stringify(ref.connection_id)})`);
-  await ui.fill('会话', sshId);
+  await ui.selectTab(sshId);
   await ui.waitFor(`document.querySelector('[aria-label="授权写入终端"]')&&!document.querySelector('[aria-label="授权写入终端"]').checked`);
   assert.equal(await ui.evaluate(`!!(${button('确认批准Agent')})`), false);
   await prepare(true);
@@ -158,7 +158,7 @@ try {
   } finally { await revokeLoss.restore(); }
   await ui.click('查询原Agent编号'); await ui.waitFor(`document.querySelector('[aria-label="Agent授权详情"]')?.textContent.includes('REVOKED')`);
   // Change a choice to invalidate prior selections, then approve exactly READ.
-  await ui.fill('会话', ref.connection_id); await ui.fill('会话', sshId);
+  await ui.selectTab(ref.connection_id); await ui.selectTab(sshId);
   await ui.waitFor(`document.querySelector('[aria-label="授权读取终端"]')&&!document.querySelector('[aria-label="授权读取终端"]').checked`);
   await prepare();
   const grantLoss = await ui.interceptIpc({ command: 'agent_management_request', op: 'grant', mode: 'error' });

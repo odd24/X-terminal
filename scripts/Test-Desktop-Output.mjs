@@ -12,7 +12,7 @@ try {
   await ui.click('新建合成会话');
   try { await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`); }
   catch(error) {
-    console.error('initial output checkpoint:',await ui.evaluate(`JSON.stringify({main:document.querySelector('.status')?.textContent,selection:document.querySelector('[aria-label="会话"]')?.value,create:[...document.querySelectorAll('button')].filter(item=>item.textContent==='新建合成会话').map(item=>({disabled:item.disabled}))})`));
+    console.error('initial output checkpoint:',await ui.evaluate(`JSON.stringify({main:document.querySelector('.status')?.textContent,selection:document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId,create:[...document.querySelectorAll('button')].filter(item=>item.textContent==='新建合成会话').map(item=>({disabled:item.disabled}))})`));
     console.error('initial output service:',await ui.invoke('service_list'));await ui.screenshot('desktop-output-initial-failure.png');throw error;
   }
   const [connection] = await ui.invoke('service_list');
@@ -26,7 +26,7 @@ try {
   assert.equal(text.truncated,false);assert.equal(text.completed,false);
   await ui.invoke('fixture_append', { connection: ref, bytes: [...Buffer.from('\r\n' + 'SEARCH中文😀'.repeat(30) + '\r\n' + Array.from({length:40},(_,i)=>`scroll-${i}\r\n`).join(''))] });
   await delay(500);
-  await ui.click('查找终端');await ui.fill('终端查找文字','SEARCH中文😀SEARCH');
+  await ui.searchTerminal();await ui.fill('终端查找文字','SEARCH中文😀SEARCH');
   await ui.click('下一个匹配');
   await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 15')`);
   await ui.click('下一个匹配');await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('2 / 15')`);
@@ -67,13 +67,13 @@ try {
   const second = await ui.invoke('fixture_create');
   const secondRef = { connection_id: second.connection_id, generation: second.generation };
   await ui.invoke('fixture_append', { connection: secondRef, bytes: [...Buffer.from('SECOND_CONNECTION')] });
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(second.connection_id)})`);
-  await ui.fill('会话', second.connection_id);
-  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),second.connection_id);
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(second.connection_id)})`);
+  await ui.selectTab(second.connection_id);
+  assert.equal(await ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`),second.connection_id);
   try {
     await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('SECOND_CONNECTION'))`);
   } catch(error) {
-    console.log('synthetic selection failure',await ui.evaluate(`({selected:document.querySelector('[aria-label="会话"]').value,status:document.querySelector('.status').textContent,snapshot:document.querySelector('[aria-label="屏幕快照"]')?.textContent})`));
+    console.log('synthetic selection failure',await ui.evaluate(`({selected:document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId,status:document.querySelector('.status').textContent,snapshot:document.querySelector('[aria-label="屏幕快照"]')?.textContent})`));
     throw error;
   }
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="屏幕快照"]').textContent.includes('SAFE_AFTER_GAP')`), false);

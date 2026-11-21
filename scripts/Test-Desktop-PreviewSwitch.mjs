@@ -129,8 +129,8 @@ try {
   assert.equal(oldPage.profiles[0].credential_ref, null);
   assert.equal(schemaVersion(), 7);
 
-  await oldUi.waitFor(`Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(ref.connection_id)})`);
-  await oldUi.fill('会话', ref.connection_id);
+  await oldUi.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(ref.connection_id)})`);
+  await oldUi.selectTab(ref.connection_id);
   await oldUi.click('Agent 授权');
   await oldUi.waitFor(`document.querySelector('[aria-label="Agent批准目标"]')?.textContent.includes(${JSON.stringify(ref.connection_id)})`);
   assert.equal(await oldUi.evaluate(`document.querySelector('[aria-label="授权读取终端"]').checked`), false);

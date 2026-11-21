@@ -27,10 +27,9 @@ try{
  const logging=request=>ui.invoke('logging_request',{request}),native=request=>ui.invoke('terminal_log_request',{request}),save=request=>ui.invoke('export_save_request',{request});
  const owner=(await ui.invoke('service_status')).service_id,target=c=>({service_id:owner,protocol:c.protocol,connection:ref(c)});
  const list=c=>logging({op:'list',connection:ref(c)}),active=async c=>(await list(c)).logs.find(l=>l.active),file=l=>path.join(directory,'logs',l.readable.filename);
- const tools=async label=>{await ui.evaluate(`document.querySelector('.tools-menu').open=true`);await ui.click(label);};
  const focus=async key=>{await ui.command('Page.bringToFront');await ui.evaluate(`document.querySelector('[data-pane="${key}"] .xterm-helper-textarea').focus()`);await ui.waitFor(`document.querySelector('[data-pane="${key}"]').dataset.active==='true'`);};
  const ready=async(key,c)=>ui.waitFor(`document.querySelector('[data-pane="${key}"]')?.dataset.renderedId===${JSON.stringify(c.connection_id)}&&document.querySelector('[data-pane="${key}"]').dataset.renderedGeneration==='${c.generation}'`);
- async function split(first,second){await ui.fill('会话',first.connection_id);await tools('分屏');await ui.waitFor(`!!document.querySelector('[aria-label="分屏第二个会话"]')`);await ui.fill('分屏第二个会话',`${second.connection_id}/${second.generation}`);await ui.fill('分屏排列方向','horizontal');await ui.click('创建分屏');await ready('first',first);await ready('second',second);}
+ async function split(first,second){await ui.selectTab(first.connection_id);await ui.splitTab(second.connection_id);await ready('first',first);await ready('second',second);}
  const topMenu=async()=>{
    await ui.waitFor(`!document.querySelector('.toolbar-log').disabled`);
    const p=await ui.evaluate(`(()=>{const b=document.querySelector('.toolbar-log');const r=b.getBoundingClientRect();const x=(r.left+r.right)/2,y=(r.top+r.bottom)/2;if(document.elementFromPoint(x,y)!==b)throw Error('log control is occluded');return {x,y};})()`);
@@ -38,7 +37,7 @@ try{
    await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...p});
    await ui.waitFor(`!!document.querySelector('[aria-label="终端日志菜单"]')`);
  };
- const badge=connection=>`document.querySelector('[data-connection-id="${connection.connection_id}"] .tab-log-badge')`;
+ const badge=connection=>`document.querySelector('[data-connection-id="${connection.connection_id}"]')?.parentElement.querySelector('.tab-record-button')`;
  const slot=()=>ui.evaluate(`JSON.parse(sessionStorage.getItem('terminal-context-log-task-v1'))`);
  async function right(key){await ui.command('Page.bringToFront');const p=await ui.evaluate(`(()=>{const r=document.querySelector('[data-pane="${key}"] .terminal').getBoundingClientRect();return{x:r.x+24,y:r.y+24};})()`);await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...p});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...p});await ui.waitFor(`!!document.querySelector('[aria-label="终端日志菜单"]')`);assert.equal(await ui.evaluate(`document.querySelector('[data-pane="${key}"]').dataset.active`),'true');}
  async function choose(key,label){await right(key);await ui.waitFor(`Array.from(document.querySelectorAll('[aria-label="终端日志菜单"] button')).some(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`);await ui.click(label);return slot();}
@@ -112,7 +111,7 @@ try{
    await ui.screenshot('terminal-black-only-log.png');
  }else await ui.screenshot('log-status-timeout-open.png');
  const firstDismissal=await dismissalTime(opened);
- await ui.waitFor(`(${badge(b)})?.title==='● 记录中'&&document.querySelector('.toolbar-log').textContent.trim()==='● 记录中'`);
+ await ui.waitFor(`(${badge(b)})?.dataset.recording==='recording'&&document.querySelector('.toolbar-log').textContent.trim()==='● 记录中'`);
  await right('second');
  const reopened=await clickMenuAt('查看上次日志操作');
  await ui.waitFor(`!!${notice}`);
@@ -131,7 +130,7 @@ try{
  console.log(`PASS recording status auto-dismissed in ${firstDismissal} ms, reopened for ${secondDismissal} ms, manual dismissal preserves original recording`);
  // A buffer is explicitly exportable before recording; all-recorded is not fabricated.
  await focus('first');
- await ui.waitFor(`(${badge(b)})?.title==='● 记录中'&&! (${badge(a)})`);
+ await ui.waitFor(`(${badge(b)})?.dataset.recording==='recording'&&(${badge(a)})?.dataset.recording==='idle'`);
  const unrecordedLines=Array.from({length:80},(_,i)=>`UNRECORDED-${String(i).padStart(2,'0')}`);
  await one.control({op:'push',text:'\r\n'+unrecordedLines.join('\r\n')+'\r\n'});
  await ui.waitFor(`document.querySelector('[data-pane="first"] .xterm-rows').textContent.includes('UNRECORDED-79')`);
@@ -218,7 +217,7 @@ try{
  // A newly opened menu cannot reuse the previous target's ready state.
  const menuLoad=await ui.interceptIpc({op:'list',connectionId:b.connection_id,mode:'hold'});await right('second');await wait(async()=>await menuLoad.count()>=1,'new menu list response held');assert.equal(await ui.evaluate(`Array.from(document.querySelectorAll('[role="menuitem"]')).find(b=>b.textContent==='打开当前日志文件').disabled`),true);await menuLoad.restore();await ui.waitFor(`Array.from(document.querySelectorAll('[role="menuitem"]')).some(b=>b.textContent==='打开当前日志文件'&&!b.disabled)`);await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await ui.waitFor(`!document.querySelector('[aria-label="终端日志菜单"]')&&document.activeElement===document.querySelector('[data-pane="second"] .xterm-helper-textarea')`);
  // A lost prepare response only permits querying the original ID; no automatic picker.
- const lostPrepare=await ui.interceptIpc({command:'terminal_log_request',op:'prepare',mode:'error'});const recover=await choose('first','只保存当前可见屏幕…');await ui.waitFor(`document.querySelector('[aria-label="终端右键日志操作"]').textContent.includes('查询结果')`);assert.equal(await lostPrepare.count(),1);await lostPrepare.restore();const recovered=await prepared(recover);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+recover.request_id)})`),null);await ui.command('Page.reload');await ui.fill('会话',a.connection_id);await ready('first',a);await focus('first');await ui.click('查询本次日志操作');await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='保存已准备的日志'&&!b.disabled)`);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+recover.request_id)})`),null);await ui.click('保存已准备的日志');await finishSave(recover,recovered.bytes,path.join(output,'原编号恢复.log'));
+ const lostPrepare=await ui.interceptIpc({command:'terminal_log_request',op:'prepare',mode:'error'});const recover=await choose('first','只保存当前可见屏幕…');await ui.waitFor(`document.querySelector('[aria-label="终端右键日志操作"]').textContent.includes('查询结果')`);assert.equal(await lostPrepare.count(),1);await lostPrepare.restore();const recovered=await prepared(recover);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+recover.request_id)})`),null);await ui.command('Page.reload');await ui.selectTab(a.connection_id);await ready('first',a);await focus('first');await ui.click('查询本次日志操作');await ui.waitFor(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='保存已准备的日志'&&!b.disabled)`);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+recover.request_id)})`),null);await ui.click('保存已准备的日志');await finishSave(recover,recovered.bytes,path.join(output,'原编号恢复.log'));
  console.log('Native save response');
  // Native save response loss does not select a second destination or replay start.
  const lostSave=await ui.interceptIpc({command:'export_save_request',op:'start',mode:'error'});const saveLostTask=await choose('first','只保存当前可见屏幕…'),saveLost=await prepared(saveLostTask);await saveTask(saveLostTask);await ui.waitFor(`document.querySelector('[aria-label="右键日志导出另存状态"]')?.textContent.includes('保留原任务编号')`);await picker(path.join(output,'保存应答丢失.log'));assert.equal(await lostSave.count(),1);await lostSave.restore();await ui.click('查询保存结果');await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')&&document.querySelector('[aria-label="日志保存反馈"]')?.textContent.includes('日志已保存')`);assert.deepEqual(await readFile(path.join(output,'保存应答丢失.log')),saveLost.bytes);
@@ -238,12 +237,12 @@ try{
  // A real admitted prepare with held reply cannot auto-save after focus changes.
  const held=await ui.interceptIpc({command:'terminal_log_request',op:'prepare',mode:'hold'});const stale=await choose('first','只保存当前可见屏幕…');await wait(async()=>await held.count()===1,'held prepare');await focus('second');await held.restore();await delay(350);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+stale.request_id)})`),null);assert.equal((await active(b)).log_id,lb.log_id);assert.equal((await active(uart)).log_id,lu.log_id);assert.equal((await active(a)).log_id,la.log_id);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')`);
  await stop('second',b);await focus('first');await stop('first',a);
- await ui.waitFor(`(${badge(uart)})?.title==='● 记录中'&&! (${badge(a)})&&! (${badge(b)})`);
+ await ui.waitFor(`(${badge(uart)})?.dataset.recording==='recording'&&(${badge(a)})?.dataset.recording==='idle'&&(${badge(b)})?.dataset.recording==='idle'`);
  console.log('New generation and exact target closure');
  const generationReply=await ui.interceptIpc({command:'terminal_log_request',op:'prepare',mode:'hold'});const oldGenerationTask=await choose('first','只保存当前可见屏幕…');await wait(async()=>await generationReply.count()===1,'held old generation prepare');await ssh({op:'close',connection:ref(a)});await wait(async()=>['DISCONNECTED','FAILED'].includes((await ssh({op:'status',connection:ref(a)})).connection.state),'old A ended');const renewed=(await ssh({op:'reconnect',connection:ref(a),request_id:requestId(),cols:80,rows:24})).connection;assert.ok(renewed.generation>a.generation);await generationReply.restore();await delay(250);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+oldGenerationTask.request_id)})`),null);
- const answered=new Set();await wait(async()=>{const s=await ssh({op:'status',connection:ref(renewed)});if(s.challenge&&!answered.has(s.challenge.id)){answered.add(s.challenge.id);if(s.challenge.kind==='host_key'){assert.equal(s.challenge.review.candidate.fingerprint,one.pin);await ssh({op:'answer_host',connection:ref(renewed),challenge_id:s.challenge.id,approve:true});}else if(s.challenge.kind==='credentials')await ssh({op:'authenticate',connection:ref(renewed),challenge_id:s.challenge.id,use_saved:true,password:null});}return s.connection.state==='CONNECTED';},'normal new generation authentication');await ui.fill('会话',renewed.connection_id);await ready('first',renewed);assert.equal((await list(renewed)).logs.length,0);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')`);
+ const answered=new Set();await wait(async()=>{const s=await ssh({op:'status',connection:ref(renewed)});if(s.challenge&&!answered.has(s.challenge.id)){answered.add(s.challenge.id);if(s.challenge.kind==='host_key'){assert.equal(s.challenge.review.candidate.fingerprint,one.pin);await ssh({op:'answer_host',connection:ref(renewed),challenge_id:s.challenge.id,approve:true});}else if(s.challenge.kind==='credentials')await ssh({op:'authenticate',connection:ref(renewed),challenge_id:s.challenge.id,use_saved:true,password:null});}return s.connection.state==='CONNECTED';},'normal new generation authentication');await ui.selectTab(renewed.connection_id);await ready('first',renewed);assert.equal((await list(renewed)).logs.length,0);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')`);
  const closeReply=await ui.interceptIpc({command:'terminal_log_request',op:'prepare',mode:'hold'});const closedTask=await choose('first','保存终端缓冲内容…');await wait(async()=>await closeReply.count()===1,'held preparation before exact tab close');await ui.evaluate(`document.querySelector('[aria-label="关闭标签 ${renewed.connection_id}"]').click()`);await closeReply.restore();await delay(250);assert.equal(await ui.evaluate(`sessionStorage.getItem(${JSON.stringify('terminal-menu-log-save-'+closedTask.request_id)})`),null);assert.equal((await ui.invoke('service_list')).find(c=>c.connection_id===b.connection_id).state,'CONNECTED');assert.equal((await active(uart)).log_id,lu.log_id);await ui.waitFor(`!document.querySelector('[aria-label="终端右键日志操作"]')`);
- await ui.fill('会话',uart.connection_id);
+ await ui.selectTab(uart.connection_id);
  const lastPane=await ui.evaluate(`document.querySelector('[data-pane][data-active="true"]').dataset.pane`);
  await ready(lastPane,uart);
  await right(lastPane);
@@ -252,7 +251,7 @@ try{
  await wait(async()=>(await logging({op:'status',connection:ref(uart),log_id:lu.log_id})).durable,'UART stop has synced');
  await ui.waitFor(`document.querySelector('[aria-label="右键日志操作状态"]')?.textContent.includes('停止并同步')`);
  const stopDismissal=await dismissalTime(stopOpened);
- await ui.waitFor(`!(${badge(uart)})`);
+ await ui.waitFor(`(${badge(uart)})?.dataset.recording==='idle'`);
  console.log(`PASS recording stop notice auto-dismissed in ${stopDismissal} ms after durable stop`);
  await writeFile('artifacts/CR-022-log-menu-result.json',JSON.stringify({result:editorObservationError?'PARTIAL':'PASS',recordingNoticeMs:{firstDismissal,secondDismissal,stopDismissal},editor:editorObservationError?'title observed; in-editor header OCR and own-tab close unverified':'exact header observed; own tab closed',owner,identities:{a,b,uart},files:await readdir(path.join(directory,'logs')),fullBytes:full.bytes.length,fullRecords:full.info.retained_records,viewport:{cols,rows,bytes:screen.bytes.length,sha256:screen.info.sha256},hardware:'synthetic SSH, passive memory UART only; no COM'},null,2));
  if(editorObservationError)throw new Error('Native editor header observation failed. Remaining log-menu checks passed; see CR-022-log-menu-result.json.');

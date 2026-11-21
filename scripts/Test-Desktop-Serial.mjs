@@ -124,9 +124,9 @@ try {
   gb18030.settings.encoding='utf8';
   await ui.invoke('config_request',{request:{op:'save_profile',profile:gb18030,credential:{action:'keep'}}});
   await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(connection.connection_id)})`);
-  await ui.fill('会话',connection.connection_id);
-  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`),connection.connection_id);
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(connection.connection_id)})`);
+  await ui.selectTab(connection.connection_id);
+  assert.equal(await ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`),connection.connection_id);
   // Selection/replay spans several asynchronous polls after reload. Read the
   // current viewport on each attempt instead of waiting on one stale capture.
   await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='屏幕快照').click(),document.querySelector('[aria-label="屏幕快照"]')?.textContent.includes('\u{10000}'))`);
@@ -136,8 +136,8 @@ try {
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="接收解码提示"]')`),false);
   await ui.click('串口高级工具');await state('CONNECTED');await ui.click('停止发送并关闭串口');await state('DISCONNECTED');
   for(const item of await ui.invoke('service_list')) {
-    await ui.fill('会话',item.connection_id);await ui.waitFor(`document.querySelector('[aria-label="串口状态"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);
-    await ui.click('移除串口记录');await ui.waitFor(`!Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(item.connection_id)})`);
+    await ui.selectTab(item.connection_id);await ui.waitFor(`document.querySelector('[aria-label="串口状态"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);
+    await ui.click('移除串口记录');await ui.waitFor(`![...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(item.connection_id)})`);
   }
   await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
   console.log('PASS serial native WebView over synthetic worker: explicit device/control approval, HEX/CRLF, exact raw echo, dedup/no replay, native keyboard, paced text, cancel/close, reload, GBK strict encoding, hardware RTS, DTR/Break, terminal cleanup; no COM opened');

@@ -17,7 +17,7 @@ try {
  ui=await launchDesktop(directory,{fixture:true});
  await ui.evaluate(`window.__dialogFocusTrace=[];document.addEventListener('focusin',e=>{window.__dialogFocusTrace.push({tag:e.target.tagName,label:e.target.getAttribute('aria-label'),class:e.target.className});if(window.__dialogFocusTrace.length>30)window.__dialogFocusTrace.shift();});`);
  const modal=()=>ui.evaluate(`!!document.querySelector('dialog:modal')`);
- const selected=()=>ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);
+ const selected=()=>ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);
  const current=async()=>{const id=await selected();return (await ui.invoke('service_list')).find(c=>c.connection_id===id);};
  const show=async()=>{await ui.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.getAttribute('aria-label')==='连接服务器')?.focus()`);await ui.click('连接服务器');await ui.waitFor(`!!document.querySelector('dialog:modal [aria-label="SSH服务器"]')`);};
  const fill=async(port=server.port,auth='password')=>{await ui.waitFor(`!!document.querySelector('[aria-label="SSH服务器"]')&&!document.querySelector('[aria-label="SSH服务器"]').disabled`);await ui.fill('SSH服务器','127.0.0.1');await ui.fill('SSH用户名','synthetic');await ui.fill('SSH登录方式',auth);await ui.evaluate(`Array.from(document.querySelectorAll('summary')).find(s=>s.textContent==='高级连接设置').parentElement.open=true`);await ui.fill('SSH端口',port);};

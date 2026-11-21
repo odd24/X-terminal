@@ -35,8 +35,8 @@ try {
   const target = (await ui.invoke('service_list')).find(c => c.protocol === 'SERIAL');
   const connection = { connection_id: target.connection_id, generation: target.generation };
   const other = await ui.invoke('fixture_create');
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(o=>o.value===${JSON.stringify(other.connection_id)})`);
-  await ui.fill('会话', target.connection_id);
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(other.connection_id)})`);
+  await ui.selectTab(target.connection_id);
   await ui.click('Agent 授权');
   await ui.waitFor(`document.querySelector('[aria-label="Agent批准目标"]')?.textContent.includes(${JSON.stringify(target.connection_id)})`);
   const toggle = label => ui.evaluate(`document.querySelector('[aria-label=${JSON.stringify(label)}]').click()`);
@@ -58,10 +58,10 @@ try {
   await preview(); await ui.click('取消Agent批准');
   assert.equal(await count(), before);
   await preview();
-  await ui.fill('会话', other.connection_id);
+  await ui.selectTab(other.connection_id);
   await ui.waitFor(`!document.querySelector('[aria-label="授权断开连接"]')`);
   assert.equal(await ui.evaluate(`!!(${button('确认批准Agent')})`), false);
-  await ui.fill('会话', target.connection_id);
+  await ui.selectTab(target.connection_id);
   await ui.waitFor(`document.querySelector('[aria-label="授权断开连接"]')&&!document.querySelector('[aria-label="授权断开连接"]').checked`);
   await toggle('授权断开连接'); await preview();
   await ui.evaluate(`document.querySelector('[aria-label="Agent授权预览"]').scrollIntoView({block:'center'})`);
@@ -107,7 +107,7 @@ try {
   assert.equal(retired.data.summary.state, 'ACTIVE');
   assert.equal(retired.data.summary.expires_at_ms, original.data.summary.expires_at_ms);
   await ui.command('Page.reload');
-  await ui.waitFor(`!!(${button('Agent 授权')})&&Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(other.connection_id)})`);
+  await ui.waitFor(`!!(${button('Agent 授权')})&&[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(other.connection_id)})`);
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权面板"]')`), false);
   await ui.click('Agent 授权');
   await ui.waitFor(`!!document.querySelector('[aria-label="Agent签发编号"]')`);

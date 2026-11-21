@@ -15,12 +15,12 @@ try {
   const [connection] = await ui.invoke('service_list');
   const target = { connection_id: connection.connection_id, generation: connection.generation };
   const before = await ui.invoke('service_read_text', { connection: target, cursor: 1 });
-  await ui.click('外观');
-  await ui.click('查找终端');
+  await ui.searchTerminal();
   await ui.fill('终端查找文字', '中文宽字');
   await ui.click('下一个匹配');
   await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 1')`);
   for (const entry of ['连接配置', 'SSH2 连接', '串口连接', 'exec 任务', '终端日志']) await ui.click(entry);
+  await ui.click('外观');
   const checkTheme = async (theme, background, terminalBackground) => {
     await ui.fill('应用主题', theme);
     await ui.waitFor(`document.documentElement.dataset.theme===${JSON.stringify(theme)}`);

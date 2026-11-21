@@ -25,7 +25,7 @@ try{
   const orderExpression=`[...document.querySelectorAll('[role="tab"]')].map(tab=>tab.dataset.connectionId)`;
   const order=()=>ui.evaluate(orderExpression);
   const originalOrder=await order();
-  await ui.fill('会话',b.connection_id);const before=(await control({op:'metrics'})).received;
+  await ui.selectTab(b.connection_id);const before=(await control({op:'metrics'})).received;
   if(process.argv.includes('--tabs-scrollbar')){
     await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
     await ui.click('外观');
@@ -40,7 +40,7 @@ try{
     for(const tab of shown)assert.deepEqual(tab,{id:tab.id,label:'127.0.0.1',selected:tab.id===b.connection_id,visible:true});
     await ui.screenshot('terminal-distinct-tabs.png');
   }
-  const selected=()=>ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);
+  const selected=()=>ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);
   const chooseGroup=value=>ui.evaluate(`(()=>{const select=document.querySelector('select[aria-label="管理标签分组"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,${JSON.stringify(value)});select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   const open=async()=>{await ui.evaluate(`document.querySelector('.tools-menu').open=true`);await ui.click('标签分组');await ui.waitFor(`!!document.querySelector('dialog:modal [aria-label="新分组名称"]')`);};
   const create=async name=>{const count=await ui.evaluate(`document.querySelector('select[aria-label="管理标签分组"]').options.length`);await ui.fill('新分组名称',name);await ui.click('新建分组');await ui.waitFor(`document.querySelector('select[aria-label="管理标签分组"]').options.length===${count+1}&&document.querySelector('select[aria-label="管理标签分组"]').selectedOptions[0].textContent===${JSON.stringify(name.trim())}`);return ui.evaluate(`document.querySelector('select[aria-label="管理标签分组"]').value`);};
@@ -63,7 +63,7 @@ try{
   await drop(c,one,{owner:'other-service'});assert.deepEqual(await order(),[b.connection_id,c.connection_id,a.connection_id]);
   const joinedOrder=[b.connection_id,...originalOrder.filter(id=>id!==b.connection_id)];
   await drop(c,one);await waitForOrder(joinedOrder);assert.equal(await selected(),b.connection_id);
-  await ui.evaluate(`document.querySelector('[role="tab"][data-connection-id="${b.connection_id}"]').focus()`);await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});await ui.waitFor(`document.querySelector('[aria-label="会话"]').value===${JSON.stringify(joinedOrder[1])}`);
+  await ui.evaluate(`document.querySelector('[role="tab"][data-connection-id="${b.connection_id}"]').focus()`);await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});await ui.waitFor(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId===${JSON.stringify(joinedOrder[1])}`);
   assert.deepEqual((await control({op:'metrics'})).received,before,'grouping and selecting cannot send terminal input');
   assert.equal((await list()).every(t=>t.state==='CONNECTED'),true);
   await ui.evaluate(`document.querySelector('[aria-label="关闭标签 ${c.connection_id}"]').click()`);await ui.waitFor(`!document.querySelector('[role="tab"][data-connection-id="${c.connection_id}"]')`);assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="关闭标签确认"]')`),false);

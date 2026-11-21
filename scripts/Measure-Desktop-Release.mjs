@@ -35,7 +35,7 @@ try {
   }
   console.log('Measuring eight open tabs');
   await ui.waitFor('document.querySelectorAll(".connection-tab [role=tab]").length===8');
-  await ui.fill('会话',targets[0].connection_id);
+  await ui.selectTab(targets[0].connection_id);
   await ui.waitFor('document.querySelector("[data-pane=first]").dataset.renderedId==='+JSON.stringify(targets[0].connection_id));
   await delay(350);
   const multi=await phase(()=>delay(frames*interval));

@@ -92,6 +92,39 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
       button?.click();
     })()`);
     const fill = (label, value) => evaluate(`(() => { const control = document.querySelector('[aria-label=' + JSON.stringify(${JSON.stringify(label)}) + ']'); const proto = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(control, ${JSON.stringify(String(value))}); control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input', {bubbles:true})); })()`);
+    const selectTab = async connectionId => {
+      const selector = `[role="tab"][data-connection-id="${connectionId}"]`;
+      const tab = `document.querySelector(${JSON.stringify(selector)})`;
+      await waitFor(`!!${tab}`);
+      await evaluate(`${tab}.click()`);
+    };
+    const searchTerminal = async () => {
+      await waitFor(`!!document.querySelector('[data-active="true"] .xterm-helper-textarea')`);
+      await evaluate(`document.querySelector('[data-active="true"] .xterm-helper-textarea').focus()`);
+      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'F',code:'KeyF',windowsVirtualKeyCode:70,modifiers:10});
+      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'F',code:'KeyF',windowsVirtualKeyCode:70,modifiers:10});
+      await waitFor(`!!document.querySelector('[aria-label="终端查找文字"]')`);
+    };
+    const splitTab = async (connectionId, direction = 'horizontal') => {
+      const source = `document.querySelector('[role="tab"][data-connection-id="${connectionId}"]')`;
+      const edge = direction === 'horizontal' ? 'right' : 'bottom';
+      await waitFor(`!!${source} && !!document.querySelector('.pane-active .terminal')`);
+      await command('Page.bringToFront');
+      const points = await evaluate(`(() => {
+        ${source}.scrollIntoView({block:'nearest',inline:'nearest'});
+        const from=${source}.getBoundingClientRect();
+        const to=document.querySelector('.pane-active .terminal').getBoundingClientRect();
+        return {start:{x:from.left+from.width/2,y:from.top+from.height/2},
+          end:{x:to.left+to.width*${edge==='right'?.82:.5},y:to.top+to.height*${edge==='bottom'?.82:.5}}};
+      })()`);
+      await command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...points.start});
+      try{
+        await command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,...points.end});
+        await waitFor(`!!document.querySelector('.tab-split-preview[data-edge="${edge}"]')`);
+      }finally{
+        await command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...points.end});
+      }
+    };
     await waitFor(`document.querySelector('footer')?.dataset.serviceId`);
     const nativeStatus = await invoke('service_status'); pid = nativeStatus.pid;
     // Static exit-policy prose also contains '服务 '; wait for this exact owner.
@@ -136,6 +169,6 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
       return reply;
     };
     const otherPages=async()=> (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).filter(item=>item.type==='page'&&item.id!==target.id);
-    return { app, invoke, evaluate, command: publicCommand, waitFor, click, fill, screenshot, interceptIpc, otherPages, close: cleanup };
+    return { app, invoke, evaluate, command: publicCommand, waitFor, click, fill, selectTab, searchTerminal, splitTab, screenshot, interceptIpc, otherPages, close: cleanup };
   } catch (error) { await cleanup(); throw error; }
 }

@@ -53,12 +53,11 @@ import { ToolbarMenu, Dialog, Panel } from './ui';
 import { TerminalLogMenu } from './terminal-log-menu';
 import type {TerminalMenuContext,RememberedLogTask} from './log-menu';
 import { TerminalPane } from './terminal-pane';
-import { SplitPanel } from './split-panel';
-import { PaneLayout, type PaneKey, type PaneLive } from './pane-layout';
+import { PaneLayout, type PaneKey } from './pane-layout';
 import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { QuickSerial } from './quick-serial';
-import { LoggingPanel, summarizeLogging, type LoggingSummary } from './logging-panel';
+import { LoggingPanel } from './logging-panel';
 import { serial, type SerialStatus } from './serial-api';
 import { requestId } from './request-id';
 import { ssh, dimensions, disconnectSsh1, type SshReply } from './ssh-api';
@@ -258,7 +257,6 @@ function App() {
   const [serialDialog,setSerialDialog]=useState(false);
   const [serialToolsOpen,setSerialToolsOpen]=useState(false);
   const [loggingOpen,setLoggingOpen] = useState(false);
-  const [loggingSummary, setLoggingSummary] = useState<LoggingSummary>();
   const [searchOpen, setSearchOpen] = useState(false);
   const clipboard = useRef<TerminalClipboard | undefined>(undefined);
   const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
@@ -383,22 +381,11 @@ function App() {
   const continuousRun=useRef(new ContinuousInput({alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,id:requestId,ready:continuousTargetReady,send:sendBroadcastTarget,query:queryBroadcastTarget}));
   const triggers=useRef(new Triggers({...triggerDependencies,alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,notify:setTriggerNotice}));
   function closeBroadcast(){broadcastRun.current.cancel();setBroadcastOpen(false);setBroadcastSeed(undefined);}
-  const [splitSource,setSplitSource]=useState<{owner:string;first:PaneLive;nonce:string}>();
-  const splitNonce=useRef('');
   function syncRoute(){const current=panes.current.current;selectedRef.current=current.requested;setSelected(current.requested);const c=controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
   function routeChanged(){firstSsh1Fit.current=undefined;setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
   function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard)controllers.current.get(key)?.runtime.term.focus();}
   function cancelWorkspaceSplit(){workspaceSession.current.cancelSplit();restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);}
   function collapseSplit(keep?:PaneKey){cancelWorkspaceSplit();panes.current.collapse(keep);routeChanged();}
-  function closeSplitPanel(){splitNonce.current='';setSplitSource(undefined);}
-  async function applySplit(second:PaneLive,direction:'horizontal'|'vertical'){
-    const source=splitSource;if(!source)throw new Error();cancelWorkspaceSplit();const epoch=panes.current.epoch;
-    const native=await invoke<Status>('service_status'),live=await invoke<Connection[]>('service_list');
-    if(splitNonce.current!==source.nonce||epoch!==panes.current.epoch||native.service_id!==source.owner||serviceStopped.current)throw new Error();
-    const match=(c:Connection,t:PaneLive)=>c.connection_id===t.connection_id&&c.generation===t.generation&&c.protocol===t.protocol&&c.state==='CONNECTED';
-    const firstNow=live.find(c=>match(c,source.first)),secondNow=live.find(c=>match(c,second));if(!firstNow||!secondNow)throw new Error();
-    panes.current.split(native.service_id,firstNow,secondNow,direction,false,tabs);routeChanged();closeSplitPanel();
-  }
   function paneSelection(key:PaneKey):PaneSelection{const slot=panes.current.slots.find(p=>p.key===key),binding=slot?.binding;
     const live=binding&&liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation&&c.protocol===binding.protocol);
     const serviceOwner=serviceRef.current?.service_id;
@@ -529,9 +516,11 @@ function App() {
   const pendingWorkspaceTabs=currentWorkspace?.tabs.filter(t=>{const ref=workspaceSession.current.binding(t.id),live=ref&&connections.find(c=>c.connection_id===ref.connection_id);return !live||['FAILED','DISCONNECTED'].includes(live.state);})??[];
   const activeDetails = active && catalog.current.get(active);
   const logOwner=serviceStopped.current?'':service?.service_id??'';
-  const tabLogs=useTabLogging(logOwner,tabs,active,loggingSummary);
-  const activeLog=active?tabLogs(active)?.text??'正在查询本次日志状态':'尚无活动连接';
-  const activeLogBadge=active?logBadge(tabLogs(active)):undefined;
+  const tabLogs=useTabLogging(logOwner,tabs,active,target=>!serviceStopped.current&&serviceRef.current?.service_id===target.service_id&&
+    transferring.current!==target.connection.connection_id&&liveConnections.current.some(c=>c.protocol===target.protocol&&
+      c.connection_id===target.connection.connection_id&&c.generation===target.connection.generation));
+  const activeLog=active?tabLogs.summary(active)?.text??'正在查询本次日志状态':'尚无活动连接';
+  const activeLogBadge=active?logBadge(tabLogs.summary(active)):undefined;
   useEffect(()=>{
     if(clipboardMessage!=='终端选区已复制')return;
     const timer=window.setTimeout(()=>setClipboardMessage(''),2000);
@@ -801,7 +790,7 @@ function App() {
         onKeyDown={event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();resizeNavigation(navigationWidth+(event.key==='ArrowLeft'?-10:10));}}}/>
     </aside>}
     <section className="terminal-workspace" aria-label="终端工作区">
-    <TerminalLogMenu onLog={log=>setLoggingSummary({connection:log.connection,...summarizeLogging([log])})}
+    <TerminalLogMenu claimRecording={tabLogs.claim} recordingLocked={tabLogs.locked}
       paneLabel={paneSlots.length===1?'终端':paneSlots.length===2
         ?(panes.current.direction==='horizontal'?['左窗格','右窗格']:['上窗格','下窗格'])[terminalMenu?.pane===paneSlots[0].key?0:1]
         :'窗格 '+(paneSlots.findIndex(slot=>slot.key===terminalMenu?.pane)+1)}
@@ -815,16 +804,8 @@ function App() {
       {!detached&&<ToolbarMenu summary={toolsSummary} className="tools-menu" label="更多工具" text="更多工具">
         <section className="toolbar-group" aria-label="会话与终端">
           <h3>会话与终端</h3>
-          <button onClick={() => setSearchOpen(open => !open)}>查找终端</button>
-          <button onClick={() => void clipboard.current?.copy()}>复制选区</button>
-          <button disabled={!selected} onClick={() => void clipboard.current?.paste()}>粘贴到终端</button>
           <button onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
-          <button disabled={paneSlots.length>=4||!active||active.state!=='CONNECTED'||!['SSH2','SERIAL'].includes(active.protocol)} onClick={()=>{if(active){const nonce=crypto.randomUUID();splitNonce.current=nonce;setSplitSource({owner:serviceRef.current!.service_id,first:{...active},nonce});}}}>分屏</button>
           {paneSlots.length>1&&<button onClick={()=>collapseSplit()}>收起分屏，保留连接</button>}
-          <select aria-label="会话" value={selected} onChange={event => selectConnection(event.target.value)}>
-            <option value="">{connections.length ? '请选择会话' : '尚无会话'}</option>
-            {connections.map(connection => <option key={connection.connection_id} value={connection.connection_id}>{connectionLabel(connection)}{profileName(connection) ? ` · ${connection.connection_id.slice(0, 8)}` : ''} · 代次 {connection.generation}</option>)}
-          </select>
         </section>
         <section className="toolbar-group" aria-label="连接与布局">
           <h3>连接与布局</h3>
@@ -873,7 +854,7 @@ function App() {
         const c=slot.binding&&connections.find(c=>c.connection_id===slot.binding!.connection_id&&c.generation===slot.binding!.generation&&c.protocol===slot.binding!.protocol);
         const view=paneViews[key]??initialTerminalView();
         const rail=<SessionTabs tabs={paneTabs(key)} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)}
-          owner={service?.service_id??''} selected={slot.requested} name={tabName} badge={connection=>logBadge(tabLogs(connection))}
+          owner={service?.service_id??''} selected={slot.requested} name={tabName} recording={tabLogs.control} toggleRecording={tabLogs.toggle}
           select={id=>{panes.current.focus(key);selectConnection(id);controllers.current.get(key)?.runtime.term.focus();}}
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text="＋">
@@ -902,7 +883,6 @@ function App() {
       }} /></Dialog>}
     {serialDialog&&<Dialog label="连接串口设备" close={closeSerial} fallbackFocus={restoreConnectEntry}><QuickSerial key={serialNonce} requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined} select={selectNewConnection} close={closeSerial} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SERIAL',serialNonce);focusRenderedTerminal(ref);closeSerial();}} /></Dialog>}
     {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
-    {splitSource&&<Dialog label="设置分屏" close={closeSplitPanel}><SplitPanel first={splitSource.first} connections={connections} label={connectionLabel} apply={applySplit} close={closeSplitPanel}/></Dialog>}
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={captureCurrentWorkspace} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <Dialog label="管理 Agent 授权" modal={false} close={()=>setAgentOpen(false)}><AgentPanel key={service.service_id} serviceId={service.service_id} target={active?.protocol==='SSH1'?undefined:active} profileId={active?.protocol==='SSH1'?undefined:activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} /></Dialog>}
     {triggerNotice&&!triggersOpen&&<div className="terminal-log-feedback" role="status" aria-label="触发器窗口通知"><span>{visibleControls(triggerNotice)}</span><button onClick={()=>setTriggerNotice('')}>关闭触发通知</button></div>}
@@ -934,7 +914,7 @@ function App() {
       <pre aria-label="粘贴内容预览">{visibleControls(JSON.stringify(pasteProposal.text.slice(0,8192)))}{pasteProposal.text.length > 8192 && ' …预览已截断'}</pre>
       <div className="config-actions"><button onClick={() => clipboard.current?.confirm(pasteProposal)}>确认发送粘贴</button><button data-dialog-autofocus onClick={cancelPaste}>取消粘贴</button></div>
     </Panel></Dialog>}
-    <LoggingPanel connection={active} open={loggingOpen} close={()=>setLoggingOpen(false)} onStatus={setLoggingSummary} />
+    <LoggingPanel connection={active} owner={logOwner} open={loggingOpen} close={()=>setLoggingOpen(false)} claimRecording={tabLogs.claim} recordingLocked={tabLogs.locked} />
     {snapshot && <Dialog label="查看屏幕快照" modal={false} close={()=>setSnapshot('')}><Panel title="屏幕快照" close={()=>setSnapshot('')} closeLabel="关闭屏幕快照"><pre aria-label="屏幕快照">{snapshot}</pre></Panel></Dialog>}
     {serviceScreen && <Dialog label="查看服务端屏幕快照" modal={false} close={()=>setServiceScreen(undefined)}><Panel title="服务端屏幕快照" close={()=>setServiceScreen(undefined)} closeLabel="关闭服务端快照"><small>{serviceScreen.connection.connection_id} / {serviceScreen.connection.generation} · {serviceScreen.encoding} · {serviceScreen.rows}×{serviceScreen.cols} · 来源游标 {serviceScreen.source_cursor} · {serviceScreen.parser} · {serviceScreen.resize_reflow ? '普通屏支持重排；复杂调整可能与桌面不同' : '宽度变化不重排，可能与桌面显示不同'} · 接收缺口 {serviceScreen.gap_bytes} 字节 · 解码错误事件 {serviceScreen.decode_error_events}{serviceScreen.contents_truncated && ' · 快照文本已截断'}{serviceScreen.completed && ' · 输出已结束'}</small><pre aria-label="服务端屏幕快照">{serviceScreen.contents || '空屏幕'}</pre></Panel></Dialog>}
     </div>

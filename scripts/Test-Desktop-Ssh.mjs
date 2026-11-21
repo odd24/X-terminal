@@ -250,8 +250,8 @@ try {
   await ui.evaluate(`window.__sshReloadProbe = true`);
   await ui.command('Page.reload'); await ui.waitFor(`window.__sshReloadProbe === undefined && document.querySelector('footer')?.dataset.serviceId`);
   assert.equal((await ui.invoke('service_status')).pid,pid);
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value === ${JSON.stringify(connection.connection_id)})`);
-  await ui.fill('会话',connection.connection_id);
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId === ${JSON.stringify(connection.connection_id)})`);
+  await ui.selectTab(connection.connection_id);
   for(let attempt=0;attempt<100;attempt++){const size=(await control({op:'metrics'})).sizes.at(-1);if(JSON.stringify(size)!==JSON.stringify(beforeReload))break;await delay(50);}
   assert.notDeepEqual((await control({op:'metrics'})).sizes.at(-1),beforeReload,'reload/new selection must synchronize the fresh terminal dimensions');
   assert.ok((await ui.invoke('service_list')).some(item=>item.connection_id===connection.connection_id && item.generation===connection.generation && item.state==='CONNECTED'));
@@ -269,7 +269,7 @@ try {
   assert.ok(retained.length>=2);
   const removedDuringPoll=retained[0];
   const currentBeforeRace=retained[1];
-  await ui.fill('会话',currentBeforeRace.connection_id);
+  await ui.selectTab(currentBeforeRace.connection_id);
   await ui.waitFor(`(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='服务端屏幕').click(),document.querySelector('[aria-label="服务端屏幕快照"]')?.previousElementSibling?.textContent.includes(${JSON.stringify(currentBeforeRace.connection_id)}))`);
   await ui.evaluate(`(() => {
     const original=window.fetch;
@@ -288,13 +288,13 @@ try {
   })()`);
   try {
     await ui.waitFor('window.__listRemovalRace.held===1');
-    await ui.fill('会话',removedDuringPoll.connection_id);
+    await ui.selectTab(removedDuringPoll.connection_id);
     await ui.waitFor(`document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes(${JSON.stringify(removedDuringPoll.connection_id)})`);
     await waitButton('移除连接记录');
     await ui.click('移除连接记录');
     await ui.waitFor(`document.querySelector('.ssh-panel [role="status"]')?.textContent.includes('已移除')`);
     await ui.evaluate('window.__listRemovalRace.release()');
-    await ui.waitFor(`!Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(removedDuringPoll.connection_id)})`);
+    await ui.waitFor(`![...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(removedDuringPoll.connection_id)})`);
     const race=await ui.evaluate('({held:window.__listRemovalRace.held,notFound:window.__listRemovalRace.notFound})');
     assert.equal(race.held,1);assert.ok(race.notFound>=1,'actual removed-target metadata request must reject');
     assert.equal(await ui.evaluate(`document.querySelector('.status').textContent.includes('会话服务不可用')`),false);
@@ -304,10 +304,10 @@ try {
   }
   retained=retained.filter(item=>item.connection_id!==removedDuringPoll.connection_id);
   for(const item of retained){
-    await ui.fill('会话',item.connection_id);
+    await ui.selectTab(item.connection_id);
     await ui.waitFor(`document.querySelector('[aria-label="SSH2 目标"]')?.textContent.includes(${JSON.stringify(item.connection_id)})`);
     await waitButton('移除连接记录');await ui.click('移除连接记录');
-    await ui.waitFor(`!Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(item.connection_id)})`);
+    await ui.waitFor(`![...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(item.connection_id)})`);
   }
   await ui.waitFor(`document.querySelector('.status').textContent.includes('尚无活动连接')`);
   assert.equal((await ui.invoke('service_list')).length,0);
@@ -366,8 +366,8 @@ try {
     }
     const callsBeforeReload=(await control({op:'metrics'})).exec_calls.length;
     await ui.evaluate(`window.__legacyReloadProbe=true`);await ui.command('Page.reload');
-    await ui.waitFor(`window.__legacyReloadProbe===undefined && document.querySelector('footer')?.dataset.serviceId && Array.from(document.querySelector('[aria-label="会话"]').options).some(o=>o.value===${JSON.stringify(scope.connection_id)})`);
-    await ui.fill('会话',scope.connection_id);
+    await ui.waitFor(`window.__legacyReloadProbe===undefined && document.querySelector('footer')?.dataset.serviceId && [...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(scope.connection_id)})`);
+    await ui.selectTab(scope.connection_id);
     await legacySnapshot(text+text);
     assert.equal((await getStatus()).encoding,encoding);
     assert.equal((await control({op:'metrics'})).exec_calls.length,callsBeforeReload,'reload does not replay');
@@ -402,17 +402,15 @@ try {
       for(let i=0;i<100 && (await control({op:'metrics'})).received.flat().length===before;i++)await delay(30);
       assert.equal(Buffer.from((await control({op:'metrics'})).received.flat().slice(before)).toString(),'SSH甲\r\nSSH乙\n');
       before=(await control({op:'metrics'})).received.flat().length;
-      await ui.click('查找终端');await ui.fill('终端查找文字','COPY_中文_123');await ui.click('下一个匹配');
+      await ui.searchTerminal();await ui.fill('终端查找文字','COPY_中文_123');await ui.click('下一个匹配');
       await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 1')`);
       await ui.command('Page.bringToFront');await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
       const ctrlC=async()=>{await ui.command('Input.dispatchKeyEvent',{type:'keyDown',modifiers:2,key:'c',code:'KeyC',windowsVirtualKeyCode:67});await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'c',code:'KeyC',windowsVirtualKeyCode:67});};
       await ctrlC();await ui.waitFor(`document.querySelector('[aria-label="剪贴板状态"]').textContent==='终端选区已复制'`);
       assert.equal((await control({op:'metrics'})).received.flat().length,before,'Ctrl+C with selection copies without interrupting');
       const clickPaste=async()=>{
-      await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
-      const pasteButton=await ui.evaluate(`(()=>{const b=Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='粘贴到终端');b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-      await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...pasteButton});
-      await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...pasteButton});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...pasteButton});
+        await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
+        for(const type of ['keyDown','keyUp'])await ui.command('Input.dispatchKeyEvent',{type,modifiers:10,key:'V',code:'KeyV',windowsVirtualKeyCode:86});
       };
       const lateRead=await ui.interceptIpc({command:'terminal_clipboard_read',op:undefined,mode:'delay',delayMs:700});
       try {

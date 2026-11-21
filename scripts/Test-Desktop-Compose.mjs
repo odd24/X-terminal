@@ -36,7 +36,7 @@ try {
     await ui.waitFor(`!!(${button('使用保存的 SSH2 凭据')})`);
     await ui.click('使用保存的 SSH2 凭据');
     await ui.waitFor(`document.querySelector('[aria-label="SSH2 状态"]')?.textContent.startsWith('CONNECTED')`);
-    const id=await ui.evaluate(`document.querySelector('[aria-label="会话"]').value`);
+    const id=await ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);
     return (await ui.invoke('service_list')).find(item=>item.connection_id===id);
   }
   const first=await connect(true), second=await connect();
@@ -50,12 +50,12 @@ try {
   const text='第二中文\n$HOME; `literal`';
   await ui.fill('撰写正文',text);await ui.fill('撰写末尾换行','crlf');await previewSend();
   assert.ok((await ui.evaluate(`document.querySelector('[aria-label="撰写发送预览"]').textContent`)).includes('\\r\\n'));
-  await ui.fill('会话',first.connection_id);
+  await ui.selectTab(first.connection_id);
   await ui.waitFor(`document.querySelector('[aria-label="撰写目标"]').textContent.includes(${JSON.stringify(first.connection_id)})`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="撰写正文"]').value`),'');
   assert.equal(await ui.evaluate(`!!(${button('确认发送撰写')})`),false);
   await ui.fill('撰写正文','第一草稿');
-  await ui.fill('会话',second.connection_id);
+  await ui.selectTab(second.connection_id);
   await ui.waitFor(`document.querySelector('[aria-label="撰写正文"]').value===${JSON.stringify(text)}`);
   assert.equal(await ui.evaluate(`!!(${button('确认发送撰写')})`),false,'switch away/back cannot restore consent');
   await waitRaw(first,beforeFirst);await waitRaw(second,beforeSecond);
@@ -64,7 +64,7 @@ try {
   const secondExpected=[...beforeSecond,...Buffer.from(text+'\r\n')];
   await waitRaw(second,secondExpected);await waitRaw(first,beforeFirst);
   await ui.waitFor(`document.querySelector('[aria-label="撰写正文"]').value===''`);
-  await ui.fill('会话',first.connection_id);
+  await ui.selectTab(first.connection_id);
   await ui.waitFor(`document.querySelector('[aria-label="撰写正文"]').value==='第一草稿'`);
   await ui.waitFor(`!!(${button('预览撰写发送')})&&!(${button('预览撰写发送')}).disabled`);
   await previewSend();
@@ -82,20 +82,20 @@ try {
   assert.equal(await lost.count(),1);await lost.restore();
   await waitRaw(first,[...firstTyped,...Buffer.from('第一草稿')]);await waitRaw(second,secondExpected);
   await delay(200);await waitRaw(first,[...firstTyped,...Buffer.from('第一草稿')]);
-  await ui.fill('会话',second.connection_id);
+  await ui.selectTab(second.connection_id);
   await ui.fill('撰写正文','重载不保存');await ui.click('关闭撰写');await ui.click('基础撰写');
   await ui.waitFor(`document.querySelector('[aria-label="撰写正文"]').value==='重载不保存'`);
   await ui.screenshot('desktop-compose-native.png');
   await ui.command('Page.reload');await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(option=>option.value===${JSON.stringify(second.connection_id)})`);
-  await ui.fill('会话',second.connection_id);await ui.click('基础撰写');
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(second.connection_id)})`);
+  await ui.selectTab(second.connection_id);await ui.click('基础撰写');
   await ui.waitFor(`document.querySelector('[aria-label="撰写目标"]').textContent.includes(${JSON.stringify(second.connection_id)})`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="撰写正文"]').value`),'');
   assert.equal((await ui.invoke('service_list')).length,2);
   await waitRaw(first,[...firstTyped,...Buffer.from('第一草稿')]);await waitRaw(second,secondExpected);
   console.log('PASS compose native SSH: independent same-Profile drafts, exact Unicode/LF/CRLF/literal shell text, switch-away/back discards approval, single-use double click, keyboard takeover, lost real write response hit=1/no retry, panel reopen preserves draft, reload clears content and consent without recreating connections; synthetic only');
 } catch(error) {
-  if(ui){console.error('compose failure:',await ui.evaluate(`JSON.stringify({main:document.querySelector('.status')?.textContent,selected:document.querySelector('[aria-label="会话"]')?.value,target:document.querySelector('[aria-label="撰写目标"]')?.textContent})`));console.error('compose connections:',await ui.invoke('service_list').catch(()=> 'unavailable'));await ui.screenshot('desktop-compose-failure.png');}
+  if(ui){console.error('compose failure:',await ui.evaluate(`JSON.stringify({main:document.querySelector('.status')?.textContent,selected:document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId,target:document.querySelector('[aria-label="撰写目标"]')?.textContent})`));console.error('compose connections:',await ui.invoke('service_list').catch(()=> 'unavailable'));await ui.screenshot('desktop-compose-failure.png');}
   throw error;
 } finally {
   await ui?.close();fixture.stdin.end();if(fixture.exitCode===null)fixture.kill();

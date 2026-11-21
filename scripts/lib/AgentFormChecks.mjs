@@ -13,8 +13,8 @@ export async function checkGrantForms(ui, connection, profile, protocol, ended =
   const slot = () => ui.evaluate(`JSON.parse(sessionStorage.getItem('shared-terminal-agent-grant'))`);
   const open = async () => {
     if (await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权面板"]')`)) await ui.click('关闭Agent授权');
-    await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(connection.connection_id)})`);
-    await ui.fill('会话', connection.connection_id); await ui.click('Agent 授权');
+    await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(connection.connection_id)})`);
+    await ui.selectTab(connection.connection_id); await ui.click('Agent 授权');
     await ui.waitFor(`!!document.querySelector('[aria-label="Agent授权形式"]')`);
     await ui.waitFor(`document.querySelector('[aria-label="活动编码"]')?.textContent.includes('UTF-8')`);
     assert.equal(await value('Agent授权形式'), 'scoped');

@@ -149,7 +149,7 @@ try {
   const success=async(name,args={})=>{const result=await call(name,args);assert.equal(result.isError,false,JSON.stringify(result));assert.equal(result.structuredContent.mock,false);return result.structuredContent.reply;};
   const pending=await success('agent_status');assert.equal(pending.data.paired_ticket,null);assert.equal(pending.data.peer_pid,rpc.child.pid);
   assert.equal((await call('sessions_list')).structuredContent.error_code,'PERMISSION_DENIED','no pairing means no service access');
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(o=>o.value===${JSON.stringify(ref.connection_id)})`);await ui.fill('会话',ref.connection_id);await ui.click('Agent 授权');
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(ref.connection_id)})`);await ui.selectTab(ref.connection_id);await ui.click('Agent 授权');
   await ui.waitFor(`!!document.querySelector('[aria-label="Agent签发编号"]')`);await ui.fill('Agent签发编号',grantId);await ui.click('查询原Agent编号');await ui.waitFor(`document.querySelector('[aria-label="Agent授权详情"]')?.textContent.includes('ACTIVE')`);
   await ui.evaluate(`Array.from(document.querySelectorAll('summary')).find(x=>x.textContent==='MCP 初版连接').click()`);
   await ui.click('刷新MCP连接状态');await ui.waitFor(`!!document.querySelector('[aria-label="MCP本次启动参数"]')`);

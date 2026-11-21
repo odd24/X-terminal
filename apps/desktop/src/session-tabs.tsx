@@ -1,8 +1,9 @@
 import { Fragment, useLayoutEffect, useRef, type ReactNode, type DragEvent } from 'react';
 import type { GroupConnection, TabGroup } from './tab-groups';
 import type { SessionDrag } from './session-drag';
+import type { TabRecording } from './tab-logging';
 type Connection=GroupConnection&{state:string};
-export function SessionTabs({tabs,groups,groupOf,owner,selected,name,badge,select,close,pending,assign,drag,detached,children}:{tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;badge(c:Connection):string|undefined;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;children?:ReactNode}){
+export function SessionTabs({tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,children}:{tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;children?:ReactNode}){
   const list=useRef<HTMLDivElement>(null);
   const order=tabs.map(tab=>tab.connection_id+':'+groupOf(tab.connection_id)).join(',');
   useLayoutEffect(()=>{
@@ -29,14 +30,14 @@ export function SessionTabs({tabs,groups,groupOf,owner,selected,name,badge,selec
   }}>{sections.map(group=><Fragment key={group.id}>
     {groups.length>0&&<span className="tab-group-marker" data-group-id={group.id} data-drop-group={destination?.kind==='group'&&destination.group===group.id?true:undefined} title="可将标签拖到这里；只移动显示分组" onDragOver={e=>{if(e.dataTransfer.types.includes('application/x-shared-terminal-tab'))e.preventDefault();}} onDrop={e=>drop(e,group.id)}>{group.name}</span>}
     {tabs.filter(c=>groupOf(c.connection_id)===group.id).map(connection=>{
-      const id=connection.connection_id, label=name(connection), status=badge(connection);
+      const id=connection.connection_id, label=name(connection), status=recording(connection);
       const insertion=destination?.kind==='insert'&&destination.anchor===id&&preview?.id!==id?(destination.after?'after':'before'):undefined;
       return <div className="connection-tab" key={id} data-drag-source={preview?.id===id?true:undefined} data-insertion={insertion}
-        draggable={!detached} onDragStart={event=>{
+        onDragStart={event=>{
           if(event.isTrusted){event.preventDefault();return;}
           event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-shared-terminal-tab',JSON.stringify({owner,...connection}));
         }}>
-        <button role="tab" className={selected===id?'pane-focus':undefined} data-connection-id={id} tabIndex={selected===id?0:-1}
+        <button role="tab" className={selected===id?'pane-focus':undefined} data-connection-id={id} tabIndex={selected===id?0:-1} draggable={!detached}
           {...bindings(connection)}
           onKeyDown={event=>{
             if(cancelOnKey(event))return;
@@ -45,12 +46,21 @@ export function SessionTabs({tabs,groups,groupOf,owner,selected,name,badge,selec
             if(next<0)return;
             event.preventDefault();select(tabs[next].connection_id);
             Array.from(list.current?.querySelectorAll<HTMLElement>('[role="tab"]')??[]).find(e=>e.dataset.connectionId===tabs[next].connection_id)?.focus({preventScroll:true});
-          }} aria-selected={selected===id} aria-label={[label,status].filter(Boolean).join(" · ")}
+          }} aria-selected={selected===id} aria-label={label}
           title={`${label} · ${connection.protocol} · ${connection.state} · ${id} / ${connection.generation}`}
           onClick={event=>{if(allowedClick(event)){if(event.detail)event.currentTarget.focus({preventScroll:true});select(id);}}}>
           <span className="tab-label">{label}</span>
-          {status&&<span className="tab-log-badge" title={status} aria-label={status} data-recording={status.startsWith('●')?'true':undefined} />}
         </button>
+        {status&&<button type="button" key={`${owner}/${connection.protocol}/${connection.generation}`}
+          className="tab-record-button" draggable={false} data-recording={status.state}
+          aria-label={`${label} · ${status.state==='recording'?'记录中 · ':''}${status.label}`}
+          aria-description={status.detail} aria-disabled={status.disabled||pending(connection)}
+          title={status.label===status.detail?status.label:`${status.label} · ${status.detail}`}
+          onMouseDown={event=>event.preventDefault()}
+          onKeyDown={event=>{if(event.repeat&&(event.key==='Enter'||event.key===' '))event.preventDefault();}}
+          onClick={event=>{if(!status.disabled&&!pending(connection)&&event.detail<2)toggleRecording(connection);}}>
+          <span className="tab-record-icon" aria-hidden="true">{status.state==='unknown'?'?':status.state==='failed'?'!':status.state==='pending'?'…':''}</span>
+        </button>}
         {close&&<button aria-label={`关闭标签 ${id}`} disabled={pending(connection)} onClick={()=>close({...connection})}>×</button>}
       </div>;
     })}

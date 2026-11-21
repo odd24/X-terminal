@@ -11,8 +11,8 @@ export async function checkOutputProtection(ui, connection, protocol, ended = fa
   const slot = () => ui.evaluate(`JSON.parse(sessionStorage.getItem('shared-terminal-agent-grant'))`);
   const open = async () => {
     if (await ui.evaluate(`!!document.querySelector('[aria-label="Agent授权面板"]')`)) await ui.click('关闭Agent授权');
-    await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(connection.connection_id)})`);
-    await ui.fill('会话', connection.connection_id); await ui.click('Agent 授权');
+    await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(connection.connection_id)})`);
+    await ui.selectTab(connection.connection_id); await ui.click('Agent 授权');
     await ui.waitFor(`!!document.querySelector('[aria-label="Agent授权形式"]')`);
     await ui.waitFor(`document.querySelector('[aria-label="Agent批准目标"]')?.textContent.includes(${JSON.stringify(connection.connection_id)})`);
     if (await slot()) { await ui.click('查询原Agent编号'); await ui.waitFor(`!!document.querySelector('[aria-label="Agent授权详情"]')`); }
@@ -85,7 +85,7 @@ export async function checkOutputProtection(ui, connection, protocol, ended = fa
   await preview(controls);
   if (!ended) {
     const other = source.find(c=>c.connection_id!==connection.connection_id);
-    assert.ok(other); await ui.fill('会话', other.connection_id);
+    assert.ok(other); await ui.selectTab(other.connection_id);
     await ui.waitFor(`!document.querySelector('[aria-label="Agent输出保护预览"]')`);
     assert.equal(await count(), before); controls = await setup(); await preview(controls);
   }

@@ -47,7 +47,7 @@ export async function measurePopup(page,trigger,popup,label){
   return {label,...geometry};
 }
 
-export async function checkMainToolbar(page,fit){
+export async function checkMainToolbar(page,fit,version='0.1.4'){
   const result=[];
   await page.command('Page.bringToFront');
   assert.deepEqual(await page.evaluate('[...document.querySelector(".app-bar").children].map(element=>element.className)'),
@@ -59,14 +59,16 @@ export async function checkMainToolbar(page,fit){
     assert.equal(await page.evaluate(q('.toolbar-log')+'.disabled'),true);
     assert.deepEqual(await page.evaluate('[...document.querySelectorAll(".toolbar-group h3")].map(item=>item.textContent)'),
       ['会话与终端','连接与布局','命令与自动化','外观','诊断与退出']);
-    await page.screenshot('desktop-0.1.3-tools-'+width+'.png');
+    assert.deepEqual(await page.evaluate('[...document.querySelectorAll(".toolbar-group:first-child button")].map(item=>item.textContent)'),['终端日志']);
+    assert.equal(await page.evaluate('!!document.querySelector(\'.tools-menu select[aria-label="会话"]\')'),false);
+    await page.screenshot('desktop-'+version+'-tools-'+width+'.png');
     await key(page,'ArrowDown');
-    await page.waitFor('document.activeElement.textContent==="查找终端"');
+    await page.waitFor('document.activeElement.textContent==="终端日志"');
     await key(page,'End');
     await page.waitFor('document.activeElement.textContent==="退出桌面" && '+q(surface)+'.scrollTop>0');
     result.push(await measurePopup(page,tools,surface,'scrolled tools '+width));
     await key(page,'Home');
-    await page.waitFor('document.activeElement.textContent==="查找终端"');
+    await page.waitFor('document.activeElement.textContent==="终端日志"');
     await key(page,escaped);
     await page.waitFor('!document.querySelector(".tools-menu").open && document.activeElement==='+q(tools));
   }
@@ -116,11 +118,12 @@ export async function checkNewConnectionMenu(page,selector){
   return results;
 }
 
-export async function checkLogToolbar(page,label){
+export async function checkLogToolbar(page,label,recordAction){
   const trigger='.toolbar-log',popup='.terminal-context-menu';
   await page.waitFor('!'+q(trigger)+'.disabled');
   await clickVisible(page,trigger);
   const result=await measurePopup(page,trigger,popup,label);
+  if(recordAction)await page.waitFor(`[...document.querySelectorAll('.terminal-context-menu button')].some(button=>button.textContent===${JSON.stringify(recordAction)}&&!button.disabled)`);
   await key(page,escaped);
   await page.waitFor('!'+q(popup)+' && document.activeElement==='+q(trigger));
   return result;

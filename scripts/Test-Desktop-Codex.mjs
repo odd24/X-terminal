@@ -75,8 +75,8 @@ try {
   const management=request=>ui.invoke('agent_management_request',{request});
   const broker=request=>ui.invoke('bridge_management_request',{request});
   const openAgent=async()=>{
-    await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]').options).some(o=>o.value===${JSON.stringify(ref.connection_id)})`);
-    await ui.fill('会话',ref.connection_id);
+    await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(ref.connection_id)})`);
+    await ui.selectTab(ref.connection_id);
     await ui.click('Agent 授权');
     await ui.waitFor(`!!document.querySelector('[aria-label="Agent签发编号"]')`);
   };

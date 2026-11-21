@@ -57,7 +57,7 @@ try {
   assert.equal((await ui.invoke('service_list')).filter(c=>c.state==='CONNECTED').length,20);
   assert.deepEqual((await ui.invoke('logging_request',{request:{op:'capture_list'}})).logs,[]);
   assert.deepEqual((await ui.invoke('agent_management_request',{request:{op:'grant_list'}})).data,[]);
-  await ui.fill('会话',connections[0].connection_id);await ui.waitFor(`document.querySelector('[data-pane="first"]')?.dataset.renderedId===${JSON.stringify(connections[0].connection_id)}`);
+  await ui.selectTab(connections[0].connection_id);await ui.waitFor(`document.querySelector('[data-pane="first"]')?.dataset.renderedId===${JSON.stringify(connections[0].connection_id)}`);
   await ui.evaluate(`document.querySelector('[data-pane="first"] .xterm-helper-textarea').focus()`);await ui.command('Performance.enable');await delay(250);
   for(let i=0;i<20;i++){const p=await ui.invoke('service_read',{connection:connections[i],cursor:1});assert.equal(p.truncated,false);streams[i].cursor=p.next_cursor;}
   assert.ok((await control({op:'metrics'})).received.every(b=>b.length===0));

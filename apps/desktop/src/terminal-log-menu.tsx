@@ -5,10 +5,10 @@ import {logging,LogRequestError,type LogInfo,type ExportInfo} from './logging-ap
 import {LogSavePanel} from './log-save-panel';
 import {checkedSave,saveDiagnosticNotice,terminalSave,type SaveInfo} from './log-save';
 import {requestId} from './request-id';
-import {checkedMenu,restoreLogTask,sameLogTarget,knownMenuRejection,menuFailure,type MenuInfo,type RememberedLogTask,type TerminalMenuContext} from './log-menu';
-type Props={paneLabel:string; onLog(log:LogInfo):void; focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
+import {checkedMenu,restoreLogTask,sameLogTarget,knownMenuRejection,menuFailure,type LogTarget,type MenuInfo,type RememberedLogTask,type TerminalMenuContext} from './log-menu';
+type Props={paneLabel:string; claimRecording(target:LogTarget):(()=>void)|undefined;recordingLocked(target:LogTarget):boolean;focus(t:RememberedLogTask):void;menu?:TerminalMenuContext;close():void;owner:string;valid(t:Pick<RememberedLogTask,'target'|'pane'|'epoch'>):boolean;resume(t:RememberedLogTask):{pane:RememberedLogTask['pane'];epoch:number}|undefined;copy(context:TerminalMenuContext):void;paste(context:TerminalMenuContext):void};
 type Receipt={target:RememberedLogTask;info:SaveInfo};
-type Task=RememberedLogTask&{info?:MenuInfo;log?:LogInfo;uncertain:boolean;finished:boolean;auto:boolean;recovery:boolean;cancelled:boolean;message:string;error:boolean;save?:SaveInfo};
+type Task=RememberedLogTask&{info?:MenuInfo;log?:LogInfo;uncertain:boolean;finished:boolean;auto:boolean;recovery:boolean;cancelled:boolean;message:string;error:boolean;save?:SaveInfo;releaseRecording?:()=>void};
 const slot='terminal-context-log-task-v1';
 const recordingStatus=(task:Task|undefined)=>task?.kind==='start'||task?.kind==='stop';
 const failures:Record<string,string>={CAPACITY:'日志文件容量已达上限',QUEUE_FULL:'日志写盘队列已满，后续输出未记录',DISK_FULL:'磁盘空间不足',STORAGE:'文件存储故障',INVALID_RECORD:'记录序号异常',COUNTER_EXHAUSTED:'记录计数已耗尽',WORKER_PANICKED:'文件线程异常'};
@@ -22,7 +22,7 @@ export function TerminalLogMenu(props:Props){
  const directoryFlight=useRef(false);
  const flight=useRef(false),mounted=useRef(true);const menu=props.menu,loading=!!menu&&(reading||loadedMenu!==menu);
  function publish(t:Task){if(current.current!==t||!mounted.current)return;setTask({...t});try{const saved:RememberedLogTask={target:t.target,request_id:t.request_id,kind:t.kind,title:t.title,pane:t.pane,epoch:t.epoch,log_id:t.log_id,subkind:t.subkind,saveVisible:t.saveVisible};sessionStorage.setItem(slot,JSON.stringify(saved));}catch{/* original IDs remain visible; no text is persisted */}}
- useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;const t=current.current;if(t&&!t.finished&&['prepare','file','directory'].includes(t.kind))void invoke('terminal_log_request',{request:{op:'cancel',target:t.target,request_id:t.request_id}}).catch(()=>{});};},[]);
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;const t=current.current;t?.releaseRecording?.();if(t&&!t.finished&&['prepare','file','directory'].includes(t.kind))void invoke('terminal_log_request',{request:{op:'cancel',target:t.target,request_id:t.request_id}}).catch(()=>{});};},[]);
  useEffect(()=>{
   let active=true,timer=0;setLogs([]);setLoadError('');setLoading(!!menu);setLoadedMenu(undefined);
   async function read(){if(!menu||!latest.current.valid(menu))return;try{const result=await logging({op:'list',connection:menu.target.connection});if(!active)return;if(result.result!=='list'||result.logs.some(l=>l.connection.connection_id!==menu.target.connection.connection_id||l.connection.generation!==menu.target.connection.generation||l.protocol!==menu.target.protocol))throw Error();setLogs(result.logs);setLoadError('');}catch{if(active)setLoadError('状态未知。请关闭菜单后重试。');}finally{if(active){setLoadedMenu(menu);setLoading(false);timer=window.setTimeout(()=>void read(),500);}}}
@@ -34,14 +34,14 @@ export function TerminalLogMenu(props:Props){
  useEffect(()=>{const t=current.current;if(!t||t.finished||t.cancelled||!t.auto||props.valid(t)||!['prepare','file','directory'].includes(t.kind))return;t.cancelled=true;t.auto=false;t.recovery=true;setVisible(false);t.message='目标已切换，已停止后续步骤；请查询原操作结果。已开始的保存可能完成。';publish(t);void cancelNative(t);});
  async function run(t:Task,start=false,payload?:unknown){
   if(flight.current||current.current!==t)return;
-  if(latest.current.owner!==t.target.service_id){t.auto=false;t.finished=true;t.uncertain=false;t.error=true;t.message='原会话服务已结束，旧编号无法恢复；没有重新记录或保存。';publish(t);return;}
+  if(latest.current.owner!==t.target.service_id){t.releaseRecording?.();t.auto=false;t.finished=true;t.uncertain=false;t.error=true;t.message='原会话服务已结束，旧编号无法恢复；没有重新记录或保存。';publish(t);return;}
   flight.current=true;setBusy(true);
   try{
    if(t.kind==='start'||t.kind==='stop'){
     const result=await logging(t.kind==='start'?(start?{op:'start',connection:t.target.connection,request_id:t.request_id,limits:{segment_bytes:100*1024*1024,segments:5}}:{op:'start_status',connection:t.target.connection,request_id:t.request_id}):{op:start?'stop':'status',connection:t.target.connection,log_id:t.log_id!});
     if(result.result!=='info'||result.connection.connection_id!==t.target.connection.connection_id||result.connection.generation!==t.target.connection.generation||result.protocol!==t.target.protocol||t.log_id&&result.log_id!==t.log_id)throw Error('日志回执目标不匹配，请查询原编号。');
     if(current.current!==t||!mounted.current)return;
-    latest.current.onLog(result);t.log_id=result.log_id;t.log=result;t.uncertain=false;t.error=!!result.failure;t.message=captureMessage(result);t.finished=t.kind==='stop'?result.worker_finished:result.phase==='RECORDING'&&!!result.readable||['FAILED','STOPPED','REMOVED','RELEASED'].includes(result.phase);
+    t.log_id=result.log_id;t.log=result;t.uncertain=false;t.error=!!result.failure;t.message=captureMessage(result);t.finished=t.kind==='stop'?result.worker_finished:result.phase==='RECORDING'&&!!result.readable||['FAILED','STOPPED','REMOVED','RELEASED'].includes(result.phase);
    }else{
     const result=checkedMenu(await invoke<MenuInfo>('terminal_log_request',{request:start?payload:{op:'status',target:t.target,request_id:t.request_id}}),t.target,t.request_id,t.subkind!);
     if(current.current!==t||!mounted.current){if(t.kind==='prepare')void cancelNative(t);return;}
@@ -57,7 +57,7 @@ export function TerminalLogMenu(props:Props){
    }
    publish(t);
   }catch(error){if(current.current!==t||!mounted.current)return;const code=error instanceof LogRequestError?error.code:String(error);const rejected=start&&(error instanceof LogRequestError?!error.uncertain:knownMenuRejection(code));t.auto=false;t.uncertain=!rejected;t.finished=rejected;t.error=true;t.message=error instanceof LogRequestError?error.message:menuFailure(code);if(t.uncertain)t.message+=' 保留原编号，请查询结果；没有自动重放或续存。';publish(t);}
-  finally{flight.current=false;if(mounted.current)setBusy(false);}
+  finally{if(t.finished)t.releaseRecording?.();flight.current=false;if(mounted.current)setBusy(false);}
  }
  useEffect(()=>{const t=current.current;if(!t||busy||t.uncertain||t.finished||t.saveVisible||t.info?.phase==='COMPLETED'&&!t.cancelled)return;const timer=window.setTimeout(()=>void run(t),150);return()=>clearTimeout(timer);},[task,busy]);
  function choose(kind:Task['kind'],subkind?:MenuInfo['kind']){
@@ -65,6 +65,10 @@ export function TerminalLogMenu(props:Props){
   if((kind==='start'||kind==='stop'||kind==='file'||subkind==='RECORDED')&&(loadedMenu!==context||loadError))return;
   const shown=logs.find(l=>l.active)??logs[0];
   const t:Task={log:kind==='file'||kind==='stop'?shown:undefined,target:context.target,request_id:requestId(),kind,title:context.title,pane:context.pane,epoch:context.epoch,...(kind==='stop'||kind==='file'?{log_id:shown?.log_id}:{}),subkind,uncertain:false,finished:false,auto:true,recovery:false,cancelled:false,error:false,message:'正在处理日志操作…'};
+  if(recordingStatus(t)){
+   t.releaseRecording=latest.current.claimRecording(t.target);
+   if(!t.releaseRecording)return;
+  }
   let payload:unknown;
   if(kind==='prepare'){
    const source=subkind==='RECORDED'?{kind:'recorded',log_ids:logs.filter(l=>l.readable||!['REMOVED','RELEASED'].includes(l.phase)).slice().reverse().map(l=>l.log_id)}:subkind==='VIEWPORT'?{kind:'viewport',...context.viewport}:{kind:'buffer',text:context.buffer?.text,rows:context.buffer?.rows,cols:context.buffer?.cols};
@@ -101,7 +105,7 @@ export function TerminalLogMenu(props:Props){
   {menu&&<ContextMenu className="terminal-context-menu" label="终端日志菜单" x={menu.x} y={menu.y} anchor={menu.anchor} anchored={menu.anchor.matches('.toolbar-log')} close={props.close}>
    <small className="log-menu-target">{menu.title} · {props.paneLabel}</small>
    <button role="menuitem" disabled={!supported||pending||!menu.buffer} onClick={()=>choose('prepare','BUFFER')}>保存终端缓冲内容…</button>
-   <button role="menuitem" disabled={!supported||loading||!!loadError||pending||(!shown?.active&&!menu.writable)}
+   <button role="menuitem" disabled={!supported||loading||!!loadError||pending||props.recordingLocked(menu.target)||shown?.phase==='OPENING'||shown?.phase==='STOPPING'||(!shown?.active&&!menu.writable)}
     onClick={()=>choose(shown?.active?'stop':'start')}>{shown?.active?'停止记录':'开始记录'}</button>
    <button role="menuitem" disabled={!supported||pending} onClick={()=>choose('directory','DIRECTORY')}>打开日志目录</button>
    <hr/>

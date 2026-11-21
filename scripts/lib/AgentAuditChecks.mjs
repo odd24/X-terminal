@@ -41,8 +41,8 @@ export async function checkAuditHistory(ui, connection) {
   } finally {await held.restore();}
   await ui.click('Agent 授权');assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="持久审计状态"]')`),false);
   await ui.command('Page.reload');
-  await ui.waitFor(`Array.from(document.querySelector('[aria-label="会话"]')?.options??[]).some(o=>o.value===${JSON.stringify(connection.connection_id)})`);
-  await ui.fill('会话',connection.connection_id);await ui.click('Agent 授权');
+  await ui.waitFor(`[...document.querySelectorAll('[role=\"tab\"]')].some(tab=>tab.dataset.connectionId===${JSON.stringify(connection.connection_id)})`);
+  await ui.selectTab(connection.connection_id);await ui.click('Agent 授权');
   await ui.waitFor(`document.querySelector('[aria-label="Agent批准目标"]')?.textContent.includes(${JSON.stringify(connection.connection_id)})`);
   assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="持久审计状态"]')`),false);
   // Reload intentionally leaves the old signing receipt unresolved. Recover
