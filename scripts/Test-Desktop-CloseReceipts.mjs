@@ -71,7 +71,7 @@ try{
     if(mode==='close'){
       await ui.screenshot('P22-close-receipt-dark.png');
       const layout=await ui.evaluate(`(()=>{const d=document.querySelector('dialog[aria-label="上次关闭信息"]'),r=d.getBoundingClientRect();return {width:innerWidth,height:innerHeight,left:r.left,top:r.top,right:r.right,bottom:r.bottom,scroll:d.scrollHeight> d.clientHeight,horizontal:d.scrollWidth>d.clientWidth};})()`);assert.ok(layout.left>=0&&layout.right<=layout.width&&layout.top>=0&&layout.bottom<=layout.height);assert.equal(layout.horizontal,false);
-      await ui.click('关闭退出信息');await tools();await ui.click('外观');await ui.fill('应用主题','light');await ui.click('关闭外观');await details();await ui.screenshot('P22-close-receipt-light.png');
+      await ui.click('关闭退出信息');await tools();await ui.click('软件设置');await ui.fill('应用主题','light');await ui.click('关闭软件设置');await details();await ui.screenshot('P22-close-receipt-light.png');
       await ui.evaluate(`document.querySelector('dialog[aria-label="上次关闭信息"]').scrollTop=99999`);await ui.screenshot('P22-close-receipt-light-bottom.png');
       assert.ok((await ui.evaluate(`document.querySelector('dialog[aria-label="上次关闭信息"]').textContent`)).includes('关闭屏障 · I/O 类别失败'));
       await ui.click('关闭退出信息');

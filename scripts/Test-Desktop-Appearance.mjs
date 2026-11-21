@@ -20,19 +20,18 @@ try {
   await ui.click('下一个匹配');
   await ui.waitFor(`document.querySelector('[aria-label="终端查找状态"]').textContent.includes('1 / 1')`);
   for (const entry of ['连接配置', 'SSH2 连接', '串口连接', 'exec 任务', '终端日志']) await ui.click(entry);
-  await ui.click('外观');
+  await ui.click('软件设置');
   const checkTheme = async (theme, background, terminalBackground) => {
     await ui.fill('应用主题', theme);
     await ui.waitFor(`document.documentElement.dataset.theme===${JSON.stringify(theme)}`);
-    await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
     const actual = await ui.evaluate(`(() => {
       const css=getComputedStyle(document.documentElement);
       return {
         page:css.backgroundColor,
         terminal:getComputedStyle(document.querySelector('.terminal')).backgroundColor,
         viewport:getComputedStyle(document.querySelector('.xterm-viewport')).backgroundColor,
-        numberWidth:document.querySelector('[aria-label="字号"]').clientWidth,
-        numberLayout:(()=>{const n=document.querySelector('[aria-label="字号"]');const s=getComputedStyle(n);const ctx=document.createElement('canvas').getContext('2d');ctx.font=s.font;return {clientWidth:n.clientWidth,rect:n.getBoundingClientRect().toJSON(),width:s.width,box:s.boxSizing,padding:s.padding,border:s.borderWidth,display:s.display,numberToken:css.getPropertyValue('--number-width'),available:n.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight),digits:Math.max(...Array.from({length:19},(_,i)=>ctx.measureText(String(i+10)).width)),viewport:[innerWidth,innerHeight]};})(),
+        numberWidth:document.querySelector('[aria-label="终端字号"]').clientWidth,
+        numberLayout:(()=>{const n=document.querySelector('[aria-label="终端字号"]');const s=getComputedStyle(n);const ctx=document.createElement('canvas').getContext('2d');ctx.font=s.font;return {clientWidth:n.clientWidth,rect:n.getBoundingClientRect().toJSON(),width:s.width,box:s.boxSizing,padding:s.padding,border:s.borderWidth,display:s.display,numberToken:css.getPropertyValue('--number-width'),available:n.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight),digits:Math.max(...Array.from({length:19},(_,i)=>ctx.measureText(String(i+10)).width)),viewport:[innerWidth,innerHeight]};})(),
         panels:[...document.querySelectorAll('.config-panel')].map(panel=>getComputedStyle(panel).backgroundColor),
         surface:css.getPropertyValue('--surface').trim(),
         font:css.fontFamily,
@@ -64,7 +63,7 @@ try {
   await ui.click('取消连接窗口');
   await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
   await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
-  await ui.waitFor(`document.querySelector('dialog:modal:last-child')?.getAttribute('aria-label')==='外观设置'`);
+  await ui.waitFor(`document.querySelector('dialog:modal:last-child')?.getAttribute('aria-label')==='软件设置'`);
   // Actual keyboard focus must be visible on the next shared select control.
   await ui.evaluate(`document.querySelector('[aria-label="应用主题"]').focus()`);
   await ui.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
@@ -73,7 +72,7 @@ try {
   assert.equal(await ui.evaluate(`getComputedStyle(document.activeElement).outlineStyle`), 'solid');
   await ui.fill('终端等宽字体', 'cascadia');
   await ui.waitFor(`getComputedStyle(document.querySelector('.xterm-char-measure-element')).fontFamily.startsWith('"Cascadia Mono"')`);
-  await ui.fill('字号', 20);
+  await ui.fill('终端字号', 20);
   await ui.waitFor(`getComputedStyle(document.querySelector('.xterm-char-measure-element')).fontSize==='20px'`);
   await ui.fill('应用主题', 'system');
   for (const colorScheme of ['dark', 'light']) {
@@ -81,7 +80,7 @@ try {
     await ui.waitFor(`document.documentElement.dataset.theme===${JSON.stringify(colorScheme)}`);
   }
   await ui.click('关闭查找');
-  await ui.click('关闭外观');
+  await ui.click('关闭软件设置');
   // These are explicit CSS viewport probes, not native resolution / DPI claims.
   for (const [width, height] of [[1280, 720], [1920, 1080], [720, 480]]) {
     await ui.command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
@@ -94,7 +93,8 @@ try {
   await ui.command('Page.reload');
   await ui.waitFor(`document.querySelector('footer')?.dataset.serviceId`);
   await ui.waitFor(`document.documentElement.dataset.theme==='light'&&document.documentElement.dataset.terminalPalette==='black_white'`);
-  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="字号"]').value`), '15');
+  await ui.click('软件设置');
+  assert.equal(await ui.evaluate(`document.querySelector('[aria-label="终端字号"]').value`), '15');
   assert.equal((await ui.invoke('service_list'))[0].connection_id, target.connection_id);
   console.log('PASS appearance native WebView: shared dark/light panels/controls, independent UI/terminal fallback fonts, actual Tab focus, global terminal font/size, live system theme, source text unchanged, reload defaults; 3 CSS viewport probes (not native DPI); synthetic only');
 } catch(error) {

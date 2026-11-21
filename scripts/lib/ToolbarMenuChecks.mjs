@@ -49,16 +49,17 @@ export async function measurePopup(page,trigger,popup,label){
 
 export async function checkMainToolbar(page,fit,version='0.1.4'){
   const result=[];
+  const softwareSettings=version==='0.1.7';
   await page.command('Page.bringToFront');
   assert.deepEqual(await page.evaluate('[...document.querySelector(".app-bar").children].map(element=>element.className)'),
-    ['0.1.5','0.1.6'].includes(version)?['sidebar-toggle','toolbar-log','toolbar-log-directory','tools-menu']:['sidebar-toggle','toolbar-log','tools-menu']);
+    ['0.1.5','0.1.6','0.1.7'].includes(version)?['sidebar-toggle','toolbar-log','toolbar-log-directory','tools-menu']:['sidebar-toggle','toolbar-log','tools-menu']);
   for(const width of [1100,720]){
     await fit(width);
     await clickVisible(page,tools);
     result.push(await measurePopup(page,tools,surface,'more tools '+width));
     assert.equal(await page.evaluate(q('.toolbar-log')+'.disabled'),true);
     assert.deepEqual(await page.evaluate('[...document.querySelectorAll(".toolbar-group h3")].map(item=>item.textContent)'),
-      ['会话与终端','连接与布局','命令与自动化','外观','诊断与退出']);
+      softwareSettings?['会话与终端','连接与布局','命令与自动化','诊断与退出']:['会话与终端','连接与布局','命令与自动化','外观','诊断与退出']);
     assert.deepEqual(await page.evaluate('[...document.querySelectorAll(".toolbar-group:first-child button")].map(item=>item.textContent)'),['终端日志']);
     assert.equal(await page.evaluate('!!document.querySelector(\'.tools-menu select[aria-label="会话"]\')'),false);
     await page.screenshot('desktop-'+version+'-tools-'+width+'.png');
@@ -78,8 +79,8 @@ export async function checkMainToolbar(page,fit,version='0.1.4'){
   result.push(await measurePopup(page,tools,surface,'sidebar hidden'));
   await fit(900);
   result.push(await measurePopup(page,tools,surface,'resize with menu open'));
-  await page.click('外观');
-  const dialog='dialog:modal[aria-label="外观设置"]';
+  await page.click(softwareSettings?'软件设置':'外观');
+  const dialog='dialog:modal[aria-label="'+(softwareSettings?'软件设置':'外观设置')+'"]';
   await page.waitFor('!!'+q(dialog));
   const before=await page.evaluate(q(dialog)+'.getBoundingClientRect().toJSON()');
   const heading=await page.evaluate(q(dialog+' h2')+'.getBoundingClientRect().toJSON()');

@@ -1,11 +1,12 @@
-//! Only a successful native picker can set the protected per-data-root viewer.
+//! A native picker or a verified Windows registration sets the per-data-root viewer.
+mod registered;
 use credential_vault::{Secret, Vault};
 use std::{
     fs::{File, OpenOptions},
     os::windows::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 use uuid::Uuid;
 use windows::{
@@ -36,11 +37,17 @@ const PICKER_ERROR: &str = "LOG_VIEWER_PICKER";
 const MISSING: &str = "LOG_VIEWER_MISSING";
 const INVALID: &str = "LOG_VIEWER_INVALID";
 
-pub(crate) struct Editor(Arc<tokio::sync::Semaphore>);
+pub(crate) struct Editor {
+    permit: Arc<tokio::sync::Semaphore>,
+    registered: Arc<Mutex<Vec<registered::Candidate>>>,
+}
 
 impl Editor {
     pub(crate) fn new() -> Self {
-        Self(Arc::new(tokio::sync::Semaphore::new(1)))
+        Self {
+            permit: Arc::new(tokio::sync::Semaphore::new(1)),
+            registered: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 }
 
@@ -48,6 +55,18 @@ impl Editor {
 pub(crate) struct Selection {
     executable: Option<String>,
     available: bool,
+}
+
+#[derive(serde::Serialize)]
+struct RegisteredViewer {
+    id: Uuid,
+    name: String,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct RegisteredViewers {
+    candidates: Vec<RegisteredViewer>,
+    selected_id: Option<Uuid>,
 }
 
 fn guard_directory(path: &Path) -> Result<File, String> {
@@ -151,6 +170,21 @@ fn selection(root: &Path) -> Result<Selection, String> {
     })
 }
 
+fn select_path(root: &Path, path: &Path) -> Result<Selection, String> {
+    let (path, _image, _guards) = executable(path)?;
+    let secret = Secret::new(path.as_bytes().to_vec()).map_err(|_| STORE_ERROR)?;
+    with_store(root, true, |vault| {
+        vault
+            .ok_or(STORE_ERROR)?
+            .set(VIEWER, secret)
+            .map_err(|_| STORE_ERROR.into())
+    })?;
+    Ok(Selection {
+        executable: Some(path),
+        available: true,
+    })
+}
+
 struct Apartment;
 impl Drop for Apartment {
     fn drop(&mut self) {
@@ -219,6 +253,86 @@ pub(crate) async fn log_viewer_settings(
 }
 
 #[tauri::command]
+pub(crate) async fn registered_log_viewers(
+    window: tauri::WebviewWindow,
+    desktop: tauri::State<'_, crate::Desktop>,
+    editor: tauri::State<'_, Editor>,
+) -> Result<RegisteredViewers, String> {
+    main_settings(&window)?;
+    let permit = editor
+        .permit
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "LOG_VIEWER_BUSY")?;
+    let root = desktop.2.clone();
+    let registry = editor.registered.clone();
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let mut remembered = registry.lock().map_err(|_| registered::UNAVAILABLE)?;
+        remembered.clear();
+        let native = registered::discover()?;
+        let selected = saved_path(&root)?;
+        let selected_id = selected.and_then(|path| {
+            native
+                .iter()
+                .find(|entry| entry.path.eq_ignore_ascii_case(&path))
+                .map(|entry| entry.id)
+        });
+        let candidates = native
+            .iter()
+            .map(|entry| RegisteredViewer {
+                id: entry.id,
+                name: entry.label.clone(),
+            })
+            .collect();
+        *remembered = native;
+        Ok(RegisteredViewers {
+            candidates,
+            selected_id,
+        })
+    })
+    .await
+    .map_err(|_| registered::UNAVAILABLE)?
+}
+
+#[tauri::command]
+pub(crate) async fn select_registered_log_viewer(
+    window: tauri::WebviewWindow,
+    desktop: tauri::State<'_, crate::Desktop>,
+    editor: tauri::State<'_, Editor>,
+    id: Uuid,
+) -> Result<Selection, String> {
+    main_settings(&window)?;
+    let permit = editor
+        .permit
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "LOG_VIEWER_BUSY")?;
+    let path = editor
+        .registered
+        .lock()
+        .map_err(|_| registered::UNAVAILABLE)?
+        .iter()
+        .find(|entry| entry.id == id)
+        .map(|entry| entry.path.clone())
+        .ok_or("LOG_VIEWER_CANDIDATE_CHANGED")?;
+    let root = desktop.2.clone();
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        // Recheck the current registrations and pinned executable before persisting.
+        if !registered::discover()?
+            .iter()
+            .any(|entry| entry.path.eq_ignore_ascii_case(&path))
+        {
+            return Err("LOG_VIEWER_CANDIDATE_CHANGED".into());
+        }
+        select_path(&root, Path::new(&path))
+    })
+    .await
+    .map_err(|_| registered::UNAVAILABLE)?
+}
+
+#[tauri::command]
 pub(crate) async fn choose_log_viewer(
     window: tauri::WebviewWindow,
     desktop: tauri::State<'_, crate::Desktop>,
@@ -226,7 +340,7 @@ pub(crate) async fn choose_log_viewer(
 ) -> Result<Option<Selection>, String> {
     main_settings(&window)?;
     let permit = editor
-        .0
+        .permit
         .clone()
         .try_acquire_owned()
         .map_err(|_| "LOG_VIEWER_BUSY")?;
@@ -237,18 +351,7 @@ pub(crate) async fn choose_log_viewer(
         let Some(path) = pick(owner)? else {
             return Ok(None);
         };
-        let (path, _image, _guards) = executable(&path)?;
-        let secret = Secret::new(path.as_bytes().to_vec()).map_err(|_| STORE_ERROR)?;
-        with_store(&root, true, |vault| {
-            vault
-                .ok_or(STORE_ERROR)?
-                .set(VIEWER, secret)
-                .map_err(|_| STORE_ERROR.into())
-        })?;
-        Ok(Some(Selection {
-            executable: Some(path),
-            available: true,
-        }))
+        select_path(&root, &path).map(Some)
     })
     .await
     .map_err(|_| PICKER_ERROR)?
@@ -262,7 +365,7 @@ pub(crate) async fn reset_log_viewer(
 ) -> Result<Selection, String> {
     main_settings(&window)?;
     let permit = editor
-        .0
+        .permit
         .clone()
         .try_acquire_owned()
         .map_err(|_| "LOG_VIEWER_BUSY")?;

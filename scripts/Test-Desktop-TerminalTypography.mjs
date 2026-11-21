@@ -45,9 +45,9 @@ try {
   await ui.waitFor("document.querySelector('.xterm-rows').textContent.includes('RC|中文|X wide')");
   const measures={};
   for (const theme of ['dark','light']) {
-    await ui.click('外观');
+    await ui.click('软件设置');
     await ui.fill('应用主题',theme);await ui.fill('终端配色','follow_theme');
-    await ui.click('关闭外观');
+    await ui.click('关闭软件设置');
     await ui.waitFor(`document.documentElement.dataset.theme==='${theme}'`);
     await ui.evaluate("document.querySelector('.xterm-helper-textarea').focus()");
     const measure=await ui.evaluate(`(()=>{
@@ -128,7 +128,7 @@ try {
     await ui.screenshot(`${prefix}-${theme}.png`);
   }
   if(pureBlack){
-    await ui.click('外观');await ui.fill('应用主题','dark');await ui.click('关闭外观');
+    await ui.click('软件设置');await ui.fill('应用主题','dark');await ui.click('关闭软件设置');
     await ui.waitFor(`document.documentElement.dataset.theme==='dark'`);
     await ui.evaluate("document.querySelector('.app-bar .tools-menu summary').focus()");
     await ui.command('Page.bringToFront');

@@ -129,9 +129,9 @@ try {
   const left=await synthetic('left'),right=await synthetic('right');
   main=await launchDesktop(root);
   const service=await main.invoke('service_status');
-  await tool('外观');
+  await tool('软件设置');
   await main.fill('应用主题','dark');
-  const appearance=modal('外观设置');
+  const appearance=modal('软件设置');
   const initial=await geometry(appearance);
   await drag(center(await geometry(panelHeading(appearance))),{x:initial.left+130,y:initial.top+24+90});
   const moved=await geometry(appearance);
@@ -147,11 +147,11 @@ try {
   assert.ok(fitted.left>=7&&fitted.top>=7&&fitted.right<=(await main.evaluate('innerWidth'))-7&&fitted.bottom<=(await main.evaluate('innerHeight'))-7);
   await escape(main);
   await main.waitFor(`!${appearance} && document.activeElement?.matches('.tools-menu > summary')`);
-  await tool('外观');
+  await tool('软件设置');
   assert.ok(Math.abs((await geometry(appearance)).left-(await main.evaluate('innerWidth')-(await geometry(appearance)).width)/2)<2);
   await main.click('保存桌面偏好');
   await main.waitFor(`document.querySelector('[aria-label="桌面偏好状态"]').textContent.includes('已保存')`);
-  await main.click('关闭外观');
+  await main.click('关闭软件设置');
 
   for(const [entry,label] of [
     ['连接配置','连接配置'],['批量修改配置','批量修改连接配置'],['导入原生配置','原生连接配置导入'],
@@ -306,12 +306,12 @@ try {
   await child.waitFor(rendered(a,0));
   await main.invoke('ssh_request',{request:{op:'close',connection:ref(b)}});
   await wait(async()=>(await main.invoke('service_list')).every(c=>c.state==='DISCONNECTED'),'main connection ends');
-  await tool('外观');
+  await tool('软件设置');
   await requestClose();
   await main.waitFor(`!!${exit} && document.activeElement?.textContent==='取消退出'`);
   await escape(main);
   await main.waitFor(`!${exit} && ${appearance}.contains(document.activeElement)`);
-  await main.click('关闭外观');
+  await main.click('关闭软件设置');
   await requestClose();
   await main.waitFor(`!!${exit}`);
   await main.click('确认退出并停止服务');

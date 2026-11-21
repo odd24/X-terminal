@@ -215,9 +215,9 @@ try {
   await ui.screenshot('desktop-agent-management-synthetic.png');
   await ui.evaluate(`document.querySelector('.app-dialog[aria-label="管理 Agent 授权"]').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-top-synthetic.png');
-  await ui.click('外观'); await ui.fill('应用主题', 'light');
+  await ui.click('软件设置'); await ui.fill('应用主题', 'light');
   await ui.waitFor(`document.documentElement.dataset.theme==='light'`);
-  await ui.click('关闭外观');
+  await ui.click('关闭软件设置');
   await ui.evaluate(`document.querySelector('.app-dialog[aria-label="管理 Agent 授权"]').scrollTop=0`);
   await ui.screenshot('desktop-agent-management-light-synthetic.png');
   await checkReadWindowApproval(ui, sshRef, 'SSH2');

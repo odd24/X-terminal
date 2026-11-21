@@ -62,7 +62,7 @@ try{
    const target=ref(second);
    const raw=async()=>Buffer.from((await ui.invoke('service_read',{connection:target,cursor:1})).events.flatMap(event=>event.bytes));
    for(const theme of ['dark','light']){
-     await ui.click('外观');await ui.fill('应用主题',theme);await ui.fill('终端配色','follow_theme');await ui.click('关闭外观');
+     await ui.click('软件设置');await ui.fill('应用主题',theme);await ui.fill('终端配色','follow_theme');await ui.click('关闭软件设置');
      await ui.waitFor(`document.documentElement.dataset.theme==='${theme}'&&document.documentElement.dataset.terminalPalette==='follow_theme'`);
      await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
      await ui.waitFor(`document.activeElement.classList.contains('xterm-helper-textarea')`);
@@ -111,7 +111,7 @@ try{
      assert.equal(details.visible,true);assert.match(details.text,/服务输出已同步/);
      await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
      await ui.waitFor(`!document.querySelector('dialog[aria-label="连接与服务详情"]').open`);
-     await ui.click('外观');await ui.fill('应用主题','dark');await ui.click('关闭外观');
+     await ui.click('软件设置');await ui.fill('应用主题','dark');await ui.click('关闭软件设置');
      await ui.waitFor(`document.documentElement.dataset.theme==='dark'`);
      await ui.screenshot('CR-022-polish-dark-desktop.png');
    }
@@ -142,7 +142,7 @@ try{
  assert.notEqual(selection.emphasis,'none');
  assert.equal(selection.weight,'400');
  if(process.argv.includes('--tabs-scrollbar')){
-   await ui.click('外观');await ui.fill('应用主题','dark');await ui.click('关闭外观');
+   await ui.click('软件设置');await ui.fill('应用主题','dark');await ui.click('关闭软件设置');
    await ui.waitFor(`document.documentElement.dataset.theme==='dark'`);
    await ui.evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
  }

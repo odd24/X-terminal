@@ -67,12 +67,12 @@ try{
  const paletteX=process.argv.includes('--palette-x');
  const config=request=>ui.invoke('config_request',{request});
  async function savePalette(value){
-   await menu('外观');
+   await menu('软件设置');
    await ui.click('重新读取偏好');
    await ui.waitFor(`document.querySelector('[aria-label="桌面偏好状态"]')?.textContent.startsWith('已读取')`);
    await ui.fill('终端配色',value);await ui.click('保存桌面偏好');
    await ui.waitFor(`document.querySelector('[aria-label="桌面偏好状态"]')?.textContent.startsWith('已保存')`);
-   await ui.click('关闭外观');
+   await ui.click('关闭软件设置');
  }
  let originalPreferences;
  if(paletteX){
@@ -102,10 +102,10 @@ try{
      assert.deepEqual(computed,{background:'rgb(0, 0, 0)',colors:wanted});
    }
    assert.equal(await ui.evaluate('getComputedStyle(document.querySelector(".app-bar")).backgroundColor'),'rgb(245, 246, 248)');
-   await menu('外观');
+   await menu('软件设置');
    await ui.fill('终端文字亮度',70);
    await ui.waitFor(`document.querySelector('.desktop-shell').dataset.terminalDim==='true'`);
-   await ui.click('关闭外观');
+   await ui.click('关闭软件设置');
    for(const key of ['first','second']){
      const ink=await ui.evaluate(`(()=>{
        const pane=document.querySelector('[data-pane="${key}"]');
@@ -149,11 +149,11 @@ try{
    await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:right,y});
    await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,x:right,y});
    await ui.waitFor(`document.querySelector('[data-pane="second"] .xterm-selection > div')&&getComputedStyle(document.querySelector('[data-pane="second"] .xterm-selection > div')).backgroundColor==='rgb(53, 75, 97)'`);
-   await menu('外观');
+   await menu('软件设置');
    await ui.screenshot('terminal-brightness-slider.png');
    await ui.fill('终端文字亮度',100);
    await ui.waitFor(`!document.querySelector('.desktop-shell').hasAttribute('data-terminal-dim')`);
-   await ui.click('关闭外观');
+   await ui.click('关闭软件设置');
    await ui.waitFor(`[...document.querySelectorAll('.xterm-rows .xterm-bold')].filter(el=>el.textContent==='bold-text'&&getComputedStyle(el).color==='rgb(255, 255, 255)').length===2`);
    await ui.screenshot('palette-x-ssh-uart.png');
    console.log('PASS X actual SSH and UART xterm cells: default, bold, truecolor, 16 ANSI slots and eight SGR bold colors; UI untouched');
@@ -195,7 +195,7 @@ try{
    const existingUart=await newUart('FONT-EXISTING-UART');
    await split(currentA,existingUart,'horizontal');
    await both(currentA,existingUart,15);
-   await menu('外观');
+   await menu('软件设置');
    await ui.fill('应用主题',before.theme==='dark'?'light':'dark');
    await ui.fill('终端文字亮度',65);
    const held=await ui.interceptIpc({command:'save_terminal_font_size',op:undefined,mode:'hold'});
@@ -203,16 +203,16 @@ try{
      await ui.fill('终端字号',17);
      await wait(async()=>await held.count()===1,'first size response held');
      assert.equal((await saved()).font_size,17);
-     await ui.click('关闭外观');
+     await ui.click('关闭软件设置');
      await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
-     await ui.fill('字号',22);
-     await ui.fill('字号',24);
+     await ui.fill('终端字号',22);
+     await ui.fill('终端字号',24);
      await both(currentA,existingUart,24);
      assert.equal((await saved()).font_size,17);
      await held.release();
      await wait(async()=>await held.count()===2,'only the latest queued size is written');
      await held.release();
-     await ui.waitFor(`document.querySelector('[aria-label="字号保存状态"]').textContent==='字号已自动保存'`);
+     await ui.waitFor(`document.querySelector('[aria-label="终端字号保存状态"]').textContent==='字号已自动保存'`);
      assert.deepEqual(await saved(),{...before,font_size:24});
      assert.equal(await held.count(),2);
    }finally{await held.restore();}
@@ -230,16 +230,16 @@ try{
    const previousOwner=await ui.invoke('service_status');
    assert.equal((await detached.invoke('service_status')).service_id,previousOwner.service_id);
    await readSize(detached,currentA,24);
-   await menu('外观');
+   await menu('软件设置');
    await ui.fill('终端字号',20);
    await ui.waitFor(`document.querySelector('[aria-label="终端字号保存状态"]').textContent==='字号已自动保存'`);
-   await ui.click('关闭外观');
+   await ui.click('关闭软件设置');
    await Promise.all([readSize(ui,existingUart,20),readSize(detached,currentA,20)]);
    await detached.screenshot('terminal-font-size-detached-20.png');
 
    const exitSave=await ui.interceptIpc({command:'save_terminal_font_size',op:undefined,mode:'hold'});
    await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
-   await ui.fill('字号',23);
+   await ui.fill('终端字号',23);
    await wait(async()=>await exitSave.count()===1,'final size response held');
    await ui.invoke('plugin:window|close',{label:'main'});
    await ui.waitFor(`!!document.querySelector('dialog:modal[aria-label="退出桌面确认"]')`);

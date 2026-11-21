@@ -332,7 +332,11 @@ main.desktop-shell { max-width: none; margin: 0; padding: var(--space-2); box-si
 .corner-notice[data-tone="error"] .corner-notice-title,.corner-notice-body [role="alert"] { color:var(--danger); }
 .recording-notice-totals { color:var(--text-muted); }
 .recording-notice-totals:empty { display:none; }
-.log-viewer-settings { border-top:1px solid var(--border); margin-top:var(--space-3); padding-top:var(--space-2); }
+.settings-categories { display:flex; flex-wrap:wrap; gap:var(--space-2); padding-bottom:var(--space-2); border-bottom:1px solid var(--border); }
+.settings-categories button[aria-pressed="true"] { background:var(--control-hover); border-color:var(--accent); }
+.log-viewer-settings { display:grid; gap:var(--space-2); min-width:0; }
+.log-viewer-settings p { margin:0; }
+.log-viewer-settings select { width:100%; }
 .log-viewer-path { display:block; color:var(--text-muted); }
 .log-viewer-settings [role="alert"] { color:var(--danger); }
 .context-menu { box-shadow: var(--float-shadow); }

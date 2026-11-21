@@ -71,7 +71,7 @@ try {
     ['工作区', '保存与打开工作区', 'Escape'],
     ['批量修改配置', '批量修改连接配置', 'Escape'],
     ['上次关闭信息', '上次关闭信息', '关闭退出信息'],
-  ] : [['外观', '外观设置', 'Escape'], ['外观', '外观设置', '关闭外观']];
+  ] : [['软件设置', '软件设置', 'Escape'], ['软件设置', '软件设置', '关闭软件设置']];
   for (const [entry, dialog, method] of entries) {
     await openFromTools(entry);
     await ui.waitFor(`document.querySelector('dialog:modal')?.getAttribute('aria-label')===${JSON.stringify(dialog)}`);
@@ -95,8 +95,8 @@ try {
   const regressions = [];
   if (cases.every(item => item.passed)) {
     if (matrix) {
-      await openFromTools('外观');
-      await ui.waitFor(`!!document.querySelector('dialog:modal[aria-label="外观设置"]')`);
+      await openFromTools('软件设置');
+      await ui.waitFor(`!!document.querySelector('dialog:modal[aria-label="软件设置"]')`);
       await key('Escape', 'Escape', 27);
       await ui.waitFor(`!document.querySelector('dialog:modal')`);
       const appearance = await observe();

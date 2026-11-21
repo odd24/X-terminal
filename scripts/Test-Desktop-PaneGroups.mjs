@@ -15,7 +15,7 @@ const desktop = path.resolve(process.argv[2]);
 const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
 const notices=process.argv.includes('--recording-notices');
-const version=process.argv.find(arg=>/^--ui-version=0\.1\.[56]$/.test(arg))?.split('=')[1]??'0.1.5';
+const version=process.argv.find(arg=>/^--ui-version=0\.1\.[567]$/.test(arg))?.split('=')[1]??'0.1.5';
 const tabRecording=notices||process.argv.includes('--tab-recording');
 const evidence=notices?version:toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2';
 const toolbar=[];
@@ -319,7 +319,8 @@ try{
     await main.close();main=undefined;
     report={result:'PASS',detachedLog,detachedAndDocked:true,close};
   }else{
-  await tool('外观');await main.fill('应用主题','dark');await escape(main);
+  const settingsEntry=await main.evaluate(`[...document.querySelectorAll('.tools-menu button')].find(b=>b.textContent==='软件设置')?.textContent??'外观'`);
+  await tool(settingsEntry);await main.fill('应用主题','dark');await escape(main);
   const positions={left:[.18,.54],top:[.54,.18],bottom:[.54,.82],right:[.82,.54]};
   const drops=[];
   for(const width of [1100,900]){

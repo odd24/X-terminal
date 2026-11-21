@@ -1041,6 +1041,8 @@ fn main() {
             terminal_log_request,
             open_managed_log_directory,
             log_viewer::log_viewer_settings,
+            log_viewer::registered_log_viewers,
+            log_viewer::select_registered_log_viewer,
             log_viewer::choose_log_viewer,
             log_viewer::reset_log_viewer,
             config_directory

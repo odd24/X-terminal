@@ -15,7 +15,7 @@ import { visibleControls } from './log-search';
 import { TerminalSearch } from './terminal-search-panel';
 import { initialTerminalView, type TerminalController, type TerminalView, type PaneSelection } from './terminal-controller';
 import { type ThemeChoice, type TerminalFont } from './appearance';
-import { AppearancePanel } from './appearance-panel';
+import { SoftwareSettings } from './software-settings';
 import { isTerminalFontSize, TerminalFontSizeControl, useTerminalFontSize } from './terminal-font-size';
 import { AgentPanel } from './agent-panel';
 import { ComposePanel } from './compose-panel';
@@ -139,7 +139,7 @@ function App() {
   const pendingExitCheck = useRef(false);
   const transferring = useRef<string>(undefined);
   const liveConnections = useRef<Connection[]>([]);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [softwareSettingsOpen, setSoftwareSettingsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [closeInfoOpen,setCloseInfoOpen]=useState(false);
   const [closeNoticeDismissed,setCloseNoticeDismissed]=useState(false);
@@ -168,10 +168,8 @@ function App() {
     if (preferenceFlight.current) return;
     clipboard.current?.invalidate();
     setPreferences(previous => ({ ...previous, ...patch }));
-    setPreferenceMessage('其他外观调整尚未保存，退出应用或重载会丢弃这些调整');
+    setPreferenceMessage('桌面偏好尚未保存，退出应用或重载会丢弃这些调整');
   }
-  const setTheme = (theme: ThemeChoice) => updatePreferences({ theme });
-  const setTerminalFont = (terminal_font: TerminalFont) => updatePreferences({ terminal_font });
   async function announceFontSize(fontSize:number) {
     const owner=serviceRef.current?.service_id;
     if(!detached&&owner)await emit('terminal-font-size-saved',{owner,fontSize}).catch(()=>{});
@@ -233,17 +231,17 @@ function App() {
     }
   }
   const [configurationOpen, setConfigurationOpen] = useState(false);
-  const toolsReturnDialog = useRef<'configuration' | 'appearance' | 'closeInfo' | 'saveRecovery' | 'workspace' | 'batchConfig' | undefined>(undefined);
+  const toolsReturnDialog = useRef<'configuration' | 'settings' | 'closeInfo' | 'saveRecovery' | 'workspace' | 'batchConfig' | undefined>(undefined);
   const toolsSummary = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const dialog = toolsReturnDialog.current;
     if (!dialog) return;
-    const open = { configuration: configurationOpen, appearance: appearanceOpen, closeInfo: closeInfoOpen,
+    const open = { configuration: configurationOpen, settings: softwareSettingsOpen, closeInfo: closeInfoOpen,
       saveRecovery: saveRecoveryOpen, workspace: workspaceOpen, batchConfig: batchConfigOpen };
     if (open[dialog]) return;
     toolsReturnDialog.current = undefined;
     toolsSummary.current?.focus();
-  }, [configurationOpen, appearanceOpen, closeInfoOpen, saveRecoveryOpen, workspaceOpen, batchConfigOpen]);
+  }, [configurationOpen, softwareSettingsOpen, closeInfoOpen, saveRecoveryOpen, workspaceOpen, batchConfigOpen]);
   const [configurationTarget,setConfigurationTarget]=useState<{id:string;action:'edit'|'delete'}>();
   const [sshOpen, setSshOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -839,10 +837,8 @@ function App() {
           <button onClick={() => setExecOpen(open => !open)}>exec 任务</button>
           <button onClick={() => setAgentOpen(open => !open)}>Agent 授权</button>
         </section>
-        <section className="toolbar-group" aria-label="外观">
-          <h3>外观</h3>
-          <button onClick={() => {toolsReturnDialog.current='appearance';setAppearanceOpen(true);}}>外观</button>
-          <TerminalFontSizeControl label="字号" value={fontSize} state={fontSizing.state} disabled={preferencesBusy} change={setFontSize}/>
+        <section className="toolbar-group" aria-label="设置">
+          <button onClick={() => {toolsReturnDialog.current='settings';setSoftwareSettingsOpen(true);}}>软件设置</button>
         </section>
         <section className="toolbar-group" aria-label="诊断与退出">
           <h3>诊断与退出</h3>
@@ -915,7 +911,7 @@ function App() {
     {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} seed={broadcastSeed} close={closeBroadcast}/></Dialog>}
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
     {composeOpen && <Dialog label="撰写终端输入" modal={false} close={()=>{drafts.current.invalidate();setComposeOpen(false);}}><ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text, pacing) => composeSend.current?.(target, text, pacing) ?? false} close={() => setComposeOpen(false)} /></Dialog>}
-    {appearanceOpen && <Dialog label="外观设置" close={()=>setAppearanceOpen(false)}><AppearancePanel theme={theme} font={terminalFont} setTheme={setTheme} setFont={setTerminalFont} preferences={preferences} fontSizeControl={<TerminalFontSizeControl label="终端字号" value={fontSize} state={fontSizing.state} change={setFontSize}/>} busy={preferencesBusy} canSave={!!preferenceRevision.current} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setAppearanceOpen(false)} /></Dialog>}
+    {softwareSettingsOpen && <Dialog label="软件设置" close={()=>setSoftwareSettingsOpen(false)}><SoftwareSettings preferences={preferences} fontSizeControl={<TerminalFontSizeControl label="终端字号" value={fontSize} state={fontSizing.state} change={setFontSize}/>} busy={preferencesBusy} canSave={!!preferenceRevision.current} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setSoftwareSettingsOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel key={configurationTarget?.id??'new'} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget?.id} initialAction={configurationTarget?.action} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
     {sshOpen && <Dialog label="SSH2 连接工具" modal={false} close={()=>setSshOpen(false)}><SshPanel connection={active} select={selectConnection} closePanel={()=>setSshOpen(false)} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} /></Dialog>}
     <Dialog label="独立 exec 任务" modal={false} open={execOpen} close={()=>setExecOpen(false)}><ExecPanel open={execOpen} connection={active} close={()=>setExecOpen(false)} /></Dialog>

@@ -28,9 +28,9 @@ try{
   await ui.selectTab(b.connection_id);const before=(await control({op:'metrics'})).received;
   if(process.argv.includes('--tabs-scrollbar')){
     await ui.evaluate(`document.querySelector('.tools-menu').open=true`);
-    await ui.click('外观');
+    await ui.click('软件设置');
     await ui.fill('应用主题','dark');
-    await ui.click('关闭外观');
+    await ui.click('关闭软件设置');
     const shown=await ui.evaluate(`[...document.querySelectorAll('[role="tab"]')].map(tab=>{
       const rail=tab.closest('[role="tablist"]').getBoundingClientRect();
       const rect=tab.getBoundingClientRect();
