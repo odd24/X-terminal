@@ -55,6 +55,7 @@ async function appearance() {
   await ui.waitFor(`!!${selected}`);
 }
 async function chooseProgram(filename) {
+  await ui.waitFor(`document.querySelector('[aria-label="选择日志打开程序"]')?.disabled===false`);
   await ui.evaluate(`document.querySelector('[aria-label="选择日志打开程序"]').click()`);
   assert.match(pick('LogViewer',filename?'select':'cancel',filename),/PASS native/);
   await ui.waitFor(`!document.querySelector('[aria-label="选择日志打开程序"]').disabled`);
