@@ -13,6 +13,8 @@ const inventory = path.join(workspace,'inventory.txt');
 const calls = path.join(workspace,'adb-calls.txt');
 const prompt = '.local-terminal:not([hidden]) input[aria-label="本地命令输入"]';
 const output = '.local-terminal:not([hidden]) .local-terminal-output';
+const panel = '.adb-shortcut-panel:not([hidden])';
+const rows = () => ui.evaluate(`Array.from(document.querySelectorAll('${panel} .adb-shortcut-run')).map(row=>row.getAttribute('aria-label'))`);
 const key = async (key, code, windowsVirtualKeyCode) => {
   await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode});
   await ui.command('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode});
@@ -25,6 +27,7 @@ const show = value => ui.waitFor(`document.querySelector('.local-terminal:not([h
 const log = async () => (await readFile(calls,'utf8').catch(()=> '')).trim().split(/\r?\n/).filter(Boolean);
 const actions = async () => (await log()).filter(line=>line.startsWith('pull|'));
 const setInventory = (...lines) => writeFile(inventory,lines.map(line=>line+'\n').join(''));
+const selected = name => ui.waitFor(`document.querySelector('.pane-active [role="tab"][aria-selected="true"]')?.textContent===${JSON.stringify(name)}`);
 async function run(line) {
   await idle();
   await ui.command('Input.insertText',{text:line});
@@ -36,6 +39,25 @@ async function openLocal() {
   await run('cd "'+workspace+'"');
   await ui.waitFor(`document.querySelector(${JSON.stringify(prompt)})?.previousElementSibling.title===${JSON.stringify(workspace)}`);
 }
+async function openPanel() {
+  if(!await ui.evaluate(`!!document.querySelector('${panel}')`))await ui.click('快捷指令');
+  await ui.waitFor(`!!document.querySelector('${panel}')`);
+}
+async function saveEditor(action='保存指令') {
+  await ui.click(action);
+  await ui.waitFor(`!document.querySelector('${panel} form')`);
+}
+async function addShortcut(name,command,action='新建快捷指令') {
+  await ui.click(action);
+  await ui.fill('指令名称',name);
+  await ui.fill('完整 ADB 命令',command);
+  await saveEditor();
+}
+async function manage(name,action) {
+  await ui.click(name+' 的管理操作');
+  await ui.waitFor('!!document.querySelector(".adb-row-menu[data-positioned]")');
+  await ui.evaluate(`Array.from(document.querySelectorAll('.adb-row-menu button')).find(button=>button.textContent===${JSON.stringify(action)}).click()`);
+}
 async function controlledExit() {
   await ui.evaluate("document.querySelector('details.tools-menu summary').click()");
   await ui.click('退出桌面');
@@ -46,17 +68,11 @@ async function controlledExit() {
   await ui.close();
 }
 async function setOptions() {
-  await ui.click('管理 ADB 按钮');
-  await ui.waitFor('!!document.querySelector("[aria-label=\'ADB 程序路径\']")');
+  await ui.click('ADB 设置');
   await ui.fill('ADB 程序路径',adb);
-  await ui.click('新建按钮');
-  await ui.fill('按钮名称','设备列表');
-  await ui.fill('完整 ADB 命令','adb devices -l');
-  await ui.click('新建按钮');
-  await ui.fill('按钮名称','导出样本');
-  await ui.fill('完整 ADB 命令','adb pull "/sdcard/a b" "./导出 文件.txt"');
-  await ui.click('保存 ADB 快捷设置');
-  await ui.waitFor('!document.querySelector("dialog[aria-label=\'ADB 快捷操作设置\']")');
+  await saveEditor('保存 ADB 设置');
+  await addShortcut('设备列表','adb devices -l','添加第一条指令');
+  await addShortcut('导出样本','adb pull "/sdcard/a b" "./导出 文件.txt"');
 }
 
 try {
@@ -68,27 +84,52 @@ try {
   try {ui=await launchDesktop(root,{executable});}
   finally {if(originalEnv!==undefined)process.env.ANDROID_SERIAL=originalEnv;}
   await openLocal();
+  assert.equal(await ui.evaluate('document.querySelector(".adb-panel-toggle").getAttribute("aria-expanded")'),'false');
+  await openPanel();
+  await ui.waitFor(`Array.from(document.querySelectorAll('${panel} button')).some(item=>item.textContent==='添加第一条指令')`);
   await setOptions();
-  await ui.click('设备列表');
+  assert.deepEqual(await log(),[],'created and saved settings do not invoke adb');
+  const row = await ui.evaluate(`document.querySelector('.adb-shortcut-run[aria-label="设备列表"]').getBoundingClientRect().toJSON()`);
+  const click = {button:'left',x:row.right-10,y:row.top+row.height/2,clickCount:1};
+  await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',...click});
+  await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',...click});
   await show('List of devices attached');
+  await idle();
   assert.equal((await log()).length,1);
+  await addShortcut('临时指令','adb devices -l');
+  await manage('临时指令','上移');
+  await ui.waitFor(`document.querySelectorAll('${panel} .adb-shortcut-run')[1]?.getAttribute('aria-label')==='临时指令'`);
+  await manage('临时指令','下移');
+  await ui.waitFor(`document.querySelectorAll('${panel} .adb-shortcut-run')[2]?.getAttribute('aria-label')==='临时指令'`);
+  await manage('临时指令','编辑');
+  await ui.fill('指令名称','取消的更改');
+  await ui.click('取消编辑');
+  assert.deepEqual(await rows(),['设备列表','导出样本','临时指令']);
+  await manage('临时指令','删除');
+  await ui.waitFor(`document.querySelectorAll('${panel} .adb-shortcut-run').length===2`);
+  assert.equal((await log()).length,1,'edit, cancel, move and delete must not invoke adb');
+  evidence.cases.push('initially collapsed, row hit executes once, management and settings do not invoke adb');
   await controlledExit();
   delete process.env.ANDROID_SERIAL;
-  try {ui=await launchDesktop(root,{executable,webviewDirectory:path.join(root,'webview-reopen')});}
+  try {ui=await launchDesktop(root,{executable});}
   finally {if(originalEnv!==undefined)process.env.ANDROID_SERIAL=originalEnv;}
   await openLocal();
   assert.equal((await log()).length,1,'opening does not execute saved button');
-  await ui.waitFor("Array.from(document.querySelectorAll('.local-adb-actions button')).some(b=>b.textContent==='导出样本')");
+  await ui.waitFor(`!!document.querySelector('${panel} .adb-shortcut-run[aria-label="导出样本"]')`);
+  assert.equal(await ui.evaluate('document.querySelector(".adb-panel-toggle").getAttribute("aria-expanded")'),'true');
   await ui.click('导出样本');
   await show('ADB_FIXTURE_PULLED');
   assert.equal(await readFile(path.join(workspace,'导出 文件.txt'),'utf8'),'observed fixture download');
   assert.equal((await actions()).at(-1),'pull|good|-s|good|pull|/sdcard/a b|./导出 文件.txt');
-  evidence.cases.push('persisted across application and WebView profile reopen; executable, argv, cwd and exported bytes verified');
+  evidence.cases.push('expanded preference and saved list survive application reopening; executable, argv, cwd and exported bytes verified');
   await idle();
   await ui.command('Input.insertText',{text:'半条草稿'});
+  await ui.waitFor(`document.querySelector(${JSON.stringify(prompt)})?.value==='半条草稿'`);
   await ui.click('导出样本');
+  await selected('本地 2');
   await show('ADB_FIXTURE_PULLED');
   await ui.click('本地 1');
+  await selected('本地 1');
   await idle();
   assert.equal(await ui.evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`),'半条草稿');
   await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'c',code:'KeyC',windowsVirtualKeyCode:67,modifiers:2});
@@ -96,14 +137,26 @@ try {
   await show('ADB_FIXTURE_FOREGROUND');
   const pid = Number((await text()).match(/ADB_FIXTURE_FOREGROUND:(\d+)/)?.[1]);
   assert.ok(pid>0);
+  await ui.click('收起快捷指令');
+  await ui.waitFor(`!document.querySelector('${panel}')`);
+  assert.doesNotThrow(()=>process.kill(pid,0));
+  await openPanel();
   await ui.click('导出样本');
+  await selected('本地 3');
   await show('ADB_FIXTURE_PULLED');
   assert.doesNotThrow(()=>process.kill(pid,0));
+  await ui.click('本地 1');
+  await selected('本地 1');
+  await ui.waitFor('document.activeElement?.matches(".local-terminal:not([hidden]) .xterm-helper-textarea")');
+  await ui.command('Input.insertText',{text:'continued'});
+  await key('Enter','Enter',13);
+  await show('ADB_FIXTURE_ECHO:continued');
   await ui.click('关闭 本地 1');
   await ui.waitFor('!document.querySelector("[aria-label=\'关闭 本地 1\']")');
   assert.throws(()=>process.kill(pid,0),error=>error.code==='ESRCH');
   evidence.cases.push('busy and draft routed to new local tabs with original working directory; original foreground survives until its own close');
   await ui.click('本地 2');
+  await selected('本地 2');
   await idle();
   await setInventory('unauth\tunauthorized');
   const before = (await actions()).length;
@@ -130,16 +183,13 @@ try {
   assert.match((await actions()).at(-1),/^pull\|other\|-s\|other\|/);
   evidence.cases.push('no device, unauthorized, multi-device cancellation and target disappearance without retargeting');
   await idle();
-  await ui.click('管理 ADB 按钮');
-  await ui.waitFor('!!document.querySelector("[aria-label=\'已保存 ADB 按钮\']")');
-  await ui.fill('已保存 ADB 按钮',await ui.evaluate(`Array.from(document.querySelector('[aria-label="已保存 ADB 按钮"]').options).find(o=>o.textContent==='导出样本').value`));
+  await manage('导出样本','编辑');
   await ui.fill('完整 ADB 命令','git --version');
-  await ui.click('保存 ADB 快捷设置');
-  await ui.waitFor(`document.querySelector('dialog [role="alert"]')?.textContent.includes('完整的 adb 命令')`);
+  await ui.click('保存指令');
+  await ui.waitFor(`document.querySelector('${panel} [role="alert"]')?.textContent.includes('完整的 adb 命令')`);
   assert.equal(await ui.evaluate(`document.querySelector('[aria-label="完整 ADB 命令"]').value`),'git --version');
   await ui.fill('完整 ADB 命令','adb -s good pull /sdcard/ok edited.txt');
-  await ui.click('保存 ADB 快捷设置');
-  await ui.waitFor('!document.querySelector("dialog[aria-label=\'ADB 快捷操作设置\']")');
+  await saveEditor();
   await ui.click('导出样本');
   await show('ADB_FIXTURE_PULLED');
   await idle();
@@ -147,13 +197,7 @@ try {
   assert.match((await actions()).at(-1),/^pull\|good\|-s\|good\|pull\|\/sdcard\/ok\|edited.txt$/);
   await ui.screenshot('local-adb-software.png');
   evidence.cases.push('invalid edit retained without applying; explicit serial and corrected saved command preserved');
-  await ui.click('管理 ADB 按钮');
-  await ui.waitFor('!!document.querySelector("[aria-label=\'ADB 程序路径\']")');
-  await ui.click('新建按钮');
-  await ui.fill('按钮名称','环境目标');
-  await ui.fill('完整 ADB 命令','adb pull /sdcard/ok environment.txt');
-  await ui.click('保存 ADB 快捷设置');
-  await ui.waitFor('!document.querySelector("dialog[aria-label=\'ADB 快捷操作设置\']")');
+  await addShortcut('环境目标','adb pull /sdcard/ok environment.txt');
   await controlledExit();
   process.env.ANDROID_SERIAL='other';
   try {ui=await launchDesktop(root,{executable,webviewDirectory:path.join(root,'webview-environment')});}
@@ -163,7 +207,8 @@ try {
   }
   await setInventory('good\tdevice','other\tdevice');
   await openLocal();
-  await ui.waitFor("Array.from(document.querySelectorAll('.local-adb-actions button')).some(b=>b.textContent==='环境目标')");
+  await openPanel();
+  await ui.waitFor(`!!document.querySelector('${panel} .adb-shortcut-run[aria-label="环境目标"]')`);
   const callCount=(await log()).length;
   await ui.click('环境目标');
   await show('ADB_FIXTURE_PULLED');

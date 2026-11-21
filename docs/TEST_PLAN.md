@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.1 使用 Test-Desktop-AdbSidebar.mjs 测实际宽窗、窄窗、分屏、栏内换行及 0.1.13 设置继承。Test-Desktop-LocalAdb.mjs 从新侧栏验证单次执行、管理零调用、开合重启、草稿/忙碌分流、原前台交互和设备目标。证据见 [P26.1](records/P26.1.md)。
+
 P26 使用 Test-Desktop-LocalTerminal.mjs 和 Test-Desktop-LocalAdb.mjs 在自建根运行普通桌面。L01–L05 核对目录、参数、输入和资源归属、输出尾段以及原会话隔离。L06 单列打开到可输入及回显的基线。B01–B03 核对按钮持久化、编辑、忙碌/草稿分流和设备状态及目标选择。真实 adb server、设备 Shell、logcat、文件和用户日常 PowerShell 对照单独记录。[P26](records/P26.md)
 
 P24 配置快照回退专项 `node scripts/Test-Desktop-SchemaRollback.mjs` 复用 schema 6、7 普通预览，验证旧程序实际生成配置、新程序成功迁移、旧程序拒绝新库及独立备份副本恢复，详见[P24](records/P24.md)。

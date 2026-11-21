@@ -3,7 +3,7 @@ import type { GroupConnection, TabGroup } from './tab-groups';
 import type { SessionDrag } from './session-drag';
 import type { TabRecording } from './tab-logging';
 type Connection=GroupConnection&{state:string};
-export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,extraTabs,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;extraTabs?:ReactNode;children?:ReactNode}){
+export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,extraTabs,endControls,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;extraTabs?:ReactNode;endControls?:ReactNode;children?:ReactNode}){
   const list=useRef<HTMLDivElement>(null);
   const menuNode=useRef<HTMLDivElement>(null);
   const [menu,setMenu]=useState<{connection:Connection;owner:string;x:number;y:number;focus:HTMLElement|null}>();
@@ -95,6 +95,7 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
     })}
     </Fragment>)}{extraTabs}</div>{children}
     {singlePane&&<div className="tab-lane-drag" aria-hidden="true" data-tauri-drag-region="" />}
+    {endControls}
     {menu&&source&&<div className="terminal-context-menu context-menu session-tab-menu" role="menu" aria-label="会话标签菜单" ref={menuNode}
       onKeyDown={event=>{if(event.key==='Escape'||event.key==='Tab'){event.preventDefault();event.stopPropagation();closeMenu(true);}}}
       onContextMenu={event=>event.preventDefault()}>

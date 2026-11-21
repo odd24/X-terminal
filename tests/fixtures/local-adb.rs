@@ -27,6 +27,15 @@ fn main() -> io::Result<()> {
         "shell" | "logcat" => {
             println!("ADB_FIXTURE_FOREGROUND:{}", std::process::id());
             io::stdout().flush()?;
+            if operation == "shell" {
+                let mut input = String::new();
+                while io::stdin().read_line(&mut input)? != 0 {
+                    println!("ADB_FIXTURE_ECHO:{}", input.trim_end());
+                    io::stdout().flush()?;
+                    input.clear();
+                }
+                return Ok(());
+            }
             loop { thread::sleep(Duration::from_millis(100)); }
         }
         _ => {

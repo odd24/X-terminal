@@ -1,4 +1,4 @@
-import {useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {Terminal} from '@xterm/xterm';
 import {FitAddon} from '@xterm/addon-fit';
@@ -17,8 +17,8 @@ const MAX_SCROLLBACK = 5000;
 const localText = (text:string) => text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '�').replaceAll('\n', '\r\n');
 
 export type LocalPromptState = {busy:boolean; hasDraft:boolean};
-export function LocalTerminal({tab, visible, focused, preferences, intent, tools, report, focus, shortcutSettled}: {
-  tab:LocalTab; visible:boolean; focused:boolean; preferences:DesktopPreferences; intent?:AdbIntent; tools?:ReactNode;
+export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, shortcutSettled}: {
+  tab:LocalTab; visible:boolean; focused:boolean; preferences:DesktopPreferences; intent?:AdbIntent;
   report(id:string, state:LocalPromptState):void; focus():void;
   shortcutSettled(request:string):void;
 }) {
@@ -245,7 +245,6 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, tools
   }
 
   return <div className="local-terminal" hidden={!visible} onFocusCapture={focus}>
-    {tools}
     <div className="terminal local-terminal-output" ref={host} aria-label="本地命令行输出"/>
     {atLimit&&<small>仅保留最近 {MAX_SCROLLBACK} 行滚动历史及当前屏幕</small>}
     {failure&&<small role="alert">{failure}</small>}

@@ -62,7 +62,7 @@ import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { QuickSerial } from './quick-serial';
 import {LocalTerminal, terminalAction, type LocalPromptState, type LocalTab, type LocalView} from './local-terminal';
-import {AdbEditor, loadAdbSettings, type AdbIntent, type AdbSettings} from './local-adb';
+import {AdbShortcutPanel, loadAdbSettings, type AdbIntent, type AdbSettings} from './local-adb';
 import { LoggingPanel } from './logging-panel';
 import { serial, type SerialStatus } from './serial-api';
 import { requestId } from './request-id';
@@ -295,7 +295,11 @@ function App() {
   const nextLocal = useRef(0);
   const openingLocal = useRef(false);
   const [adbSettings,setAdbSettings]=useState<AdbSettings>();
-  const [adbEditor,setAdbEditor]=useState(false);
+  const [adbDefaultOpen]=useState(()=>{
+    try {return localStorage.getItem('local-adb-shortcuts-open')==='true';}
+    catch {return false;}
+  });
+  const [adbPanels,setAdbPanels]=useState<Partial<Record<PaneKey,boolean>>>({});
   const [adbIntent,setAdbIntent]=useState<AdbIntent&{id:string}>();
   const [adbStarting,setAdbStarting]=useState(false);
   const shortcutFlight=useRef<{request:string;id?:string}|undefined>(undefined);
@@ -307,12 +311,17 @@ function App() {
     shortcutFlight.current=undefined;
     setAdbStarting(false);
   }
-  async function loadAdb(edit=false) {
+  async function loadAdb() {
     try {
       const settings=await loadAdbSettings();
       setAdbSettings(settings);
-      if(edit)setAdbEditor(true);
     } catch(error) {setTabMessage(String(error));}
+  }
+  function setAdbPanel(pane:PaneKey,open:boolean) {
+    setAdbPanels(previous=>({...previous,[pane]:open}));
+    try {localStorage.setItem('local-adb-shortcuts-open',String(open));}
+    catch { /* the current window still remembers the choice */ }
+    if (!open) document.querySelector<HTMLElement>(`[data-pane="${pane}"] .adb-panel-toggle`)?.focus();
   }
   async function openLocal(pane:PaneKey,inherit?:string) {
     if (openingLocal.current||closingDesktop.current) return undefined;
@@ -496,7 +505,7 @@ function App() {
   function closeBroadcast(){broadcastRun.current.cancel();setBroadcastOpen(false);setBroadcastSeed(undefined);}
   function syncRoute(){const current=panes.current.current,local=localSelected.current.has(panes.current.active);selectedRef.current=local?'':current.requested;setSelected(selectedRef.current);const c=local?undefined:controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
   function routeChanged(){firstSsh1Fit.current=undefined;setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
-  function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard){if(localSelected.current.has(key)){document.querySelector<HTMLElement>(`[data-pane="${key}"] .local-terminal:not([hidden]) :is(input,.xterm-helper-textarea)`)?.focus();}else controllers.current.get(key)?.runtime.term.focus();}}
+  function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard){if(localSelected.current.has(key)){const local=document.querySelector(`[data-pane="${key}"] .local-terminal:not([hidden])`);(local?.querySelector<HTMLElement>('.local-prompt input')??local?.querySelector<HTMLElement>('.xterm-helper-textarea'))?.focus();}else controllers.current.get(key)?.runtime.term.focus();}}
   function cancelWorkspaceSplit(){workspaceSession.current.cancelSplit();restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);}
   function collapseSplit(keep?:PaneKey){cancelWorkspaceSplit();panes.current.collapse(keep);routeChanged();}
   function paneSelection(key:PaneKey):PaneSelection{const slot=panes.current.slots.find(p=>p.key===key),binding=slot?.binding;
@@ -1052,10 +1061,14 @@ function App() {
         const c=slot.binding&&connections.find(c=>c.connection_id===slot.binding!.connection_id&&c.generation===slot.binding!.generation&&c.protocol===slot.binding!.protocol);
         const view=paneViews[key]??initialTerminalView();
         const localId=localSelected.current.get(key);
+        const adbOpen=adbPanels[key]??adbDefaultOpen;
+        const adbPanelId='adb-shortcuts-'+key;
         const locals=localTabs.filter(tab=>tab.pane===key||index===0&&!paneSlots.some(slot=>slot.key===tab.pane));
         const rail=<SessionTabs singlePane={paneSlots.length===1} tabs={paneTabs(key)} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)}
           owner={service?.service_id??''} selected={localId??slot.requested} name={tabName} recording={tabLogs.control} toggleRecording={tabLogs.toggle}
           select={id=>{panes.current.focus(key);selectConnection(id);controllers.current.get(key)?.runtime.term.focus();}}
+          endControls={localId&&<button type="button" className="adb-panel-toggle" aria-expanded={adbOpen} aria-controls={adbPanelId}
+            onClick={()=>setAdbPanel(key,!adbOpen)}>快捷指令</button>}
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached} copy={(source,owner)=>copyTab(key,source,owner)}
           extraTabs={locals.map(tab=><div className="connection-tab" key={tab.id}>
             <button role="tab" type="button" className={localId===tab.id?'pane-focus':undefined} aria-selected={localId===tab.id} data-connection-id={tab.id} onClick={()=>selectLocal(key,tab.id)}>{tab.title}</button>
@@ -1072,6 +1085,9 @@ function App() {
         return <TerminalPane context={(pane,value)=>setTerminalMenu({...value,pane,title:c?tabName(c):value.target.protocol})} key={slot.key} rendered={view.renderedTarget} id={slot.key} position={index+1} split={paneSlots.length>1} active={panes.current.active===slot.key} tabs={rail} showLocal={!!localId}
           local={locals.map(tab=><div key={tab.id} className="local-terminal-socket" hidden={localId!==tab.id}
             ref={node=>{if(node&&tab.surface.parentElement!==node)node.append(tab.surface);}}/>)}
+          localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} open={adbOpen} settings={adbSettings} starting={adbStarting}
+            close={()=>setAdbPanel(key,false)} reload={()=>void loadAdb()} update={setAdbSettings}
+            execute={(button,revision)=>void clickAdb(key,localId,button,revision)}/>}
           preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
       }} />
@@ -1080,19 +1096,13 @@ function App() {
       const visible=localSelected.current.get(key)===tab.id;
       return createPortal(<LocalTerminal tab={tab} visible={visible} focused={visible&&panes.current.active===key}
         preferences={preferences} focus={()=>focusPane(key)} report={reportLocalPrompt.current} shortcutSettled={shortcutSettled}
-        intent={adbIntent?.id===tab.id?adbIntent:undefined}
-        tools={<div className="local-adb-actions" aria-label="ADB 快捷操作">
-          <button type="button" onClick={()=>void loadAdb(true)}>管理 ADB 按钮</button>
-          {adbSettings?.revision&&adbSettings.shortcuts.map(button=><button type="button" key={button.id} title={button.command}
-            aria-disabled={adbStarting} onClick={event=>{if(event.detail<=1)void clickAdb(key,tab.id,button.id,adbSettings.revision!);}}>{button.name}</button>)}
-        </div>}/>,tab.surface,tab.id);
+        intent={adbIntent?.id===tab.id?adbIntent:undefined}/>,tab.surface,tab.id);
     })}
     {clipboardMessage&&<CornerNotice key={clipboardMessage} heading="剪贴板" autoDismiss
       dismiss={()=>setClipboardMessage(previous=>previous===clipboardMessage?'':previous)}><span aria-label="剪贴板状态">{clipboardMessage}</span></CornerNotice>}
     {tabMessage&&<CornerNotice key={tabMessage} heading="会话标签" autoDismiss
       dismiss={()=>setTabMessage(previous=>previous===tabMessage?'':previous)}><span aria-label="标签操作状态">{tabMessage}</span></CornerNotice>}
     </section>
-    {adbEditor&&adbSettings&&<AdbEditor initial={adbSettings} close={()=>setAdbEditor(false)} update={setAdbSettings}/>}
     {quickOpen && <Dialog label="连接服务器" close={closeQuick} fallbackFocus={restoreConnectEntry}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent}
       copySettings={copySource?.settings.protocol==='ssh2'?copySource.settings:undefined} canStart={copySource?canStartCopy:undefined}
       connection={copySource?connections.find(c=>copyTarget&&sameRef(c,copyTarget)&&c.protocol==='SSH2'):active} select={selectNewConnection}

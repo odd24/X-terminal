@@ -1,6 +1,6 @@
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
-import {Dialog, Field} from './ui';
+import {ContextMenu, ControlIcon, Dialog, Field, IconButton} from './ui';
 
 export type AdbShortcut = {id:string; name:string; command:string};
 export type AdbSettings = {revision:string|null; executable:string|null; shortcuts:AdbShortcut[]};
@@ -12,80 +12,115 @@ export function loadAdbSettings() {
   return invoke<AdbSettings>('local_adb_settings', {settings:null});
 }
 
-export function AdbEditor({initial, close, update}: {initial:AdbSettings; close():void; update(value:AdbSettings):void}) {
-  const [draft, setDraft] = useState(initial);
-  const [id, setId] = useState(initial.shortcuts[0]?.id);
+type Editor = {kind:'shortcut'; item:AdbShortcut; revision:string|null} | {kind:'settings'; path:string; revision:string|null};
+
+export function AdbShortcutPanel({id, open, settings, starting, close, reload, update, execute}: {
+  id:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():void;
+  update(value:AdbSettings):void; execute(button:string, revision:string):void;
+}) {
+  const [editor, setEditor] = useState<Editor>();
+  const [menu, setMenu] = useState<{id:string; anchor:HTMLButtonElement}>();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState('');
-  const index = draft.shortcuts.findIndex(button => button.id === id);
-  const selected = draft.shortcuts[index];
-  function modify(patch:Partial<AdbShortcut>) {
-    setDraft(current=>({...current, shortcuts:current.shortcuts.map(button=>button.id===id?{...button,...patch}:button)}));
+  const saving = useRef(false);
+  const canAdd = !!settings && settings.shortcuts.length < 32 && !busy && !editor;
+  useEffect(()=>{if(!open)setMenu(undefined);},[open]);
+  function edit(item:AdbShortcut) {
+    if (!settings) return;
+    setFailure('');
+    setEditor({kind:'shortcut', item:{...item}, revision:settings.revision});
   }
   function add() {
-    const button = {id:crypto.randomUUID(), name:'', command:''};
-    setDraft(current=>({...current, shortcuts:[...current.shortcuts, button]}));
-    setId(button.id);
+    edit({id:crypto.randomUUID(), name:'', command:''});
   }
-  function move(direction:number) {
-    const shortcuts = [...draft.shortcuts];
-    const [button] = shortcuts.splice(index, 1);
-    shortcuts.splice(index+direction, 0, button);
-    setDraft({...draft, shortcuts});
-  }
-  async function save() {
-    if (busy) return;
+  async function save(next:AdbSettings) {
+    if (saving.current) return;
+    saving.current = true;
     setBusy(true);
     setFailure('');
     try {
-      const value = await invoke<AdbSettings>('local_adb_settings', {settings:{...draft, executable:draft.executable?.trim()||null}});
+      const value = await invoke<AdbSettings>('local_adb_settings', {settings:next});
       update(value);
-      close();
+      setEditor(undefined);
     } catch (error) {
       setFailure(String(error));
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
-  return <Dialog label="ADB 快捷操作设置" close={()=>{if(!busy)close();}}>
-    <form onSubmit={event=>{event.preventDefault();void save();}}>
-      <h2>ADB 快捷操作</h2>
-      <fieldset disabled={busy}>
-        <Field label="ADB 程序路径">
-          <input aria-label="ADB 程序路径" value={draft.executable??''} placeholder="留空使用 PATH"
-            onChange={event=>setDraft({...draft, executable:event.target.value})}/>
-        </Field>
-        <Field label="按钮">
-          <select aria-label="已保存 ADB 按钮" value={id??''} onChange={event=>setId(event.target.value)}>
-            {!draft.shortcuts.length&&<option value="">暂无按钮</option>}
-            {draft.shortcuts.map(button=><option key={button.id} value={button.id}>{button.name||'未命名按钮'}</option>)}
-          </select>
-        </Field>
-        <div className="config-actions">
-          <button type="button" onClick={add} disabled={draft.shortcuts.length>=32}>新建按钮</button>
-          {selected&&<>
-            <button type="button" disabled={index===0} onClick={()=>move(-1)}>上移</button>
-            <button type="button" disabled={index===draft.shortcuts.length-1} onClick={()=>move(1)}>下移</button>
-            <button type="button" onClick={()=>{
-              const shortcuts=draft.shortcuts.filter(button=>button.id!==id);
-              setDraft({...draft,shortcuts});setId(shortcuts[Math.min(index,shortcuts.length-1)]?.id);
-            }}>移除按钮</button>
-          </>}
-        </div>
-        {selected&&<>
-          <Field label="按钮名称"><input aria-label="按钮名称" value={selected.name} maxLength={64}
-            onChange={event=>modify({name:event.target.value})}/></Field>
-          <Field label="完整 ADB 命令"><input aria-label="完整 ADB 命令" value={selected.command} maxLength={8192}
-            placeholder="adb devices -l" onChange={event=>modify({command:event.target.value})}/></Field>
-        </>}
-      </fieldset>
+  function submit() {
+    if (!settings || !editor) return;
+    const next = {...settings, revision:editor.revision};
+    if (editor.kind==='settings') {
+      void save({...next, executable:editor.path.trim()||null});
+    } else {
+      const index = settings.shortcuts.findIndex(item=>item.id===editor.item.id);
+      const shortcuts = [...settings.shortcuts];
+      if (index < 0) shortcuts.push(editor.item);
+      else shortcuts[index] = editor.item;
+      void save({...next, shortcuts});
+    }
+  }
+  function move(index:number, step:number) {
+    if (!settings) return;
+    const shortcuts = [...settings.shortcuts];
+    [shortcuts[index], shortcuts[index+step]] = [shortcuts[index+step], shortcuts[index]];
+    void save({...settings, shortcuts});
+  }
+  return <aside id={id} className="adb-shortcut-panel" aria-label="ADB 快捷指令" hidden={!open}>
+    <div className="adb-panel-heading">
+      <h2>快捷指令</h2>
+      <IconButton icon="plus" label="新建快捷指令" disabled={!canAdd} onClick={add}/>
+      <IconButton icon="collapse" label="收起快捷指令" onClick={close}/>
+    </div>
+    <div className="adb-panel-body">
+      {editor ? <form aria-label={editor.kind==='settings'?'ADB 设置':'快捷指令编辑'} onSubmit={event=>{event.preventDefault();submit();}}>
+        <fieldset disabled={busy}>
+          {editor.kind==='settings'
+            ? <Field label="ADB 程序路径"><input autoFocus aria-label="ADB 程序路径" value={editor.path} placeholder="留空使用 PATH"
+              onChange={event=>setEditor({...editor,path:event.target.value})}/></Field>
+            : <>
+              <Field label="名称"><input autoFocus aria-label="指令名称" value={editor.item.name} maxLength={64}
+                onChange={event=>setEditor({...editor,item:{...editor.item,name:event.target.value}})}/></Field>
+              <Field label="完整 ADB 命令"><textarea aria-label="完整 ADB 命令" rows={5} wrap="soft" spellCheck={false} maxLength={8192}
+                value={editor.item.command} placeholder="adb devices -l"
+                onChange={event=>setEditor({...editor,item:{...editor.item,command:event.target.value}})}/></Field>
+            </>}
+          <div className="config-actions">
+            <button type="button" onClick={()=>{setEditor(undefined);setFailure('');}}>取消编辑</button>
+            <button type="submit">{editor.kind==='settings'?'保存 ADB 设置':'保存指令'}</button>
+          </div>
+        </fieldset>
+      </form> : !settings ? <button type="button" onClick={reload}>读取 ADB 快捷指令</button>
+        : !settings.shortcuts.length ? <button type="button" className="adb-empty" onClick={add}>添加第一条指令</button>
+        : <ul className="adb-shortcut-list">{settings.shortcuts.map((item,index)=><li key={item.id}>
+          <button type="button" className="adb-shortcut-run" aria-label={item.name} title={item.command}
+            aria-disabled={starting} onKeyDown={event=>{if(event.repeat&&(event.key==='Enter'||event.key===' '))event.preventDefault();}} onClick={event=>{
+              if (!starting && event.detail <= 1 && settings.revision) execute(item.id,settings.revision);
+            }}><span>{item.name}</span><code>{item.command}</code></button>
+          <button type="button" className="adb-row-menu-trigger" aria-label={item.name+' 的管理操作'}
+            aria-haspopup="menu" aria-expanded={menu?.id===item.id}
+            onClick={event=>setMenu(menu?.id===item.id?undefined:{id:item.id,anchor:event.currentTarget})}><ControlIcon icon="more"/></button>
+          {open&&menu?.id===item.id&&<ContextMenu className="adb-row-menu" label={item.name+' 的管理菜单'}
+            x={0} y={0} anchor={menu.anchor} anchored close={()=>setMenu(undefined)}>
+            <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);edit(item);}}>编辑</button>
+            <button role="menuitem" type="button" disabled={busy||index===0} onClick={()=>{setMenu(undefined);move(index,-1);}}>上移</button>
+            <button role="menuitem" type="button" disabled={busy||index===settings.shortcuts.length-1} onClick={()=>{setMenu(undefined);move(index,1);}}>下移</button>
+            <button role="menuitem" type="button" disabled={busy} onClick={()=>{
+              setMenu(undefined);
+              void save({...settings,shortcuts:settings.shortcuts.filter(row=>row.id!==item.id)});
+            }}>删除</button>
+          </ContextMenu>}
+        </li>)}</ul>}
       {failure&&<p role="alert">{failure}</p>}
-      <div className="config-actions">
-        <button type="button" data-dialog-autofocus disabled={busy} onClick={close}>取消编辑</button>
-        <button type="submit" disabled={busy}>{busy?'正在保存…':'保存 ADB 快捷设置'}</button>
-      </div>
-    </form>
-  </Dialog>;
+    </div>
+    <div className="adb-panel-footer">
+      <button type="button" disabled={!settings||busy||!!editor} onClick={()=>{
+        if(settings){setFailure('');setEditor({kind:'settings',path:settings.executable??'',revision:settings.revision});}
+      }}>ADB 设置</button>
+    </div>
+  </aside>;
 }
 
 export function AdbDeviceDialog({devices, choose, close}: {devices:AdbDevice[]; choose(serial:string):void; close():void}) {
