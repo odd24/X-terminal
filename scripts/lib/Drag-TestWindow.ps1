@@ -5,6 +5,7 @@ param(
     [string]$Title,
     [switch]$Raise,
     [switch]$PlaceAtWorkAreaStart,
+    [switch]$MeasureMovement,
     [ValidateSet('Left','Right')][string]$Click,
     [string]$LandingTitle
 )
@@ -104,6 +105,11 @@ try {
     $scale = [TerminalTestMouse]::GetDpiForWindow($window) / 96
     $steps = @($Points | ConvertFrom-Json)
     if ($Click -and ($steps.Count -ne 1 -or $steps[0].outside -or $steps[0].landings)) { throw 'A click requires one owned client point' }
+    if ($MeasureMovement) {
+        if ($Click) { throw 'Movement measurements require a drag.' }
+        $dragStart = New-Object TerminalTestMouse+Rect
+        if (![TerminalTestMouse]::GetWindowRect($window,[ref]$dragStart)) { throw 'Could not measure the owned window before the drag.' }
+    }
     for ($i=0; $i -lt $steps.Count; $i++) {
         $point = New-Object TerminalTestMouse+Point
         if ($steps[$i].landings) {
@@ -155,6 +161,12 @@ try {
 } finally {
     if ($pressed) { [TerminalTestMouse]::mouse_event(4,0,0,0,[UIntPtr]::Zero) }
     Start-Sleep -Milliseconds 200
+    if ($MeasureMovement -and $dragStart) {
+        $dragEnd = New-Object TerminalTestMouse+Rect
+        if ([TerminalTestMouse]::GetWindowRect($window,[ref]$dragEnd)) {
+            @{dx=$dragEnd.Left-$dragStart.Left;dy=$dragEnd.Top-$dragStart.Top} | ConvertTo-Json -Compress
+        }
+    }
     if ($raised) { [void][TerminalTestMouse]::SetWindowPos($window,[IntPtr](-2),0,0,0,0,19) }
     if ($raisedLanding) { [void][TerminalTestMouse]::SetWindowPos($landing,[IntPtr](-2),0,0,0,0,19) }
     [void][TerminalTestMouse]::SetCursorPos($original.X,$original.Y)

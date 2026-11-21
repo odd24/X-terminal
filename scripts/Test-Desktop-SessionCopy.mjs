@@ -120,7 +120,13 @@ async function splitRight(connection){
     const a=${tab(connection)}.getBoundingClientRect(),b=${pane}.querySelector('.terminal').getBoundingClientRect();
     return [{x:a.x+a.width/2,y:a.y+a.height/2},{x:a.x+a.width/2,y:a.bottom+32},{x:b.x+b.width*.84,y:b.y+b.height*.5,holdMs:260}];
   })()`);
-  dragNativeWindow(ui.app,points,{executable:desktop,title,raise:true});
+  if(refresh){
+    const [start,intermediate,end]=points;
+    await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',...start,button:'left',buttons:1,clickCount:1});
+    for(const {x,y} of [intermediate,end])await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',x,y,button:'left',buttons:1});
+    await ui.waitFor('!!document.querySelector(".tab-split-preview[data-edge=right]")');
+    await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',x:end.x,y:end.y,button:'left',buttons:0,clickCount:1});
+  }else dragNativeWindow(ui.app,points,{executable:desktop,title,raise:true});
   await ui.waitFor(`document.querySelectorAll('[data-pane]').length===2&&${tab(connection)}?.closest('[data-pane]')?.dataset.pane!==${pane}.dataset.pane`);
 }
 async function readOutput(c){
@@ -184,17 +190,17 @@ function fit(width,height){
 const windowQuery=(page,operation,label='main')=>page.invoke(`plugin:window|${operation}`,{label});
 async function verifyWindow(page,caption,label='main'){
   const chrome=q('.window-title');
-  const start=await page.evaluate(`(()=>{const b=${chrome}.getBoundingClientRect();return{x:b.left+b.width/2,y:b.top+b.height/2};})()`);
-  const before=await windowQuery(page,'outer_position',label);
-  dragNativeWindow(ui.app,[start,{x:start.x+32,y:start.y+24},{x:start.x+62,y:start.y+40}],{executable:desktop,title:caption,raise:true});
-  const moved=await windowQuery(page,'outer_position',label);
-  assert.ok(Math.abs(moved.x-before.x)>20||Math.abs(moved.y-before.y)>20,JSON.stringify({before,moved}));
+  const start=await page.evaluate(`(()=>{const b=${chrome}.getBoundingClientRect();return{x:b.left+Math.min(116,b.width/2),y:b.top+b.height/2};})()`);
+  const points=[start,{x:start.x+32,y:start.y+24},{x:start.x+62,y:start.y+40}];
+  const movement=JSON.parse(native('scripts/lib/Drag-TestWindow.ps1',['-TargetProcessId',String(ui.app.pid),'-ExpectedExecutable',desktop,
+    '-Title',caption,'-Points',JSON.stringify(points),'-Raise','-PlaceAtWorkAreaStart','-MeasureMovement']));
+  assert.ok(Math.abs(movement.dx)>20||Math.abs(movement.dy)>20,JSON.stringify(movement));
   const control=expression=>refresh?webviewClick(page,expression):click(page,expression,'Left',caption);
   await control(q('button[aria-label="最大化窗口"]'));
   await wait(()=>windowQuery(page,'is_maximized',label),'native maximize button maximized');
   await control(q('button[aria-label="还原窗口"]'));
   await wait(async()=>!(await windowQuery(page,'is_maximized',label)),'native window restored');
-  return {moved:true,maximized:true,restored:true};
+  return {moved:true,maximized:true,restored:true,...movement};
 }
 async function close(){
   if(refresh)await webviewClick(ui,q('.window-close'));
@@ -298,22 +304,26 @@ async function toolbarRefresh(){
   geometry.split=await measureCompactToolbar(ui);
   assert.equal(geometry.split.tabTops.length,2);
   await ui.screenshot(`desktop-${version}-toolbar-split.png`);
-  const origin=await ui.evaluate(`(()=>{const r=${tab(b)}.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  await webviewClick(ui,q('.sidebar-toggle'));
+  await ui.waitFor("document.querySelector('.desktop-body').classList.contains('sidebar-hidden')");
+  const origin=await ui.evaluate(`(()=>{const r=${tab(a)}.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
   dragNativeWindow(ui.app,[origin,{x:origin.x,y:origin.y+35},{x:45,y:120},{x:-35,y:150,outside:true,holdMs:350}],
     {executable:desktop,title,raise:true,placeAtWorkAreaStart:true});
   detached=await connectDesktopPage(await wait(async()=> (await ui.otherPages())[0],'native detached toolbar window'));
-  await detached.waitFor(`${tab(b)}?.getAttribute('aria-selected')==='true'&&document.documentElement.dataset.theme==='dark'`);
+  await detached.waitFor(`${tab(a)}?.getAttribute('aria-selected')==='true'&&document.documentElement.dataset.theme==='dark'`);
   geometry.detached=await measureCompactToolbar(detached,true);
   verifySeam(await seam(detached));
   await detached.screenshot(`desktop-${version}-toolbar-detached.png`);
-  menus.push(await checkLogToolbar(detached,'detached log','开始记录'));
+  menus.push(await checkLogToolbar(detached,'detached log','停止记录'));
   await exerciseDirectory(detached);
   const label=await detached.evaluate('window.__TAURI_INTERNALS__.metadata.currentWindow.label');
   const detachedWindow=await verifyWindow(detached,childTitle,label);
   await webviewClick(detached,q('.app-bar button:last-child'));
   await wait(async()=> !(await ui.otherPages()).length,'dedicated move-back control returned the original window');
   detached.close();detached=undefined;
-  await ui.waitFor(`!!${tab(b)}`);
+  await ui.waitFor(`!!${tab(a)}`);
+  await webviewClick(ui,q('.sidebar-toggle'));
+  await ui.waitFor("!document.querySelector('.desktop-body').classList.contains('sidebar-hidden')");
   await activate(a);
   await webviewClick(ui,aRecord);
   await wait(async()=> (await logs(a,{op:'list'})).logs[0]?.durable,'original recording stopped independently');
