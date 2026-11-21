@@ -40,7 +40,13 @@ try{
  const badge=connection=>`document.querySelector('[data-connection-id="${connection.connection_id}"]')?.parentElement.querySelector('.tab-record-button')`;
  const slot=()=>ui.evaluate(`JSON.parse(sessionStorage.getItem('terminal-context-log-task-v1'))`);
  async function right(key){await ui.command('Page.bringToFront');const p=await ui.evaluate(`(()=>{const r=document.querySelector('[data-pane="${key}"] .terminal').getBoundingClientRect();return{x:r.x+24,y:r.y+24};})()`);await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...p});await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...p});await ui.waitFor(`!!document.querySelector('[aria-label="终端日志菜单"]')`);assert.equal(await ui.evaluate(`document.querySelector('[data-pane="${key}"]').dataset.active`),'true');}
- async function choose(key,label){await right(key);await ui.waitFor(`Array.from(document.querySelectorAll('[aria-label="终端日志菜单"] button')).some(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`);await ui.click(label);return slot();}
+ async function choose(key,label){
+   await right(key);
+   const item=`[...document.querySelectorAll('[aria-label="终端日志菜单"] button')].find(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`;
+   await ui.waitFor(`!!(${item})`);
+   await ui.evaluate(`(${item}).click()`);
+   return slot();
+ }
  async function done(){await ui.waitFor(`!document.querySelector('[aria-label="终端日志菜单"]')`);await delay(200);}
  async function start(key,c){await choose(key,'开始记录');await wait(async()=>!!(await active(c))?.readable,'UI start readable');await ui.waitFor(`document.querySelector('[aria-label="右键日志操作状态"]')?.textContent.includes('正在记录')`);return active(c);}
  async function stop(key,c){const l=await active(c);await choose(key,'停止记录');await wait(async()=>(await logging({op:'status',connection:ref(c),log_id:l.log_id})).durable,'UI durable stop');await ui.waitFor(`document.querySelector('.recording-notice-file')?.textContent===${JSON.stringify(l.readable.filename)}`);}
