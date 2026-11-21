@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync,spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
-import {copyFile,mkdir,mkdtemp,readFile,rename,rm,writeFile} from 'node:fs/promises';
+import {copyFile,mkdir,mkdtemp,readFile,realpath,rename,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
@@ -107,7 +107,9 @@ async function menu(text) {
 }
 const checkTrace=async(program,file,index)=>{
   const rows=await wait(async()=>{const values=await traces();return values.length>index&&values;},'explicit viewer was launched');
-  assert.deepEqual(rows[index].split('\t'),['1',path.basename(program),file]);
+  const [arity,image,argument,...extra]=rows[index].split('\t');
+  assert.deepEqual([arity,image,extra],['1',path.basename(program),[]]);
+  assert.equal(await realpath(argument),await realpath(file));
   assert.equal(rows.length,index+1);
 };
 try{
@@ -116,6 +118,7 @@ try{
   const first=path.join(programs,'日志 查看器 A.exe');
   const second=path.join(programs,'日志 查看器 B.exe');
   await copyFile(probe,first);await copyFile(probe,second);
+  const firstPath=await realpath(first),secondPath=await realpath(second);
   ui=await launchDesktop(root,{executable:desktop});
   const original=await ui.invoke('service_status');
   await appearance();
@@ -123,9 +126,9 @@ try{
   await chooseProgram();
   assert.deepEqual(await settings(),{executable:null,available:true});
   await chooseProgram(first);
-  await ui.waitFor(`${selected}.textContent===${JSON.stringify(first)}`);
+  await ui.waitFor(`${selected}.textContent===${JSON.stringify(firstPath)}`);
   await chooseProgram();
-  assert.deepEqual(await settings(),{executable:first,available:true});
+  assert.deepEqual(await settings(),{executable:firstPath,available:true});
   await ui.evaluate(`document.querySelector('.log-viewer-settings').scrollIntoView({block:'nearest'})`);
   await ui.screenshot('desktop-0.1.6-log-viewer-settings.png');
   await ui.click('关闭外观');
@@ -134,7 +137,7 @@ try{
   ui=await launchDesktop(root,{executable:desktop,webviewDirectory:path.join(root,'webview-second')});
   const service=await ui.invoke('service_status');
   assert.notEqual(service.service_id,original.service_id);
-  assert.deepEqual(await settings(),{executable:first,available:true});
+  assert.deepEqual(await settings(),{executable:firstPath,available:true});
   const {ref,push}=await connect();
   const logs=()=>ui.invoke('logging_request',{request:{op:'list',connection:ref}}).then(value=>value.logs);
   const file=log=>path.join(root,'logs',log.readable.filename);
@@ -168,12 +171,12 @@ try{
   await measure('error',operation,1100);
   await measure('error',operation,720);
   await ui.screenshot('desktop-0.1.6-error-notice-narrow.png');
-  assert.deepEqual(await settings(),{executable:first,available:false});
+  assert.deepEqual(await settings(),{executable:firstPath,available:false});
   assert.equal((await traces()).length,2);
   await ui.click('收起日志操作');
   await appearance();
   await chooseProgram(second);
-  assert.deepEqual(await settings(),{executable:second,available:true});
+  assert.deepEqual(await settings(),{executable:secondPath,available:true});
   await ui.click('关闭外观');
   await menu('打开当前日志文件');
   await checkTrace(second,file(live),2);
@@ -200,7 +203,7 @@ try{
   await ui.screenshot('desktop-0.1.6-save-notice-narrow.png');
   await measure('save',feedback,1100);
   assert.ok((await readFile(saved)).length>0);
-  assert.equal(await ui.evaluate(`document.querySelector(${JSON.stringify(feedback+' .notice-ellipsis')}).title`),saved);
+  assert.equal(await realpath(await ui.evaluate(`document.querySelector(${JSON.stringify(feedback+' .notice-ellipsis')}).title`)),await realpath(saved));
   for(const width of [720,1100]){
     const comparable=({width,height,padding,actionsBottom,actionsLeft})=>({width,height,padding,actionsBottom,actionsLeft});
     for(const kind of ['stop','error','save'])assert.deepEqual(comparable(measurements[kind+width]),comparable(measurements['start'+width]),kind+' '+width);
