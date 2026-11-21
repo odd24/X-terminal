@@ -29,7 +29,8 @@ export async function measurePopup(page,trigger,popup,label){
     if(!popup?.dataset.positioned||!trigger||!popup.getClientRects().length)return false;
     const a=trigger.getBoundingClientRect(),b=popup.getBoundingClientRect();
     const gap=popup.dataset.positioned==='above'?a.top-b.bottom:b.top-a.bottom;
-    return Math.abs(gap-4)<1&&b.left>=7&&b.right<=innerWidth-7&&b.top>=7&&b.bottom<=innerHeight-7;
+    const expectedX=Math.max(8,Math.min(a.left,innerWidth-b.width-8));
+    return Math.abs(gap-4)<1&&Math.abs(b.left-expectedX)<1&&b.left>=7&&b.right<=innerWidth-7&&b.top>=7&&b.bottom<=innerHeight-7;
   })()`);
   const geometry=await page.evaluate(`(()=>{
     const a=${q(trigger)}.getBoundingClientRect(),node=${q(popup)},b=node.getBoundingClientRect();
@@ -39,6 +40,8 @@ export async function measurePopup(page,trigger,popup,label){
       viewport:[innerWidth,innerHeight],overflow:node.scrollHeight>node.clientHeight};
   })()`);
   assert.ok(Math.abs(geometry.gap-4)<1,label+' gap '+JSON.stringify(geometry));
+  const expectedX=Math.max(8,Math.min(geometry.anchorX,geometry.viewport[0]-(geometry.right-geometry.x)-8));
+  assert.ok(Math.abs(geometry.x-expectedX)<1,label+' horizontal anchor');
   assert.ok(geometry.x>=7&&geometry.right<=geometry.viewport[0]-7,label+' horizontal clamp');
   assert.ok(geometry.top>=7&&geometry.bottom<=geometry.viewport[1]-7,label+' vertical clamp');
   return {label,...geometry};
