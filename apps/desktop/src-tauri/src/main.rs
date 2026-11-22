@@ -708,6 +708,33 @@ async fn bridge_management_request(
 }
 
 #[tauri::command]
+async fn shortcut_bridge_management(
+    window: tauri::WebviewWindow,
+    broker: State<'_, bridge_manager::Manager>,
+    request: bridge_manager::shortcuts::Management,
+) -> Result<serde_json::Value, String> {
+    if window.label() != session_windows::MAIN {
+        return Err("MAIN_WINDOW_REQUIRED".into());
+    }
+    use bridge_manager::shortcuts::Management;
+    match request {
+        Management::Status {} => serde_json::to_value(broker.shortcut_status()?),
+        Management::Preview {
+            pending_id,
+            scope,
+            seconds,
+        } => serde_json::to_value(broker.preview_shortcuts(pending_id, scope, seconds)?),
+        Management::Approve { preview_id } => {
+            serde_json::to_value(broker.approve_shortcuts(preview_id)?)
+        }
+        Management::Revoke { pending_id, scope } => {
+            serde_json::to_value(broker.revoke_shortcuts(pending_id, scope)?)
+        }
+    }
+    .map_err(|_| "INVALID_BRIDGE_REPLY".into())
+}
+
+#[tauri::command]
 async fn serial_request(
     window: tauri::WebviewWindow,
     windows: State<'_, session_windows::SessionWindows>,
@@ -1015,7 +1042,11 @@ fn main() {
             if let Ok(service) = &service {
                 let (_, _, service_id) = service.endpoint().map_err(|_| "SERVICE_UNAVAILABLE")?;
                 app.manage(tauri::async_runtime::block_on(async {
-                    bridge_manager::Manager::start(service_id)
+                    bridge_manager::Manager::start(
+                        service_id,
+                        directory.clone(),
+                        app.handle().clone(),
+                    )
                 })?);
             }
             let shared = Arc::new(Mutex::new(service));
@@ -1093,6 +1124,7 @@ fn main() {
             agent_management_request,
             audit_history_request,
             bridge_management_request,
+            shortcut_bridge_management,
             export_save_request,
             save_recovery_status,
             protected_export_desktop_request,

@@ -21,9 +21,9 @@ const DEFAULT_LAYOUT:ShortcutLayout={columns:1,expanded:false};
 const noShortcuts:AdbShortcut[]=[];
 type Removal={snapshot:AdbSettings; ids:ReadonlySet<string>};
 
-export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, close, reload, update, execute, diagnostics}: {
-  id:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():void;
-  update(value:AdbSettings):void; execute(item:AdbShortcut, revision:string):void;
+export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, close, reload, execute, diagnostics}: {
+  id:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():Promise<void>;
+  execute(item:AdbShortcut, revision:string):void;
   diagnostics:Readonly<Record<string, AdbDiagnostic>>;
   keyboardFocus?:number;
 }) {
@@ -121,9 +121,9 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
     setFailure('');
     setFeedback('');
     try {
-      const value = await invoke<AdbSettings>('local_adb_settings', {settings:next});
+      await invoke('local_adb_settings', {settings:next});
       pendingFocus.current=focus;
-      update(value);
+      await reload();
       setEditor(undefined);
       setFeedback(message);
       return true;

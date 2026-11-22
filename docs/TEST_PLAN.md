@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.9 使用 `Test-Desktop-McpShortcuts.mjs` 从正式 Windows x64 目录连接官方客户端，经真实 stdio 检查原 29 工具与四个新增工具，核对 Desktop 授权、事务回执、人工并发和右栏同步。使用自建数据目录、模拟 ADB 和自建脚本，核对登记及移除期间的执行次数和文件指纹。[P26.9](records/P26.9.md)
+
 P26.8 的 Test-Desktop-Shortcuts.mjs 使用受控 Windows 窗口、模拟 ADB、回环 SSH 和自建脚本。核对原生组合键及当前显示顺序、焦点、原进程输入、侧栏按键和本地保留缓冲区。[P26.8](records/P26.8.md)
 
 P26.7 使用 Test-Desktop-ShortcutManagement.mjs 在 Windows 实际窗口验证 32 条混排、单双列拖动、键盘、多选、置顶、并发拒绝、批量移除、窄窗分屏和重启。独立复验原 ADB 及脚本运行。[P26.7](records/P26.7.md)

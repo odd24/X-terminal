@@ -9,7 +9,7 @@ import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
 import { approveCodexExport, checkCodexExport } from './lib/CodexProtectedExportCheck.mjs';
 import { approveCodexExec, checkCodexExec } from './lib/CodexProtectedExecCheck.mjs';
-import { assertReleasedMcpCatalog } from './lib/McpCatalog.mjs';
+import { assertReleasedMcpCatalog, readMcpCatalog } from './lib/McpCatalog.mjs';
 
 // Integration of the installed Codex model/client, not a delegated development task.
 // No user config, shell, apps, plugins, web search, or persistent Codex chat.
@@ -132,7 +132,7 @@ try {
     const thread=await rpc.request('thread/start',{cwd:directory,ephemeral:true,sandbox:'read-only',...(previewV11?{approvalPolicy:'never'}:{})},30000);assert.ok(thread.result?.thread?.id,JSON.stringify(thread.error));threadId=thread.result.thread.id;
     if(previewV11)assert.equal(thread.result.thread.ephemeral,true);
     const inventory=await rpc.request('mcpServerStatus/list',{threadId,serverName:'windows_terminal'},30000);
-    const catalog = JSON.parse(await readFile('contracts/mcp/initial-tools.json', 'utf8'));
+    const catalog = await readMcpCatalog(previewV11?11:12);
     assert.ok(inventory.result,JSON.stringify(inventory.error));
     const server=inventory.result.data.find(s=>s.name==='windows_terminal');
     assert.ok(server,'official client must discover the preview MCP server');

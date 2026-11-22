@@ -23,6 +23,7 @@ import {checkServiceInterruption} from './lib/ServiceInterruptionChecks.mjs';
 import {checkSilentLink, openSilentLink} from './lib/SshSilentLink.mjs';
 import {closeSoakDesktop} from './lib/LoadSoak.mjs';
 import {openCodexMcpClient} from './lib/CodexMcpClient.mjs';
+import {readMcpCatalog} from './lib/McpCatalog.mjs';
 
 const official=process.argv.includes('--official-client');
 const readBoundaries=process.argv.includes('--read-boundaries');
@@ -75,9 +76,10 @@ async function killSshFixture() {
 try {
   if (serial&&!countedSerial) build(true);
   directory=await mkdtemp(path.join(tmpdir(),rootPrefix));
+  const packageManifest=readPackage?JSON.parse(await readFile(readPackage,'utf8')):undefined;
   const preview=readPackage?{
     result:'PASS',directory:path.dirname(path.resolve(readPackage)),
-    files:JSON.parse(await readFile(readPackage,'utf8')).files.filter(file=>file.name.endsWith('.exe')),
+    files:packageManifest.files.filter(file=>file.name.endsWith('.exe')),
   }:readBoundaries?JSON.parse(await readFile('artifacts/terminal-read-metadata-preview.json','utf8')):
     interruption||serviceInterruption||silentLink?JSON.parse(await readFile('artifacts/P24-save-recovery-preview.json','utf8')):undefined;
   if(preview){assert.equal(preview.result,'PASS');if(!readPackage)assert.equal(path.dirname(path.resolve(preview.directory)),path.resolve('artifacts'));}
@@ -129,7 +131,8 @@ try {
   const protectedGrant=serial||security||exec||(official&&wait);
   const signed=await management(protectedGrant?{...baseGrant,op:'grant_protected',form:{kind:'scoped'},redaction:{sensitive_fields:false,literals:['P15_PRIVATE',...(exec?['synthetic-secret']:[]),...(security?[sentinels.literal]:[])]}}:{...baseGrant,op:'grant'});
   assert.equal(JSON.stringify(signed).includes('token'),false);
-  const contract=JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8'));
+  const catalogVersion=packageManifest?.mcpCatalogVersion??(preview?11:12);
+  const contract=await readMcpCatalog(catalogVersion);
   async function openClient(){
     if(official)return openCodexMcpClient({directory,info,broker,catalog:contract.tools,observations});
     const client=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
@@ -142,9 +145,9 @@ try {
   }
   rpc=await openClient();
   const catalog=official?rpc.tools:(await rpc.request('tools/list',{})).result.tools;
-  assert.deepEqual({version:11,tools:catalog},contract,'actual tool schema matches the fixed v11 contract');
+  assert.deepEqual(catalog,contract.tools,'actual tool schema matches the fixed contract');
   await writeFile(`artifacts/${evidence}-tools-${serial?'serial':'ssh'}.json`,JSON.stringify({tools:catalog},null,2)+'\n');
-  assert.equal(catalog.length,29);assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
+  assert.equal(catalog.find(t=>t.name==='terminal_send').annotations.readOnlyHint,false);
   const call=async(name,args={})=>(await rpc.request('tools/call',{name,arguments:args})).result;
   const success=async(name,args={})=>{const result=await call(name,args);assert.equal(result.isError,false,JSON.stringify(result));assert.equal(result.structuredContent.mock,false);return result.structuredContent.reply;};
   const pending=await success('agent_status');assert.equal(pending.data.paired_ticket,null);assert.equal(pending.data.peer_pid,rpc.child.pid);

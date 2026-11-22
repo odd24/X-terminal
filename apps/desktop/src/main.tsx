@@ -332,10 +332,11 @@ function App() {
       if(epoch===adbSettingsEpoch.current)setAdbSettings(settings);
     } catch(error) {if(epoch===adbSettingsEpoch.current)setTabMessage(String(error));}
   }
-  function updateAdbSettings(settings:AdbSettings){
-    adbSettingsEpoch.current++;
-    setAdbSettings(settings);
-  }
+  useEffect(()=>{
+    if(detached)return;
+    const unlisten=appWindow.listen<string>('local-shortcuts-changed',()=>void loadAdb());
+    return()=>{void unlisten.then(stop=>stop(),()=>{});};
+  },[]);
   function setAdbPanel(pane:PaneKey,open:boolean) {
     setAdbPanels(previous=>({...previous,[pane]:open}));
     try {localStorage.setItem('local-adb-shortcuts-open',String(open));}
@@ -1307,7 +1308,7 @@ function App() {
           localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} open={adbOpen} settings={adbSettings} starting={adbStarting}
             keyboardFocus={adbKeyboardFocus?.pane===key&&adbKeyboardFocus.id===localId?adbKeyboardFocus.request:undefined}
             diagnostics={adbDiagnostics}
-            close={()=>setAdbPanel(key,false)} reload={()=>void loadAdb()} update={updateAdbSettings}
+            close={()=>setAdbPanel(key,false)} reload={loadAdb}
             execute={(item,revision)=>item.script_path?void openLocal(key,false,undefined,{button:item.id,revision}):void clickAdb(key,localId,item.id,revision)}/>}
           preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={findTerminal} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;

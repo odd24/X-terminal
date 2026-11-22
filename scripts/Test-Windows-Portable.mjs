@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { openCodexMcpClient } from './lib/CodexMcpClient.mjs';
+import { readMcpCatalog } from './lib/McpCatalog.mjs';
 
 const packageDir = path.resolve(process.argv[2]);
 const output = path.resolve(process.argv[3]);
@@ -149,7 +150,8 @@ try {
   const info = await broker({op:'info'});
   assert.equal(info.executable.toLowerCase(),path.join(packageDir,'terminal-mcp.exe').toLowerCase());
   assert.equal(info.peer,null);
-  const catalog = await readJson('contracts/mcp/initial-tools.json');
+  assert.equal(manifest.mcpCatalogVersion,12);
+  const catalog = await readMcpCatalog(manifest.mcpCatalogVersion);
   const observations = [];
   client = await openCodexMcpClient({directory:root,info,broker,catalog:catalog.tools,observations});
   assert.equal((await client.request('tools/call',{name:'agent_status',arguments:{}})).result.structuredContent.reply.data.paired_ticket,null);

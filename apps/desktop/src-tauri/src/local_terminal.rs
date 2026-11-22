@@ -1,4 +1,4 @@
-mod adb;
+pub(crate) mod adb;
 mod conpty;
 pub(crate) mod directory;
 pub(crate) mod scripts;

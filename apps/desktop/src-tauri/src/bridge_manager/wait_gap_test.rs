@@ -286,6 +286,7 @@ async fn worker_source_gap_reaches_terminal_wait_over_the_native_broker() {
     let broker = Manager::start_expected(
         service.endpoint().unwrap().2,
         serial_fixture::wait_gap_binary("terminal-mcp.exe"),
+        None,
     )
     .unwrap();
     let mut mcp = Mcp::start(&broker.info().unwrap());

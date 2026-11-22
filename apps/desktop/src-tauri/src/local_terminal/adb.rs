@@ -16,6 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 use uuid::Uuid;
+pub(crate) mod shortcuts;
 use windows_sys::Win32::{
     Storage::FileSystem::{FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT},
     System::Threading::CREATE_NO_WINDOW,
@@ -139,18 +140,10 @@ pub fn read(root: &Path) -> Result<Settings, String> {
 
 pub fn save(root: &Path, mut settings: Settings) -> Result<Settings, String> {
     validate(&settings)?;
-    let lock = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .share_mode(0)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(root.join("desktop-local-adb-v1.lock"))
-        .map_err(|_| STORAGE)?;
-    let meta = lock.metadata().map_err(|_| STORAGE)?;
-    if !meta.is_file() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        return Err(STORAGE.into());
-    }
+    let _lock = lock_store(root).map_err(|error| match error.raw_os_error() {
+        Some(32 | 33) => "ADB 快捷设置正在保存，请重新读取后提交",
+        _ => STORAGE,
+    })?;
     crate::log_viewer::with_native_settings(root, STORE, true, |vault| {
         let vault = vault.ok_or(STORAGE)?;
         let current = read_store(Some(vault))?;
@@ -172,6 +165,21 @@ pub fn save(root: &Path, mut settings: Settings) -> Result<Settings, String> {
         vault.set(MANAGED_ENTRY, secret).map_err(|_| STORAGE)?;
         Ok(settings)
     })
+}
+
+fn lock_store(root: &Path) -> std::io::Result<std::fs::File> {
+    let lock = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .share_mode(0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(root.join("desktop-local-adb-v1.lock"))?;
+    let meta = lock.metadata()?;
+    if !meta.is_file() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(std::io::Error::other("invalid settings lock"));
+    }
+    Ok(lock)
 }
 
 pub fn resolve(program: &str, cwd: &Path, root: &Path) -> Result<PathBuf, String> {

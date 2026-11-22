@@ -137,23 +137,57 @@ impl Vault {
         Ok([MAGIC, self.namespace.as_bytes(), id.as_bytes()].concat())
     }
     pub fn set(&mut self, id: Uuid, secret: Secret) -> Result<()> {
-        let entropy = self.entropy(id)?;
-        let protected = envelope::seal(secret.expose(), &entropy)?;
+        self.set_records([(id, secret)], || true).map(|_| ())
+    }
+    /// Commit two protected records together, with a final check before commit.
+    pub fn set_pair_if(
+        &mut self,
+        first: (Uuid, Secret),
+        second: (Uuid, Secret),
+        allowed: impl FnOnce() -> bool,
+    ) -> Result<bool> {
+        if first.0 == second.0 {
+            return Err(Error::Invalid);
+        }
+        self.set_records([first, second], allowed)
+    }
+    fn set_records<const N: usize>(
+        &mut self,
+        records: [(Uuid, Secret); N],
+        allowed: impl FnOnce() -> bool,
+    ) -> Result<bool> {
+        let records = records
+            .into_iter()
+            .map(|(id, secret)| {
+                let entropy = self.entropy(id)?;
+                Ok((id, envelope::seal(secret.expose(), &entropy)?))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let exists: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM credentials WHERE id=?1)",
-            [id.to_string()],
-            |r| r.get(0),
-        )?;
-        let count: i64 = tx.query_row("SELECT count(*) FROM credentials", [], |r| r.get(0))?;
-        if !exists && count >= 10000 {
-            return Err(Error::Capacity);
+        for (id, protected) in records {
+            let id = id.to_string();
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM credentials WHERE id=?1)",
+                [&id],
+                |r| r.get(0),
+            )?;
+            let count: i64 = tx.query_row("SELECT count(*) FROM credentials", [], |r| r.get(0))?;
+            if !exists && count >= 10000 {
+                return Err(Error::Capacity);
+            }
+            tx.execute(
+                "INSERT INTO credentials VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET protected=excluded.protected",
+                params![id, protected.as_slice()],
+            )?;
         }
-        tx.execute("INSERT INTO credentials VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET protected=excluded.protected",params![id.to_string(),protected.as_slice()])?;
+        if !allowed() {
+            tx.rollback()?;
+            return Ok(false);
+        }
         tx.commit()?;
-        Ok(())
+        Ok(true)
     }
     pub fn get(&self, id: Uuid) -> Result<Secret> {
         let entropy = self.entropy(id)?;

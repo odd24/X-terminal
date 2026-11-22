@@ -1,4 +1,5 @@
 //! Native-only Agent client custody. stdio peers never receive a bearer.
+pub(crate) mod shortcuts;
 use serde::{Deserialize, Serialize};
 use session_core::{pairing::grants::View, session::ErrorCode};
 use session_protocol::{
@@ -12,7 +13,10 @@ use std::{
     io,
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -59,11 +63,13 @@ struct Frozen {
 struct Entry {
     peer: Peer,
     sender: Option<oneshot::Sender<Bound>>,
+    shortcuts: shortcuts::Authorization,
 }
 #[derive(Default)]
 struct Inner {
     entry: Option<Entry>,
     preview: Option<Frozen>,
+    shortcut_preview: Option<shortcuts::Frozen>,
 }
 struct Shared {
     inner: Mutex<Inner>,
@@ -71,6 +77,8 @@ struct Shared {
     service_id: Uuid,
     instance: String,
     expected: PathBuf,
+    shortcuts: Option<shortcuts::Store>,
+    closing: AtomicBool,
 }
 struct Bound {
     client: Client,
@@ -124,14 +132,19 @@ fn image_is(pipe: &NamedPipeServer, expected: &Path) -> io::Result<u32> {
     Ok(pid)
 }
 impl Manager {
-    pub fn start(service_id: Uuid) -> io::Result<Self> {
+    pub fn start(service_id: Uuid, directory: PathBuf, app: tauri::AppHandle) -> io::Result<Self> {
         Self::start_expected(
             service_id,
             std::env::current_exe()?.with_file_name("terminal-mcp.exe"),
+            Some(shortcuts::Store { directory, app }),
         )
     }
 
-    fn start_expected(service_id: Uuid, expected: PathBuf) -> io::Result<Self> {
+    fn start_expected(
+        service_id: Uuid,
+        expected: PathBuf,
+        shortcuts: Option<shortcuts::Store>,
+    ) -> io::Result<Self> {
         let instance = format!("bridge-{}", Uuid::new_v4().simple());
         let listener = open(&instance, true)?;
         let shared = Arc::new(Shared {
@@ -140,6 +153,8 @@ impl Manager {
             service_id,
             instance,
             expected,
+            shortcuts,
+            closing: AtomicBool::new(false),
         });
         let (stop, stopping) = watch::channel(false);
         let copy = shared.clone();
@@ -243,6 +258,7 @@ impl Manager {
         Ok(entry.peer.clone())
     }
     pub async fn close(&self) {
+        self.shared.closing.store(true, Ordering::Release);
         let _ = self.stop.send(true);
         let task = self.task.lock().ok().and_then(|mut v| v.take());
         if let Some(mut task) = task
@@ -255,6 +271,7 @@ impl Manager {
 }
 impl Drop for Manager {
     fn drop(&mut self) {
+        self.shared.closing.store(true, Ordering::Release);
         let _ = self.stop.send(true);
     }
 }
@@ -297,6 +314,7 @@ impl Drop for Cleanup {
         {
             inner.entry = None;
             inner.preview = None;
+            inner.shortcut_preview = None;
         }
     }
 }
@@ -339,8 +357,10 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                 ticket_id: None,
             },
             sender: Some(sender),
+            shortcuts: shortcuts::Authorization::default(),
         });
         inner.preview = None;
+        inner.shortcut_preview = None;
     }
     let _cleanup = Cleanup {
         shared: shared.clone(),
@@ -348,20 +368,24 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
     };
     let (mut read, mut write) = tokio::io::split(pipe);
     let (incoming, mut messages) = tokio::sync::mpsc::channel(1);
+    let connected = Arc::new(AtomicBool::new(true));
+    let receive_alive = connected.clone();
     let reader = tokio::spawn(async move {
         while let Ok(Some(message)) = read_frame::<_, wire::RequestMessage>(&mut read).await {
             if incoming.send(message).await.is_err() {
                 break;
             }
         }
+        receive_alive.store(false, Ordering::Release);
     });
-    struct Abort(JoinHandle<()>);
+    struct Abort(JoinHandle<()>, Arc<AtomicBool>);
     impl Drop for Abort {
         fn drop(&mut self) {
+            self.1.store(false, Ordering::Release);
             self.0.abort();
         }
     }
-    let _reader = Abort(reader);
+    let _reader = Abort(reader, connected.clone());
     let mut bound: Option<Bound> = None;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -374,6 +398,7 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                 let Some(message)=message else {break;};
                 match message {
                     wire::RequestMessage::Status {}=>wire::ResultMessage::Status(wire::Status {broker_id:shared.id,service_id:shared.service_id,peer_pid:pid,paired_ticket:bound.as_ref().map(|v|v.view.summary.ticket_id),approved_scopes:bound.as_ref().map(|v|v.view.approved_scopes.clone()).unwrap_or_default(),protection:bound.as_ref().and_then(|v|v.view.protection)}),
+                    wire::RequestMessage::Shortcuts {request}=>shortcuts::call(shared.clone(),connected.clone(),id,request).await,
                     wire::RequestMessage::Call {request}=>{
                         if let Some(pair)=bound.as_mut() {
                             let expected_task=request.task_target();

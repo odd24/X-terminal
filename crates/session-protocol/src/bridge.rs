@@ -701,6 +701,7 @@ pub enum TaskView {
 pub enum RequestMessage {
     Status {},
     Call { request: Operation },
+    Shortcuts { request: shortcuts::Request },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -751,6 +752,9 @@ pub enum ResultMessage {
     Lease(Option<Lease>),
     Ok,
     Error(session_core::session::ErrorCode),
+    ShortcutSnapshot(shortcuts::Snapshot),
+    ShortcutReceipt(shortcuts::Receipt),
+    ShortcutError(shortcuts::Error),
 }
 impl ResultMessage {
     pub fn from_export_service(

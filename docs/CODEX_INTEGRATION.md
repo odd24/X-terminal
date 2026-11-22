@@ -1,6 +1,14 @@
 # Codex 首版接入方案
 
-当前 [ADR-095](decisions/ADR-095.md) 固定 v11 二十九项工具。[当前契约](../contracts/mcp/initial-tools.json) 保留 [v10](../contracts/mcp/v10-tools.json) 的二十六项。
+## v12 右栏快捷指令
+
+[当前 v12 契约](../contracts/mcp/v12-tools.json) 保留 v11 的 29 项工具。新增 `shortcuts_list`、`shortcuts_create`、`shortcuts_update` 和 `shortcuts_remove`。通过「Agent 授权 → MCP 初版连接」预览桥进程的查看或管理权限，分别核对范围和期限后批准。
+
+`shortcuts_list` 使用查看权限，可用 `query` 筛选。批量写入使用管理权限，提交当前 `revision` 和固定 UUIDv7 `request_id`。结果不明时用管理权限单独传入 `shortcuts_list({"receipt_request_id":"原编号"})` 核对。未找到回执时仍视为结果未知。详细参数、排序和权限边界见 [P26.9](records/P26.9.md)。
+
+## v11 工具与历次契约
+
+[ADR-095](decisions/ADR-095.md) 固定 v11 二十九项工具。[v11 契约](../contracts/mcp/initial-tools.json) 保留 [v10](../contracts/mcp/v10-tools.json) 的二十六项。
 
 `terminal_read` 先用 `view.kind: "info"` 取得固定的 `through_cursor`。`text` 使用该水位、正数 `cursor` 和 16384–65536 字节的 `max_bytes`，普通与受保护读取的限制相同。使用时间窗授权时需提供已批准的 `window`。`screen` 需要 `through_cursor`，`info` 和 `screen` 均无 `max_bytes`，此工具没有 `raw` 视图。早期 v11 目录描述列出过 4096 字节，实际文本读取下限一直是 16384 字节。
 

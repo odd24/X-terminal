@@ -1,6 +1,7 @@
 //! Length-prefixed, strictly typed, local session IPC v1.
 pub mod agent;
 pub mod bridge;
+pub mod shortcuts;
 pub mod config;
 pub mod export;
 pub mod logging;

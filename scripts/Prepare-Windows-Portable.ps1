@@ -48,7 +48,7 @@ try {
     )
     $manifest = [ordered]@{
         format=1;product='Shared Terminal';version=$version;target=$triple;buildProfile='release'
-        distribution='portable';sourceCommit=$commit;identifier=$tauri.identifier
+        distribution='portable';sourceCommit=$commit;identifier=$tauri.identifier;mcpCatalogVersion=12
         signed=$false;files=$files
     }
     $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $candidate 'manifest.json') -Encoding utf8
@@ -82,6 +82,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Shortcut management regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-Shortcuts.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Desktop keyboard shortcut regression failed. Candidate: $staging" }
+    node scripts/Test-Desktop-McpShortcuts.mjs $desktop
+    if ($LASTEXITCODE -ne 0) { throw "Desktop MCP shortcut management failed. Candidate: $staging" }
     $sha256 = $null
     if (!$DirectoryOnly) {
         $sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -97,6 +99,7 @@ try {
     $localTabs = Get-Content -LiteralPath 'artifacts/local-tabs-software-result.json' -Raw | ConvertFrom-Json
     $shortcutManagement = Get-Content -LiteralPath 'artifacts/shortcut-management-software-result.json' -Raw | ConvertFrom-Json
     $desktopShortcuts = Get-Content -LiteralPath 'artifacts/desktop-shortcuts-software-result.json' -Raw | ConvertFrom-Json
+    $mcpShortcuts = Get-Content -LiteralPath 'artifacts/mcp-shortcuts-software-result.json' -Raw | ConvertFrom-Json
     if ($verified.result -ne 'PASS' -or $mcp.result -ne 'PASS' -or $mcp.preview -ne $unpacked -or
         $local.result -ne 'PASS' -or $local.executable -ne $desktop -or $adb.result -ne 'PASS' -or $adb.executable -ne $desktop -or
         $powershell.result -ne 'PASS' -or $powershell.executable -ne $desktop -or
@@ -104,10 +107,11 @@ try {
         $directory.result -ne 'PASS' -or $directory.executable -ne $desktop -or
         $localTabs.result -ne 'PASS' -or $localTabs.executable -ne $desktop -or
         $shortcutManagement.result -ne 'PASS' -or $shortcutManagement.executable -ne $desktop -or
-        $desktopShortcuts.result -ne 'PASS' -or $desktopShortcuts.executable -ne $desktop) {
+        $desktopShortcuts.result -ne 'PASS' -or $desktopShortcuts.executable -ne $desktop -or
+        $mcpShortcuts.result -ne 'PASS' -or $mcpShortcuts.executable -ne $desktop) {
         throw 'Release evidence mismatch'
     }
-    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts}
+    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts;mcpShortcuts=$mcpShortcuts}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
 
     $resolvedStage = (Resolve-Path -LiteralPath $staging).Path

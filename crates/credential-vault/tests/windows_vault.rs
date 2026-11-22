@@ -24,6 +24,47 @@ impl Drop for Temp {
     }
 }
 #[test]
+fn protected_pair_rolls_back_on_second_write_failure_or_expired_authority() {
+    let temp = Temp::new();
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    let initial = || Secret::new(b"original".to_vec()).unwrap();
+    let pending = || Secret::new(b"replacement".to_vec()).unwrap();
+    let mut vault = Vault::open(&temp.db()).unwrap();
+    vault.set(first, initial()).unwrap();
+    vault.set(second, initial()).unwrap();
+
+    let sql = Connection::open(temp.db()).unwrap();
+    sql.execute_batch(&format!(
+        "CREATE TRIGGER reject_pair BEFORE INSERT ON credentials WHEN NEW.id = '{second}'
+         BEGIN SELECT RAISE(ABORT, 'injected second write failure'); END;"
+    ))
+    .unwrap();
+    assert!(
+        vault
+            .set_pair_if((first, pending()), (second, pending()), || true)
+            .is_err()
+    );
+    assert_eq!(vault.get(first).unwrap().expose(), b"original");
+    assert_eq!(vault.get(second).unwrap().expose(), b"original");
+
+    sql.execute_batch("DROP TRIGGER reject_pair").unwrap();
+    assert!(
+        !vault
+            .set_pair_if((first, pending()), (second, pending()), || false)
+            .unwrap()
+    );
+    assert_eq!(vault.get(first).unwrap().expose(), b"original");
+    assert_eq!(vault.get(second).unwrap().expose(), b"original");
+    assert!(
+        vault
+            .set_pair_if((first, pending()), (second, pending()), || true)
+            .unwrap()
+    );
+    assert_eq!(vault.get(first).unwrap().expose(), b"replacement");
+    assert_eq!(vault.get(second).unwrap().expose(), b"replacement");
+}
+#[test]
 fn native_dpapi_roundtrip_reopen_update_delete_and_missing_are_explicit() {
     let temp = Temp::new();
     let id = Uuid::new_v4();

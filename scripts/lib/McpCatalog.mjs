@@ -23,3 +23,17 @@ export function assertReleasedMcpCatalog(actual, current, label) {
   assert.ok(isDeepStrictEqual(actual, current) ||
     isDeepStrictEqual(actual, legacyTerminalReadMetadata(current)), label);
 }
+
+export async function readMcpCatalog(version=12) {
+  const previous=JSON.parse(await readFile(new URL('../../contracts/mcp/initial-tools.json',import.meta.url),'utf8'));
+  assert.equal(previous.version,11);
+  assert.equal(previous.tools.length,29);
+  if(version===11)return previous;
+  assert.equal(version,12);
+  const current=JSON.parse(await readFile(new URL('../../contracts/mcp/v12-tools.json',import.meta.url),'utf8'));
+  assert.equal(current.version,12);
+  assert.deepEqual(current.tools.slice(0,previous.tools.length),previous.tools);
+  assert.deepEqual(current.tools.slice(previous.tools.length).map(tool=>tool.name),
+    ['shortcuts_list','shortcuts_create','shortcuts_update','shortcuts_remove']);
+  return current;
+}

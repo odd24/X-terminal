@@ -12,6 +12,10 @@ try{
  rpc=processRpc(info.executable,['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)]);
  await rpc.request('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'contract-capture',version:'2'}});rpc.notify('notifications/initialized',{});
  const tools=(await rpc.request('tools/list',{})).result.tools;
+ const original=JSON.parse(await readFile('contracts/mcp/initial-tools.json','utf8'));
+ assert.equal(original.version,11);
+ assert.deepEqual(tools.slice(0,29),original.tools);
+ assert.deepEqual(tools.slice(29).map(tool=>tool.name),['shortcuts_list','shortcuts_create','shortcuts_update','shortcuts_remove']);
  assert.deepEqual(tools.slice(0,3).map(t=>t.name),['logs_export','logs_export_status','logs_export_cancel']);
  assert.ok(tools.every(t=>t.inputSchema.additionalProperties===false));
  const read=tools.find(tool=>tool.name==='terminal_read');
@@ -19,15 +23,15 @@ try{
  const text=read.inputSchema.$defs.View.oneOf.find(view=>view.properties.kind.const==='text');
  assert.deepEqual(text.properties.max_bytes,{format:'uint',minimum:16384,maximum:65536,type:'integer'});
  const versions=[9,12,14,16,18,20,22,24,25,26];
- const historical=legacyTerminalReadMetadata(tools);
+ const historical=legacyTerminalReadMetadata(original.tools);
  for (const [index,count] of versions.entries()) {
    const version=index+1;
    const file=version===1?'v1-initial-tools.json':`v${version}-tools.json`;
    const original=JSON.parse(await readFile(`contracts/mcp/${file}`,'utf8'));
    assert.deepEqual({...(version===1?{}:{version}),tools:historical.slice(-count)},original,`v${version} remains exactly unchanged apart from terminal_read metadata in the current release`);
  }
- await writeFile('contracts/mcp/initial-tools.json',JSON.stringify({version:11,tools},null,2)+'\n');
- console.log('PASS captured exact v11 schema; historical snapshots match apart from the terminal_read metadata correction.');
+ await writeFile('contracts/mcp/v12-tools.json',JSON.stringify({version:12,tools},null,2)+'\n');
+ console.log('PASS captured v12 and confirmed the original v11 catalog remains exact.');
 }finally{
  await rpc?.close();await ui?.close();assert.equal(path.dirname(root),path.resolve(tmpdir()));assert.ok(path.basename(root).startsWith('shared-terminal-mcp-contract-中文-'));await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
 }
