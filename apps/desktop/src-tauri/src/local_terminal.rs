@@ -10,6 +10,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     sync::Mutex,
+    time::Duration,
 };
 use tauri::{Manager, State, WebviewWindow};
 use uuid::Uuid;
@@ -308,6 +309,68 @@ impl Terminals {
         let sessions = std::mem::take(&mut *self.0.lock().unwrap());
         drop(sessions);
     }
+
+    fn ready_output(&self, id: Uuid, task: Uuid) -> Result<Option<View>, String> {
+        let mut sessions = self.0.lock().unwrap();
+        let session = sessions.get_mut(&id).ok_or("本地标签已关闭")?;
+        if session.last_request != Some(task) {
+            return Err("本地前台任务已变化".into());
+        }
+        let ready = session
+            .active
+            .as_ref()
+            .is_some_and(|process| process.output.lock().unwrap().ready());
+        Ok(ready.then(|| session.view()))
+    }
+}
+
+#[tauri::command]
+pub async fn poll_local_output(
+    window: WebviewWindow,
+    state: State<'_, Terminals>,
+    id: Uuid,
+    task: Uuid,
+) -> Result<tauri::ipc::Response, String> {
+    if window.label() != crate::session_windows::MAIN {
+        return Err("本地命令行仅在主窗口可用".into());
+    }
+    let (ready, _reader) = {
+        let sessions = state.0.lock().unwrap();
+        let session = sessions.get(&id).ok_or("本地标签已关闭")?;
+        if session.last_request != Some(task) {
+            return Err("本地前台任务已变化".into());
+        }
+        let Some(process) = &session.active else {
+            return Ok(tauri::ipc::Response::new(Vec::new()));
+        };
+        let permit = process
+            .output_reader
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "本地输出已在读取")?;
+        (process.output_ready.clone(), permit)
+    };
+    let view = tokio::time::timeout(Duration::from_millis(1500), async {
+        loop {
+            let notified = ready.notified();
+            if let Some(view) = state.ready_output(id, task)? {
+                return Ok::<_, String>(view);
+            }
+            notified.await;
+        }
+    })
+    .await;
+    let Ok(view) = view else {
+        return Ok(tauri::ipc::Response::new(Vec::new()));
+    };
+    let mut view = view?;
+    let mut bytes = std::mem::take(&mut view.bytes);
+    let metadata = serde_json::to_vec(&view).map_err(|error| error.to_string())?;
+    let mut frame = Vec::with_capacity(4 + metadata.len() + bytes.len());
+    frame.extend_from_slice(&(metadata.len() as u32).to_le_bytes());
+    frame.extend_from_slice(&metadata);
+    frame.append(&mut bytes);
+    Ok(tauri::ipc::Response::new(frame))
 }
 
 #[tauri::command]

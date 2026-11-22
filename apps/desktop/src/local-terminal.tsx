@@ -6,7 +6,7 @@ import {terminalAppearance} from './appearance';
 import type {DesktopPreferences} from './config-api';
 import {AdbDeviceDialog, type AdbChoice, type AdbDiagnostic, type AdbIntent} from './local-adb';
 
-export type LocalView = {cwd:string; startup_warning:string|null; task:string|null; running:boolean; bytes:number[]; overflow:boolean;
+export type LocalView = {cwd:string; startup_warning:string|null; task:string|null; running:boolean; bytes:number[]|Uint8Array; overflow:boolean;
   message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null};
 export type LocalTab = {id:string; title:string; initial:LocalView; powershell:boolean};
 export type LocalPromptState = {busy:boolean; hasDraft:boolean};
@@ -16,6 +16,7 @@ export function terminalAction<T = void>(action: {kind:string; id?:string} & Rec
 
 const MAX_HISTORY = 100;
 const MAX_SCROLLBACK = 5000;
+const outputMetadata=new TextDecoder('utf-8',{fatal:true});
 const localText = (text:string) => text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '�').replaceAll('\n', '\r\n');
 const cells = (text:string) => Array.from(text).reduce((count, character)=>
   count + (/\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Extended_Pictographic}|[\uFF01-\uFF60]/u.test(character)?2:1),0);
@@ -27,10 +28,11 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
 }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | undefined>(undefined);
-  const fit = useRef<FitAddon | undefined>(undefined);
+  const fitVisible = useRef<()=>void>(()=>{});
   const view = useRef(tab.initial);
   const flight = useRef(false);
   const uncertain = useRef<string | undefined>(undefined);
+  const armOutput = useRef<()=>void>(()=>{});
   const composing = useRef(false);
   const alive = useRef(false);
   const sentSize = useRef('');
@@ -82,7 +84,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       terminal?.reset();
       terminal?.writeln('输出积压，已略过部分历史');
     }
-    if (next.bytes.length) terminal?.write(Uint8Array.from(next.bytes));
+    if (next.bytes.length) terminal?.write(next.bytes instanceof Uint8Array?next.bytes:Uint8Array.from(next.bytes));
     if (next.message) terminal?.write('\r\n\x1b[0m'+localText(next.message)+'\r\n');
     const diagnostic=lastDiagnostic.current;
     if(diagnostic && (next.exit_code!==null||next.command&&!next.running)) {
@@ -113,6 +115,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     } finally {
       flight.current=false;
       publish();
+      armOutput.current();
     }
   }
 
@@ -132,6 +135,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       flight.current=false;
       launchingShortcut.current=false;
       publish();
+      armOutput.current();
       shortcutSettled(next.request);
     }
   }
@@ -223,14 +227,13 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
 
   useEffect(()=>{
     alive.current=true;
-    const terminal=new Terminal({...terminalAppearance(),scrollback:MAX_SCROLLBACK,cursorBlink:true});
+    const terminal=new Terminal({...terminalAppearance(),fontSize:preferences.font_size,scrollback:MAX_SCROLLBACK,cursorBlink:true});
     const addon=new FitAddon();
     const node=host.current!;
     terminal.loadAddon(addon);
     terminal.open(node);
     terminal.textarea?.setAttribute('aria-label','本地终端输入');
     term.current=terminal;
-    fit.current=addon;
     function paste(text:string) {
       if(!view.current.running && /[\r\n]/.test(text)){
         setFailure('轻量模式每次只接受一行');
@@ -266,8 +269,12 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
           await terminalAction({kind:'input',id:tab.id,request:task,text});
       }).catch(error=>{if(alive.current)setFailure(String(error));}).finally(()=>{queue.queued--;});
     });
+    let atScrollLimit=false;
     const written=terminal.onWriteParsed(()=>{
-      if(terminal.buffer.normal.baseY>=MAX_SCROLLBACK)setAtLimit(true);
+      if(!atScrollLimit&&terminal.buffer.normal.baseY>=MAX_SCROLLBACK){
+        atScrollLimit=true;
+        setAtLimit(true);
+      }
     });
     const compositionStart=()=>{composing.current=true;publish();};
     const compositionEnd=()=>{composing.current=false;publish();};
@@ -291,43 +298,66 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       }
     }
     const observer=new ResizeObserver(resize);
+    fitVisible.current=resize;
     observer.observe(node);
     update(tab.initial);
-    let timer:number;
+    let timer=0,waiting=false,disposed=false;
+    function arm(delay=20){
+      if(disposed||timer||waiting||(!view.current.running&&!uncertain.current))return;
+      timer=window.setTimeout(poll,delay);
+    }
     async function poll(){
+      timer=0;
+      if(flight.current){arm();return;}
+      waiting=true;
+      let retry=20;
       try{
-        if(!flight.current&&(view.current.running||uncertain.current)){
+        const original=uncertain.current;
+        if(original){
           flight.current=true;
           try{
             const next=await terminalAction<LocalView>({kind:'poll',id:tab.id});
-            if(uncertain.current){
-              setFailure(next.task===uncertain.current?'':'原请求未出现在终端状态中，请核对后再提交。');
-              uncertain.current=undefined;
-            }
+            if(disposed)return;
+            setFailure(next.task===original?'':'原请求未出现在终端状态中，请核对后再提交。');
+            uncertain.current=undefined;
             update(next);
-          }finally{flight.current=false;publish();}
+          }finally{if(!disposed){flight.current=false;publish();}}
+        }else if(view.current.running&&view.current.task){
+          const task=view.current.task;
+          const buffer=await invoke<ArrayBuffer>('poll_local_output',{id:tab.id,task});
+          if(disposed||view.current.task!==task||!buffer.byteLength)return;
+          const length=new DataView(buffer).getUint32(0,true);
+          if(!length||length>buffer.byteLength-4)throw new Error('Invalid local output metadata');
+          const meta=JSON.parse(outputMetadata.decode(new Uint8Array(buffer,4,length))) as Omit<LocalView,'bytes'>;
+          if(meta.task!==task)throw new Error('Invalid local output task');
+          update({...meta,bytes:new Uint8Array(buffer,4+length)});
         }
-      }catch{if(alive.current)setFailure('本地进程状态读取失败');}
-      finally{if(alive.current)timer=window.setTimeout(poll,20);}
+      }catch{if(!disposed){setFailure('本地进程状态读取失败');retry=100;}}
+      finally{waiting=false;arm(retry);}
     }
-    void poll();
+    armOutput.current=()=>arm(0);
+    arm(0);
     return ()=>{
+      disposed=true;
       alive.current=false;
+      armOutput.current=()=>{};
+      fitVisible.current=()=>{};
       clearTimeout(timer);
       observer.disconnect();
       node.removeEventListener('compositionstart',compositionStart,true);
       node.removeEventListener('compositionend',compositionEnd,true);
       node.removeEventListener('paste',nativePaste,true);
-      data.dispose();written.dispose();terminal.dispose();term.current=undefined;fit.current=undefined;
+      data.dispose();written.dispose();terminal.dispose();term.current=undefined;
     };
   },[tab.id]);
 
   useLayoutEffect(()=>{
     if(term.current){
       Object.assign(term.current.options,terminalAppearance(),{fontSize:preferences.font_size});
-      if(visible){fit.current?.fit();redraw();}
+      fitVisible.current();
     }
-  },[preferences,visible]);
+  },[preferences]);
+  useLayoutEffect(()=>{if(visible)fitVisible.current();},[visible]);
   useEffect(()=>{if(focused)term.current?.focus();},[focused]);
   useEffect(()=>{
     if(!intent||intent.request===intentSeen.current)return;

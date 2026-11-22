@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.6 按 [CR-029](changes/CR-029.md) 先测实际 Windows 发布版，再处理本地和公共刷新路径的重复工作。对照测量与交付见 [P26.6](records/P26.6.md)。
+
 P26.5 按 [CR-028](changes/CR-028.md) 实现本地标签拖动和双击复制，验证原终端状态、混合窗格及会话复制流程。[P26.5](records/P26.5.md)
 
 P26.4 按 [CR-027](changes/CR-027.md) 为新建本地终端接入 Windows 桌面和持久默认目录。实际桌面和 Windows x64 直接运行目录按 [P26.4](records/P26.4.md) 核对。

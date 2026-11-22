@@ -572,7 +572,7 @@ function App() {
     runtime.current?.term.focus();
   },[renderedTarget]);
   useEffect(()=>{let disposed=false,timer=0;
-    async function poll(){try{const epoch=panes.current.epoch;const native=await invoke<Status>('service_status');if(disposed)return;const sessions=await invoke<Connection[]>('service_list');if(disposed)return;
+    async function poll(){try{const epoch=panes.current.epoch;const {service:native,sessions}=await invoke<{service:Status;sessions:Connection[]}>('desktop_session_snapshot');if(disposed)return;
       composeHistory.current.retain(native.service_id);
       const previous = serviceRef.current;
       // The native service captures previous_close once when this owner starts.

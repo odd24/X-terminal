@@ -772,6 +772,28 @@ async fn service_list(
     let sessions = session_windows::list(service).await?;
     windows.filter(window.label(), sessions)
 }
+
+#[derive(serde::Serialize)]
+struct DesktopSessionSnapshot {
+    service: service::Status,
+    sessions: Vec<ConnectionInfo>,
+}
+
+#[tauri::command]
+async fn desktop_session_snapshot(
+    window: tauri::WebviewWindow,
+    windows: State<'_, session_windows::SessionWindows>,
+    state: State<'_, Desktop>,
+) -> Result<DesktopSessionSnapshot, String> {
+    let mut shared = state.0.lock().await;
+    let service = shared.as_mut().map_err(|e| e.clone())?;
+    let status = service.status().await?;
+    let sessions = session_windows::list(service).await?;
+    Ok(DesktopSessionSnapshot {
+        service: status,
+        sessions: windows.filter(window.label(), sessions)?,
+    })
+}
 #[tauri::command]
 async fn service_read(
     window: tauri::WebviewWindow,
@@ -1041,6 +1063,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             terminal_clipboard::terminal_clipboard_read,
             local_terminal::local_terminal,
+            local_terminal::poll_local_output,
             local_terminal::local_adb_settings,
             local_terminal::directory::local_directory_settings,
             local_terminal::prepare_local_adb,
@@ -1054,6 +1077,7 @@ fn main() {
             session_windows::dock_session,
             trigger_match::trigger_match_request,
             service_list,
+            desktop_session_snapshot,
             service_read,
             service_read_text,
             service_screen,

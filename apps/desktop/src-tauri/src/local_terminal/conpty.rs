@@ -39,6 +39,12 @@ pub struct Output {
     pub exit: Option<u32>,
 }
 
+impl Output {
+    pub fn ready(&self) -> bool {
+        !self.bytes.is_empty() || self.overflow || self.exit.is_some()
+    }
+}
+
 struct Console(HPCON);
 impl Drop for Console {
     fn drop(&mut self) {
@@ -59,6 +65,8 @@ pub struct Process {
     input: Option<mpsc::SyncSender<Vec<u8>>>,
     finished: Option<JoinHandle<()>>,
     pub output: Arc<Mutex<Output>>,
+    pub output_ready: Arc<tokio::sync::Notify>,
+    pub output_reader: Arc<tokio::sync::Semaphore>,
 }
 
 fn pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
@@ -273,7 +281,9 @@ impl Process {
         }
         let console = Console(console);
         let output = Arc::new(Mutex::new(Output::default()));
+        let output_ready = Arc::new(tokio::sync::Notify::new());
         let collected = output.clone();
+        let reader_ready = output_ready.clone();
         let reader = thread::spawn(move || {
             let mut file = File::from(output_read);
             let mut chunk = [0; 8192];
@@ -290,12 +300,20 @@ impl Process {
                 } else {
                     &chunk[..count]
                 };
+                if bytes.is_empty() {
+                    continue;
+                }
                 let mut output = collected.lock().unwrap();
+                let wake = !output.ready();
                 if output.bytes.len() + bytes.len() > OUTPUT_LIMIT {
                     output.bytes.clear();
                     output.overflow = true;
                 }
                 output.bytes.extend_from_slice(bytes);
+                drop(output);
+                if wake {
+                    reader_ready.notify_one();
+                }
             }
             if let Some(prefix) = intro {
                 collected.lock().unwrap().bytes.extend_from_slice(&prefix);
@@ -325,6 +343,7 @@ impl Process {
         let waiting_console = console.clone();
         let waiting_process = process.clone();
         let waiting_output = output.clone();
+        let finished_ready = output_ready.clone();
         let finished = thread::spawn(move || {
             let mut code = u32::MAX;
             unsafe {
@@ -336,6 +355,7 @@ impl Process {
             drop(console);
             let _ = reader.join();
             waiting_output.lock().unwrap().exit = Some(code);
+            finished_ready.notify_one();
             let _ = writer.join();
         });
         Ok(Self {
@@ -344,6 +364,8 @@ impl Process {
             input: Some(input),
             finished: Some(finished),
             output,
+            output_ready,
+            output_reader: Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
 
