@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.5 用 Test-Desktop-LocalTabs.mjs 在 Windows 实际窗口核对双击、排序、取消、分屏和跨窗格移动，另用 Test-Desktop-SessionCopy.mjs 的标签专项核对合成 SSH 和混合窗格。[P26.5](records/P26.5.md)
+
 P26.4 的 Test-Desktop-LocalDirectory.mjs 在普通 Windows 桌面核对新建 PowerShell 和轻量命令行、原生选择与取消、重开持久化、原标签目录、目录消失时的提示与回退及恢复桌面。交付时复验 ADB 结果继承及批处理文件自己的工作目录。[P26.4](records/P26.4.md)
 
 P26.3 的 Test-Desktop-LocalScripts.mjs 验证真实 Windows 文件选择器多选、配置升级与重开、特殊路径和工作目录、交互、暂停、中断、退出及入口管理。ADB 与 PowerShell 由原有实际桌面用例复验。[P26.3](records/P26.3.md)

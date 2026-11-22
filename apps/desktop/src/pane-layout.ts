@@ -27,6 +27,18 @@ export class PaneLayout{
  get slots(){return leaves(this.tree).map(key=>{const s=this.value.find(slot=>slot.key===key)!;return {...s,binding:s.binding&&{...s.binding}};});}
  paneOf(id:string){return this.membership.get(id)??leaves(this.tree)[0];}
  get current(){return this.slots.find(s=>s.key===this.active)!;}
+ placeLocal(id:string,key:PaneKey){this.membership.set(id,key);}
+ forgetLocal(id:string){this.membership.delete(id);}
+ addPane(target:PaneKey,direction:SplitAxis,leading:boolean,relocate?:PaneKey){
+  const key=relocate??paneKeys.find(key=>!this.value.some(slot=>slot.key===key));
+  if(!key||!this.value.some(slot=>slot.key===target))return;
+  const tree=relocate?without(this.tree,relocate):this.tree;
+  if(!tree||relocate===target)return;
+  if(!relocate)this.value.push(empty(key));
+  this.tree=replace(tree,target,{id:++this.nextSplit,direction,first:leading?key:target,second:leading?target:key});
+  this.epoch++;
+  return key;
+ }
  retain(owner:string,live:readonly PaneLive[],fulfill=true){let changed=false;
   if(owner!==this.owner){this.owner=owner;this.value=[empty('first')];this.active='first';this.tree='first';this.membership.clear();this.epoch++;changed=true;}
   for(const s of this.value){
@@ -38,11 +50,12 @@ export class PaneLayout{
   const s=this.value.find(s=>s.key===this.active)!;s.requested=id;s.expectedGeneration=expectedGeneration;s.pending=!!id;s.retired=false;if(!id)s.binding=undefined;else if(current&&current.connection_id===id&&(expectedGeneration===undefined||current.generation===expectedGeneration)){s.binding={connection_id:current.connection_id,generation:current.generation,protocol:current.protocol};s.pending=false;}this.epoch++;
  }
  focus(key:PaneKey){if(!this.value.some(s=>s.key===key))return false;if(this.active!==key){this.active=key;this.epoch++;}return true;}
- split(owner:string,first:PaneLive,second:PaneLive,direction:SplitAxis,leading=false,visible:readonly PaneLive[]=[]){
+ split(owner:string,first:PaneLive,second:PaneLive,direction:SplitAxis,leading=false,visible:readonly PaneLive[]=[],local:readonly string[]=[]){
   if(!owner||owner!==this.owner||!equal(this.current.binding,first)||this.current.retired||this.current.pending||first.state!=='CONNECTED'||second.state!=='CONNECTED'||first.connection_id===second.connection_id||!['SSH2','SERIAL'].includes(first.protocol)||!['SSH2','SERIAL'].includes(second.protocol)||!['horizontal','vertical'].includes(direction))throw new Error('请选择两个不同且仍已连接的SSH或串口会话。');
   const target=this.active,origin=this.paneOf(second.connection_id);
   const relocated=origin!==target&&this.value.find(slot=>slot.key===origin
     && equal(slot.binding,second)&&!slot.pending&&!slot.retired)
+    &&!local.some(id=>this.paneOf(id)===origin)
     &&!visible.some(tab=>tab.connection_id!==second.connection_id&&this.paneOf(tab.connection_id)===origin);
   const key=relocated?origin:paneKeys.find(key=>!this.value.some(slot=>slot.key===key));
   if(!key)throw new Error('已达到四窗格上限。');
@@ -52,7 +65,7 @@ export class PaneLayout{
    this.tree=replace(without(this.tree,origin)!,target,branch);
    this.epoch++;return;
   }
-  this.move(second,key,visible);
+  this.move(second,key,visible,local);
   this.value.push(empty(key));
   this.tree=replace(this.tree,target,branch);
   this.focus(key);this.select(second.connection_id,second);this.focus(target);
@@ -78,7 +91,7 @@ export class PaneLayout{
   if(this.active===key)this.active=keep;
   this.epoch++;return true;
  }
- move(tab:PaneLive,destination:PaneKey,visible:readonly PaneLive[]){
+ move(tab:PaneLive,destination:PaneKey,visible:readonly PaneLive[],local:readonly string[]=[]){
   const origin=this.paneOf(tab.connection_id);
   if(origin===destination)return false;
   const previous=this.active;
@@ -86,10 +99,12 @@ export class PaneLayout{
   this.membership.set(tab.connection_id,destination);
   const replacement=visible.find(next=>next.connection_id!==tab.connection_id&&this.paneOf(next.connection_id)===origin);
   if(selected&&replacement){this.focus(origin);this.select(replacement.connection_id,replacement);this.focus(previous);}
-  if(!replacement&&this.value.length>1)this.closePane(origin,destination);
+  if(selected&&!replacement&&local.some(id=>this.paneOf(id)===origin))
+   this.value=this.value.map(slot=>slot.key===origin?empty(origin):slot);
+  if(!replacement&&this.value.length>1&&!local.some(id=>this.paneOf(id)===origin))this.closePane(origin,destination);
   this.epoch++;return true;
  }
- remove(target:PaneIdentity,visible:readonly PaneLive[]=[]){
+ remove(target:PaneIdentity,visible:readonly PaneLive[]=[],local:readonly string[]=[]){
   const key=this.paneOf(target.connection_id);
   const s=this.value.find(slot=>slot.key===key);
   if(!s||s.requested===target.connection_id&&!equal(s.binding,target))return false;
@@ -97,6 +112,7 @@ export class PaneLayout{
   if(!equal(s.binding,target))return false;
   const replacement=visible.find(next=>next.connection_id!==target.connection_id&&this.paneOf(next.connection_id)===key);
   if(replacement){const previous=this.active;this.focus(key);this.select(replacement.connection_id,replacement);this.focus(previous);}
+  else if(local.some(id=>this.paneOf(id)===key))this.value=this.value.map(slot=>slot.key===key?empty(key):slot);
   else if(!this.closePane(key))this.value=[empty(key)];
   this.epoch++;return true;
  }

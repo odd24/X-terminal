@@ -28,11 +28,11 @@ export function locateTabDrop(x: number, y: number): TabDrop | undefined {
         const center = ({ rect }: typeof item) => rect.left + rect.width / 2;
         return !nearest || Math.abs(center(item) - x) < Math.abs(center(nearest) - x) ? item : nearest;
       }, undefined);
-    const anchor = location?.tab.querySelector<HTMLElement>('[data-connection-id]')?.dataset.connectionId;
+    const anchor = location?.tab.querySelector<HTMLElement>('[role="tab"]')?.dataset.connectionId;
     if (location && anchor) return { kind: 'insert', anchor, after: x > location.rect.left + location.rect.width / 2 };
     return {kind:'merge',pane,bounds};
   }
-  const terminal = hit.closest('.terminal-pane > .terminal');
+  const terminal = hit.closest('.terminal-pane > .terminal, .local-pane-body');
   if (!terminal) return;
   const bounds = terminal.getBoundingClientRect();
   const horizontal = (x - bounds.left) / bounds.width - .5;

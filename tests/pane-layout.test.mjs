@@ -36,3 +36,19 @@ test('an isolated tab dragged to the other pane edge retains its renderer key',(
  assert.deepEqual(m.slots.map(slot=>slot.key),['second','first']);
  assert.equal(m.active,'first');
 });
+
+test('moving and removing the last connection keeps its pane when a local tab still belongs to it',()=>{
+ const m=ready();
+ m.split('service',a,b,'horizontal',false,[a,b]);
+ m.placeLocal('local','second');
+ assert.equal(m.move(b,'first',[a,b],['local']),true);
+ assert.equal(m.slots.length,2);
+ assert.equal(m.slots[1].requested,'');
+ m.move(b,'second',[a,b],['local']);
+ m.focus('second');
+ m.select(b.connection_id,b);
+ assert.equal(m.remove(b,[a,b],['local']),true);
+ assert.equal(m.current.key,'second');
+ assert.equal(m.current.requested,'');
+ assert.equal(m.paneOf('local'),'second');
+});

@@ -8,6 +8,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   const gesture = useRef<{ source: PaneLive; owner: string; pointer: number; x: number; y: number; moving: boolean }>(undefined);
   const frame = useRef(0);
   const ignoreClick = useRef(false);
+  const ignoreDoubleClick = useRef(false);
   const [preview, setPreview] = useState<{ id: string; destination?: TabDrop }>();
 
   function clear() {
@@ -22,12 +23,13 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
       && tab.generation === current.source.generation && tab.protocol === current.source.protocol))) clear();
   }, [tabs, owner]);
 
-  function target(x: number, y: number) {
+  function target(x: number, y: number, source:PaneLive) {
     const destination = locateTabDrop(x, y);
+    if (source.protocol==='LOCAL' && destination?.kind==='detach') return;
     return !detached || destination?.kind === 'detach' ? destination : undefined;
   }
   function update(current: NonNullable<typeof gesture.current>) {
-    setPreview({ id: current.source.connection_id, destination: target(current.x, current.y) });
+    setPreview({ id: current.source.connection_id, destination: target(current.x, current.y,current.source) });
   }
   function scrollRail() {
     const current = gesture.current;
@@ -49,8 +51,9 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
     clear();
     if (!current.moving) return;
     ignoreClick.current = true;
+    ignoreDoubleClick.current = true;
     if (!commit || current.owner !== owner) return;
-    const destination = target(event.clientX, event.clientY);
+    const destination = target(event.clientX, event.clientY,current.source);
     if (destination) drop(current.source, destination);
   }
   function bindings(source: PaneLive) {
@@ -86,6 +89,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
     if (event.key !== 'Escape' || !gesture.current) return false;
     event.preventDefault();
     ignoreClick.current = true;
+    ignoreDoubleClick.current = true;
     clear();
     return true;
   }
@@ -96,17 +100,21 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
       event.preventDefault();
       event.stopImmediatePropagation();
       ignoreClick.current = true;
+      ignoreDoubleClick.current = true;
       clear();
     };
     window.addEventListener('keydown', cancel, true);
     return () => window.removeEventListener('keydown', cancel, true);
   }, []);
   function allowedClick(event: MouseEvent<HTMLButtonElement>) {
-    if (!event.detail || !ignoreClick.current) return true;
+    if (!event.detail || !ignoreClick.current) {
+      if(event.detail===1)ignoreDoubleClick.current=false;
+      return true;
+    }
     ignoreClick.current = false;
     return false;
   }
-  return { preview, bindings, cancelOnKey, allowedClick };
+  return { preview, bindings, cancelOnKey, allowedClick, allowedDoubleClick:()=>!ignoreDoubleClick.current };
 }
 
 export type SessionDrag = ReturnType<typeof useSessionDrag>;

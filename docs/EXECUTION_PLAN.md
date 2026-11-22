@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.5 按 [CR-028](changes/CR-028.md) 实现本地标签拖动和双击复制，验证原终端状态、混合窗格及会话复制流程。[P26.5](records/P26.5.md)
+
 P26.4 按 [CR-027](changes/CR-027.md) 为新建本地终端接入 Windows 桌面和持久默认目录。实际桌面和 Windows x64 直接运行目录按 [P26.4](records/P26.4.md) 核对。
 
 P26.2 按 [CR-025](changes/CR-025.md) 对照实际 adb 环境，实施默认 PowerShell 和轻量终端内输入，软件及实机分别取证并验证直接运行目录。[P26.2](records/P26.2.md)

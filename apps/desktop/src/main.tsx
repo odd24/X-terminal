@@ -289,7 +289,9 @@ function App() {
   const [snapshot, setSnapshot] = useState('');
   const [serviceScreen, setServiceScreen] = useState<ServiceScreen>();
   const [busy, setBusy] = useState(false);
-  const [localTabs, setLocalTabs] = useState<(LocalTab&{pane:PaneKey;surface:HTMLDivElement})[]>([]);
+  const [localTabs, setLocalTabs] = useState<(LocalTab&{surface:HTMLDivElement})[]>([]);
+  const liveLocalTabs=useRef(localTabs);
+  liveLocalTabs.current=localTabs;
   const localSelected = useRef(new Map<PaneKey,string>());
   const localCount = useRef(0);
   const nextLocal = useRef(0);
@@ -325,7 +327,7 @@ function App() {
     catch { /* the current window still remembers the choice */ }
     if (!open) document.querySelector<HTMLElement>(`[data-pane="${pane}"] .adb-panel-toggle`)?.focus();
   }
-  async function openLocal(pane:PaneKey,powershell=true,inherit?:string,script?:{button:string;revision:string}) {
+  async function openLocal(pane:PaneKey,powershell=true,inherit?:string,script?:{button:string;revision:string},beside=false) {
     if (openingLocal.current||closingDesktop.current) return undefined;
     openingLocal.current=true;
     const id=crypto.randomUUID();
@@ -338,7 +340,9 @@ function App() {
       localCount.current++;
       const surface=document.createElement('div');
       surface.className='local-terminal-surface';
-      setLocalTabs(previous=>[...previous,{id,title,initial,pane,surface,powershell}]);
+      panes.current.placeLocal(id,pane);
+      setLocalTabs(previous=>[...previous,{id,title,initial,surface,powershell}]);
+      if(beside&&inherit)insertTab(id,inherit,true);
       selectLocal(pane,id);
       if(!adbSettings)void loadAdb();
       return id;
@@ -350,13 +354,15 @@ function App() {
     panes.current.focus(pane);
     routeChanged();
   }
-  async function closeLocal(pane:PaneKey,id:string) {
+  async function closeLocal(id:string) {
     if(closingLocal.current.has(id))return;
     closingLocal.current.add(id);
     try {
       await terminalAction({kind:'close',id});
+      const pane=panes.current.paneOf(id);
+      panes.current.forgetLocal(id);
       if (localSelected.current.get(pane)===id) {
-        const next=localTabs.find(tab=>tab.id!==id&&tab.pane===pane&&!closingLocal.current.has(tab.id));
+        const next=localPeers(pane,id)[0];
         if(next)localSelected.current.set(pane,next.id);
         else localSelected.current.delete(pane);
       }
@@ -364,6 +370,9 @@ function App() {
       if(shortcutFlight.current?.id===id)shortcutSettled(shortcutFlight.current.request);
       localCount.current=Math.max(0,localCount.current-1);
       setLocalTabs(previous=>previous.filter(tab=>tab.id!==id));
+      setTabOrder(previous=>previous.filter(other=>other!==id));
+      if(!liveConnections.current.some(tab=>!tabClosures.current.isHidden(tab)&&panes.current.paneOf(tab.connection_id)===pane)&&!localPeers(pane,id).length)
+        panes.current.closePane(pane,panes.current.active);
       routeChanged();
     } catch(error) {setTabMessage(String(error));}
     finally {closingLocal.current.delete(id);}
@@ -393,6 +402,7 @@ function App() {
     const retained: Connection[] = JSON.parse(connectionIdentities);
     catalog.current.retain(owner, retained);
     const ids = new Set(retained.map(item => item.connection_id));
+    for(const tab of liveLocalTabs.current)ids.add(tab.id);
     setTabOrder(previous => previous.filter(id => ids.has(id)));
     tabClosures.current.retain(owner,retained);
     tabGroups.current.retain(owner,retained);setGroupEpoch(value=>value+1);
@@ -428,7 +438,7 @@ function App() {
     if(!anchor)return;
     if(!assignTab(child,tabGroups.current.groupOf(anchor.connection_id)))return;
     setTabOrder(previous=>{
-      const current=live.map(c=>c.connection_id).filter(id=>id!==child.connection_id);
+      const current=[...live.map(c=>c.connection_id).filter(id=>id!==child.connection_id),...liveLocalTabs.current.map(tab=>tab.id)];
       const ordered=previous.filter(id=>current.includes(id));
       ordered.push(...current.filter(id=>!ordered.includes(id)));
       ordered.splice(ordered.indexOf(anchor.connection_id)+1,0,child.connection_id);
@@ -437,7 +447,16 @@ function App() {
   },[service?.service_id,connectionIdentities,copyTarget?.connection_id,copyTarget?.generation]);
 
   useEffect(()=>{const owner=service?.service_id??'';let placed=false;for(const [slot,item] of workspacePlacements.current){if(item.owner!==owner){workspacePlacements.current.delete(slot);continue;}const live=liveConnections.current.find(c=>c.connection_id===item.connection.connection_id&&c.generation===item.connection.generation&&c.protocol===item.connection.protocol);if(!live)continue;const tab=workspaceSession.current.layout?.tabs.find(t=>t.id===slot);if(tab){try{tabGroups.current.assign(owner,live,tab.group_id??'');placed=true;}catch{/* a removed group is presentation-only */}}workspacePlacements.current.delete(slot);}
-    if(placed){setTabOrder(previous=>{const base=[...liveConnections.current].sort((a,b)=>(previous.indexOf(a.connection_id)<0?previous.length:previous.indexOf(a.connection_id))-(previous.indexOf(b.connection_id)<0?previous.length:previous.indexOf(b.connection_id)));return workspaceSession.current.order(base).map(c=>c.connection_id);});setGroupEpoch(v=>v+1);}
+    if(placed){
+      setTabOrder(previous=>{
+        const base=[...liveConnections.current].sort((a,b)=>(previous.indexOf(a.connection_id)<0?previous.length:previous.indexOf(a.connection_id))-(previous.indexOf(b.connection_id)<0?previous.length:previous.indexOf(b.connection_id)));
+        const remote=workspaceSession.current.order(base).map(c=>c.connection_id);
+        const local=new Set(liveLocalTabs.current.map(tab=>tab.id));
+        const order=previous.filter(id=>local.has(id)||remote.includes(id)).map(id=>local.has(id)?id:remote.shift()!);
+        return [...order,...remote];
+      });
+      setGroupEpoch(v=>v+1);
+    }
     if(!serviceStopped.current){const plan=workspaceSession.current.claimSplit(owner,liveConnections.current);if(plan){try{panes.current.restore(owner,plan.first,plan.second,plan.direction,plan.active);routeChanged();focusRenderedTerminal(plan.active);setTabMessage('两个指定目标已明确连接，已恢复保存的分屏与活动项；没有重放输入。');setWorkspaceEpoch(v=>v+1);}catch{workspaceSession.current.cancelSplit(true);setTabMessage('目标已变化，未恢复分屏。当前连接保留，可手动分屏。');}}}
   },[workspaceEpoch,connectionIdentities,connectionStates,service?.service_id]);
   function focusRenderedTerminal(connection: Ref) {
@@ -510,7 +529,23 @@ function App() {
   const triggers=useRef(new Triggers({...triggerDependencies,alive:owner=>!serviceStopped.current&&serviceRef.current?.service_id===owner,
     notify:text=>setTriggerNotice(previous=>previous?.text===text?previous:{id:crypto.randomUUID(),text})}));
   function closeBroadcast(){broadcastRun.current.cancel();setBroadcastOpen(false);setBroadcastSeed(undefined);}
-  function syncRoute(){const current=panes.current.current,local=localSelected.current.has(panes.current.active);selectedRef.current=local?'':current.requested;setSelected(selectedRef.current);const c=local?undefined:controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);}
+  function syncRoute(){
+    for(const [key,id] of localSelected.current){
+      const pane=panes.current.paneOf(id);
+      if(pane===key)continue;
+      localSelected.current.delete(key);
+      if(!localSelected.current.has(pane)&&!panes.current.slots.find(slot=>slot.key===pane)?.requested)
+        localSelected.current.set(pane,id);
+    }
+    for(const slot of panes.current.slots){
+      if(slot.requested||localSelected.current.has(slot.key))continue;
+      const first=localPeers(slot.key,'')[0];
+      if(first)localSelected.current.set(slot.key,first.id);
+    }
+    const current=panes.current.current,local=localSelected.current.has(panes.current.active);
+    selectedRef.current=local?'':current.requested;setSelected(selectedRef.current);
+    const c=local?undefined:controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);
+  }
   function routeChanged(){firstSsh1Fit.current=undefined;setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
   function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard){if(localSelected.current.has(key)){document.querySelector<HTMLElement>(`[data-pane="${key}"] .local-terminal:not([hidden]) .xterm-helper-textarea`)?.focus();}else controllers.current.get(key)?.runtime.term.focus();}}
   function cancelWorkspaceSplit(){workspaceSession.current.cancelSplit();restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);}
@@ -621,7 +656,11 @@ function App() {
     return rank(a.connection_id) - rank(b.connection_id);
   }));
   const paneSlots=panes.current.slots;
-  const drag=useSessionDrag(tabs,service?.service_id??'',dropTab,detached);
+  const localIds=localTabs.map(tab=>tab.id);
+  const localDragSource=(id:string)=>({connection_id:id,generation:0,protocol:'LOCAL',state:'CONNECTED'});
+  const drag=useSessionDrag([...tabs,...localIds.map(localDragSource)],service?.service_id??'',dropTab,detached);
+  const visibleIds=[...tabs.map(tab=>tab.connection_id),...localIds];
+  const orderedIds=[...tabOrder.filter(id=>visibleIds.includes(id)),...visibleIds.filter(id=>!tabOrder.includes(id))];
   const dockDragging=detached&&drag.preview?.destination?.kind==='detach';
   useEffect(()=>{
     if(!dockDragging)return;
@@ -677,7 +716,51 @@ function App() {
     dropTab(peers[index],{kind:'insert',anchor:peers[index+offset].connection_id,after:offset>0});
   }
   function paneTabs(key:PaneKey){return tabs.filter(tab=>panes.current.paneOf(tab.connection_id)===key);}
+  function insertTab(id:string,anchor:string,after:boolean){
+    const order=orderedIds.filter(other=>other!==id);
+    const index=order.indexOf(anchor);
+    if(index<0)return false;
+    order.splice(index+(after?1:0),0,id);
+    setTabOrder(order);
+    return true;
+  }
+  function localPeers(pane:PaneKey,except:string){
+    return liveLocalTabs.current.filter(tab=>tab.id!==except&&panes.current.paneOf(tab.id)===pane&&!closingLocal.current.has(tab.id));
+  }
+  function dropLocal(id:string,destination:TabDrop){
+    if(closingLocal.current.has(id)||!localIds.includes(id)||destination.kind==='detach')return;
+    const layout=panes.current;
+    const origin=layout.paneOf(id);
+    let target=origin;
+    if(destination.kind==='insert'){
+      if(destination.anchor===id||!insertTab(id,destination.anchor,destination.after))return;
+      target=layout.paneOf(destination.anchor);
+    }else{
+      target=destination.pane;
+      if(destination.kind==='split'){
+        if(target===origin&&!paneTabs(origin).length&&!localPeers(origin,id).length)return;
+        const {edge}=destination;
+        const relocate=origin!==target&&!paneTabs(origin).length&&!localPeers(origin,id).length?origin:undefined;
+        const added=layout.addPane(target,edge==='left'||edge==='right'?'horizontal':'vertical',edge==='left'||edge==='top',relocate);
+        if(!added){setTabMessage('已达到四窗格上限。');return;}
+        target=added;
+      }
+    }
+    if(origin!==target){
+      const peers=localPeers(origin,id);
+      if(localSelected.current.get(origin)===id){
+        if(peers.length)localSelected.current.set(origin,peers[0].id);
+        else localSelected.current.delete(origin);
+      }
+      layout.placeLocal(id,target);
+      if(!peers.length&&!paneTabs(origin).length)layout.closePane(origin,target);
+    }
+    cancelWorkspaceSplit();
+    selectLocal(target,id);
+    requestAnimationFrame(()=>{if(panes.current.active===target&&localSelected.current.get(target)===id)focusPane(target,true);});
+  }
   function dropTab(source:Connection,destination:TabDrop) {
+    if(source.protocol==='LOCAL'){dropLocal(source.connection_id,destination);return;}
     const owner=serviceRef.current?.service_id;
     const live=liveConnections.current.find(c=>c.connection_id===source.connection_id&&c.generation===source.generation&&c.protocol===source.protocol);
     if(!owner||!live||serviceStopped.current)return;
@@ -692,19 +775,29 @@ function App() {
     }
     if(destination.kind==='insert'){
       if(id===destination.anchor)return;
-      const order=tabs.map(tab=>tab.connection_id).filter(other=>other!==id);
-      const index=order.indexOf(destination.anchor);
-      if(index<0)return;
-      const group=tabGroups.current.groupOf(destination.anchor);
-      if(tabGroups.current.groupOf(id)!==group&&!assignTab(live,group))return;
-      order.splice(index+(destination.after?1:0),0,id);
-      setTabOrder(order);
-      mergeTab(live,panes.current.paneOf(destination.anchor));
+      if(!localIds.includes(destination.anchor)){
+        const group=tabGroups.current.groupOf(destination.anchor);
+        if(tabGroups.current.groupOf(id)!==group&&!assignTab(live,group))return;
+      }
+      if(insertTab(id,destination.anchor,destination.after))mergeTab(live,panes.current.paneOf(destination.anchor));
       return;
     }
     if(destination.kind==='detach'){void openSessionWindow(owner,live);return;}
     if(destination.kind==='merge'){mergeTab(live,destination.pane);return;}
     const canSplit=(connection:Connection)=>connection.state==='CONNECTED'&&['SSH2','SERIAL'].includes(connection.protocol);
+    if(localSelected.current.has(destination.pane)&&canSplit(live)){
+      const {edge}=destination;
+      const layout=panes.current;
+      const origin=layout.paneOf(id);
+      const relocate=origin!==destination.pane&&paneTabs(origin).length===1&&!localPeers(origin,'').length?origin:undefined;
+      const next=layout.addPane(destination.pane,edge==='left'||edge==='right'?'horizontal':'vertical',edge==='left'||edge==='top',relocate);
+      if(next){
+        if(next===origin){layout.focus(next);selectConnection(id,live);}
+        else mergeTab(live,next);
+      }
+      else setTabMessage('已达到四窗格上限。');
+      return;
+    }
     const slot=paneSlots.find(slot=>slot.key===destination.pane);
     const peers=paneTabs(destination.pane);
     const bound=peers.find(c=>c.connection_id===slot?.binding?.connection_id&&c.generation===slot.binding.generation);
@@ -720,7 +813,7 @@ function App() {
       const previous=layout.active;
       layout.focus(destination.pane);
       if(bound?.connection_id!==other.connection_id)layout.select(other.connection_id,other);
-      try{layout.split(owner,other,live,edge==='left'||edge==='right'?'horizontal':'vertical',edge==='left'||edge==='top',tabs);}
+      try{layout.split(owner,other,live,edge==='left'||edge==='right'?'horizontal':'vertical',edge==='left'||edge==='top',tabs,localIds);}
       finally{
         layout.focus(previous);routeChanged();
         if(layout.current.binding)focusRenderedTerminal(layout.current.binding);
@@ -729,8 +822,9 @@ function App() {
   }
   function mergeTab(source:Connection,destination:PaneKey){
     if(!panes.current.slots.some(slot=>slot.key===destination))return;
-    if(panes.current.move(source,destination,tabs)){
+    if(panes.current.move(source,destination,tabs,localIds)){
       cancelWorkspaceSplit();
+      panes.current.focus(destination);
       selectConnection(source.connection_id,source);
     }
   }
@@ -764,7 +858,7 @@ function App() {
       liveConnections.current=liveConnections.current.filter(item=>item.connection_id!==connection.connection_id);
       setConnections(liveConnections.current);
       cancelWorkspaceSplit();
-      if(panes.current.remove(connection,tabs))routeChanged();
+      if(panes.current.remove(connection,tabs,localIds))routeChanged();
     } catch {
       setTabMessage('没有打开独立窗口，会话仍在主窗口。');
     } finally {
@@ -773,7 +867,7 @@ function App() {
   }
   function hideTab(connection: Connection) {
     if(!tabClosures.current.hide(connection))return;setTabEpoch(value=>value+1);
-    if(panes.current.remove(connection,tabs))routeChanged();
+    if(panes.current.remove(connection,tabs,localIds))routeChanged();
   }
   async function closeTab(target:Connection) {
     const decision=tabClosures.current.begin(target,liveConnections.current);
@@ -1071,18 +1165,29 @@ function App() {
         const localId=localSelected.current.get(key);
         const adbOpen=adbPanels[key]??adbDefaultOpen;
         const adbPanelId='adb-shortcuts-'+key;
-        const locals=localTabs.filter(tab=>tab.pane===key||index===0&&!paneSlots.some(slot=>slot.key===tab.pane));
+        const locals=localTabs.filter(tab=>panes.current.paneOf(tab.id)===key);
         const rail=<SessionTabs singlePane={paneSlots.length===1} tabs={paneTabs(key)} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)}
           owner={service?.service_id??''} selected={localId??slot.requested} name={tabName} recording={tabLogs.control} toggleRecording={tabLogs.toggle}
           select={id=>{panes.current.focus(key);selectConnection(id);controllers.current.get(key)?.runtime.term.focus();}}
           endControls={localId&&<button type="button" className="adb-panel-toggle" aria-label="快捷指令" title="快捷指令"
             aria-expanded={adbOpen} aria-controls={adbPanelId} onClick={()=>setAdbPanel(key,!adbOpen)}><span className="sidebar-glyph" aria-hidden="true"/></button>}
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached} copy={(source,owner)=>copyTab(key,source,owner)}
-          extraTabs={locals.map(tab=><div className="connection-tab" key={tab.id}>
-            <button role="tab" type="button" className={localId===tab.id?'pane-focus':undefined} aria-selected={localId===tab.id} data-connection-id={tab.id}
-              title={tab.initial.script_directory??(tab.powershell?'Windows PowerShell':'轻量命令行')} onClick={()=>{selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);}}><span className="tab-label">{tab.title}</span></button>
-            <button type="button" aria-label={`关闭 ${tab.title}`} onClick={()=>void closeLocal(key,tab.id)}>×</button>
-          </div>)}>
+          order={orderedIds} localTabs={locals.map(tab=>{
+            const preview=drag.preview;
+            const insertion=preview?.destination?.kind==='insert'&&preview.destination.anchor===tab.id&&preview.id!==tab.id
+              ?(preview.destination.after?'after':'before'):undefined;
+            return {id:tab.id,node:<div className="connection-tab" key={tab.id} data-drag-source={preview?.id===tab.id?true:undefined} data-insertion={insertion}>
+              <button role="tab" type="button" className={localId===tab.id?'pane-focus':undefined} aria-selected={localId===tab.id} data-connection-id={tab.id}
+                {...drag.bindings(localDragSource(tab.id))}
+                title={tab.initial.script_directory??(tab.powershell?'Windows PowerShell':'轻量命令行')}
+                onKeyDown={drag.cancelOnKey}
+                onClick={event=>{if(drag.allowedClick(event)){selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);}}}
+                onDoubleClick={()=>{if(drag.allowedDoubleClick()&&!closingLocal.current.has(tab.id))void openLocal(key,tab.powershell,tab.id,undefined,true);}}>
+                <span className="tab-label">{tab.title}</span>
+              </button>
+              <button type="button" aria-label={`关闭 ${tab.title}`} onClick={()=>void closeLocal(tab.id)}>×</button>
+            </div>};
+          })}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSsh();}}>连接服务器</button>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSerial();}}>串口连接</button>
@@ -1102,7 +1207,7 @@ function App() {
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
       }} />
     {localTabs.map(tab=>{
-      const key=paneSlots.some(slot=>slot.key===tab.pane)?tab.pane:paneSlots[0].key;
+      const key=panes.current.paneOf(tab.id);
       const visible=localSelected.current.get(key)===tab.id;
       return createPortal(<LocalTerminal tab={tab} visible={visible} focused={visible&&panes.current.active===key}
         preferences={preferences} focus={()=>focusPane(key)} report={reportLocalPrompt.current} shortcutSettled={shortcutSettled}

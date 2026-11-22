@@ -3,7 +3,7 @@ import type { GroupConnection, TabGroup } from './tab-groups';
 import type { SessionDrag } from './session-drag';
 import type { TabRecording } from './tab-logging';
 type Connection=GroupConnection&{state:string};
-export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,extraTabs,endControls,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;extraTabs?:ReactNode;endControls?:ReactNode;children?:ReactNode}){
+export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,localTabs=[],order=[],endControls,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;localTabs?:{id:string;node:ReactNode}[];order?:string[];endControls?:ReactNode;children?:ReactNode}){
   const list=useRef<HTMLDivElement>(null);
   const menuNode=useRef<HTMLDivElement>(null);
   const [menu,setMenu]=useState<{connection:Connection;owner:string;x:number;y:number;focus:HTMLElement|null}>();
@@ -29,7 +29,7 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
   function showMenu(connection:Connection,x:number,y:number){
     setMenu({connection:{...connection},owner,x,y,focus:document.activeElement instanceof HTMLElement?document.activeElement:null});
   }
-  const order=tabs.map(tab=>tab.connection_id+':'+groupOf(tab.connection_id)).join(',');
+  const orderKey=order.join(',')+';'+tabs.map(tab=>tab.connection_id+':'+groupOf(tab.connection_id)).join(',');
   useLayoutEffect(()=>{
     const rail=list.current;
     const tab=Array.from(rail?.querySelectorAll<HTMLElement>('[role="tab"]')??[]).find(item=>item.dataset.connectionId===selected);
@@ -41,11 +41,22 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
     };
     reveal();const observer=new ResizeObserver(reveal);
     observer.observe(rail);return()=>observer.disconnect();
-  },[selected,order]);
+  },[selected,orderKey]);
   const sections=groups.length?[{id:'',name:'未分组'},...groups]:[{id:'',name:''}];
   function drop(event:DragEvent,group:string){event.preventDefault();const raw=event.dataTransfer.getData('application/x-shared-terminal-tab');if(raw.length>512)return;try{const t=JSON.parse(raw);if(t.owner!==owner)return;const live=tabs.find(c=>c.connection_id===t.connection_id&&c.generation===t.generation&&c.protocol===t.protocol);if(live)assign(live,group);}catch{/* unrelated/corrupt drag data never becomes an action */}}
-  const {preview, bindings, cancelOnKey, allowedClick}=drag;
+  const {preview, bindings, cancelOnKey, allowedClick, allowedDoubleClick}=drag;
   const destination=preview?.destination;
+  const connections=new Set(tabs.map(tab=>tab.connection_id));
+  const localBefore=new Map<string,ReactNode[]>();
+  const localById=new Map(localTabs.map(tab=>[tab.id,tab.node]));
+  for(const id of order){
+    const node=localById.get(id);
+    if(!node)continue;
+    const anchor=order.slice(order.indexOf(id)+1).find(other=>connections.has(other))??'';
+    const nodes=localBefore.get(anchor)??[];
+    nodes.push(node);
+    localBefore.set(anchor,nodes);
+  }
   return <div className="tab-tools pane-tab-bar"><div role="tablist" aria-label="连接标签" ref={list} data-tab-drag={preview?'true':undefined} onWheel={event=>{
     const rail=event.currentTarget;
     if(event.deltaX||event.shiftKey||rail.scrollWidth<=rail.clientWidth)return;
@@ -56,7 +67,7 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
     {tabs.filter(c=>groupOf(c.connection_id)===group.id).map(connection=>{
       const id=connection.connection_id, label=name(connection), status=recording(connection);
       const insertion=destination?.kind==='insert'&&destination.anchor===id&&preview?.id!==id?(destination.after?'after':'before'):undefined;
-      return <div className="connection-tab" key={id} data-drag-source={preview?.id===id?true:undefined} data-insertion={insertion}
+      return <Fragment key={id}>{localBefore.get(id)}<div className="connection-tab" data-drag-source={preview?.id===id?true:undefined} data-insertion={insertion}
         onMouseDown={event=>{if(event.button===2)event.preventDefault();}}
         onContextMenu={event=>{event.preventDefault();event.stopPropagation();showMenu(connection,event.clientX,event.currentTarget.getBoundingClientRect().bottom);}}
         onDragStart={event=>{
@@ -77,6 +88,7 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
             Array.from(list.current?.querySelectorAll<HTMLElement>('[role="tab"]')??[]).find(e=>e.dataset.connectionId===tabs[next].connection_id)?.focus({preventScroll:true});
           }} aria-selected={selected===id} aria-label={label}
           title={`${label} · ${connection.protocol} · ${connection.state} · ${id} / ${connection.generation}`}
+          onDoubleClick={()=>{if(allowedDoubleClick()&&connection.state==='CONNECTED'&&['SSH2','SERIAL'].includes(connection.protocol)&&!pending(connection))copy(connection,owner);}}
           onClick={event=>{if(allowedClick(event)){if(event.detail)event.currentTarget.focus({preventScroll:true});select(id);}}}>
           <span className="tab-label">{label}</span>
         </button>
@@ -91,9 +103,9 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
           <span className="tab-record-icon" aria-hidden="true">{status.state==='unknown'?'?':status.state==='failed'?'!':status.state==='pending'?'…':''}</span>
         </button>}
         {close&&<button aria-label={`关闭标签 ${id}`} disabled={pending(connection)} onClick={()=>close({...connection})}>×</button>}
-      </div>;
+      </div></Fragment>;
     })}
-    </Fragment>)}{extraTabs}</div>{children}
+    </Fragment>)}{localBefore.get('')}</div>{children}
     {singlePane&&<div className="tab-lane-drag" aria-hidden="true" data-tauri-drag-region="" />}
     {endControls}
     {menu&&source&&<div className="terminal-context-menu context-menu session-tab-menu" role="menu" aria-label="会话标签菜单" ref={menuNode}
