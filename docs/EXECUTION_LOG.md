@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.4 按 [CR-027](changes/CR-027.md) 交付 Windows x64 0.1.17 直接运行目录。实测 Windows 重定向桌面、原生文件夹选择、重开、取消、失效提示与恢复，运行目录回归通过。[P26.4](records/P26.4.md) · Step-ID: P26.4。
+
 P26.3 按 [CR-026](changes/CR-026.md) 完成 Windows x64 0.1.16 直接运行目录交付。实际多选、脚本交互、目标归属、目录打开与原入口回归通过。[P26.3](records/P26.3.md) · Step-ID: P26.3。
 
 P26.2 完成 Windows x64 0.1.15 直接运行目录交付。真实 PowerShell 软件专项和唯一授权设备的 adb shell、pwd、exit 通过，设备写入及长稳未纳入。[CR-025](changes/CR-025.md) · [P26.2](records/P26.2.md) · Step-ID: P26.2。
