@@ -241,9 +241,10 @@ try {
   assert.equal((await actions()).at(-1),'pull|other|pull|/sdcard/ok|environment.txt');
   await exported('environment.txt');
   await idle();
+  await rm(path.join(workspace,'edited.txt'));
   await ui.click('导出样本');
+  await exported('edited.txt');
   await idle();
-  await ui.waitFor(`document.querySelector('.local-terminal-output')?.innerText.includes('edited.txt')`);
   assert.equal((await log()).length,callCount+2);
   assert.match((await actions()).at(-1),/^pull\|good\|-s\|good\|/);
   evidence.cases.push('ANDROID_SERIAL inherited for device command; explicit serial takes priority over environment');
