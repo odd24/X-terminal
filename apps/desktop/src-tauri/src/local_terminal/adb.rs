@@ -24,6 +24,7 @@ use windows_sys::Win32::{
 const STORE: &str = "desktop-local-adb-v1.db";
 const ENTRY: Uuid = Uuid::from_u128(0x2a329f3b_a966_49f4_ac7e_24372a4d2670);
 const SHORTCUTS_ENTRY: Uuid = Uuid::from_u128(0x2099a5f3_5274_48f3_b80c_7290d5004e88);
+const MANAGED_ENTRY: Uuid = Uuid::from_u128(0x95667a60_818d_47c2_a5ff_284e49ae4e62);
 const INVENTORY_LIMIT: usize = 64 * 1024;
 const STORAGE: &str = "ADB 快捷设置读取或写入失败";
 const MAX_SHORTCUTS: usize = 32;
@@ -34,6 +35,15 @@ pub struct Settings {
     pub revision: Option<Uuid>,
     pub executable: Option<String>,
     pub shortcuts: Vec<Shortcut>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<Layout>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Layout {
+    columns: u8,
+    expanded: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -45,6 +55,8 @@ pub struct Shortcut {
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
 }
 
 fn adb_name(name: &str) -> bool {
@@ -60,14 +72,20 @@ fn validate(settings: &Settings) -> Result<(), String> {
     if settings.shortcuts.len() > MAX_SHORTCUTS {
         return Err("最多保存 32 条快捷指令".into());
     }
+    if settings
+        .layout
+        .as_ref()
+        .is_some_and(|layout| !matches!(layout.columns, 1 | 2))
+    {
+        return Err("请选择单列或双列".into());
+    }
     if let Some(path) = &settings.executable
         && (path.len() > 2048
             || !Path::new(path).is_absolute()
             || !adb_name(path)
             || !Path::new(path)
                 .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
-            || !Path::new(path).is_file())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe")))
     {
         return Err("请填写现有 adb.exe 的绝对路径，或留空使用 PATH".into());
     }
@@ -100,10 +118,13 @@ fn read_store(vault: Option<&mut Vault>) -> Result<Settings, String> {
     let Some(vault) = vault else {
         return Ok(Settings::default());
     };
-    let item = match vault.get(SHORTCUTS_ENTRY) {
-        Err(Error::NotFound) => vault.get(ENTRY),
-        result => result,
-    };
+    let mut item = vault.get(MANAGED_ENTRY);
+    for entry in [SHORTCUTS_ENTRY, ENTRY] {
+        if !matches!(item, Err(Error::NotFound)) {
+            break;
+        }
+        item = vault.get(entry);
+    }
     match item {
         Ok(value) => serde_json::from_slice(value.expose()).map_err(|_| STORAGE.into()),
         Err(Error::NotFound) => Ok(Settings::default()),
@@ -132,13 +153,23 @@ pub fn save(root: &Path, mut settings: Settings) -> Result<Settings, String> {
     }
     crate::log_viewer::with_native_settings(root, STORE, true, |vault| {
         let vault = vault.ok_or(STORAGE)?;
-        if read_store(Some(vault))?.revision != settings.revision {
+        let current = read_store(Some(vault))?;
+        if current.revision != settings.revision {
             return Err("ADB 快捷设置已更新，请重新读取后保存".into());
         }
+        if settings.executable != current.executable
+            && settings
+                .executable
+                .as_ref()
+                .is_some_and(|path| !Path::new(path).is_file())
+        {
+            return Err("请填写现有 adb.exe 的绝对路径，或留空使用 PATH".into());
+        }
+        settings.shortcuts.sort_by_key(|shortcut| !shortcut.pinned);
         settings.revision = Some(Uuid::new_v4());
         let bytes = serde_json::to_vec(&settings).map_err(|_| STORAGE)?;
         let secret = Secret::new(bytes).map_err(|_| "ADB 快捷设置超过 64 KiB")?;
-        vault.set(SHORTCUTS_ENTRY, secret).map_err(|_| STORAGE)?;
+        vault.set(MANAGED_ENTRY, secret).map_err(|_| STORAGE)?;
         Ok(settings)
     })
 }

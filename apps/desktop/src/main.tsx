@@ -297,6 +297,7 @@ function App() {
   const nextLocal = useRef(0);
   const openingLocal = useRef(false);
   const [adbSettings,setAdbSettings]=useState<AdbSettings>();
+  const adbSettingsEpoch=useRef(0);
   const [adbDefaultOpen]=useState(()=>{
     try {return localStorage.getItem('local-adb-shortcuts-open')==='true';}
     catch {return false;}
@@ -316,10 +317,15 @@ function App() {
     setAdbStarting(false);
   }
   async function loadAdb() {
+    const epoch=++adbSettingsEpoch.current;
     try {
       const settings=await loadAdbSettings();
-      setAdbSettings(settings);
-    } catch(error) {setTabMessage(String(error));}
+      if(epoch===adbSettingsEpoch.current)setAdbSettings(settings);
+    } catch(error) {if(epoch===adbSettingsEpoch.current)setTabMessage(String(error));}
+  }
+  function updateAdbSettings(settings:AdbSettings){
+    adbSettingsEpoch.current++;
+    setAdbSettings(settings);
   }
   function setAdbPanel(pane:PaneKey,open:boolean) {
     setAdbPanels(previous=>({...previous,[pane]:open}));
@@ -1201,7 +1207,7 @@ function App() {
             ref={node=>{if(node&&tab.surface.parentElement!==node)node.append(tab.surface);}}/>)}
           localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} open={adbOpen} settings={adbSettings} starting={adbStarting}
             diagnostics={adbDiagnostics}
-            close={()=>setAdbPanel(key,false)} reload={()=>void loadAdb()} update={setAdbSettings}
+            close={()=>setAdbPanel(key,false)} reload={()=>void loadAdb()} update={updateAdbSettings}
             execute={(item,revision)=>item.script_path?void openLocal(key,false,undefined,{button:item.id,revision}):void clickAdb(key,localId,item.id,revision)}/>}
           preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
