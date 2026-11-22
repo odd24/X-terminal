@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {ContextMenu, ControlIcon, Dialog, Field, IconButton} from './ui';
 
-export type AdbShortcut = {id:string; name:string; command:string};
+export type AdbShortcut = {id:string; name:string; command?:string; script_path?:string};
 export type AdbSettings = {revision:string|null; executable:string|null; shortcuts:AdbShortcut[]};
 export type AdbIntent = {button:string; revision:string; request:string};
 type AdbDevice = {serial:string; state:string};
@@ -17,11 +17,12 @@ type Editor = {kind:'shortcut'; item:AdbShortcut; revision:string|null} | {kind:
 
 export function AdbShortcutPanel({id, open, settings, starting, close, reload, update, execute, diagnostics}: {
   id:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():void;
-  update(value:AdbSettings):void; execute(button:string, revision:string):void;
+  update(value:AdbSettings):void; execute(item:AdbShortcut, revision:string):void;
   diagnostics:Readonly<Record<string, AdbDiagnostic>>;
 }) {
   const [editor, setEditor] = useState<Editor>();
   const [menu, setMenu] = useState<{id:string; anchor:HTMLButtonElement}>();
+  const [addMenu, setAddMenu] = useState<HTMLButtonElement>();
   const [diagnosticId, setDiagnosticId] = useState<string>();
   const diagnosticPanel = useRef<HTMLElement>(null);
   const [busy, setBusy] = useState(false);
@@ -29,7 +30,7 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
   const saving = useRef(false);
   const canAdd = !!settings && settings.shortcuts.length < 32 && !busy && !editor;
   const diagnostic = diagnosticId ? diagnostics[diagnosticId] : undefined;
-  useEffect(()=>{if(!open)setMenu(undefined);},[open]);
+  useEffect(()=>{if(!open){setMenu(undefined);setAddMenu(undefined);}},[open]);
   useEffect(()=>{if(open&&diagnosticId)diagnosticPanel.current?.scrollIntoView({block:'nearest'});},[open,diagnosticId]);
   function edit(item:AdbShortcut) {
     if (!settings) return;
@@ -38,6 +39,31 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
   }
   function add() {
     edit({id:crypto.randomUUID(), name:'', command:''});
+  }
+  async function selectScripts(replace?:AdbShortcut) {
+    if(!settings||saving.current)return;
+    saving.current=true;
+    setBusy(true);
+    setFailure('');
+    let next:AdbSettings|undefined;
+    try {
+      const selected=await invoke<{name:string;path:string}[]>('pick_local_scripts',{multiple:!replace});
+      if(!selected.length)return;
+      if(replace){
+        next={...settings,shortcuts:settings.shortcuts.map(item=>item.id===replace.id?{...item,script_path:selected[0].path}:item)};
+      }else{
+        const paths=new Set(settings.shortcuts.map(item=>item.script_path?.toLowerCase()));
+        const added=selected.filter(file=>{
+          const key=file.path.toLowerCase();
+          if(paths.has(key))return false;
+          paths.add(key);return true;
+        }).map(file=>({id:crypto.randomUUID(),name:file.name,script_path:file.path}));
+        if(!added.length){setFailure('所选脚本已在列表中');return;}
+        next={...settings,shortcuts:[...settings.shortcuts,...added]};
+      }
+    }catch(error){setFailure(String(error));}
+    finally{saving.current=false;setBusy(false);}
+    if(next)await save(next);
   }
   async function save(next:AdbSettings) {
     if (saving.current) return;
@@ -74,10 +100,11 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
     [shortcuts[index], shortcuts[index+step]] = [shortcuts[index+step], shortcuts[index]];
     void save({...settings, shortcuts});
   }
-  return <aside id={id} className="adb-shortcut-panel" aria-label="ADB 快捷指令" hidden={!open}>
+  return <aside id={id} className="adb-shortcut-panel" aria-label="快捷指令" hidden={!open}>
     <div className="adb-panel-heading">
       <h2>快捷指令</h2>
-      <IconButton icon="plus" label="新建快捷指令" disabled={!canAdd} onClick={add}/>
+      <IconButton icon="plus" label="新建快捷指令" disabled={!canAdd} aria-haspopup="menu" aria-expanded={!!addMenu}
+        onClick={event=>setAddMenu(addMenu?undefined:event.currentTarget)}/>
       <IconButton icon="collapse" label="收起快捷指令" onClick={close}/>
     </div>
     <div className="adb-panel-body">
@@ -89,9 +116,10 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
             : <>
               <Field label="名称"><input autoFocus aria-label="指令名称" value={editor.item.name} maxLength={64}
                 onChange={event=>setEditor({...editor,item:{...editor.item,name:event.target.value}})}/></Field>
-              <Field label="完整 ADB 命令"><textarea aria-label="完整 ADB 命令" rows={5} wrap="soft" spellCheck={false} maxLength={8192}
-                value={editor.item.command} placeholder="adb devices -l"
-                onChange={event=>setEditor({...editor,item:{...editor.item,command:event.target.value}})}/></Field>
+              {editor.item.script_path?<Field label="脚本路径"><input value={editor.item.script_path} readOnly/></Field>
+                :<Field label="完整 ADB 命令"><textarea aria-label="完整 ADB 命令" rows={5} wrap="soft" spellCheck={false} maxLength={8192}
+                  value={editor.item.command??''} placeholder="adb devices -l"
+                  onChange={event=>setEditor({...editor,item:{...editor.item,command:event.target.value}})}/></Field>}
             </>}
           <div className="config-actions">
             <button type="button" onClick={()=>{setEditor(undefined);setFailure('');}}>取消编辑</button>
@@ -99,12 +127,12 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
           </div>
         </fieldset>
       </form> : !settings ? <button type="button" onClick={reload}>读取 ADB 快捷指令</button>
-        : !settings.shortcuts.length ? <button type="button" className="adb-empty" onClick={add}>添加第一条指令</button>
+        : !settings.shortcuts.length ? <button type="button" className="adb-empty" onClick={event=>setAddMenu(event.currentTarget)}>添加第一条指令</button>
         : <ul className="adb-shortcut-list">{settings.shortcuts.map((item,index)=><li key={item.id}>
-          <button type="button" className="adb-shortcut-run" aria-label={item.name} title={item.command}
+          <button type="button" className="adb-shortcut-run" aria-label={item.name} title={item.script_path??item.command}
             aria-disabled={starting} onKeyDown={event=>{if(event.repeat&&(event.key==='Enter'||event.key===' '))event.preventDefault();}} onClick={event=>{
-              if (!starting && event.detail <= 1 && settings.revision) execute(item.id,settings.revision);
-            }}><span>{item.name}</span><code>{item.command}</code></button>
+              if (!starting && event.detail <= 1 && settings.revision) execute(item,settings.revision);
+            }}><span>{item.name}</span><code>{item.script_path?'本地脚本 · '+item.script_path:'ADB · '+item.command}</code></button>
           <button type="button" className="adb-row-menu-trigger" aria-label={item.name+' 的管理操作'}
             aria-haspopup="menu" aria-expanded={menu?.id===item.id}
             onClick={event=>setMenu(menu?.id===item.id?undefined:{id:item.id,anchor:event.currentTarget})}><ControlIcon icon="more"/></button>
@@ -115,7 +143,9 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
             <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);edit(item);}}>编辑</button>
             <button role="menuitem" type="button" disabled={busy||index===0} onClick={()=>{setMenu(undefined);move(index,-1);}}>上移</button>
             <button role="menuitem" type="button" disabled={busy||index===settings.shortcuts.length-1} onClick={()=>{setMenu(undefined);move(index,1);}}>下移</button>
-            <button role="menuitem" type="button" disabled={!diagnostics[item.id]} onClick={()=>{setMenu(undefined);setDiagnosticId(item.id);}}>查看最近诊断</button>
+            {item.script_path
+              ?<button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);void selectScripts(item);}}>重新定位</button>
+              :<button role="menuitem" type="button" disabled={!diagnostics[item.id]} onClick={()=>{setMenu(undefined);setDiagnosticId(item.id);}}>查看最近诊断</button>}
             <button role="menuitem" type="button" disabled={busy} onClick={()=>{
               setMenu(undefined);
               void save({...settings,shortcuts:settings.shortcuts.filter(row=>row.id!==item.id)});
@@ -139,6 +169,11 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
         if(settings){setFailure('');setEditor({kind:'settings',path:settings.executable??'',revision:settings.revision});}
       }}>ADB 设置</button>
     </div>
+    {open&&addMenu&&<ContextMenu className="adb-row-menu" label="新建指令类型" x={0} y={0} anchor={addMenu}
+      anchored close={()=>setAddMenu(undefined)}>
+      <button role="menuitem" type="button" onClick={()=>{setAddMenu(undefined);add();}}>ADB 命令</button>
+      <button role="menuitem" type="button" onClick={()=>{setAddMenu(undefined);void selectScripts();}}>本地脚本</button>
+    </ContextMenu>}
   </aside>;
 }
 

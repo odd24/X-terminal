@@ -23,6 +23,7 @@ use windows_sys::Win32::{
 
 const STORE: &str = "desktop-local-adb-v1.db";
 const ENTRY: Uuid = Uuid::from_u128(0x2a329f3b_a966_49f4_ac7e_24372a4d2670);
+const SHORTCUTS_ENTRY: Uuid = Uuid::from_u128(0x2099a5f3_5274_48f3_b80c_7290d5004e88);
 const INVENTORY_LIMIT: usize = 64 * 1024;
 const STORAGE: &str = "ADB 快捷设置读取或写入失败";
 const MAX_SHORTCUTS: usize = 32;
@@ -39,8 +40,11 @@ pub struct Settings {
 #[serde(deny_unknown_fields)]
 pub struct Shortcut {
     pub id: Uuid,
-    name: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_path: Option<String>,
 }
 
 fn adb_name(name: &str) -> bool {
@@ -54,7 +58,7 @@ fn adb_name(name: &str) -> bool {
 
 fn validate(settings: &Settings) -> Result<(), String> {
     if settings.shortcuts.len() > MAX_SHORTCUTS {
-        return Err("最多保存 32 个 ADB 按钮".into());
+        return Err("最多保存 32 条快捷指令".into());
     }
     if let Some(path) = &settings.executable
         && (path.len() > 2048
@@ -78,6 +82,12 @@ fn validate(settings: &Settings) -> Result<(), String> {
         {
             return Err("请检查按钮名称、命令长度及编号".into());
         }
+        if let Some(path) = &button.script_path {
+            if !button.command.is_empty() || !super::scripts::valid_path(path) {
+                return Err("请选择本机 .bat 或 .cmd 脚本".into());
+            }
+            continue;
+        }
         let args = arguments(&button.command)?;
         if args.len() < 2 || !adb_name(&args[0]) {
             return Err("按钮需要一条完整的 adb 命令".into());
@@ -90,7 +100,11 @@ fn read_store(vault: Option<&mut Vault>) -> Result<Settings, String> {
     let Some(vault) = vault else {
         return Ok(Settings::default());
     };
-    match vault.get(ENTRY) {
+    let item = match vault.get(SHORTCUTS_ENTRY) {
+        Err(Error::NotFound) => vault.get(ENTRY),
+        result => result,
+    };
+    match item {
         Ok(value) => serde_json::from_slice(value.expose()).map_err(|_| STORAGE.into()),
         Err(Error::NotFound) => Ok(Settings::default()),
         Err(_) => Err(STORAGE.into()),
@@ -124,7 +138,7 @@ pub fn save(root: &Path, mut settings: Settings) -> Result<Settings, String> {
         settings.revision = Some(Uuid::new_v4());
         let bytes = serde_json::to_vec(&settings).map_err(|_| STORAGE)?;
         let secret = Secret::new(bytes).map_err(|_| "ADB 快捷设置超过 64 KiB")?;
-        vault.set(ENTRY, secret).map_err(|_| STORAGE)?;
+        vault.set(SHORTCUTS_ENTRY, secret).map_err(|_| STORAGE)?;
         Ok(settings)
     })
 }

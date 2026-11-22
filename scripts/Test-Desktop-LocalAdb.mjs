@@ -43,6 +43,7 @@ async function run(line) {
   await key('Enter','Enter',13);
 }
 async function openLocal() {
+  await ui.evaluate("document.querySelector('details.tools-menu').open=true");
   await ui.click('轻量命令行');
   await idle();
   await run('cd "'+workspace+'"');
@@ -58,6 +59,7 @@ async function saveEditor(action='保存指令') {
 }
 async function addShortcut(name,command,action='新建快捷指令') {
   await ui.click(action);
+  await ui.click('ADB 命令');
   await ui.fill('指令名称',name);
   await ui.fill('完整 ADB 命令',command);
   await saveEditor();

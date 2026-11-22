@@ -1,6 +1,6 @@
 use std::{
     env,
-    ffi::{OsStr, c_void},
+    ffi::{OsStr, OsString, c_void},
     fs::File,
     io::{self, Read, Write},
     mem::{size_of, zeroed},
@@ -115,6 +115,7 @@ fn spawn(
     argv: &[String],
     cwd: &Path,
     environment: Option<&[u16]>,
+    raw_tail: Option<&str>,
 ) -> io::Result<OwnedHandle> {
     let mut bytes = 0;
     unsafe { InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut bytes) };
@@ -147,10 +148,13 @@ fn spawn(
     let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
     let exe = wide(executable.as_os_str());
     let cwd = wide(cwd.as_os_str());
-    let command = std::iter::once(quote(&executable.to_string_lossy()))
+    let mut command = std::iter::once(quote(&executable.to_string_lossy()))
         .chain(argv.iter().map(|arg| quote(arg)))
         .collect::<Vec<_>>()
         .join(" ");
+    if let Some(tail) = raw_tail {
+        command.push_str(tail);
+    }
     let mut command = wide(OsStr::new(&command));
     if unsafe {
         CreateProcessW(
@@ -173,6 +177,24 @@ fn spawn(
     Ok(unsafe { OwnedHandle::from_raw_handle(process.hProcess) })
 }
 
+fn child_environment(key: &str, value: Option<&OsStr>) -> Vec<u16> {
+    let mut values: Vec<_> = env::vars_os()
+        .filter(|(name, _)| !name.eq_ignore_ascii_case(key))
+        .collect();
+    if let Some(value) = value {
+        values.push((OsString::from(key), value.to_os_string()));
+    }
+    values.sort_by_cached_key(|(name, _)| name.to_string_lossy().to_uppercase());
+    let mut block = Vec::new();
+    for (mut name, value) in values {
+        name.push("=");
+        name.push(value);
+        block.extend(wide(&name));
+    }
+    block.push(0);
+    block
+}
+
 impl Process {
     pub fn start(
         executable: &Path,
@@ -181,7 +203,7 @@ impl Process {
         cols: u16,
         rows: u16,
     ) -> io::Result<Self> {
-        Self::start_with_environment(executable, argv, cwd, cols, rows, None)
+        Self::start_configured(executable, argv, cwd, cols, rows, None, None)
     }
 
     pub fn start_windows_powershell(
@@ -192,34 +214,47 @@ impl Process {
     ) -> io::Result<Self> {
         // Windows PowerShell builds its own module search path. An intermediate
         // host can otherwise pass along PowerShell 7's incompatible modules.
-        let mut values: Vec<_> = env::vars_os()
-            .filter(|(name, _)| !name.eq_ignore_ascii_case("PSModulePath"))
-            .collect();
-        values.sort_by_cached_key(|(name, _)| name.to_string_lossy().to_uppercase());
-        let mut block = Vec::new();
-        for (mut name, value) in values {
-            name.push("=");
-            name.push(value);
-            block.extend(wide(&name));
-        }
-        block.push(0);
-        Self::start_with_environment(
+        let block = child_environment("PSModulePath", None);
+        Self::start_configured(
             executable,
             &["-NoLogo".into()],
             cwd,
             cols,
             rows,
             Some(&block),
+            None,
         )
     }
 
-    fn start_with_environment(
+    pub fn start_script(
+        executable: &Path,
+        path: &Path,
+        cwd: &Path,
+        cols: u16,
+        rows: u16,
+    ) -> io::Result<Self> {
+        // Carry the path as data. cmd expands the fixed variable once, with
+        // delayed expansion and AutoRun disabled, inside the quoted command.
+        let block = child_environment("SHARED_TERMINAL_SCRIPT", Some(path.as_os_str()));
+        Self::start_configured(
+            executable,
+            &[],
+            cwd,
+            cols,
+            rows,
+            Some(&block),
+            Some(r#" /D /V:OFF /S /C ""%SHARED_TERMINAL_SCRIPT%"""#),
+        )
+    }
+
+    fn start_configured(
         executable: &Path,
         argv: &[String],
         cwd: &Path,
         cols: u16,
         rows: u16,
         environment: Option<&[u16]>,
+        raw_tail: Option<&str>,
     ) -> io::Result<Self> {
         let (input_read, input_write) = pipe()?;
         let (output_read, output_write) = pipe()?;
@@ -266,7 +301,7 @@ impl Process {
                 collected.lock().unwrap().bytes.extend_from_slice(&prefix);
             }
         });
-        let spawned = spawn(console.0, executable, argv, cwd, environment);
+        let spawned = spawn(console.0, executable, argv, cwd, environment, raw_tail);
         drop(input_read);
         drop(output_write);
         let process = match spawned {

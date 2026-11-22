@@ -7,7 +7,7 @@ import type {DesktopPreferences} from './config-api';
 import {AdbDeviceDialog, type AdbChoice, type AdbDiagnostic, type AdbIntent} from './local-adb';
 
 export type LocalView = {cwd:string; task:string|null; running:boolean; bytes:number[]; overflow:boolean;
-  message:string|null; command:string|null; exit_code:number|null};
+  message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null};
 export type LocalTab = {id:string; title:string; initial:LocalView; powershell:boolean};
 export type LocalPromptState = {busy:boolean; hasDraft:boolean};
 export function terminalAction<T = void>(action: {kind:string; id?:string} & Record<string, unknown>) {
@@ -336,6 +336,10 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
   },[intent]);
 
   return <div className="local-terminal" hidden={!visible} data-mode={tab.powershell?'powershell':'lightweight'} data-foreground={running} onFocusCapture={focus}>
+    {tab.initial.script&&<div className="adb-panel-heading local-script-info">
+      <span title={tab.initial.script_directory??undefined}>{tab.initial.script} · {tab.initial.script_directory}</span>
+      <button type="button" onClick={()=>void terminalAction({kind:'open_script_directory',id:tab.id}).catch(error=>setFailure(String(error)))}>打开工作目录</button>
+    </div>}
     <div className="terminal local-terminal-output" ref={host} aria-label="本地命令行输出" title={!tab.powershell?cwd:undefined}/>
     {atLimit&&<small>仅保留最近 {MAX_SCROLLBACK} 行滚动历史及当前屏幕</small>}
     {failure&&<small role="alert">{failure}</small>}

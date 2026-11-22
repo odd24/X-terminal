@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.3 的 Test-Desktop-LocalScripts.mjs 验证真实 Windows 文件选择器多选、配置升级与重开、特殊路径和工作目录、交互、暂停、中断、退出及入口管理。ADB 与 PowerShell 由原有实际桌面用例复验。[P26.3](records/P26.3.md)
+
 P26.2 用 Test-Desktop-LocalPowerShell.mjs 核对真实 Windows PowerShell、Tab 路径补全、管道和重定向内容、Ctrl+C、中文及切换后的快捷指令交互。模拟 ADB 专项核对空格与 Tab 分隔、失败诊断和固定目标。实机模式只对一台明确授权设备运行 adb shell、pwd、exit。[P26.2](records/P26.2.md)
 
 P26.1 使用 Test-Desktop-AdbSidebar.mjs 测实际宽窗、窄窗、分屏、栏内换行及 0.1.13 设置继承。Test-Desktop-LocalAdb.mjs 从新侧栏验证单次执行、管理零调用、开合重启、草稿/忙碌分流、原前台交互和设备目标。证据见 [P26.1](records/P26.1.md)。

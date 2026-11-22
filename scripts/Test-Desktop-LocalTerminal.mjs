@@ -37,6 +37,7 @@ async function open(name) {
   if (name !== '本地 1') {
     await ui.evaluate("document.querySelector('details.new-menu').querySelector('summary').click()");
   }
+  await ui.evaluate("document.querySelector('details.tools-menu').open=true");
   await ui.click('轻量命令行');
   await waitPrompt();
   await ui.command('Input.insertText', {text:'x'});

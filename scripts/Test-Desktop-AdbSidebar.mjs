@@ -9,7 +9,7 @@ import {delay, launchDesktop} from './lib/DesktopHarness.mjs';
 
 const root = await mkdtemp(path.join(await realpath(tmpdir()), 'shared-terminal-adb-sidebar-中文-'));
 const executable = path.resolve(process.argv[2]??'target/debug/shared-terminal-desktop.exe');
-const previous = path.resolve('artifacts/SharedTerminal-0.1.14-windows-x64/shared-terminal-desktop.exe');
+const previous = path.resolve('artifacts/SharedTerminal-0.1.15-windows-x64/shared-terminal-desktop.exe');
 const fixtures = [];
 const result = {result:'IN_PROGRESS', executable, measurements:{}};
 const long = 'adb shell echo "'+'固定路径含有空格 '.repeat(15)+'结束"';
@@ -92,6 +92,7 @@ try {
   await exit(false);
   ui=await launchDesktop(root,{executable});
   await resize(1100,760);
+  await ui.evaluate("document.querySelector('details.tools-menu').open=true");
   await ui.click('轻量命令行');
   await ui.waitFor('document.activeElement?.matches(".local-terminal:not([hidden]) .xterm-helper-textarea")');
   assert.deepEqual(await ui.invoke('local_adb_settings',{settings:null}),oldSettings);
@@ -121,7 +122,7 @@ try {
     return code.scrollWidth>code.clientWidth&&getComputedStyle(code).textOverflow==='ellipsis';})()`));
   assert.equal(await ui.evaluate('!!document.querySelector(".local-adb-actions, dialog[aria-label=\'ADB 快捷操作设置\']")'),false);
   result.measurements.wide=wide;
-  await ui.screenshot('windows-0.1.15-adb-sidebar-wide.png');
+  await ui.screenshot('windows-0.1.16-adb-sidebar-wide.png');
   await ui.click('完整命令换行预览 的管理操作');
   await ui.waitFor('!!document.querySelector(".adb-row-menu[data-positioned]")');
   const menuHit=await ui.evaluate(`(()=>{
@@ -140,7 +141,7 @@ try {
   assert.equal(editor.dialog,false);
   assert.ok(/mono|Consolas/i.test(editor.font));
   assert.ok(editor.width>editor.panelWidth-36&&editor.scrollWidth<=editor.width+1);
-  await ui.screenshot('windows-0.1.15-adb-sidebar-editor.png');
+  await ui.screenshot('windows-0.1.16-adb-sidebar-editor.png');
   await ui.click('取消编辑');
 
   await resize(720,540);
@@ -149,7 +150,7 @@ try {
   assert.ok(Math.abs(narrow.terminal.width-narrow.body.width)<1);
   assert.ok(Math.abs(narrow.panel.right-narrow.body.right)<1&&narrow.panel.left>=narrow.body.left-.5);
   result.measurements.narrow=narrow;
-  await ui.screenshot('windows-0.1.15-adb-sidebar-narrow.png');
+  await ui.screenshot('windows-0.1.16-adb-sidebar-narrow.png');
   await ui.click('收起快捷指令');
   assert.equal((await bounds()).panel,null);
   await resize(1100,760);
@@ -162,6 +163,7 @@ try {
   await ui.splitTab(second,'horizontal');
   await ui.waitFor('document.querySelectorAll(".terminal-pane").length===2');
   await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
+  await ui.evaluate("document.querySelector('details.tools-menu').open=true");
   await ui.click('轻量命令行');
   await ui.waitFor('document.activeElement?.matches(".local-terminal:not([hidden]) .xterm-helper-textarea")');
   await ui.evaluate("if(document.querySelector('.pane-active .adb-panel-toggle').getAttribute('aria-expanded')==='false')document.querySelector('.pane-active .adb-panel-toggle').click()");
@@ -170,26 +172,27 @@ try {
   assert.ok(Math.abs(split.terminal.width-split.body.width)<1);
   assert.ok(nonOverlapping(split.panel,split.other));
   result.measurements.split=split;
-  await ui.screenshot('windows-0.1.15-adb-sidebar-split.png');
+  await ui.screenshot('windows-0.1.16-adb-sidebar-split.png');
   await ui.evaluate("document.querySelector('.pane-active .adb-panel-toggle').click()");
   assert.equal((await bounds()).panel,null);
   await exit(true);
   ui=await launchDesktop(root,{executable});
+  await ui.evaluate("document.querySelector('details.tools-menu').open=true");
   await ui.click('轻量命令行');
   await ui.waitFor('!!document.querySelector(".adb-panel-toggle")');
   assert.equal(await ui.evaluate('document.querySelector(".adb-panel-toggle").getAttribute("aria-expanded")'),'false');
   assert.deepEqual(await ui.invoke('local_adb_settings',{settings:null}),oldSettings);
   await exit(true);
   result.result='PASS';
-  result.verified=['0.1.14 settings read unchanged','wide 300px dock and reclaimed space','narrow and split overlay bounded to pane',
+  result.verified=['0.1.15 settings read unchanged','wide 300px dock and reclaimed space','narrow and split overlay bounded to pane',
     'tab-row toggle and global toolbar geometry','ellipsis and soft-wrap inline editor','positioned management menu','collapsed state survives restart'];
 } catch(error) {
   result.result='FAIL';
   result.error=String(error.stack);
-  if(ui)await ui.screenshot('windows-0.1.15-adb-sidebar-failure.png').catch(()=>{});
+  if(ui)await ui.screenshot('windows-0.1.16-adb-sidebar-failure.png').catch(()=>{});
   throw error;
 } finally {
-  await writeFile('artifacts/windows-0.1.15-adb-sidebar-layout.json',JSON.stringify(result,null,2));
+  await writeFile('artifacts/windows-0.1.16-adb-sidebar-layout.json',JSON.stringify(result,null,2));
   await ui?.close();
   for(const child of fixtures)if(child.exitCode===null){child.stdin.end();await once(child,'exit');}
   await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});

@@ -1009,6 +1009,9 @@ fn main() {
             app.manage(log_viewer::Editor::new());
             app.manage(trigger_match::Manager::default());
             app.manage(local_terminal::Terminals::default());
+            app.manage(local_terminal::scripts::Picker(Arc::new(
+                tokio::sync::Semaphore::new(1),
+            )));
             app.manage(config_import::Manager::default());
             app.manage(Desktop(shared, configuration, directory));
             // Renderer reload/suspension must not expire the native IPC client.
@@ -1040,6 +1043,7 @@ fn main() {
             local_terminal::local_terminal,
             local_terminal::local_adb_settings,
             local_terminal::prepare_local_adb,
+            local_terminal::scripts::pick_local_scripts,
             service_status,
             session_windows::desktop_live_sessions,
             session_windows::detach_session,

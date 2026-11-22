@@ -1,16 +1,24 @@
-param([Parameter(Mandatory)][int]$TargetProcessId, [Parameter(Mandatory)][string]$Root, [ValidateSet('select','cancel')][string]$Action, [string]$TargetPath, [ValidateSet('Import','ProtectedExport','SaveRecovery','LogViewer','TextLog')][string]$Purpose='Import')
+param([Parameter(Mandatory)][int]$TargetProcessId, [Parameter(Mandatory)][string]$Root, [ValidateSet('select','cancel')][string]$Action, [string]$TargetPath, [ValidateSet('Import','ProtectedExport','SaveRecovery','LogViewer','TextLog','LocalScripts')][string]$Purpose='Import', [string]$TargetsBase64)
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 $testRoot=[IO.Path]::GetFullPath($Root)
 $save=$Purpose -in @('ProtectedExport','SaveRecovery','TextLog')
 $nativeEditorFallback=$Purpose -ne 'Import'
-$rootPrefix=switch($Purpose){'ProtectedExport'{'shared-terminal-save-ui-中文-protected-'} 'SaveRecovery'{'shared-terminal-save-ui-中文-recovery-'} 'LogViewer'{'shared-terminal-log-viewer-ui-中文-'} 'TextLog'{'shared-terminal-save-ui-中文-'} default{'shared-terminal-import-config-ui-中文-'}}
-$pickerTitle=switch($Purpose){'ProtectedExport'{'另存受保护文本'} 'SaveRecovery'{'另存终端导出'} 'LogViewer'{'选择日志打开程序'} 'TextLog'{'保存文本日志'} default{'选择原生连接配置 JSON'}}
+$rootPrefix=switch($Purpose){'ProtectedExport'{'shared-terminal-save-ui-中文-protected-'} 'SaveRecovery'{'shared-terminal-save-ui-中文-recovery-'} 'LogViewer'{'shared-terminal-log-viewer-ui-中文-'} 'TextLog'{'shared-terminal-save-ui-中文-'} 'LocalScripts'{'shared-terminal-local-scripts-中文-'} default{'shared-terminal-import-config-ui-中文-'}}
+$pickerTitle=switch($Purpose){'ProtectedExport'{'另存受保护文本'} 'SaveRecovery'{'另存终端导出'} 'LogViewer'{'选择日志打开程序'} 'TextLog'{'保存文本日志'} 'LocalScripts'{'选择本地脚本'} default{'选择原生连接配置 JSON'}}
 if (![IO.Path]::GetFileName($testRoot).StartsWith($rootPrefix) -or ($nativeEditorFallback -and [IO.Path]::GetDirectoryName($testRoot) -ne [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar))) { throw 'Only the explicitly owned test root is allowed.' }
 if ($Action -eq 'select') {
- $resolved=[IO.Path]::GetFullPath($TargetPath)
- if (!$resolved.StartsWith($testRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or (!$save -and ![IO.File]::Exists($resolved)) -or ($Purpose -eq 'LogViewer' -and [IO.Path]::GetExtension($resolved) -ne '.exe')) { throw 'Only a target under the exact owned test root is allowed.' }
+ $targets=@($TargetPath)
+ if ($Purpose -eq 'LocalScripts' -and $TargetsBase64) {
+   $targets=@([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($TargetsBase64)) | ConvertFrom-Json)
+ }
+ $paths = @(foreach($target in $targets) {
+   $checked=[IO.Path]::GetFullPath($target)
+   if (!$checked.StartsWith($testRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or (!$save -and ![IO.File]::Exists($checked)) -or ($Purpose -eq 'LogViewer' -and [IO.Path]::GetExtension($checked) -ne '.exe') -or ($Purpose -eq 'LocalScripts' -and [IO.Path]::GetExtension($checked) -notin @('.bat','.cmd'))) { throw 'Only a target under the exact owned test root is allowed.' }
+   $checked
+ })
+ $resolved=if($paths.Count -eq 1){$paths[0]}else{($paths | ForEach-Object {'"'+$_+'"'}) -join ' '}
 }
 Add-Type -TypeDefinition @'
 using System;
@@ -142,10 +150,13 @@ if(!$dialog) {
     throw "The native picker controls were not ready in the test process: purpose=$Purpose action=$Action attempts=$attempt controlWaits=$controlWaits"
 }
 Write-Output "READY native picker action=$Action attempts=$attempt controlWaits=$controlWaits"
-if($Action -eq 'select') {
-    if($edit){$edit.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($resolved)}
-    elseif($nativeEdit -ne [IntPtr]::Zero){if([NativeImportTestWindow]::SetText($nativeEdit,0x000C,[IntPtr]::Zero,$resolved) -eq [IntPtr]::Zero){throw 'Native filename WM_SETTEXT failed.'}}
+function Set-PickerText([string]$value) {
+    if($edit){$edit.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($value)}
+    elseif($nativeEdit -ne [IntPtr]::Zero){if([NativeImportTestWindow]::SetText($nativeEdit,0x000C,[IntPtr]::Zero,$value) -eq [IntPtr]::Zero){throw 'Native filename WM_SETTEXT failed.'}}
     else {throw 'Native filename control was not proven.'}
+}
+if($Action -eq 'select') {
+    Set-PickerText $resolved
 }
 if($button -eq [IntPtr]::Zero) { throw 'Proven native picker button was not found.' }
 [void][NativeImportTestWindow]::SetForegroundWindow($handle)

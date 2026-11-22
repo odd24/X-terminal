@@ -325,16 +325,16 @@ function App() {
     catch { /* the current window still remembers the choice */ }
     if (!open) document.querySelector<HTMLElement>(`[data-pane="${pane}"] .adb-panel-toggle`)?.focus();
   }
-  async function openLocal(pane:PaneKey,powershell=true,inherit?:string) {
+  async function openLocal(pane:PaneKey,powershell=true,inherit?:string,script?:{button:string;revision:string}) {
     if (openingLocal.current||closingDesktop.current) return undefined;
     openingLocal.current=true;
     const id=crypto.randomUUID();
     try {
-      const initial=await terminalAction<LocalView>({kind:'open',id,inherit:inherit??null,powershell});
+      const initial=await terminalAction<LocalView>({kind:'open',id,inherit:inherit??null,powershell,script:script??null});
       if(!panes.current.slots.some(slot=>slot.key===pane)) {
         await terminalAction({kind:'close',id});return;
       }
-      const title='本地 '+(++nextLocal.current);
+      const title=initial.script??'本地 '+(++nextLocal.current);
       localCount.current++;
       const surface=document.createElement('div');
       surface.className='local-terminal-surface';
@@ -1019,6 +1019,7 @@ function App() {
         <section className="toolbar-group" aria-label="命令与自动化">
           <h3>命令与自动化</h3>
           <button onClick={openQuickCommands}>常用命令</button>
+          <button onClick={()=>void openLocal(panes.current.active,false)}>轻量命令行</button>
           <button onClick={() => { drafts.current.invalidate();setComposeEnding('none');setComposeOrigin(undefined); setComposeOpen(open => !open); }}>基础撰写</button>
           <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed(undefined);setBroadcastOpen(true);}}>多目标发送</button>
           <button onClick={()=>{drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setContinuousOpen(true);}}>连续同步键盘</button>
@@ -1059,7 +1060,7 @@ function App() {
 
     {logDirectory.error&&<CornerNotice key={logDirectory.error} className="log-directory-error" heading="日志目录" tone="error" autoDismiss
       dismiss={()=>logDirectory.dismiss(logDirectory.error)}>{logDirectory.error}</CornerNotice>}
-    {!tabs.length && !localTabs.length && <section className="terminal-empty">{detached?<h1>{service?'原会话已移除或代次已变化':'正在加载独立会话'}</h1>:<><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button><button onClick={()=>void openLocal(panes.current.active)}>本地命令行</button><button onClick={()=>void openLocal(panes.current.active,false)}>轻量命令行</button></div></>}</section>}
+    {!tabs.length && !localTabs.length && <section className="terminal-empty">{detached?<h1>{service?'原会话已移除或代次已变化':'正在加载独立会话'}</h1>:<><h1>{currentWorkspace?'连接工作区中的会话':'新建终端会话'}</h1><div className="empty-actions"><button aria-label="连接服务器" onClick={newSsh}>新建 SSH</button><button aria-label="串口连接" onClick={newSerial}>新建串口</button><button onClick={()=>void openLocal(panes.current.active)}>本地终端（PowerShell）</button></div></>}</section>}
     <SessionDragPreview destination={drag.preview?.destination} detached={detached}/>
     {dockHover&&<div className="tab-dock-preview" aria-hidden="true">松开后移回主窗口</div>}
     <PaneGrid tree={panes.current.tree} ratios={splitRatios} idle={!tabs.length&&!localTabs.length} resize={(id,value)=>setSplitRatios(previous=>({...previous,[id]:value}))}
@@ -1079,14 +1080,13 @@ function App() {
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached} copy={(source,owner)=>copyTab(key,source,owner)}
           extraTabs={locals.map(tab=><div className="connection-tab" key={tab.id}>
             <button role="tab" type="button" className={localId===tab.id?'pane-focus':undefined} aria-selected={localId===tab.id} data-connection-id={tab.id}
-              title={tab.powershell?'Windows PowerShell':'轻量命令行'} onClick={()=>{selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);}}>{tab.title}</button>
+              title={tab.initial.script_directory??(tab.powershell?'Windows PowerShell':'轻量命令行')} onClick={()=>{selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);}}><span className="tab-label">{tab.title}</span></button>
             <button type="button" aria-label={`关闭 ${tab.title}`} onClick={()=>void closeLocal(key,tab.id)}>×</button>
           </div>)}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSsh();}}>连接服务器</button>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSerial();}}>串口连接</button>
-            <button onClick={()=>void openLocal(key)}>本地命令行</button>
-            <button onClick={()=>void openLocal(key,false)}>轻量命令行</button>
+            <button onClick={()=>void openLocal(key)}>本地终端（PowerShell）</button>
           </ToolbarMenu>}
           {paneSlots.length>1&&<button type="button" className="pane-collapse" aria-label="收起此窗格，保留连接" title="收起此窗格，保留连接"
             onClick={()=>{cancelWorkspaceSplit();if(panes.current.closePane(key,panes.current.active))routeChanged();}}><ControlIcon icon="collapse" /></button>}
@@ -1097,7 +1097,7 @@ function App() {
           localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} open={adbOpen} settings={adbSettings} starting={adbStarting}
             diagnostics={adbDiagnostics}
             close={()=>setAdbPanel(key,false)} reload={()=>void loadAdb()} update={setAdbSettings}
-            execute={(button,revision)=>void clickAdb(key,localId,button,revision)}/>}
+            execute={(item,revision)=>item.script_path?void openLocal(key,false,undefined,{button:item.id,revision}):void clickAdb(key,localId,item.id,revision)}/>}
           preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
       }} />

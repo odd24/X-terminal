@@ -1,5 +1,6 @@
 mod adb;
 mod conpty;
+pub(crate) mod scripts;
 
 use conpty::Process;
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,8 @@ pub struct Terminals(Mutex<HashMap<Uuid, Session>>);
 
 struct Session {
     cwd: PathBuf,
+    script: Option<String>,
+    script_directory: Option<PathBuf>,
     drives: HashMap<String, PathBuf>,
     active: Option<Process>,
     last_request: Option<Uuid>,
@@ -41,6 +44,14 @@ struct View {
     message: Option<String>,
     command: Option<String>,
     exit_code: Option<u32>,
+    script: Option<String>,
+    script_directory: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ScriptRequest {
+    button: Uuid,
+    revision: Uuid,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +62,7 @@ pub enum Action {
         inherit: Option<Uuid>,
         #[serde(default)]
         powershell: bool,
+        script: Option<ScriptRequest>,
     },
     Poll {
         id: Uuid,
@@ -83,6 +95,9 @@ pub enum Action {
         id: Uuid,
     },
     CloseAll,
+    OpenScriptDirectory {
+        id: Uuid,
+    },
 }
 
 fn arguments(line: &str) -> Result<Vec<String>, String> {
@@ -275,6 +290,11 @@ impl Session {
             message: self.message.take(),
             command: None,
             exit_code,
+            script: self.script.clone(),
+            script_directory: self
+                .script_directory
+                .as_ref()
+                .map(|path| path.display().to_string()),
         }
     }
 }
@@ -302,6 +322,7 @@ pub async fn local_terminal(
             id,
             inherit,
             powershell,
+            script,
         } => {
             if sessions.contains_key(&id) || sessions.len() == MAX_SESSIONS {
                 return Err("本地标签已存在或达到上限".into());
@@ -316,6 +337,8 @@ pub async fn local_terminal(
             };
             let mut session = Session {
                 cwd,
+                script: None,
+                script_directory: None,
                 drives: HashMap::new(),
                 active: None,
                 last_request: None,
@@ -325,7 +348,34 @@ pub async fn local_terminal(
                 cols: 80,
                 rows: 24,
             };
-            if powershell {
+            if let Some(request) = script {
+                let settings = adb::read(&desktop.2)?;
+                if settings.revision != Some(request.revision) {
+                    return Err("快捷指令已更新，请重新选择".into());
+                }
+                let item = settings
+                    .shortcuts
+                    .iter()
+                    .find(|item| item.id == request.button)
+                    .ok_or("脚本入口已移除")?;
+                let (_file, path) =
+                    scripts::readable(item.script_path.as_deref().ok_or("此入口不是本地脚本")?)?;
+                let cwd = path.parent().ok_or("找不到脚本工作目录")?.to_path_buf();
+                // cmd falls back to another directory for UNC working directories.
+                let image = env::var_os("SystemRoot")
+                    .map(PathBuf::from)
+                    .ok_or("找不到 Windows 系统目录")?
+                    .join(r"System32\cmd.exe");
+                session.active = Some(
+                    Process::start_script(&image, &path, &cwd, session.cols, session.rows)
+                        .map_err(|error| format!("脚本启动失败：{error}"))?,
+                );
+                session.cwd = cwd.clone();
+                session.script_directory = Some(cwd);
+                session.script = Some(item.name.clone());
+                session.last_request = Some(Uuid::new_v4());
+                session.message = None;
+            } else if powershell {
                 let image = env::var_os("SystemRoot")
                     .map(PathBuf::from)
                     .ok_or("找不到 Windows 系统目录")?
@@ -354,6 +404,18 @@ pub async fn local_terminal(
         Action::CloseAll => {
             drop(sessions);
             state.close_all();
+            return Ok(serde_json::Value::Null);
+        }
+        Action::OpenScriptDirectory { id } => {
+            let directory = sessions
+                .get(&id)
+                .and_then(|session| session.script_directory.clone())
+                .ok_or("脚本工作目录不可用")?;
+            drop(sessions);
+            crate::export_save::open_directory(
+                &directory,
+                window.hwnd().map_err(|_| "窗口不可用")?.0 as usize,
+            )?;
             return Ok(serde_json::Value::Null);
         }
         Action::Poll { id } => sessions.get_mut(&id).ok_or("本地标签已关闭")?.view(),

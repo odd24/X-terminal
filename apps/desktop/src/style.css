@@ -368,6 +368,8 @@ main.desktop-shell {
 .adb-row-menu { width: 112px; }
 .adb-row-menu:not([data-positioned]) { visibility: hidden; }
 .adb-empty { width: 100%; }
+.local-script-info > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.local-script-info > button { flex: none; }
 .adb-diagnostic-alert { color: var(--danger); }
 .adb-diagnostic { overflow-wrap: anywhere; margin-block-start: var(--space-2); }
 .adb-diagnostic dd { margin: 0 0 var(--space-2); }
