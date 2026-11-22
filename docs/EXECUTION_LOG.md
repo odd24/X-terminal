@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.6 按 [CR-029](changes/CR-029.md) 完成 Windows x64 0.1.19 性能优化与直接运行目录交付。空闲 IPC、持续输出回复体积和渲染器任务下降，启动持平，公共路径和验收边界见 [P26.6](records/P26.6.md) · Step-ID: P26.6。
+
 P26.5 按 [CR-028](changes/CR-028.md) 交付 Windows x64 0.1.18 直接运行目录。本地标签拖动、混合分屏、双击复制和交付目录回归通过。[P26.5](records/P26.5.md) · Step-ID: P26.5。
 
 P26.4 按 [CR-027](changes/CR-027.md) 交付 Windows x64 0.1.17 直接运行目录。实测 Windows 重定向桌面、原生文件夹选择、重开、取消、失效提示与恢复，运行目录回归通过。[P26.4](records/P26.4.md) · Step-ID: P26.4。
