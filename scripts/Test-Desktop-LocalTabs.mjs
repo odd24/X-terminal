@@ -65,14 +65,14 @@ try {
   assert.deepEqual(await names(),['本地 2','本地 1']);
   await focused('本地 1');
   assert.equal(await ui.evaluate(`${output}.querySelector('.xterm')===window.originalLocal`),true);
-  assert.ok((await ui.evaluate(`${output}.innerText`)).includes('retained-draft'));
+  await ui.waitFor(`${output}?.innerText.includes('retained-draft')`);
   await drag('本地 1',await point(query(active+' .local-pane-body'),.85),`!!${query('.tab-split-preview')}`,true);
   await count(1);
   assert.deepEqual(await names(),['本地 2','本地 1']);
   await drag('本地 1',await point(query(active+' .local-pane-body'),.85),`!!${query('.tab-split-preview[data-edge="right"]')}`);
   await count(2);await focused('本地 1');
   assert.equal(await ui.evaluate(`${output}.querySelector('.xterm')===window.originalLocal`),true);
-  assert.ok((await ui.evaluate(`${output}.innerText`)).includes('retained-draft'));
+  await ui.waitFor(`${output}?.innerText.includes('retained-draft')`);
   await drag('本地 1',await point(tab('本地 2'),.1),`!!${query('[data-insertion="before"]')}`);
   await count(1);await focused('本地 1');
   assert.deepEqual(await names(),['本地 1','本地 2']);
