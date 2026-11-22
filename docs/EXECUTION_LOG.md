@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.5 按 [CR-028](changes/CR-028.md) 交付 Windows x64 0.1.18 直接运行目录。本地标签拖动、混合分屏、双击复制和交付目录回归通过。[P26.5](records/P26.5.md) · Step-ID: P26.5。
+
 P26.4 按 [CR-027](changes/CR-027.md) 交付 Windows x64 0.1.17 直接运行目录。实测 Windows 重定向桌面、原生文件夹选择、重开、取消、失效提示与恢复，运行目录回归通过。[P26.4](records/P26.4.md) · Step-ID: P26.4。
 
 P26.3 按 [CR-026](changes/CR-026.md) 完成 Windows x64 0.1.16 直接运行目录交付。实际多选、脚本交互、目标归属、目录打开与原入口回归通过。[P26.3](records/P26.3.md) · Step-ID: P26.3。
