@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,realpath,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
+import {launchDesktop,delay,dragNativeWindow} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]??'target/debug/shared-terminal-desktop.exe');
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-local-tabs-中文-'));
@@ -61,7 +61,10 @@ try {
   assert.deepEqual(await names(),['本地 1','本地 2']);
   result.checks.push('lightweight double-click opens one adjacent terminal with the source directory and its own empty draft');
 
-  await drag('本地 1',await point(tab('本地 2'),.9),`!!${query('[data-insertion="after"]')}`);
+  const from=await point(tab('本地 1'));
+  const to=await point(tab('本地 2'),.9);
+  dragNativeWindow(ui.app,[from,{x:(from.x+to.x)/2,y:from.y},to],{executable,title:'共享终端',raise:true});
+  await ui.waitFor(`${tab('本地 2')}.closest('.connection-tab').nextElementSibling?.querySelector('[role="tab"]')===${tab('本地 1')}`);
   assert.deepEqual(await names(),['本地 2','本地 1']);
   await focused('本地 1');
   assert.equal(await ui.evaluate(`${output}.querySelector('.xterm')===window.originalLocal`),true);
@@ -77,7 +80,7 @@ try {
   await count(1);await focused('本地 1');
   assert.deepEqual(await names(),['本地 1','本地 2']);
   assert.equal(await ui.evaluate(`${output}.querySelector('.xterm')===window.originalLocal`),true);
-  result.checks.push('pointer drag reorders, Escape cancels, terminal edge splits, and cross-pane rail drop merges with the same renderer and draft');
+  result.checks.push('native mouse reorders, Escape cancels, terminal edge splits, and cross-pane rail drop merges with the same renderer and draft');
 
   await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
   await ui.click('本地终端（PowerShell）');await focused('本地 3');

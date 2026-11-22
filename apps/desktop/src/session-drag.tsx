@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { locateTabDrop, type TabDrop } from './tab-drag';
 import type { PaneLive } from './pane-layout';
@@ -8,7 +8,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   const gesture = useRef<{ source: PaneLive; owner: string; pointer: number; x: number; y: number; moving: boolean }>(undefined);
   const frame = useRef(0);
   const ignoreClick = useRef(false);
-  const ignoreDoubleClick = useRef(false);
+  const clickSequence = useRef<{ tab: HTMLButtonElement; count: 1 | 2 }>(undefined);
   const [preview, setPreview] = useState<{ id: string; destination?: TabDrop }>();
 
   function clear() {
@@ -49,9 +49,9 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
     const current = gesture.current;
     if (!current || current.pointer !== event.pointerId) return;
     clear();
-    if (!current.moving) return;
+    if (!current.moving && (!commit || Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6)) return;
     ignoreClick.current = true;
-    ignoreDoubleClick.current = true;
+    clickSequence.current = undefined;
     if (!commit || current.owner !== owner) return;
     const destination = target(event.clientX, event.clientY,current.source);
     if (destination) drop(current.source, destination);
@@ -59,6 +59,10 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   function bindings(source: PaneLive) {
     return {
       'data-session-drag-handle': true,
+      draggable: !detached,
+      onDragStart(event: DragEvent<HTMLButtonElement>) {
+        if (event.isTrusted) event.preventDefault();
+      },
       onPointerDown(event: PointerEvent<HTMLButtonElement>) {
         if (!event.isPrimary || event.button !== 0) return;
         ignoreClick.current = false;
@@ -89,7 +93,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
     if (event.key !== 'Escape' || !gesture.current) return false;
     event.preventDefault();
     ignoreClick.current = true;
-    ignoreDoubleClick.current = true;
+    clickSequence.current = undefined;
     clear();
     return true;
   }
@@ -100,21 +104,32 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
       event.preventDefault();
       event.stopImmediatePropagation();
       ignoreClick.current = true;
-      ignoreDoubleClick.current = true;
+      clickSequence.current = undefined;
       clear();
     };
     window.addEventListener('keydown', cancel, true);
     return () => window.removeEventListener('keydown', cancel, true);
   }, []);
   function allowedClick(event: MouseEvent<HTMLButtonElement>) {
-    if (!event.detail || !ignoreClick.current) {
-      if(event.detail===1)ignoreDoubleClick.current=false;
-      return true;
+    if (!event.detail) return true;
+    if (ignoreClick.current) {
+      ignoreClick.current = false;
+      return false;
     }
-    ignoreClick.current = false;
-    return false;
+    const tab = event.currentTarget;
+    const previous = clickSequence.current;
+    if (event.detail === 1) clickSequence.current = { tab, count: 1 };
+    else if (event.detail === 2 && previous?.tab === tab && previous.count === 1)
+      clickSequence.current = { tab, count: 2 };
+    else clickSequence.current = undefined;
+    return true;
   }
-  return { preview, bindings, cancelOnKey, allowedClick, allowedDoubleClick:()=>!ignoreDoubleClick.current };
+  function allowedDoubleClick(event: MouseEvent<HTMLButtonElement>) {
+    const sequence = clickSequence.current;
+    clickSequence.current = undefined;
+    return sequence?.tab === event.currentTarget && sequence.count === 2;
+  }
+  return { preview, bindings, cancelOnKey, allowedClick, allowedDoubleClick };
 }
 
 export type SessionDrag = ReturnType<typeof useSessionDrag>;

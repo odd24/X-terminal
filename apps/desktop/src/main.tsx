@@ -1287,7 +1287,7 @@ function App() {
                 title={tab.initial.script_directory??(tab.powershell?'Windows PowerShell':'轻量命令行')}
                 onKeyDown={drag.cancelOnKey}
                 onClick={event=>{if(drag.allowedClick(event)){selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);}}}
-                onDoubleClick={()=>{if(drag.allowedDoubleClick()&&!closingLocal.current.has(tab.id))void openLocal(key,tab.powershell,tab.id,undefined,true);}}>
+                onDoubleClick={event=>{if(drag.allowedDoubleClick(event)&&!tab.initial.script&&!closingLocal.current.has(tab.id))void openLocal(key,tab.powershell,tab.id,undefined,true);}}>
                 <span className="tab-label">{tab.title}</span>
               </button>
               <button type="button" aria-label={`关闭 ${tab.title}`} onClick={()=>void closeLocal(tab.id)}>×</button>

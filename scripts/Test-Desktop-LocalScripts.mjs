@@ -26,6 +26,11 @@ const text=`document.querySelector('${consoleView} .local-terminal-output')?.inn
 const see=marker=>ui.waitFor(`${text}?.includes(${q(marker)})`);
 const focused=()=>ui.waitFor(`document.activeElement?.matches('${consoleView} .xterm-helper-textarea')`);
 const picked=name=>ui.waitFor(`document.querySelector('.pane-active [role="tab"][aria-selected="true"]')?.textContent===${q(name)}`);
+const tab=name=>`[...document.querySelectorAll('[role=tab]')].find(tab=>tab.textContent===${q(name)})`;
+const point=(element,fraction=.5)=>ui.evaluate(`(()=>{const r=(${element}).getBoundingClientRect();return{x:r.left+r.width*${fraction},y:r.top+r.height/2}})()`);
+const mouse=(type,position,clickCount=1)=>ui.command('Input.dispatchMouseEvent',{
+  ...position,type,button:'left',buttons:type==='mouseReleased'?0:1,clickCount,
+});
 const key=async(key,code,windowsVirtualKeyCode,modifiers=0)=>{
   for(const type of ['keyDown','keyUp']) await ui.command('Input.dispatchKeyEvent',{type,key,code,windowsVirtualKeyCode,modifiers});
 };
@@ -117,6 +122,24 @@ try {
   const note=await ui.evaluate("document.querySelector('.local-terminal:not([hidden]) .local-script-info span').title");
   assert.equal(note,await realpath(sampleDir));
   await see('TYPE_HERE:');
+  const scriptTab=tab(firstName);
+  const scriptId=await ui.evaluate(`${scriptTab}.dataset.connectionId`);
+  const start=await point(scriptTab);
+  const before=await point(tab('本地 1'),.1);
+  await mouse('mousePressed',start);
+  await mouse('mouseMoved',before);
+  await ui.waitFor(`!!document.querySelector('[data-insertion="before"]')`);
+  await mouse('mouseReleased',before);
+  await ui.waitFor(`${scriptTab}.closest('.connection-tab').nextElementSibling?.querySelector('[role=tab]')===${tab('本地 1')}`);
+  const at=await point(scriptTab);
+  for(const clicks of [1,2]){
+    await mouse('mousePressed',at,clicks);
+    await mouse('mouseReleased',at,clicks);
+  }
+  await picked(firstName);await focused();await see('TYPE_HERE:');
+  assert.equal(await ui.evaluate(`${scriptTab}.dataset.connectionId`),scriptId);
+  assert.equal(await ui.evaluate("document.querySelectorAll('[role=tab]').length"),2);
+  result.checks.push('script tab moves in the rail and double-click preserves the original foreground session and tab count');
   assert.ok((await ui.evaluate(text)).replace(/\r?\n/g,'').includes(note));
   const existing=await runNative('pwsh',['-NoProfile','-Command',
     'ConvertTo-Json -Compress -InputObject @((New-Object -ComObject Shell.Application).Windows() | ForEach-Object {[string]$_.HWND})'],

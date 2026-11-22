@@ -71,10 +71,10 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
         onMouseDown={event=>{if(event.button===2)event.preventDefault();}}
         onContextMenu={event=>{event.preventDefault();event.stopPropagation();showMenu(connection,event.clientX,event.currentTarget.getBoundingClientRect().bottom);}}
         onDragStart={event=>{
-          if(event.isTrusted){event.preventDefault();return;}
+          if(event.isTrusted)return;
           event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-shared-terminal-tab',JSON.stringify({owner,...connection}));
         }}>
-        <button role="tab" className={selected===id?'pane-focus':undefined} data-connection-id={id} tabIndex={selected===id?0:-1} draggable={!detached}
+        <button role="tab" className={selected===id?'pane-focus':undefined} data-connection-id={id} tabIndex={selected===id?0:-1}
           {...bindings(connection)}
           onKeyDown={event=>{
             if(cancelOnKey(event))return;
@@ -88,7 +88,7 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
             Array.from(list.current?.querySelectorAll<HTMLElement>('[role="tab"]')??[]).find(e=>e.dataset.connectionId===tabs[next].connection_id)?.focus({preventScroll:true});
           }} aria-selected={selected===id} aria-label={label}
           title={`${label} · ${connection.protocol} · ${connection.state} · ${id} / ${connection.generation}`}
-          onDoubleClick={()=>{if(allowedDoubleClick()&&connection.state==='CONNECTED'&&['SSH2','SERIAL'].includes(connection.protocol)&&!pending(connection))copy(connection,owner);}}
+          onDoubleClick={event=>{if(allowedDoubleClick(event)&&connection.state==='CONNECTED'&&['SSH2','SERIAL'].includes(connection.protocol)&&!pending(connection))copy(connection,owner);}}
           onClick={event=>{if(allowedClick(event)){if(event.detail)event.currentTarget.focus({preventScroll:true});select(id);}}}>
           <span className="tab-label">{label}</span>
         </button>
