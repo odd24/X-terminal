@@ -400,6 +400,9 @@ main.desktop-shell {
 .local-directory-settings dl { margin-block: 0 var(--space-2); }
 .local-directory-settings dt { font-weight: 600; }
 .local-directory-settings dd { margin: var(--space-1) 0 var(--space-2); overflow-wrap: anywhere; user-select: text; }
+.desktop-shortcut-guide { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: var(--space-2) var(--space-3); }
+.desktop-shortcut-guide dt { font-family: var(--font-terminal); font-weight: 600; }
+.desktop-shortcut-guide dd { margin: 0; }
 .adb-diagnostic-alert { color: var(--danger); }
 .adb-diagnostic { overflow-wrap: anywhere; margin-block-start: var(--space-2); }
 .adb-diagnostic dd { margin: 0 0 var(--space-2); }

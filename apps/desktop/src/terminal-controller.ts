@@ -304,7 +304,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       }finally{polling=false;}
     }
     void poll();
-    return {runtime:current,clipboard:clip,compose,captureMenu,
+    return {runtime:current,clipboard:clip,compose,captureMenu,wakeOutput,
       invalidate(){pacedCompose?.cancel();clip.invalidate();update({renderedTarget:undefined});},
       appearance(){
         term.options={...terminalAppearance(),fontSize:deps.preferences().font_size};

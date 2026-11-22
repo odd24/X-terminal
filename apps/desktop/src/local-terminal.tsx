@@ -21,9 +21,10 @@ const localText = (text:string) => text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '�
 const cells = (text:string) => Array.from(text).reduce((count, character)=>
   count + (/\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Extended_Pictographic}|[\uFF01-\uFF60]/u.test(character)?2:1),0);
 
-export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, shortcutSettled, onDiagnostic}: {
+export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, register, shortcutSettled, onDiagnostic}: {
   tab:LocalTab; visible:boolean; focused:boolean; preferences:DesktopPreferences; intent?:AdbIntent;
   report(id:string, state:LocalPromptState):void; focus():void; shortcutSettled(request:string):void;
+  register(id:string,terminal?:Terminal):void;
   onDiagnostic(intent:AdbIntent, diagnostic:AdbDiagnostic):void;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -234,6 +235,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     terminal.open(node);
     terminal.textarea?.setAttribute('aria-label','本地终端输入');
     term.current=terminal;
+    register(tab.id,terminal);
     function paste(text:string) {
       if(!view.current.running && /[\r\n]/.test(text)){
         setFailure('轻量模式每次只接受一行');
@@ -337,9 +339,11 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     }
     armOutput.current=()=>arm(0);
     arm(0);
+    if(latest.current.focused)terminal.focus();
     return ()=>{
       disposed=true;
       alive.current=false;
+      register(tab.id);
       armOutput.current=()=>{};
       fitVisible.current=()=>{};
       clearTimeout(timer);
@@ -358,7 +362,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     }
   },[preferences]);
   useLayoutEffect(()=>{if(visible)fitVisible.current();},[visible]);
-  useEffect(()=>{if(focused)term.current?.focus();},[focused]);
+  useLayoutEffect(()=>{if(focused)term.current?.focus();},[focused]);
   useEffect(()=>{
     if(!intent||intent.request===intentSeen.current)return;
     intentSeen.current=intent.request;

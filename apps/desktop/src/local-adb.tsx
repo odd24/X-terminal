@@ -21,10 +21,11 @@ const DEFAULT_LAYOUT:ShortcutLayout={columns:1,expanded:false};
 const noShortcuts:AdbShortcut[]=[];
 type Removal={snapshot:AdbSettings; ids:ReadonlySet<string>};
 
-export function AdbShortcutPanel({id, open, settings, starting, close, reload, update, execute, diagnostics}: {
+export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, close, reload, update, execute, diagnostics}: {
   id:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():void;
   update(value:AdbSettings):void; execute(item:AdbShortcut, revision:string):void;
   diagnostics:Readonly<Record<string, AdbDiagnostic>>;
+  keyboardFocus?:number;
 }) {
   const [editor, setEditor] = useState<Editor>();
   const [menu, setMenu] = useState<{id:string; anchor:HTMLButtonElement}>();
@@ -40,6 +41,7 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
   const scrollBody=useRef<HTMLDivElement>(null);
   const manageButton=useRef<HTMLButtonElement>(null);
   const pendingFocus=useRef<string>(undefined);
+  const focusedRequest=useRef<number>(undefined);
   const saving = useRef(false);
   const items=settings?.shortcuts??noShortcuts;
   const layout=settings?.layout??DEFAULT_LAYOUT;
@@ -65,6 +67,19 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
     pendingFocus.current=undefined;
     scrollBody.current?.querySelector<HTMLElement>(`[data-sort-handle="${target}"]`)?.focus({preventScroll:false});
   },[settings?.revision,busy,open]);
+  useLayoutEffect(()=>{
+    if(!open||keyboardFocus===undefined||focusedRequest.current===keyboardFocus)return;
+    const body=scrollBody.current;
+    if(!body)return;
+    const target=body.querySelector<HTMLElement>('.adb-shortcut-run, .adb-shortcut-select input, button, input');
+    if(target){
+      target.focus();
+      if(settings||editor)focusedRequest.current=keyboardFocus;
+    }else if(settings){
+      manageButton.current?.focus();
+      focusedRequest.current=keyboardFocus;
+    }
+  },[open,keyboardFocus,items,settings,editor,managing]);
   useEffect(()=>{if(open&&diagnosticId)diagnosticPanel.current?.scrollIntoView({block:'nearest'});},[open,diagnosticId]);
   function edit(item:AdbShortcut) {
     if (!settings) return;
@@ -186,7 +201,19 @@ export function AdbShortcutPanel({id, open, settings, starting, close, reload, u
           if(!event.repeat)move(selection.has(item.id)?selection:single,event.key==='ArrowUp'?-1:1,item.id);
         }}><span aria-hidden="true">⠿</span></button></>:<>
       <button type="button" className="adb-shortcut-run adb-shortcut-text" aria-label={item.name} title={item.script_path??item.command}
-        aria-disabled={starting||busy} onKeyDown={event=>{if(event.repeat&&(event.key==='Enter'||event.key===' '))event.preventDefault();}} onClick={event=>{
+        aria-disabled={starting||busy} onKeyDown={event=>{
+          if(event.key==='Enter'){
+            event.preventDefault();
+            if(!event.repeat&&!event.nativeEvent.isComposing&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey)event.currentTarget.click();
+          }else if(event.key==='ArrowUp'||event.key==='ArrowDown'){
+            if(event.nativeEvent.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
+            const buttons=Array.from(scrollBody.current?.querySelectorAll<HTMLButtonElement>('.adb-shortcut-run')??[]);
+            const index=buttons.indexOf(event.currentTarget);
+            if(index<0)return;
+            event.preventDefault();
+            buttons[(index+buttons.length+(event.key==='ArrowUp'?-1:1))%buttons.length]?.focus();
+          }else if(event.repeat&&event.key===' ')event.preventDefault();
+        }} onClick={event=>{
           if(!managing&&!starting&&!saving.current&&event.detail<=1&&settings?.revision)execute(item,settings.revision);
         }}>{content}</button>
       <button type="button" className="adb-row-menu-trigger" aria-label={item.name+' 的管理操作'}

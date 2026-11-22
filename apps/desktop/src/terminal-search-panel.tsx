@@ -25,7 +25,8 @@ export function TerminalSearch({ terminal, close, closeFromKeyboard }: {
   }
   return <Panel title="终端查找" closeLabel="关闭查找" close={() => { terminal()?.clearSelection(); close(); terminal()?.focus(); }}>
     <Field label="查找文字"><input data-dialog-autofocus aria-label="终端查找文字" maxLength={256} value={query} onChange={event => { setQuery(event.target.value); setPrevious(undefined); }} onKeyDown={event => {
-      if (event.key === 'Enter') { event.preventDefault(); find(event.shiftKey); }
+      if(event.nativeEvent.isComposing||event.nativeEvent.keyCode===229)return;
+      if (event.key === 'Enter') { event.preventDefault(); if(!event.repeat)find(event.shiftKey); }
       if (event.key === 'Escape') { event.preventDefault(); closeFromKeyboard(); }
     }} /></Field>
     <div className="config-actions"><button onClick={() => find(true)}>上一个匹配</button><button onClick={() => find(false)}>下一个匹配</button><button onClick={() => { terminal()?.scrollToBottom(); terminal()?.focus(); }}>回到底部</button></div>

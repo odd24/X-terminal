@@ -14,6 +14,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { TerminalClipboard, type PasteProposal } from './terminal-clipboard';
 import { visibleControls } from './log-search';
 import { TerminalSearch } from './terminal-search-panel';
+import {desktopShortcut,shortcutEditor} from './desktop-shortcuts';
 import { initialTerminalView, type TerminalController, type TerminalView, type PaneSelection } from './terminal-controller';
 import { type ThemeChoice, type TerminalFont } from './appearance';
 import { SoftwareSettings } from './software-settings';
@@ -268,7 +269,8 @@ function App() {
   const [serialDialog,setSerialDialog]=useState(false);
   const [serialToolsOpen,setSerialToolsOpen]=useState(false);
   const [loggingOpen,setLoggingOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState<{local?:{pane:PaneKey;id:string}}>();
+  const [shortcutHelp,setShortcutHelp]=useState(false);
   const clipboard = useRef<TerminalClipboard | undefined>(undefined);
   const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
   const [clipboardMessage, setClipboardMessage] = useState('');
@@ -293,6 +295,11 @@ function App() {
   const liveLocalTabs=useRef(localTabs);
   liveLocalTabs.current=localTabs;
   const localSelected = useRef(new Map<PaneKey,string>());
+  const localRenderers=useRef(new Map<string,Terminal>());
+  function registerLocal(id:string,term?:Terminal){
+    if(term)localRenderers.current.set(id,term);
+    else localRenderers.current.delete(id);
+  }
   const localCount = useRef(0);
   const nextLocal = useRef(0);
   const openingLocal = useRef(false);
@@ -303,6 +310,8 @@ function App() {
     catch {return false;}
   });
   const [adbPanels,setAdbPanels]=useState<Partial<Record<PaneKey,boolean>>>({});
+  const [adbKeyboardFocus,setAdbKeyboardFocus]=useState<{pane:PaneKey;id:string;request:number}>();
+  const adbFocusNumber=useRef(0);
   const [adbIntent,setAdbIntent]=useState<AdbIntent&{id:string}>();
   const [adbStarting,setAdbStarting]=useState(false);
   const [adbDiagnostics,setAdbDiagnostics]=useState<Record<string,AdbDiagnostic>>({});
@@ -333,6 +342,51 @@ function App() {
     catch { /* the current window still remembers the choice */ }
     if (!open) document.querySelector<HTMLElement>(`[data-pane="${pane}"] .adb-panel-toggle`)?.focus();
   }
+  function toggleAdbFromKeyboard(pane:PaneKey,id:string){
+    const open=adbPanels[pane]??adbDefaultOpen;
+    setAdbPanel(pane,!open);
+    if(open){
+      setAdbKeyboardFocus(undefined);
+      localRenderers.current.get(id)?.focus();
+    }else setAdbKeyboardFocus({pane,id,request:++adbFocusNumber.current});
+  }
+  function findTerminal(){
+    const pane=panes.current.active, id=localSelected.current.get(pane);
+    const term=id?localRenderers.current.get(id):serviceSearchRenderer();
+    if(!term)return;
+    if(search){
+      document.querySelector<HTMLElement>('[aria-label="终端查找文字"]')?.focus();
+      return;
+    }
+    setSearch(id?{local:{pane,id}}:{});
+  }
+  function searchRenderer(){
+    const local=search?.local;
+    if(!local)return serviceSearchRenderer();
+    if(panes.current.active===local.pane&&localSelected.current.get(local.pane)===local.id)return localRenderers.current.get(local.id);
+  }
+  function serviceSearchRenderer(){
+    const pane=panes.current.current, terminal=runtime.current;
+    if(localSelected.current.has(pane.key)||pane.pending||pane.retired||!pane.binding||!terminal?.connection)return;
+    if(sameRef(pane.binding,terminal.connection)&&pane.binding.protocol===terminal.protocol)return terminal.term;
+  }
+  function closeSearch(keyboard=false){
+    if(search?.local){
+      const term=searchRenderer();
+      term?.clearSelection();
+      term?.scrollToBottom();
+      term?.focus();
+    }else if(keyboard)toolsSummary.current?.focus();
+    setSearch(undefined);
+  }
+  useLayoutEffect(()=>{
+    if(!search)return;
+    const local=search.local, active=panes.current.active;
+    if(local?(active!==local.pane||localSelected.current.get(active)!==local.id):localSelected.current.has(active)){
+      if(local)localRenderers.current.get(local.id)?.clearSelection();
+      setSearch(undefined);
+    }
+  },[search,paneEpoch]);
   async function openLocal(pane:PaneKey,powershell=true,inherit?:string,script?:{button:string;revision:string},beside=false) {
     if (openingLocal.current||closingDesktop.current) return undefined;
     openingLocal.current=true;
@@ -600,6 +654,49 @@ function App() {
     void poll();return()=>{disposed=true;clearTimeout(timer);};
   },[]);
   useEffect(()=>{const key=(event:KeyboardEvent)=>{if(!detached&&event.ctrlKey&&event.shiftKey&&!event.altKey&&!event.metaKey&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog:modal')){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)openQuickCommands();return;}if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length<2)return;event.preventDefault();event.stopImmediatePropagation();const slots=panes.current.slots,index=slots.findIndex(p=>p.key===panes.current.active);focusPane(slots[(index+(event.shiftKey?slots.length-1:1))%slots.length].key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
+  const handleDesktopShortcut=useRef<(event:KeyboardEvent)=>void>(()=>{});
+  handleDesktopShortcut.current=event=>{
+    const action=desktopShortcut(event);
+    if(!action)return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if(event.repeat||closingDesktop.current||document.querySelector('dialog:modal'))return;
+    if(shortcutEditor(event.target)){
+      if(action.kind==='search'&&(event.target as Element).closest('[aria-label="查找终端内容"]'))findTerminal();
+      return;
+    }
+    const pane=panes.current.active, local=localSelected.current.get(pane);
+    if(action.kind==='openLocal'){if(!detached)void openLocal(pane);return;}
+    if(action.kind==='sidebar'){if(local&&!closingLocal.current.has(local))toggleAdbFromKeyboard(pane,local);return;}
+    if(action.kind==='search'){findTerminal();return;}
+    if(action.kind!=='cycle'&&action.kind!=='index')return;
+    // This is the published tab order, including the effects of groups and drag/drop.
+    const rail=document.querySelector(`[data-pane="${pane}"] .pane-tab-bar [role="tablist"]`);
+    const buttons=Array.from(rail?.querySelectorAll<HTMLButtonElement>('[role="tab"][data-connection-id]:not([hidden])')??[]);
+    if(!buttons.length)return;
+    const current=buttons.findIndex(button=>button.getAttribute('aria-selected')==='true');
+    const index=action.kind==='index'?action.index
+      :current<0?(action.step>0?0:buttons.length-1):(current+action.step+buttons.length)%buttons.length;
+    const id=buttons[index]?.dataset.connectionId;
+    if(!id)return;
+    if(liveLocalTabs.current.some(tab=>tab.id===id&&panes.current.paneOf(tab.id)===pane)){
+      if(closingLocal.current.has(id))return;
+      if(local!==id)selectLocal(pane,id);
+      else focusPane(pane,true);
+      return;
+    }
+    const target=liveConnections.current.find(item=>item.connection_id===id&&panes.current.paneOf(id)===pane);
+    if(!target||tabClosures.current.pending(target))return;
+    if(index===current){focusPane(pane,true);return;}
+    selectConnection(id,target);
+    focusRenderedTerminal(target);
+    controllers.current.get(pane)?.wakeOutput();
+  };
+  useEffect(()=>{
+    const key=(event:KeyboardEvent)=>handleDesktopShortcut.current(event);
+    window.addEventListener('keydown',key,true);
+    return()=>window.removeEventListener('keydown',key,true);
+  },[]);
 
   useEffect(() => {
     const systemTheme = matchMedia('(prefers-color-scheme: dark)');
@@ -1102,6 +1199,7 @@ function App() {
         <section className="toolbar-group" aria-label="会话与终端">
           <h3>会话与终端</h3>
           <button disabled={localActive} onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
+          <button disabled={!localActive&&!active} aria-keyshortcuts="Control+Shift+F" title="Ctrl+Shift+F" onClick={findTerminal}>查找终端</button>
           {paneSlots.length>1&&<button onClick={()=>collapseSplit()}>收起分屏，保留连接</button>}
         </section>
         <section className="toolbar-group" aria-label="连接与布局">
@@ -1129,6 +1227,7 @@ function App() {
         </section>
         <section className="toolbar-group" aria-label="设置">
           <button onClick={() => {toolsReturnDialog.current='settings';setSoftwareSettingsOpen(true);}}>软件设置</button>
+          <button onClick={()=>setShortcutHelp(true)}>键盘快捷键</button>
         </section>
         <section className="toolbar-group" aria-label="诊断与退出">
           <h3>诊断与退出</h3>
@@ -1175,7 +1274,7 @@ function App() {
         const rail=<SessionTabs singlePane={paneSlots.length===1} tabs={paneTabs(key)} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)}
           owner={service?.service_id??''} selected={localId??slot.requested} name={tabName} recording={tabLogs.control} toggleRecording={tabLogs.toggle}
           select={id=>{panes.current.focus(key);selectConnection(id);controllers.current.get(key)?.runtime.term.focus();}}
-          endControls={localId&&<button type="button" className="adb-panel-toggle" aria-label="快捷指令" title="快捷指令"
+          endControls={localId&&<button type="button" className="adb-panel-toggle" aria-label="快捷指令" title="快捷指令" aria-keyshortcuts="Control+Shift+B"
             aria-expanded={adbOpen} aria-controls={adbPanelId} onClick={()=>setAdbPanel(key,!adbOpen)}><span className="sidebar-glyph" aria-hidden="true"/></button>}
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached} copy={(source,owner)=>copyTab(key,source,owner)}
           order={orderedIds} localTabs={locals.map(tab=>{
@@ -1197,7 +1296,7 @@ function App() {
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSsh();}}>连接服务器</button>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSerial();}}>串口连接</button>
-            <button onClick={()=>void openLocal(key)}>本地终端（PowerShell）</button>
+            <button title="Ctrl+Shift+T" aria-keyshortcuts="Control+Shift+T" onClick={()=>void openLocal(key)}>本地终端（PowerShell）</button>
           </ToolbarMenu>}
           {paneSlots.length>1&&<button type="button" className="pane-collapse" aria-label="收起此窗格，保留连接" title="收起此窗格，保留连接"
             onClick={()=>{cancelWorkspaceSplit();if(panes.current.closePane(key,panes.current.active))routeChanged();}}><ControlIcon icon="collapse" /></button>}
@@ -1206,17 +1305,18 @@ function App() {
           local={locals.map(tab=><div key={tab.id} className="local-terminal-socket" hidden={localId!==tab.id}
             ref={node=>{if(node&&tab.surface.parentElement!==node)node.append(tab.surface);}}/>)}
           localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} open={adbOpen} settings={adbSettings} starting={adbStarting}
+            keyboardFocus={adbKeyboardFocus?.pane===key&&adbKeyboardFocus.id===localId?adbKeyboardFocus.request:undefined}
             diagnostics={adbDiagnostics}
             close={()=>setAdbPanel(key,false)} reload={()=>void loadAdb()} update={updateAdbSettings}
             execute={(item,revision)=>item.script_path?void openLocal(key,false,undefined,{button:item.id,revision}):void clickAdb(key,localId,item.id,revision)}/>}
-          preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={()=>setSearchOpen(true)} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
+          preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={findTerminal} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
       }} />
     {localTabs.map(tab=>{
       const key=panes.current.paneOf(tab.id);
       const visible=localSelected.current.get(key)===tab.id;
       return createPortal(<LocalTerminal tab={tab} visible={visible} focused={visible&&panes.current.active===key}
-        preferences={preferences} focus={()=>focusPane(key)} report={reportLocalPrompt.current} shortcutSettled={shortcutSettled}
+        preferences={preferences} focus={()=>focusPane(key)} report={reportLocalPrompt.current} register={registerLocal} shortcutSettled={shortcutSettled}
         onDiagnostic={reportAdbDiagnostic} intent={adbIntent?.id===tab.id?adbIntent:undefined}/>,tab.surface,tab.id);
     })}
     {clipboardMessage&&<CornerNotice key={clipboardMessage} heading="剪贴板" autoDismiss
@@ -1268,10 +1368,22 @@ function App() {
     <Dialog label="独立 exec 任务" modal={false} open={execOpen} close={()=>setExecOpen(false)}><ExecPanel open={execOpen} connection={active} close={()=>setExecOpen(false)} /></Dialog>
     {serialOpen && <Dialog label="串口高级工具" modal={false} close={()=>setSerialOpen(false)}><SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} closePanel={()=>setSerialOpen(false)} /></Dialog>}
     {serialToolsOpen&&active?.protocol==='SERIAL'&&<Dialog label="串口收发详情" close={()=>setSerialToolsOpen(false)}><SerialPanel controlsOnly connection={active} select={selectConnection} closePanel={()=>setSerialToolsOpen(false)}/></Dialog>}
-    {searchOpen && <Dialog label="查找终端内容" modal={false} close={()=>setSearchOpen(false)}><TerminalSearch key={`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`} terminal={() => runtime.current?.term} close={() => setSearchOpen(false)} closeFromKeyboard={() => {
-      toolsSummary.current?.focus();
-      setSearchOpen(false);
-    }} /></Dialog>}
+    {search && <Dialog label="查找终端内容" modal={false} close={()=>closeSearch()}>
+      <TerminalSearch key={search.local?.id??`${selected}:${connections.find(item => item.connection_id === selected)?.generation}`}
+        terminal={searchRenderer} close={()=>closeSearch()} closeFromKeyboard={()=>closeSearch(true)} />
+    </Dialog>}
+    {shortcutHelp&&<Dialog label="键盘快捷键" close={()=>setShortcutHelp(false)}>
+      <Panel title="键盘快捷键" close={()=>setShortcutHelp(false)}>
+        <dl className="desktop-shortcut-guide">
+          <dt>Ctrl+Tab / Ctrl+Shift+Tab</dt><dd>当前窗格内循环切换到下一个或上一个标签</dd>
+          <dt>Alt+1 到 Alt+9，Alt+0</dt><dd>切到当前窗格第 1 到 9 个、第 10 个标签</dd>
+          <dt>Ctrl+Shift+T</dt><dd>在当前窗格新建本地 PowerShell</dd>
+          <dt>Ctrl+Shift+B</dt><dd>开合本地快捷指令栏。用 ↑ / ↓ 选中指令，Enter 运行</dd>
+          <dt>Ctrl+Shift+F</dt><dd>查找当前终端的保留缓冲区</dd>
+          <dt>F6 / Shift+F6</dt><dd>切换到下一个或上一个窗格</dd>
+        </dl>
+      </Panel>
+    </Dialog>}
     {pasteProposal && <Dialog label="粘贴确认" modal={false} close={cancelPaste}><Panel title="确认粘贴到终端">
       <small>目标 {pasteProposal.target.protocol} · {pasteProposal.target.connection_id} / 代次 {pasteProposal.target.generation}</small>
       <p>内容可能执行多条命令。CR/LF按原样发送，不自动添加换行；{pasteProposal.bracketed ? '使用终端请求的括号粘贴模式，不能保证远端安全。' : '当前未启用括号粘贴模式。'}继续键盘输入或切换目标会取消此预览。</p>

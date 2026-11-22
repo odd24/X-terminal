@@ -8,7 +8,8 @@ param(
     [switch]$MeasureMovement,
     [switch]$HoldOutside,
     [ValidateSet('Left','Right')][string]$Click,
-    [string]$LandingTitle
+    [string]$LandingTitle,
+    [ValidateSet('CtrlTab','CtrlShiftTab','CtrlShiftT','CtrlShiftB','CtrlShiftF','Alt1','Alt0','AltNumpad1')][string]$KeyboardChord
 )
 $ErrorActionPreference = 'Stop'
 $target = Get-Process -Id $TargetProcessId
@@ -39,6 +40,7 @@ public static class TerminalTestMouse {
  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra);
+ [DllImport("user32.dll")] public static extern void keybd_event(byte key,byte scan,uint flags,UIntPtr extra);
  delegate bool WindowCallback(IntPtr h, IntPtr state);
  [DllImport("user32.dll")] static extern bool EnumWindows(WindowCallback callback,IntPtr state);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h,StringBuilder text,int length);
@@ -102,6 +104,26 @@ try {
         if (![TerminalTestMouse]::SetWindowPos($window,[IntPtr](-1),0,0,0,0,67)) { throw 'Unable to raise the verified test window' }
         [void][TerminalTestMouse]::SetForegroundWindow($window)
         Start-Sleep -Milliseconds 150
+    }
+    if ($KeyboardChord) {
+        if ($Click -or $HoldOutside -or $LandingTitle -or @($Points | ConvertFrom-Json).Count -ne 0) { throw 'Keyboard mode needs no pointer points' }
+        if ([TerminalTestMouse]::GetForegroundWindow() -ne $window) { throw 'The verified test window must own keyboard focus' }
+        $chords = @{
+            CtrlTab=@(0x11,0x09); CtrlShiftTab=@(0x11,0x10,0x09)
+            CtrlShiftT=@(0x11,0x10,0x54); CtrlShiftB=@(0x11,0x10,0x42); CtrlShiftF=@(0x11,0x10,0x46)
+            Alt1=@(0x12,0x31); Alt0=@(0x12,0x30); AltNumpad1=@(0x12,0x61)
+        }
+        $down=[Collections.Generic.List[byte]]::new()
+        try {
+            foreach($key in $chords[$KeyboardChord]){
+                if ([TerminalTestMouse]::GetForegroundWindow() -ne $window) { throw 'Keyboard focus left the verified test window' }
+                [TerminalTestMouse]::keybd_event($key,0,0,[UIntPtr]::Zero)
+                $down.Add($key)
+            }
+        } finally {
+            for($i=$down.Count-1;$i -ge 0;$i--){[TerminalTestMouse]::keybd_event($down[$i],0,2,[UIntPtr]::Zero)}
+        }
+        return
     }
     $scale = [TerminalTestMouse]::GetDpiForWindow($window) / 96
     $steps = @($Points | ConvertFrom-Json)
