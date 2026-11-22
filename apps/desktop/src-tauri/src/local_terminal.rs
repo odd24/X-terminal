@@ -1,5 +1,6 @@
 mod adb;
 mod conpty;
+pub(crate) mod directory;
 pub(crate) mod scripts;
 
 use conpty::Process;
@@ -22,6 +23,7 @@ pub struct Terminals(Mutex<HashMap<Uuid, Session>>);
 
 struct Session {
     cwd: PathBuf,
+    startup_warning: Option<String>,
     script: Option<String>,
     script_directory: Option<PathBuf>,
     drives: HashMap<String, PathBuf>,
@@ -37,6 +39,7 @@ struct Session {
 #[derive(Serialize)]
 struct View {
     cwd: String,
+    startup_warning: Option<String>,
     task: Option<Uuid>,
     running: bool,
     bytes: Vec<u8>,
@@ -283,6 +286,7 @@ impl Session {
         }
         View {
             cwd: self.cwd.display().to_string(),
+            startup_warning: self.startup_warning.take(),
             task: self.last_request,
             running: self.active.is_some(),
             bytes: output.bytes,
@@ -316,6 +320,23 @@ pub async fn local_terminal(
     if window.label() != crate::session_windows::MAIN {
         return Err("本地命令行仅在主窗口可用".into());
     }
+    let startup = if matches!(
+        &action,
+        Action::Open {
+            inherit: None,
+            script: None,
+            ..
+        }
+    ) {
+        let root = desktop.2.clone();
+        Some(
+            tauri::async_runtime::spawn_blocking(move || directory::startup(&root))
+                .await
+                .map_err(|_| "无法读取本地终端默认目录")??,
+        )
+    } else {
+        None
+    };
     let mut sessions = state.0.lock().unwrap();
     let view = match action {
         Action::Open {
@@ -327,16 +348,38 @@ pub async fn local_terminal(
             if sessions.contains_key(&id) || sessions.len() == MAX_SESSIONS {
                 return Err("本地标签已存在或达到上限".into());
             }
-            let cwd = if let Some(source) = inherit {
-                sessions.get(&source).ok_or("发起标签已关闭")?.cwd.clone()
+            let script = if let Some(request) = script {
+                let settings = adb::read(&desktop.2)?;
+                if settings.revision != Some(request.revision) {
+                    return Err("快捷指令已更新，请重新选择".into());
+                }
+                let item = settings
+                    .shortcuts
+                    .iter()
+                    .find(|item| item.id == request.button)
+                    .ok_or("脚本入口已移除")?;
+                let (file, path) =
+                    scripts::readable(item.script_path.as_deref().ok_or("此入口不是本地脚本")?)?;
+                Some((item.name.clone(), file, path))
             } else {
-                env::var_os("USERPROFILE")
-                    .map(PathBuf::from)
-                    .filter(|path| path.is_dir())
-                    .ok_or("无法定位当前用户的主目录")?
+                None
+            };
+            let (cwd, startup_warning) = if let Some((_, _, path)) = &script {
+                (
+                    path.parent().ok_or("找不到脚本工作目录")?.to_path_buf(),
+                    None,
+                )
+            } else if let Some(source) = inherit {
+                (
+                    sessions.get(&source).ok_or("发起标签已关闭")?.cwd.clone(),
+                    None,
+                )
+            } else {
+                startup.ok_or("无法定位本地终端默认目录")?
             };
             let mut session = Session {
                 cwd,
+                startup_warning,
                 script: None,
                 script_directory: None,
                 drives: HashMap::new(),
@@ -348,31 +391,18 @@ pub async fn local_terminal(
                 cols: 80,
                 rows: 24,
             };
-            if let Some(request) = script {
-                let settings = adb::read(&desktop.2)?;
-                if settings.revision != Some(request.revision) {
-                    return Err("快捷指令已更新，请重新选择".into());
-                }
-                let item = settings
-                    .shortcuts
-                    .iter()
-                    .find(|item| item.id == request.button)
-                    .ok_or("脚本入口已移除")?;
-                let (_file, path) =
-                    scripts::readable(item.script_path.as_deref().ok_or("此入口不是本地脚本")?)?;
-                let cwd = path.parent().ok_or("找不到脚本工作目录")?.to_path_buf();
+            if let Some((name, _file, path)) = script {
                 // cmd falls back to another directory for UNC working directories.
                 let image = env::var_os("SystemRoot")
                     .map(PathBuf::from)
                     .ok_or("找不到 Windows 系统目录")?
                     .join(r"System32\cmd.exe");
                 session.active = Some(
-                    Process::start_script(&image, &path, &cwd, session.cols, session.rows)
+                    Process::start_script(&image, &path, &session.cwd, session.cols, session.rows)
                         .map_err(|error| format!("脚本启动失败：{error}"))?,
                 );
-                session.cwd = cwd.clone();
-                session.script_directory = Some(cwd);
-                session.script = Some(item.name.clone());
+                session.script_directory = Some(session.cwd.clone());
+                session.script = Some(name);
                 session.last_request = Some(Uuid::new_v4());
                 session.message = None;
             } else if powershell {

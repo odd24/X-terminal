@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.4 的 Test-Desktop-LocalDirectory.mjs 在普通 Windows 桌面核对新建 PowerShell 和轻量命令行、原生选择与取消、重开持久化、原标签目录、目录消失时的提示与回退及恢复桌面。交付时复验 ADB 结果继承及批处理文件自己的工作目录。[P26.4](records/P26.4.md)
+
 P26.3 的 Test-Desktop-LocalScripts.mjs 验证真实 Windows 文件选择器多选、配置升级与重开、特殊路径和工作目录、交互、暂停、中断、退出及入口管理。ADB 与 PowerShell 由原有实际桌面用例复验。[P26.3](records/P26.3.md)
 
 P26.2 用 Test-Desktop-LocalPowerShell.mjs 核对真实 Windows PowerShell、Tab 路径补全、管道和重定向内容、Ctrl+C、中文及切换后的快捷指令交互。模拟 ADB 专项核对空格与 Tab 分隔、失败诊断和固定目标。实机模式只对一台明确授权设备运行 adb shell、pwd、exit。[P26.2](records/P26.2.md)

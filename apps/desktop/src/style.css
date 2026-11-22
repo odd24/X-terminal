@@ -370,6 +370,10 @@ main.desktop-shell {
 .adb-empty { width: 100%; }
 .local-script-info > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .local-script-info > button { flex: none; }
+.local-directory-warning { padding: var(--space-2); }
+.local-directory-settings dl { margin-block: 0 var(--space-2); }
+.local-directory-settings dt { font-weight: 600; }
+.local-directory-settings dd { margin: var(--space-1) 0 var(--space-2); overflow-wrap: anywhere; user-select: text; }
 .adb-diagnostic-alert { color: var(--danger); }
 .adb-diagnostic { overflow-wrap: anywhere; margin-block-start: var(--space-2); }
 .adb-diagnostic dd { margin: 0 0 var(--space-2); }

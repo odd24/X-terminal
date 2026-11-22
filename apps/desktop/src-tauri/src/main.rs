@@ -1042,6 +1042,7 @@ fn main() {
             terminal_clipboard::terminal_clipboard_read,
             local_terminal::local_terminal,
             local_terminal::local_adb_settings,
+            local_terminal::directory::local_directory_settings,
             local_terminal::prepare_local_adb,
             local_terminal::scripts::pick_local_scripts,
             service_status,

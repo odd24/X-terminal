@@ -74,6 +74,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "PowerShell regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-LocalScripts.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Local script regression failed. Candidate: $staging" }
+    node scripts/Test-Desktop-LocalDirectory.mjs $desktop
+    if ($LASTEXITCODE -ne 0) { throw "Local directory regression failed. Candidate: $staging" }
     $sha256 = $null
     if (!$DirectoryOnly) {
         $sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -85,13 +87,15 @@ try {
     $adb = Get-Content -LiteralPath 'artifacts/local-adb-software-result.json' -Raw | ConvertFrom-Json
     $powershell = Get-Content -LiteralPath 'artifacts/local-powershell-software-result.json' -Raw | ConvertFrom-Json
     $scripts = Get-Content -LiteralPath 'artifacts/local-scripts-software-result.json' -Raw | ConvertFrom-Json
+    $directory = Get-Content -LiteralPath 'artifacts/local-directory-software-result.json' -Raw | ConvertFrom-Json
     if ($verified.result -ne 'PASS' -or $mcp.result -ne 'PASS' -or $mcp.preview -ne $unpacked -or
         $local.result -ne 'PASS' -or $local.executable -ne $desktop -or $adb.result -ne 'PASS' -or $adb.executable -ne $desktop -or
         $powershell.result -ne 'PASS' -or $powershell.executable -ne $desktop -or
-        $scripts.result -ne 'PASS' -or $scripts.executable -ne $desktop) {
+        $scripts.result -ne 'PASS' -or $scripts.executable -ne $desktop -or
+        $directory.result -ne 'PASS' -or $directory.executable -ne $desktop) {
         throw 'Release evidence mismatch'
     }
-    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts}
+    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
 
     $resolvedStage = (Resolve-Path -LiteralPath $staging).Path

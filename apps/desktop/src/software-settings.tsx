@@ -4,8 +4,9 @@ import type { ReactNode } from 'react';
 import {useState} from 'react';
 import { Field, Panel } from './ui';
 import {LogViewerSettings} from './log-viewer-settings';
+import {LocalDirectorySettings} from './local-directory-settings';
 
-const sections=['外观','输入与剪贴板','日志'] as const;
+const sections=['外观','输入与剪贴板','日志','本地终端'] as const;
 
 export function SoftwareSettings({preferences, fontSizeControl, busy, canSave, message, update, save, read, close }: {
   preferences: DesktopPreferences; fontSizeControl: ReactNode; busy: boolean; canSave: boolean; message: string;
@@ -18,7 +19,7 @@ export function SoftwareSettings({preferences, fontSizeControl, busy, canSave, m
     <nav className="settings-categories" aria-label="设置分类">
       {sections.map(name=><button type="button" key={name} aria-pressed={section===name} onClick={()=>setSection(name)}>{name}</button>)}
     </nav>
-    {section==='日志'?<LogViewerSettings/>:<>
+    {section==='本地终端'?<LocalDirectorySettings/>:section==='日志'?<LogViewerSettings/>:<>
     <fieldset disabled={busy}>
     {section==='外观'?<div className="form-grid">
       <Field label="应用主题"><select aria-label="应用主题" value={preferences.theme} onChange={event => update({theme:event.target.value as ThemeChoice})}>

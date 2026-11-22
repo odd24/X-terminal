@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.4 按 [CR-027](changes/CR-027.md) 为新建本地终端接入 Windows 桌面和持久默认目录。实际桌面和 Windows x64 直接运行目录按 [P26.4](records/P26.4.md) 核对。
+
 P26.2 按 [CR-025](changes/CR-025.md) 对照实际 adb 环境，实施默认 PowerShell 和轻量终端内输入，软件及实机分别取证并验证直接运行目录。[P26.2](records/P26.2.md)
 
 P26.1 按 [CR-024](changes/CR-024.md) 完成右侧 ADB 快捷指令栏，保留原执行和设置链路，按实际窗口与解包复验交付。[P26.1](records/P26.1.md)
