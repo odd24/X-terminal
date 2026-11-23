@@ -8,6 +8,7 @@ import {launchDesktop,delay,dragNativeWindow} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]??'target/debug/shared-terminal-desktop.exe');
 const title=process.argv[2]?'共享终端':'共享终端 · 开发预览';
+const webviewOnly=process.argv.includes('--webview-only');
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-local-tabs-中文-'));
 const result={result:'IN_PROGRESS',executable,sha256:createHash('sha256').update(await readFile(executable)).digest('hex'),checks:[],screenshots:[]};
 const q=JSON.stringify;
@@ -31,10 +32,14 @@ const point=(element,x=.5,y=.5)=>ui.evaluate(`(()=>{const r=(${element}).getBoun
 async function drag(source,to,preview,cancel=false) {
   const from=await point(tab(source));
   await press(from);
-  await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...to,button:'left',buttons:1});
-  await ui.waitFor(preview);
-  if(cancel)await ui.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
-  await release(to);
+  try {
+    await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...to,button:'left',buttons:1});
+    await ui.waitFor(preview);
+    if(cancel)for(const type of ['keyDown','keyUp'])
+      await ui.command('Input.dispatchKeyEvent',{type,key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  } finally {
+    await release(to);
+  }
   await ui.waitFor("!document.querySelector('[data-drag-source]')");
 }
 async function doubleClick(name) {
@@ -104,6 +109,21 @@ try {
   await writeFile(path.join(root,'fixture-root.txt'),root);
   await writeFile(path.join(root,'inventory.txt'),'synthetic device product:mock\n');
   ui=await launchDesktop(root,{executable});
+  await ui.command('Page.enable');
+  const {identifier}=await ui.command('Page.addScriptToEvaluateOnNewDocument',{source:`
+    (() => {
+      const originalSnapshotFetch=window.fetch;
+      const snapshotReady=new Promise(resolve=>{window.releaseTestSnapshot=resolve;});
+      window.fetch=async function(request,init){
+        const response=await originalSnapshotFetch.call(this,request,init);
+        if(new URL(String(request)).pathname==='/desktop_session_snapshot')await snapshotReady;
+        return response;
+      };
+    })();
+  `});
+  const reload=ui.command('Page.reload').then(()=>undefined,error=>error);
+  await ui.waitFor('!!window.releaseTestSnapshot&&!!document.querySelector(".tools-menu")');
+  await ui.command('Page.removeScriptToEvaluateOnNewDocument',{identifier});
   await ui.invoke('local_adb_settings',{settings:{revision:null,executable:adb,shortcuts:[{id:randomUUID(),name:'合成 ADB',command:'adb shell'}]}});
   await ui.evaluate(`(()=>{
     const original=window.fetch;
@@ -125,14 +145,30 @@ try {
   await ui.waitFor(`${output}?.innerText.includes('retained-draft')`);
   await ui.evaluate(`window.originalLocal=${output}.querySelector('.xterm')`);
   const originalCalls=await attempts();
-  await doubleClick('本地 1');await focused('本地 2');
+  await noDoubleCopy('本地 1');
+  await copyTab('本地 1');await focused('本地 2');
   assert.equal(await ui.evaluate(`${output}.title`),directory);
   assert.ok(!(await ui.evaluate(`${output}.innerText`)).includes('retained-draft'));
   assert.deepEqual(await names(),['本地 1','本地 2']);
   assert.deepEqual(await attempts(),{...originalCalls,open:originalCalls.open+1});
   await ui.evaluate(`${tab('本地 1')}.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,detail:2}))`);
   assert.deepEqual(await attempts(),{...originalCalls,open:originalCalls.open+1});
-  result.checks.push('one valid lightweight double-click opens one adjacent tab at the tracked cwd without draft or input; an unpaired double-click cannot open another copy');
+  result.checks.push('lightweight double-click makes no request; an explicit menu copy opens one adjacent tab at the tracked cwd without draft or input');
+
+  assert.equal(await ui.evaluate("document.querySelector('footer').dataset.serviceId"),undefined);
+  const startupDrop=await point(`${tab('本地 2')}.closest('.connection-tab')`,.88);
+  await press(await point(tab('本地 1')));
+  await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...startupDrop,button:'left',buttons:1});
+  await ui.waitFor(`!!${query('[data-insertion="after"]')}`);
+  await ui.evaluate('window.releaseTestSnapshot()');
+  const reloadError=await reload;if(reloadError)throw reloadError;
+  await ui.waitFor(`!!${query('[data-insertion="after"]')}`);
+  await release(startupDrop);
+  await focused('本地 1');
+  assert.deepEqual(await names(),['本地 2','本地 1']);
+  await drag('本地 1',await point(tab('本地 2'),.1),`!!${query('[data-insertion="before"]')}`);
+  assert.deepEqual(await names(),['本地 1','本地 2']);
+  result.checks.push('local drag completes across arrival of the first native service snapshot');
 
   await ui.evaluate(`window.nativeTabDrags=0;window.tabPointerTrace=[];
     document.addEventListener('dragstart',event=>{
@@ -140,21 +176,13 @@ try {
     },true);
     for(const type of ['pointerdown','pointermove','pointerup','pointercancel','lostpointercapture']){
       document.addEventListener(type,event=>{
-        if(window.tabPointerTrace.length<40)window.tabPointerTrace.push([type,event.clientX,event.clientY,event.buttons,event.target.closest('[role=tab]')?.textContent]);
+      if(type==='pointermove'&&!event.buttons)return;
+      if(window.tabPointerTrace.length>=40)window.tabPointerTrace.shift();
+      window.tabPointerTrace.push([type,event.clientX,event.clientY,event.buttons,event.target.closest('[role=tab]')?.textContent]);
       },true);
     }`);
-  const from=await point(tab('本地 1'));
   const to=await point(`${tab('本地 2')}.closest('.connection-tab')`,.88);
-  for(let attempt=0;;attempt++){
-    try{
-      dragNativeWindow(ui.app,[from,{x:(from.x+to.x)/2,y:from.y},{...to,holdMs:190}],{executable,title,raise:true,placeAtWorkAreaStart:true});
-      break;
-    }catch(error){
-      if(attempt===2||!String(error.stderr).includes('not under the starting point'))throw error;
-      await delay(250);
-    }
-  }
-  await ui.waitFor(`${tab('本地 2')}.closest('.connection-tab').nextElementSibling?.querySelector('[role="tab"]')===${tab('本地 1')}`);
+  await drag('本地 1',to,`!!${query('[data-insertion="after"]')}`);
   assert.deepEqual(await names(),['本地 2','本地 1']);
   assert.equal(await ui.evaluate('window.nativeTabDrags'),0);
   await focused('本地 1');
@@ -174,7 +202,7 @@ try {
   await count(1);await focused('本地 1');
   assert.deepEqual(await names(),['本地 1','本地 2']);
   assert.equal(await ui.evaluate(`${output}.querySelector('.xterm')===window.originalLocal`),true);
-  result.checks.push('native mouse reorders, Escape cancels, terminal edge splits, and cross-pane rail drop merges with the same renderer and draft');
+  result.checks.push('rail drop reorders, Escape cancels, terminal edge splits, and cross-pane rail drop merges with the same renderer and draft');
 
   await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
   await focused('本地 3');
@@ -187,12 +215,13 @@ try {
   await type("Read-Host 'PRESERVE_FOREGROUND'");await enter();
   await ui.waitFor(`/PRESERVE_FOREGROUND:\\s*$/.test(${output}?.innerText??'')`);
   const shellCalls=await attempts();
-  await doubleClick('本地 3');await focused('本地 4');
+  await noDoubleCopy('本地 3');
+  await copyTab('本地 3');await focused('本地 4');
   await ui.waitFor(`/PS [\\s\\S]+>\\s*$/.test(${output}?.innerText??'')`);
   assert.ok(!(await ui.evaluate(`${output}.innerText`)).includes('PRESERVE_FOREGROUND'));
   assert.deepEqual(await attempts(),{...shellCalls,open:shellCalls.open+1});
   assert.equal(await powerShellDirectory('duplicate-start'),powerShellStart);
-  await screenshot('windows-0.1.28-powershell-tab-copy.png');
+  await screenshot('windows-local-tabs-context-copy.png');
   await ui.click('本地 3');await focused('本地 3');
   await type('RESPONSE_TO_ORIGINAL');await enter();
   await ui.waitFor(`${output}?.innerText.includes('RESPONSE_TO_ORIGINAL')`);
@@ -201,7 +230,7 @@ try {
   assert.equal(await powerShellDirectory('menu-copy-start'),powerShellStart);
   assert.deepEqual(await names(),['本地 1','本地 2','本地 3','本地 5','本地 4']);
   result.copyDirectory={lightweight:'tracked directory after cd',powershell:'recorded launch directory',livePowerShellCdInherited:false};
-  result.checks.push('PowerShell double-click and explicit menu open independent shells at the recorded launch directory; in-shell Set-Location and waiting input remain on the original');
+  result.checks.push('PowerShell double-click makes no request while Read-Host is active; explicit mouse and keyboard menus open independent shells at the launch directory');
 
   await ui.click('本地 2');await focused('本地 2');
   await adbShortcut();await focused('本地 2');
@@ -209,7 +238,8 @@ try {
   await type('ONLY_ORIGINAL_ADB');await enter();
   await ui.waitFor(`${output}?.innerText.includes('ADB_FIXTURE_ECHO:ONLY_ORIGINAL_ADB')`);
   await stopForeground();
-  await doubleClick('本地 2');await focused('本地 6');
+  await noDoubleCopy('本地 2');
+  await copyTab('本地 2');await focused('本地 6');
   assert.equal(await ui.evaluate(`${output}.title`),directory);
   assert.ok(!(await ui.evaluate(`${output}.innerText`)).includes('ONLY_ORIGINAL_ADB'));
   await ui.click('本地 3');await focused('本地 3');
@@ -219,7 +249,19 @@ try {
   await noDoubleCopy('本地 7');
   const calls=await readFile(path.join(root,'adb-calls.txt'),'utf8');
   assert.equal(calls.split(/\r?\n/).filter(line=>line.startsWith('shell|')).length,2);
-  result.checks.push('managed ADB in a reused ordinary tab blocks double-click only while busy; a dedicated ADB result blocks during and after the task, with exactly two explicit synthetic launches and no replays');
+  result.checks.push('double-click makes no additional request before or after ADB finishes in reused ordinary and dedicated result tabs; only two explicit synthetic launches are recorded');
+  if(!webviewOnly){
+    const from=await point(tab('本地 1'));
+    const nativeTarget=await point(`${tab('本地 2')}.closest('.connection-tab')`,.86);
+    const beforeNative=await attempts();
+    dragNativeWindow(ui.app,[from,{x:(from.x+nativeTarget.x)/2,y:from.y},{...nativeTarget,holdMs:190}],
+      {executable,title,raise:true,placeAtWorkAreaStart:true});
+    await ui.waitFor(`${tab('本地 2')}.closest('.connection-tab').nextElementSibling?.querySelector('[role="tab"]')===${tab('本地 1')}`);
+    assert.equal(await ui.evaluate('window.nativeTabDrags'),0);
+    assert.deepEqual(await attempts(),beforeNative);
+    result.checks.push('native Windows mouse reorders an existing local tab without a browser drag or terminal open/input');
+  }
+  result.nativeMouse=!webviewOnly;
   await tool('退出桌面');
   await ui.waitFor('!!document.querySelector("dialog[aria-label=\'退出桌面确认\']")');
   await ui.click('确认退出并停止服务');

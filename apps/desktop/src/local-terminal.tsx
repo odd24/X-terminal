@@ -13,7 +13,7 @@ import type {LocalRightClick} from './local-right-click';
 export type LocalView = {cwd:string; startup_warning:string|null; task:string|null; running:boolean; bytes:number[]|Uint8Array; overflow:boolean;
   message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null};
 export type LocalTab = {id:string; title:string; initial:LocalView; powershell:boolean; origin:'ordinary'|'adb-result'|'script'};
-export type LocalPromptState = {busy:boolean; hasDraft:boolean; copyBlocked:boolean};
+export type LocalPromptState = {busy:boolean; hasDraft:boolean};
 export function terminalAction<T = void>(action: {kind:string; id?:string} & Record<string, unknown>) {
   return invoke<T>('local_terminal', {action});
 }
@@ -157,7 +157,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
   function publish() {
     const starting=flight.current||!!uncertain.current;
     latest.current.report(tab.id,{busy:tab.powershell||view.current.running||starting,
-      hasDraft:!!line.current.text||composing.current,copyBlocked:starting||!tab.powershell&&view.current.running});
+      hasDraft:!!line.current.text||composing.current});
   }
 
   function redraw() {

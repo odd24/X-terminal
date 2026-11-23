@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.19 按 [CR-042](changes/CR-042.md) 修正本地标签拖动与双击，随 Windows x64 0.1.29 一并交付。[P26.19](records/P26.19.md) · Step-ID: P26.19。
+
 P26.17 按 [CR-040](changes/CR-040.md) 交付 Windows x64 0.1.28，普通本地终端双击复制、目录语义和前台任务保护通过实窗专项。[P26.17](records/P26.17.md) · Step-ID: P26.17。
 
 P26.16 按 [CR-039](changes/CR-039.md) 交付 Windows x64 0.1.27，实窗对照通过方案 A 与标签行为回归。[P26.16](records/P26.16.md) · Step-ID: P26.16。

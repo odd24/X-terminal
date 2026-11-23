@@ -4,7 +4,7 @@ import type { SessionDrag } from './session-drag';
 import type { TabRecording } from './tab-logging';
 import { ContextMenu, ControlIcon } from './ui';
 type Connection=GroupConnection&{state:string};
-type LocalTabItem={id:string;label:string;title:string;pending:boolean;select():void;close():void;copy?():void;copyOnDoubleClick():void};
+type LocalTabItem={id:string;label:string;title:string;pending:boolean;select():void;close():void;copy?():void};
 export const localDragSource=(id:string):Connection=>({connection_id:id,generation:0,protocol:'LOCAL',state:'CONNECTED'});
 export function TabCloseButton({label,disabled,close}:{label:string;disabled?:boolean;close():void}){
   return <button type="button" className="tab-close-button" aria-label={label} disabled={disabled} draggable={false} onClick={close}>
@@ -78,9 +78,8 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
             Array.from(list.current?.querySelectorAll<HTMLElement>('[role="tab"]')??[]).find(e=>e.dataset.connectionId===tabs[next].connection_id)?.focus({preventScroll:true});
           }} aria-selected={selected===id} aria-label={label}
           title={local?.title??`${label} · ${connection.protocol} · ${connection.state} · ${id} / ${connection.generation}`}
-          onDoubleClick={event=>{
+          onDoubleClick={local?undefined:event=>{
             if(!allowedDoubleClick(event))return;
-            if(local){local.copyOnDoubleClick();return;}
             if(connection.state==='CONNECTED'&&['SSH2','SERIAL'].includes(connection.protocol)&&!pending(connection))copy(connection,owner);
           }}
           onClick={event=>{

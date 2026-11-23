@@ -5,7 +5,7 @@ import type { PaneLive } from './pane-layout';
 
 export function useSessionDrag(tabs: PaneLive[], owner: string,
   drop: (source: PaneLive, destination: TabDrop) => void, detached: boolean) {
-  const gesture = useRef<{ source: PaneLive; owner: string; pointer: number; x: number; y: number; moving: boolean }>(undefined);
+  const gesture = useRef<{ source: PaneLive; serviceOwner?: string; pointer: number; x: number; y: number; moving: boolean }>(undefined);
   const frame = useRef(0);
   const ignoreClick = useRef(false);
   const clickSequence = useRef<{ tab: HTMLButtonElement; count: 1 | 2 }>(undefined);
@@ -19,9 +19,14 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
   useEffect(() => {
     const current = gesture.current;
-    if (current && (current.owner !== owner || !tabs.some(tab => tab.connection_id === current.source.connection_id
-      && tab.generation === current.source.generation && tab.protocol === current.source.protocol))) clear();
+    if (current && !isCurrent(current)) clear();
   }, [tabs, owner]);
+
+  function isCurrent(current: NonNullable<typeof gesture.current>) {
+    const { source, serviceOwner } = current;
+    return (serviceOwner === undefined || serviceOwner === owner) && tabs.some(tab =>
+      tab.connection_id === source.connection_id && tab.generation === source.generation && tab.protocol === source.protocol);
+  }
 
   function target(x: number, y: number, source:PaneLive) {
     const destination = locateTabDrop(x, y);
@@ -52,7 +57,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
     if (!current.moving && (!commit || Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6)) return;
     ignoreClick.current = true;
     clickSequence.current = undefined;
-    if (!commit || current.owner !== owner) return;
+    if (!commit || !isCurrent(current)) return;
     const destination = target(event.clientX, event.clientY,current.source);
     if (destination) drop(current.source, destination);
   }
@@ -66,7 +71,8 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
       onPointerDown(event: PointerEvent<HTMLButtonElement>) {
         if (!event.isPrimary || event.button !== 0) return;
         ignoreClick.current = false;
-        gesture.current = { source: { ...source }, owner, pointer: event.pointerId, x: event.clientX, y: event.clientY, moving: false };
+        gesture.current = { source: { ...source }, serviceOwner: source.protocol === 'LOCAL' ? undefined : owner,
+          pointer: event.pointerId, x: event.clientX, y: event.clientY, moving: false };
         // Keep current pane's input focus until a click or an actual drop.
         event.preventDefault();
         event.stopPropagation();

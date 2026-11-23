@@ -298,7 +298,7 @@ main.desktop-shell {
   display: flex; align-items: center; gap: var(--space-1); max-width: var(--tab-max-width);
   white-space: nowrap; text-align: left;
 }
-.tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 [data-session-drag-handle] { cursor: grab; touch-action: none; user-select: none; }
 [data-tab-drag="true"] .connection-tab > [role="tab"] { cursor: grabbing; }
 .connection-tab[data-drag-source] { opacity: .62; }

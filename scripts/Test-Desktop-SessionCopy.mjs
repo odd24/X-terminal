@@ -16,6 +16,7 @@ const panels=process.argv.includes('--connection-panels');
 const notices=process.argv.includes('--corner-notices');
 const refresh=notices||panels||process.argv.includes('--toolbar-refresh');
 const tabInteractions=process.argv.includes('--tab-interactions');
+const webviewPointer=refresh||process.argv.includes('--webview-pointer');
 const tabVersion=path.basename(path.dirname(desktop)).match(/^SharedTerminal-(\d+\.\d+\.\d+)-windows-x64$/)?.[1]??'unpacked';
 const version=tabInteractions?tabVersion:notices?'0.1.12':panels?'0.1.11':refresh?'0.1.10':'0.1.9';
 const artifact=notices?'corner-notices':panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh';
@@ -153,7 +154,7 @@ async function splitRight(connection){
     const a=${tab(connection)}.getBoundingClientRect(),b=${pane}.querySelector('.terminal').getBoundingClientRect();
     return [{x:a.x+a.width/2,y:a.y+a.height/2},{x:a.x+a.width/2,y:a.bottom+32},{x:b.x+b.width*.84,y:b.y+b.height*.5,holdMs:260}];
   })()`);
-  if(refresh){
+  if(webviewPointer){
     const [start,intermediate,end]=points;
     await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',...start,button:'left',buttons:1,clickCount:1});
     for(const {x,y} of [intermediate,end])await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',x,y,button:'left',buttons:1});
@@ -273,7 +274,7 @@ async function close(){
       return true;
     })()`),true);
   }else{
-    if(refresh)await webviewClick(ui,q('.window-close'));
+    if(webviewPointer)await webviewClick(ui,q('.window-close'));
     else await click(ui,q('.window-close'));
     await ui.waitFor(`!!document.querySelector('dialog[aria-label="退出桌面确认"]')`);
     await ui.click('确认退出并停止服务');
