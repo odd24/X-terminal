@@ -96,23 +96,38 @@ try{
   await ui.click('关闭软件设置');
   await tool('轻量命令行');
   await localReady(1);
+  await ui.command('Page.bringToFront');
+  await ui.evaluate(`window.plusPointerEvents=[]; for(const type of ['pointerover','pointerout'])document.addEventListener(type,event=>{
+    if(event.target.closest('.new-menu')&&window.plusPointerEvents.length<20)
+      window.plusPointerEvents.push([type,event.pointerType,event.clientX,event.clientY]);
+  },true)`);
 
   const plus=await points(query(rootMenu+' > summary'));
   const leave=async()=>{
     await move({x:20,y:260});
     await ui.waitFor(`!${menu}.matches(':hover')`);
   };
+  async function hover(){
+    for(let n=0;n<4;n++){
+      await leave();await move(plus);
+      await delay(430);
+      if(await ui.evaluate(opened))return;
+      assert.equal(await ui.evaluate(`${menu}.matches(':hover')`),false,'a continuous hover must open the menu');
+    }
+    assert.fail('Another pointer moved the cursor during each hover attempt');
+  }
+  await leave();
   await move(plus);await delay(160);assert.equal(await ui.evaluate(`${menu}.open`),false);
   await leave();await delay(390);assert.equal(await ui.evaluate(`${menu}.open`),false);
-  await move(plus);await ui.waitFor(opened);
+  await hover();
   assert.deepEqual(await ui.evaluate(`[...${menu}.querySelectorAll('button')].map(b=>b.textContent)`),['本地终端','SSH 连接','串口连接']);
   await ui.screenshot('windows-0.1.23-tab-plus-menu.png');
   await move(await points(query(rootMenu+' .tools-menu-content > button')));
   await delay(200);assert.equal(await ui.evaluate(`${menu}.open`),true);
   await leave();await ui.waitFor(`!${menu}.open`);
-  await move(plus);await ui.waitFor(opened);await key('Escape','Escape',27);
+  await hover();await key('Escape','Escape',27);
   await ui.waitFor(`!${menu}.open`);await delay(400);assert.equal(await ui.evaluate(`${menu}.open`),false);
-  await leave();await move(plus);await ui.waitFor(opened);
+  await hover();
   await click(plus);await click(plus,2);await localReady(2);
   assert.equal(await localCount(),2);
   assert.equal(await ui.evaluate("document.querySelector('.pane-active .local-terminal:not([hidden])').dataset.mode"),'powershell');
@@ -243,6 +258,7 @@ try{
   console.log('PASS Windows tab and configuration plus entry points');
 }catch(error){
   evidence.result='FAIL';evidence.error=String(error.stack);
+  if(ui)evidence.pointerEvents=await ui.evaluate('window.plusPointerEvents').catch(()=>undefined);
   await ui?.screenshot('windows-0.1.23-new-entries-failure.png').catch(()=>{});
   throw error;
 }finally{
