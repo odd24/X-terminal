@@ -98,7 +98,7 @@ try {
   await open();
   await ui.evaluate("document.querySelector('.new-menu').open=true");
   assert.deepEqual(await ui.evaluate("[...document.querySelectorAll('.new-menu button')].map(b=>b.textContent)"),
-    ['连接服务器','串口连接','本地终端（PowerShell）']);
+    ['本地终端','SSH 连接','串口连接']);
   await ui.evaluate("document.querySelector('.new-menu').open=false");
   await addWithPicker();
   assert.deepEqual((await stored()).shortcuts,[legacy]);

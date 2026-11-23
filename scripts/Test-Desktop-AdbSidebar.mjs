@@ -162,7 +162,6 @@ try {
   await ui.waitFor(`document.querySelector('.pane-active')?.dataset.renderedId===${JSON.stringify(first)}`);
   await ui.splitTab(second,'horizontal');
   await ui.waitFor('document.querySelectorAll(".terminal-pane").length===2');
-  await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
   await ui.evaluate("document.querySelector('details.tools-menu').open=true");
   await ui.click('轻量命令行');
   await ui.waitFor('document.activeElement?.matches(".local-terminal:not([hidden]) .xterm-helper-textarea")');

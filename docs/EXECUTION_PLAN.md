@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.10 按 [CR-033](changes/CR-033.md) 调整标签栏和会话配置树的新建入口。Windows 桌面验证范围见 [P26.10](records/P26.10.md)。
+
 P26.9 按 [CR-032](changes/CR-032.md) 接通右栏快捷指令与 MCP。实施步骤、独立权限、事务和回执规则以 [P26.9](records/P26.9.md) 为准。
 
 P26.8 按 [CR-031](changes/CR-031.md) 接入桌面标签与本地终端快捷键，以实际 Windows 键盘、窗格输入和保留输出验证。[P26.8](records/P26.8.md)

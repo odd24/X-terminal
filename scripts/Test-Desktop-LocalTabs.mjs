@@ -83,7 +83,7 @@ try {
   result.checks.push('native mouse reorders, Escape cancels, terminal edge splits, and cross-pane rail drop merges with the same renderer and draft');
 
   await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
-  await ui.click('本地终端（PowerShell）');await focused('本地 3');
+  await focused('本地 3');
   await ui.waitFor(`/PS [\\s\\S]+>\\s*$/.test(${output}?.innerText??'')`);
   await doubleClick('本地 3');await focused('本地 4');
   await ui.waitFor(`/PS [\\s\\S]+>\\s*$/.test(${output}?.innerText??'')`);

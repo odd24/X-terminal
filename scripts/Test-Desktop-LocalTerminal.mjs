@@ -32,11 +32,8 @@ async function run(line, expected, idle = true) {
   if (expected) await waitOutput(expected);
   if (idle) await waitPrompt();
 }
-async function open(name) {
+async function open() {
   const start = performance.now();
-  if (name !== '本地 1') {
-    await ui.evaluate("document.querySelector('details.new-menu').querySelector('summary').click()");
-  }
   await ui.evaluate("document.querySelector('details.tools-menu').open=true");
   await ui.click('轻量命令行');
   await waitPrompt();
@@ -71,7 +68,7 @@ try {
   `, 'utf8');
   ui = await launchDesktop(directory, {executable});
   for (let n=1; n<=11; n++) {
-    await open('本地 '+n);
+    await open();
     if (n>1) {
       await ui.click('关闭 本地 '+n);
       await ui.click('本地 1');
@@ -118,7 +115,7 @@ try {
   const text = await ui.evaluate(contents(output));
   const pid = Number(text.match(/READY:(\d+)/)?.[1]);
   assert.ok(pid > 0);
-  await open(tabB);
+  await open();
   await run('pwd');
   assert.notEqual(await ui.evaluate(`document.querySelector(${JSON.stringify(output)}).title`), target);
   await ui.click('本地 1');

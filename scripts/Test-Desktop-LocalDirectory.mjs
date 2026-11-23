@@ -40,7 +40,7 @@ async function picker(choice) {
 
 async function openShell(fromPlus) {
   if(fromPlus)await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
-  await ui.click('本地终端（PowerShell）');
+  else await ui.click('本地终端（PowerShell）');
   await ui.waitFor(`document.querySelector('${visible}')?.dataset.mode==='powershell'`);
 }
 

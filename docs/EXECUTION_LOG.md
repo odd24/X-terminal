@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.10 按 [CR-033](changes/CR-033.md) 调整两处新建入口，实际 Windows Desktop 核对 PowerShell 工作目录、回环 SSH、内存 UART 和保存失败路径。[P26.10](records/P26.10.md) · Step-ID: P26.10。
+
 P26.9 按 [CR-032](changes/CR-032.md) 交付 Windows x64 0.1.22 直接运行目录。v12 保留原 29 项工具契约，四项快捷指令工具经官方 stdio 复验通过。独立权限、双向版本冲突、回执恢复及桌面回归见 [P26.9](records/P26.9.md#windows-x64-0122-交付)。Step-ID: P26.9。
 
 P26.5 修复本地与 SSH 标签的拖动入口和刷机脚本标签误复制。Windows 原生拖动、脚本前台输入、本地与 SSH 混排及 SSH 双击复制专项通过。[回归记录](records/P26.5.md#2026-11-22-本地标签与脚本会话回归修复) · Step-ID: P26.5。

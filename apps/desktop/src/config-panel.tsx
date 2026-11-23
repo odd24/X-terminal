@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { HostKeysPanel } from './host-keys-panel';
 import { ArchivesPanel } from './archives-panel';
 import { CredentialsPanel } from './credentials-panel';
-import { IconButton, PanelHeading } from './ui';
+import { IconButton, PanelHeading, keepCompositionInField } from './ui';
 import { config, ConfigRequestError, readConfiguration, type Auth, type CredentialEdit, type Encoding, type Folder, type Profile, type Settings } from './config-api';
 
 type Draft = {
@@ -23,12 +23,12 @@ function settings(draft: Draft): Settings {
   const common = { host: draft.host.trim(), port: draft.port, username: draft.username, encoding: draft.encoding };
   return draft.protocol === 'ssh2' ? { ...common, protocol: 'ssh2', auth: draft.auth } : { ...common, protocol: 'ssh1', explicitly_enabled: draft.ssh1 };
 }
-export function ConfigPanel({ close, onRestored, initialProfileId, initialAction, onChanged, ssh1Preview }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; initialAction?:'edit'|'delete'; onChanged?():void; ssh1Preview: boolean }) {
+export function ConfigPanel({ close, onRestored, initialProfileId, initialAction, onChanged, ssh1Preview, creation, onConnect }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; initialAction?:'edit'|'delete'; onChanged?():void; ssh1Preview: boolean; creation?:{protocol:'ssh2'|'serial';folder:string}; onConnect?(profile:Profile):void }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [filter, setFilter] = useState('*');
   const [search, setSearch] = useState('');
-  const [draft, setDraft] = useState<Draft>(blank);
+  const [draft, setDraft] = useState<Draft>(()=>creation?{...blank(),...creation}:blank());
   const [folderDraft, setFolderDraft] = useState<Folder>({ id: crypto.randomUUID(), parent_id: null, name: '' });
   const [credential, setCredential] = useState<'keep' | 'clear' | 'replace'>('keep');
   const [password, setPassword] = useState('');
@@ -41,6 +41,10 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
   const [managementEpoch,setManagementEpoch]=useState(0);
   const [deletion,setDeletion]=useState<{profile:Profile;uncertain:boolean}>();
   const deleteFlight=useRef(false),deleteControl=useRef<HTMLButtonElement>(null);
+  const saveInFlight=useRef(false);
+  const active=useRef(false);
+  const [saveUncertain,setSaveUncertain]=useState(false);
+  useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
   useEffect(()=>{if(deletion&&!busy)deleteControl.current?.focus();},[deletion,busy]);
   const current = profiles.find(profile => profile.id === draft.id);
   const clearSecrets = () => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential('keep'); };
@@ -64,13 +68,15 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
     let disposed = false;
     void invoke<string>('config_directory').then(directory => { if (!disposed) setLocation(directory); }).catch(() => {});
     void readConfiguration().then(data => {
-      if (!disposed) { setFolders(data.folders); setProfiles(data.profiles); setFilter(previous => previous !== '*' && previous !== '' && !data.folders.some(folder => folder.id === previous) ? '*' : previous); setReady(true); setMessage('配置已加载');if(initialProfileId){const target=data.profiles.find(p=>p.id===initialProfileId);if(target){setDraft(edit(target));if(initialAction==='delete')setDeletion({profile:target,uncertain:false});}else{setReady(false);setMessage('所选配置已不存在，请关闭后刷新会话树。');}} }
+      if (!disposed) { setFolders(data.folders); setProfiles(data.profiles); setFilter(previous => previous !== '*' && previous !== '' && !data.folders.some(folder => folder.id === previous) ? '*' : previous); setReady(true); setMessage('配置已加载');if(creation&&!data.folders.some(folder=>folder.id===creation.folder))setDraft(previous=>({...previous,folder:''}));if(initialProfileId){const target=data.profiles.find(p=>p.id===initialProfileId);if(target){setDraft(edit(target));if(initialAction==='delete')setDeletion({profile:target,uncertain:false});}else{setReady(false);setMessage('所选配置已不存在，请关闭后刷新会话树。');}} }
     }).catch(error => { if (!disposed) setMessage(error instanceof Error ? error.message : '读取配置失败。'); })
       .finally(() => { if (!disposed) setBusy(false); });
     return () => { disposed = true; };
   }, []);
   async function save(event: FormEvent) {
     event.preventDefault();
+    if(busy||!ready||saveInFlight.current||saveUncertain)return;
+    const connect=!!creation&&(event.nativeEvent as SubmitEvent).submitter?.getAttribute('value')==='connect';
     const value = settings(draft);
     if (value.protocol === 'ssh1' && credential === 'replace') {
       if (!ssh1Preview || !value.explicitly_enabled) {
@@ -85,8 +91,28 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
     const editCredential: CredentialEdit = value.protocol === 'serial' ? { action: 'clear' } : credential === 'replace'
       ? { action: 'replace', value: { password: value.protocol === 'ssh2' && value.auth === 'public_key' ? null : password, private_key: null, passphrase: value.protocol === 'ssh2' && value.auth === 'public_key' ? passphrase : null } }
       : { action: credential };
-    try { await run(async () => { const profile = { id: draft.id, folder_id: draft.folder || null, name: draft.name, settings: value }; await config(value.protocol === 'ssh2' && value.auth === 'public_key' && credential === 'replace' ? { op: 'save_profile_key_file', profile, key_path: keyPath, passphrase } : { op: 'save_profile', profile, credential: editCredential }); }, '配置已保存；未连接设备'); }
-    finally { clearSecrets(); }
+    const profile = { id: draft.id, folder_id: draft.folder || null, name: draft.name, settings: value };
+    const persist=()=>config(value.protocol === 'ssh2' && value.auth === 'public_key' && credential === 'replace' ? { op: 'save_profile_key_file', profile, key_path: keyPath, passphrase } : { op: 'save_profile', profile, credential: editCredential });
+    saveInFlight.current=true;
+    try {
+      if(!creation){await run(async()=>{await persist();},'配置已保存；未连接设备');return;}
+      setBusy(true);
+      setMessage('正在保存配置…');
+      const reply=await persist();
+      if(reply.result!=='saved_profile'||reply.profile.id!==profile.id||reply.profile.settings.protocol!==value.protocol)
+        throw new ConfigRequestError('INVALID_CONFIGURATION_REPLY',true);
+      if(!active.current)return;
+      if(connect)onConnect?.(reply.profile);
+      close();
+    } catch(error) {
+      if(!active.current)return;
+      const uncertain=!(error instanceof ConfigRequestError)||error.uncertain;
+      setSaveUncertain(uncertain);
+      setMessage(uncertain?'保存结果不明。关闭后刷新会话树核对；没有发起连接。':error.message+' 没有发起连接。');
+    } finally {
+      saveInFlight.current=false;
+      if(active.current){setBusy(false);clearSecrets();}
+    }
   }
   async function deleteSelected(){
     if(!deletion||deletion.uncertain||deleteFlight.current)return;
@@ -99,12 +125,12 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
   async function checkDeletion(){if(!deletion||deleteFlight.current)return;deleteFlight.current=true;setBusy(true);try{const data=await readConfiguration();const exists=data.profiles.some(p=>p.id===deletion.profile.id);setFolders(data.folders);setProfiles(data.profiles);setDeletion(undefined);if(!exists)setDraft(blank());onChanged?.();setMessage(exists?'原配置仍存在；未重放删除。请核对后重新选择操作。':'原配置已不存在；未重放删除。');}catch{setMessage('读取配置失败，请稍后只读核对；未重试删除。');}finally{deleteFlight.current=false;setBusy(false);}}
   const filtered = profiles.filter(profile => (filter === '*' || (profile.folder_id ?? '') === filter) && profile.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <section className="config-panel" aria-label="连接配置">
-    <PanelHeading title="连接配置" close={() => { clearSecrets(); close(); }} closeLabel="关闭配置" />
-    <p className="config-notice">保存配置不会建立连接。可在会话树选择保存项，再明确连接。SSH1 需要启用旧协议的本机预览。</p>
+    <PanelHeading title={creation?(creation.protocol==='ssh2'?'新建 SSH 配置':'新建串口配置'):'连接配置'} close={() => { active.current=false;clearSecrets(); close(); }} closeLabel="关闭配置" />
+    {!creation&&<p className="config-notice">保存配置不会建立连接。可在会话树选择保存项，再明确连接。SSH1 需要启用旧协议的本机预览。</p>}
     <div className="config-message" role="status" aria-label="配置状态">{message}</div>
     {deletion&&<section className="notice-error" aria-label="删除保存配置确认"><strong>删除保存配置“{deletion.profile.name}”？</strong><p>{deletion.profile.settings.protocol.toUpperCase()} · {'host' in deletion.profile.settings?`${deletion.profile.settings.host}:${deletion.profile.settings.port}`:deletion.profile.settings.port}</p><small>仅删除此配置（ID：{deletion.profile.id}）。不关闭现有连接，不删除日志或共享凭据记录。</small><div className="config-actions">{deletion.uncertain?<button ref={deleteControl} disabled={busy} onClick={()=>void checkDeletion()}>只读核对删除结果</button>:<button ref={deleteControl} disabled={busy} onClick={()=>void deleteSelected()}>确认删除此配置</button>}<button disabled={busy} onClick={()=>setDeletion(undefined)}>取消删除</button></div></section>}
-    <div hidden={!!deletion}><div className="config-layout">
-      <aside>
+    <div hidden={!!deletion}><div className={creation?undefined:'config-layout'}>
+      {!creation&&<aside>
         <label>目录筛选<select aria-label="目录筛选" value={filter} onChange={event => setFilter(event.target.value)}><option value="*">全部目录</option>{options}</select></label>
         <label>搜索配置<input aria-label="搜索配置" value={search} onChange={event => setSearch(event.target.value)} /></label>
         <ul className="profile-list">{filtered.map(profile => <li key={profile.id}><button className={draft.id === profile.id ? 'selected' : ''} onClick={() => { clearSecrets(); setDraft(edit(profile)); }}>{profile.name}<small>{profile.settings.protocol.toUpperCase()} · {profile.credential_missing ? '凭据引用缺失' : profile.credential_ref ? '有凭据引用' : '无凭据引用'}</small></button></li>)}</ul>
@@ -117,13 +143,13 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
             <div className="config-actions"><button type="submit">保存目录</button><button type="button" disabled={!folders.some(f => f.id === folderDraft.id)} onClick={() => void run(async () => { await config({ op: 'delete_folder', id: folderDraft.id }); setFolderDraft({ id: crypto.randomUUID(), parent_id: null, name: '' }); }, '目录已删除')}>删除目录</button></div>
           </fieldset>
         </form>
-      </aside>
-      <form className="profile-form" aria-label="配置编辑" onSubmit={event => void save(event)}>
-        <fieldset disabled={busy || !ready}><legend>{current ? '编辑配置' : '新建配置'}</legend>
+      </aside>}
+      <form className="profile-form" aria-label="配置编辑" onKeyDown={keepCompositionInField} onSubmit={event => void save(event)}>
+        <fieldset disabled={busy || !ready || saveUncertain}><legend>{current ? '编辑配置' : '新建配置'}</legend>
           <div className="form-grid">
             <label>配置名称<input aria-label="配置名称" required maxLength={128} value={draft.name} onChange={event => change('name', event.target.value)} /></label>
             <label>所属目录<select aria-label="所属目录" value={draft.folder} onChange={event => change('folder', event.target.value)}>{options}</select></label>
-            <label>协议<select aria-label="协议" value={draft.protocol} onChange={event => { clearSecrets(); change('protocol', event.target.value as Draft['protocol']); }}><option value="ssh2">SSH2</option><option value="ssh1">SSH1（显式开启）</option><option value="serial">SERIAL</option></select></label>
+            {!creation&&<label>协议<select aria-label="协议" value={draft.protocol} onChange={event => { clearSecrets(); change('protocol', event.target.value as Draft['protocol']); }}><option value="ssh2">SSH2</option><option value="ssh1">SSH1（显式开启）</option><option value="serial">SERIAL</option></select></label>}
             <label>编码<select aria-label="编码" value={draft.encoding} onChange={event => change('encoding', event.target.value as Encoding)}><option value="utf8">UTF-8</option><option value="gbk">GBK</option><option value="gb18030">GB18030</option></select></label>
             {draft.protocol !== 'serial' ? <>
               <label>主机<input aria-label="主机" required maxLength={253} value={draft.host} onChange={event => change('host', event.target.value)} /></label>
@@ -148,13 +174,13 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
             {credential === 'replace' && (draft.protocol === 'ssh2' && draft.auth === 'public_key' ? <><label>本地私钥文件<input aria-label="本地私钥文件" required autoComplete="off" placeholder="C:\keys\id_ed25519" value={keyPath} onChange={event => setKeyPath(event.target.value)} /><small>仅本地盘的普通文件，服务读取并加密保存；文件内容不进入页面。</small></label><label>私钥口令<input aria-label="私钥口令" type="password" autoComplete="new-password" value={passphrase} onChange={event => setPassphrase(event.target.value)} /></label></> : <label>新密码<input aria-label="新密码" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /><small>允许显式保存空密码。</small></label>)}
             <small>移除引用不删除其他配置或备份可能使用的密文。保存、切换或关闭后清空新输入。</small>
           </fieldset>}
-          <div className="config-actions"><button type="submit">保存配置</button><button type="button" disabled={!current} onClick={() => { clearSecrets(); setDraft({ ...draft, id: crypto.randomUUID(), name: `${draft.name} 副本` }); setMessage('已准备副本，不携带凭据；按需重新输入后保存。'); }}>复制配置</button><button type="button" disabled={!current} onClick={() => {if(current){clearSecrets();setDeletion({profile:current,uncertain:false});}}}>删除配置</button></div>
+          <div className="config-actions">{creation?<><button type="submit">保存</button><button type="submit" value="connect">保存并连接</button></>:<><button type="submit">保存配置</button><button type="button" disabled={!current} onClick={() => { clearSecrets(); setDraft({ ...draft, id: crypto.randomUUID(), name: `${draft.name} 副本` }); setMessage('已准备副本，不携带凭据；按需重新输入后保存。'); }}>复制配置</button><button type="button" disabled={!current} onClick={() => {if(current){clearSecrets();setDeletion({profile:current,uncertain:false});}}}>删除配置</button></>}</div>
         </fieldset>
       </form>
     </div>
-    <HostKeysPanel key={managementEpoch} />
+    {!creation&&<><HostKeysPanel key={managementEpoch} />
     <CredentialsPanel key={`credentials-${managementEpoch}`} />
     <ArchivesPanel directory={location} usable={ready} restored={async () => { clearSecrets();setDraft(blank());setFolderDraft({id:crypto.randomUUID(),parent_id:null,name:''});await reload();setManagementEpoch(value=>value+1);setMessage('配置已从备份恢复；没有连接或重放输入。');await onRestored(); }} />
-    <p className="data-location">数据目录：{location || '读取失败时请重新启动检查启动目录'}</p></div>
+    <p className="data-location">数据目录：{location || '读取失败时请重新启动检查启动目录'}</p></>}</div>
   </section>;
 }

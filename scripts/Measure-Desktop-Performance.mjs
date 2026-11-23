@@ -123,8 +123,7 @@ const tick=setInterval(()=>{
     sample.lightMs.push(await timed(async()=>{await tool('轻量命令行');await until(`(${focused})&&(${output})?.includes('>')`);}));
     sample.lightMs.push(await timed(async()=>{await tool('轻量命令行');await select(2);}));
     for(const n of [3,4]){
-      await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
-      sample.powerShellMs.push(await timed(async()=>{await ui.click('本地终端（PowerShell）');await until(`(${focused})&&(${login})&&[...document.querySelectorAll('[role=tab][aria-selected=true]')].some(t=>t.textContent===${q('本地 '+n)})`);}));
+      sample.powerShellMs.push(await timed(async()=>{await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");await until(`(${focused})&&(${login})&&[...document.querySelectorAll('[role=tab][aria-selected=true]')].some(t=>t.textContent===${q('本地 '+n)})`);}));
     }
     for(const [i,n] of [1,3,2,4,1,3,2,4].entries()){
       sample.switchMs.push(await timed(()=>select(n)));

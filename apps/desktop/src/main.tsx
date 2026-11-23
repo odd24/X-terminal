@@ -255,6 +255,14 @@ function App() {
     toolsSummary.current?.focus();
   }, [configurationOpen, softwareSettingsOpen, closeInfoOpen, saveRecoveryOpen, workspaceOpen, batchConfigOpen]);
   const [configurationTarget,setConfigurationTarget]=useState<{id:string;action:'edit'|'delete'}>();
+  const [configurationCreation,setConfigurationCreation]=useState<{protocol:'ssh2'|'serial';folder:string;key:PaneKey;owner:string}>();
+  const creationRoute=useRef<typeof configurationCreation>(undefined);
+  function closeConfiguration(){
+    creationRoute.current=undefined;
+    setConfigurationCreation(undefined);
+    setConfigurationOpen(false);
+    setTreeRevision(value=>value+1);
+  }
   const [sshOpen, setSshOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [savedIntent,setSavedIntent]=useState<SavedConnectIntent>();
@@ -1075,6 +1083,20 @@ function App() {
     const owner=serviceRef.current?.service_id;
     if(owner)paneLaunch.current={key,owner};
   }
+  function connectNewProfile(profile:Profile){
+    const route=configurationCreation;
+    if(!route||creationRoute.current!==route)return;
+    creationRoute.current=undefined;
+    if(!route.owner||route.owner!==serviceRef.current?.service_id||serviceStopped.current
+      ||quickOpen||serialDialog||savedIntentFlight.current||ssh1Flight.current
+      ||!panes.current.slots.some(slot=>slot.key===route.key)){
+      setTabMessage('配置已保存。连接条件已变化，请从会话树连接。');
+      return;
+    }
+    focusPane(route.key);
+    paneLaunch.current={key:route.key,owner:route.owner};
+    connectProfile(profile);
+  }
   function copyDialogBusy(){
     return quickOpen||serialDialog||savedIntentFlight.current||ssh1Flight.current||!!document.querySelector('dialog:modal');
   }
@@ -1243,7 +1265,8 @@ function App() {
     </nav>
     </WindowChrome>
     <div className={`desktop-body${sidebarOpen&&!detached ? '' : ' sidebar-hidden'}`}>
-    {!detached&&<aside id="connection-library" className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent||!!ssh1Intent} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} revision={treeRevision} loaded={setProfiles} connect={(profile,revision) => connectProfile(profile,undefined,revision)} configure={(id,action='edit') => {setConfigurationTarget(id?{id,action}:undefined);setConfigurationOpen(true);}} />
+    {!detached&&<aside id="connection-library" className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent||!!ssh1Intent} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} revision={treeRevision} loaded={setProfiles} connect={(profile,revision) => connectProfile(profile,undefined,revision)} configure={(id,action='edit') => {setConfigurationTarget(id?{id,action}:undefined);setConfigurationOpen(true);}}
+      create={(protocol,folder)=>{const route={protocol,folder,key:panes.current.active,owner:serviceRef.current?.service_id??''}; creationRoute.current=route;setConfigurationTarget(undefined);setConfigurationCreation(route);setConfigurationOpen(true);}} />
       <div className="sidebar-divider" role="separator" aria-label="导航宽度" aria-orientation="vertical" aria-valuemin={210} aria-valuemax={360} aria-valuenow={navigationWidth} tabIndex={0}
         onPointerDown={event=>{if(event.button===0)event.currentTarget.setPointerCapture(event.pointerId);}}
         onPointerMove={event=>{if(event.currentTarget.hasPointerCapture(event.pointerId))resizeNavigation(event.clientX-event.currentTarget.parentElement!.getBoundingClientRect().left);}}
@@ -1294,10 +1317,11 @@ function App() {
               <button type="button" aria-label={`关闭 ${tab.title}`} onClick={()=>void closeLocal(tab.id)}>×</button>
             </div>};
           })}>
-          {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}>
-            <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSsh();}}>连接服务器</button>
+          {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}
+            primary={{title:'新建本地终端（PowerShell）',activate:()=>void openLocal(key)}}>
+            <button title="Windows PowerShell · Ctrl+Shift+T" onClick={()=>void openLocal(key)}>本地终端</button>
+            <button aria-label="连接服务器" onClick={event=>{preparePaneConnection(key,event.currentTarget);newSsh();}}>SSH 连接</button>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSerial();}}>串口连接</button>
-            <button title="Ctrl+Shift+T" aria-keyshortcuts="Control+Shift+T" onClick={()=>void openLocal(key)}>本地终端（PowerShell）</button>
           </ToolbarMenu>}
           {paneSlots.length>1&&<button type="button" className="pane-collapse" aria-label="收起此窗格，保留连接" title="收起此窗格，保留连接"
             onClick={()=>{cancelWorkspaceSplit();if(panes.current.closePane(key,panes.current.active))routeChanged();}}><ControlIcon icon="collapse" /></button>}
@@ -1364,7 +1388,7 @@ function App() {
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
     {composeOpen && <Dialog label="撰写终端输入" modal={false} close={()=>{drafts.current.invalidate();setComposeOpen(false);}}><ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text, pacing) => composeSend.current?.(target, text, pacing) ?? false} close={() => setComposeOpen(false)} /></Dialog>}
     {softwareSettingsOpen && <Dialog label="软件设置" close={()=>setSoftwareSettingsOpen(false)}><SoftwareSettings preferences={preferences} fontSizeControl={<TerminalFontSizeControl label="终端字号" value={fontSize} state={fontSizing.state} change={setFontSize}/>} busy={preferencesBusy} canSave={!!preferenceRevision.current} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setSoftwareSettingsOpen(false)} /></Dialog>}
-    {configurationOpen && <Dialog label="连接配置" wide close={()=>{setConfigurationOpen(false);setTreeRevision(value=>value+1);}}><ConfigPanel key={configurationTarget?.id??'new'} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget?.id} initialAction={configurationTarget?.action} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={() => { setConfigurationOpen(false); setTreeRevision(value => value + 1); }} /></Dialog>}
+    {configurationOpen && <Dialog label={configurationCreation?(configurationCreation.protocol==='ssh2'?'新建 SSH 配置':'新建串口配置'):'连接配置'} wide={!configurationCreation} close={closeConfiguration}><ConfigPanel key={configurationTarget?.id??configurationCreation?.protocol??'new'} creation={configurationCreation} onConnect={connectNewProfile} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget?.id} initialAction={configurationTarget?.action} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={closeConfiguration} /></Dialog>}
     <Dialog label="SSH2 连接工具" modal={false} open={sshOpen} close={()=>setSshOpen(false)}><SshPanel key={service?.service_id} open={sshOpen} connection={active} requested={selected} select={selectConnection} closePanel={()=>setSshOpen(false)} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} /></Dialog>
     <Dialog label="独立 exec 任务" modal={false} open={execOpen} close={()=>setExecOpen(false)}><ExecPanel open={execOpen} connection={active} close={()=>setExecOpen(false)} /></Dialog>
     {serialOpen && <Dialog label="串口高级工具" modal={false} close={()=>setSerialOpen(false)}><SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} closePanel={()=>setSerialOpen(false)} /></Dialog>}

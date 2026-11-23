@@ -37,7 +37,7 @@ async function waitFile(name, expected) {
 async function openDefault(number=1) {
   if(number!==1)await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
   const start=performance.now();
-  await ui.click('本地终端（PowerShell）');
+  if(number===1)await ui.click('本地终端（PowerShell）');
   await selected('本地 '+number);
   await focus();
   await waitShell();

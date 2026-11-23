@@ -221,11 +221,14 @@ export function keepCompositionInField(event: KeyboardEvent<HTMLFormElement>) {
   }
 }
 
-export function ToolbarMenu({className,label,text,summary,children}: {
+export function ToolbarMenu({className,label,text,summary,children,primary}: {
   className: string; label: string; text: ReactNode; summary?: RefObject<HTMLElement|null>; children: ReactNode;
+  primary?: {title:string; activate():void};
 }) {
   const element=useRef<HTMLDetailsElement>(null);
   const surface=useRef<HTMLDivElement>(null);
+  const hoverTimer=useRef(0);
+  const clearHover=()=>window.clearTimeout(hoverTimer.current);
   useLayoutEffect(()=>{
     const menu=element.current, popup=surface.current, trigger=menu?.querySelector('summary');
     if(!menu||!popup||!trigger)return;
@@ -241,6 +244,7 @@ export function ToolbarMenu({className,label,text,summary,children}: {
     return ()=>{menu.removeEventListener('toggle',toggle);stop?.();};
   },[]);
   function close(restore: boolean) {
+    clearHover();
     const menu=element.current;
     if (!menu?.open) return;
     menu.open=false;
@@ -248,15 +252,41 @@ export function ToolbarMenu({className,label,text,summary,children}: {
   }
   useEffect(()=>{
     const outside=(event:PointerEvent)=>{if(!element.current?.contains(event.target as Node))close(false);};
+    const escape=(event:globalThis.KeyboardEvent)=>{
+      const menu=element.current;
+      if(!primary||event.key!=='Escape'||!menu||document.querySelector('dialog:modal')
+        || (!menu.open&&!menu.matches(':hover')))return;
+      if(menu.contains(document.activeElement))return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      close(false);
+    };
     document.addEventListener('pointerdown',outside,true);
-    return ()=>document.removeEventListener('pointerdown',outside,true);
+    window.addEventListener('keydown',escape,true);
+    return ()=>{clearHover();document.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);};
   },[]);
-  return <details ref={element} className={className} onBlur={event=>{
+  return <details ref={element} className={className} onPointerEnter={event=>{
+    if(!primary||event.pointerType!=='mouse')return;
+    clearHover();
+    const menu=event.currentTarget;
+    if(!menu.open)hoverTimer.current=window.setTimeout(()=>{if(menu.matches(':hover'))menu.open=true;},350);
+  }} onPointerLeave={event=>{
+    if(!primary||event.pointerType!=='mouse')return;
+    clearHover();
+    hoverTimer.current=window.setTimeout(()=>close(false),130);
+  }} onBlur={event=>{
     if(event.relatedTarget&&!event.currentTarget.contains(event.relatedTarget))close(false);
   }} onClick={event=>{
     if ((event.target as HTMLElement).closest('button')) close(true);
   }} onKeyDown={event=>{
-    if(event.key==='Escape'&&event.currentTarget.open){event.preventDefault();event.stopPropagation();close(true);return;}
+    if(event.key==='Escape'&&(event.currentTarget.open||primary)){event.preventDefault();event.stopPropagation();close(true);return;}
+    if(primary&&event.repeat&&['Enter',' '].includes(event.key)){event.preventDefault();return;}
+    if(primary&&event.key==='Enter'&&(event.target as HTMLElement).matches('summary')){
+      event.preventDefault();
+      close(false);
+      primary.activate();
+      return;
+    }
     if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
     if((event.target as HTMLElement).matches('input,select,textarea'))return;
     event.preventDefault();
@@ -269,7 +299,12 @@ export function ToolbarMenu({className,label,text,summary,children}: {
       index<0?(event.key==='ArrowDown'?0:controls.length-1):(index+(event.key==='ArrowDown'?1:-1)+controls.length)%controls.length;
     controls[next]?.focus();
   }}>
-    <summary ref={summary} aria-label={label} title={label}>{text}</summary>
+    <summary ref={summary} aria-label={label} title={primary?.title??label} onClick={event=>{
+      if(!primary)return;
+      event.preventDefault();
+      close(false);
+      if(event.detail<2)primary.activate();
+    }}>{text}</summary>
     <div ref={surface} className="tools-menu-content">{children}</div>
   </details>;
 }
