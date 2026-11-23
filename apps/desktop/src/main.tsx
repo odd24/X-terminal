@@ -426,9 +426,11 @@ function App() {
     } catch(error) {setTabMessage(String(error));}
     finally {openingLocal.current=false;}
   }
-  function copyLocalTab(pane:PaneKey,id:string) {
+  function copyLocalTab(pane:PaneKey,id:string,gesture:'menu'|'double-click') {
     const tab=liveLocalTabs.current.find(item=>item.id===id);
     if(!tab||tab.origin==='script'||!ownsLocalTab(pane,id))return;
+    if(gesture==='double-click'&&(tab.origin!=='ordinary'||!tab.powershell&&
+      (shortcutFlight.current?.id===id||promptStates.current.get(id)?.busy!==false)))return;
     void openLocal(pane,tab.powershell,{inherit:id,beside:true});
   }
   function selectLocal(pane:PaneKey,id:string) {
@@ -1318,7 +1320,8 @@ function App() {
             pending:closingLocal.current.has(tab.id),
             select:()=>{selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);},
             close:()=>void closeLocal(tab.id),
-            copy:tab.origin==='script'?undefined:()=>copyLocalTab(key,tab.id),
+            copy:tab.origin==='script'?undefined:()=>copyLocalTab(key,tab.id,'menu'),
+            copyOnDoubleClick:tab.origin==='ordinary'?()=>copyLocalTab(key,tab.id,'double-click'):undefined,
           }))}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}
             primary={{title:'新建本地终端（PowerShell）',activate:()=>void openLocal(key)}}>

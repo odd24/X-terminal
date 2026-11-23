@@ -8,6 +8,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   const gesture = useRef<{ source: PaneLive; serviceOwner?: string; pointer: number; x: number; y: number; moving: boolean }>(undefined);
   const frame = useRef(0);
   const ignoreClick = useRef(false);
+  const releasedClick = useRef<HTMLButtonElement>(undefined);
   const clickSequence = useRef<{ tab: HTMLButtonElement; count: 1 | 2 }>(undefined);
   const [preview, setPreview] = useState<{ id: string; destination?: TabDrop }>();
 
@@ -16,10 +17,19 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
     cancelAnimationFrame(frame.current);
     setPreview(undefined);
   }
+  function breakClicks() {
+    releasedClick.current = undefined;
+    clickSequence.current = undefined;
+  }
+  function cancelGesture() {
+    ignoreClick.current = true;
+    breakClicks();
+    clear();
+  }
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
   useEffect(() => {
     const current = gesture.current;
-    if (current && !isCurrent(current)) clear();
+    if (current && !isCurrent(current)) cancelGesture();
   }, [tabs, owner]);
 
   function isCurrent(current: NonNullable<typeof gesture.current>) {
@@ -53,11 +63,16 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   function finish(event: PointerEvent<HTMLButtonElement>, commit: boolean) {
     const current = gesture.current;
     if (!current || current.pointer !== event.pointerId) return;
-    clear();
-    if (!current.moving && (!commit || Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6)) return;
-    ignoreClick.current = true;
-    clickSequence.current = undefined;
-    if (!commit || !isCurrent(current)) return;
+    if (!commit || !isCurrent(current)) { cancelGesture(); return; }
+    if (!current.moving && Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6) {
+      clear();
+      const tab = event.currentTarget;
+      if (event.isTrusted && event.pointerType === 'mouse' &&
+        tab.contains(document.elementFromPoint(event.clientX, event.clientY))) releasedClick.current = tab;
+      else breakClicks();
+      return;
+    }
+    cancelGesture();
     const destination = target(event.clientX, event.clientY,current.source);
     if (destination) drop(current.source, destination);
   }
@@ -69,8 +84,9 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
         if (event.isTrusted) event.preventDefault();
       },
       onPointerDown(event: PointerEvent<HTMLButtonElement>) {
-        if (!event.isPrimary || event.button !== 0) return;
+        if (!event.isTrusted || !event.isPrimary || event.button !== 0) return;
         ignoreClick.current = false;
+        releasedClick.current = undefined;
         gesture.current = { source: { ...source }, serviceOwner: source.protocol === 'LOCAL' ? undefined : owner,
           pointer: event.pointerId, x: event.clientX, y: event.clientY, moving: false };
         // Keep current pane's input focus until a click or an actual drop.
@@ -84,6 +100,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
         if (!current.moving) {
           if (Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6) return;
           current.moving = true;
+          breakClicks();
           frame.current = requestAnimationFrame(scrollRail);
         }
         current.x = event.clientX;
@@ -98,34 +115,44 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   function cancelOnKey(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key !== 'Escape' || !gesture.current) return false;
     event.preventDefault();
-    ignoreClick.current = true;
-    clickSequence.current = undefined;
-    clear();
+    cancelGesture();
     return true;
   }
   // Escape can also arrive on the pane that held focus before a pointer drag.
   useEffect(() => {
     const cancel = (event: globalThis.KeyboardEvent) => {
+      breakClicks();
       if (event.key !== 'Escape' || !gesture.current?.moving) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      ignoreClick.current = true;
-      clickSequence.current = undefined;
-      clear();
+      cancelGesture();
     };
+    const interrupt = (event: globalThis.PointerEvent) => {
+      if (!event.isPrimary || event.pointerType !== 'mouse' || event.button !== 0 ||
+        !clickSequence.current?.tab.contains(event.target as Node)) breakClicks();
+    };
+    const blur = () => { if (gesture.current) cancelGesture(); else breakClicks(); };
     window.addEventListener('keydown', cancel, true);
-    return () => window.removeEventListener('keydown', cancel, true);
+    window.addEventListener('pointerdown', interrupt, true);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', cancel, true);
+      window.removeEventListener('pointerdown', interrupt, true);
+      window.removeEventListener('blur', blur);
+    };
   }, []);
   function allowedClick(event: MouseEvent<HTMLButtonElement>) {
-    if (!event.detail) return true;
+    if (!event.detail) { breakClicks(); return true; }
     if (ignoreClick.current) {
       ignoreClick.current = false;
       return false;
     }
     const tab = event.currentTarget;
+    const eligible = event.isTrusted && event.button === 0 && releasedClick.current === tab;
+    releasedClick.current = undefined;
     const previous = clickSequence.current;
-    if (event.detail === 1) clickSequence.current = { tab, count: 1 };
-    else if (event.detail === 2 && previous?.tab === tab && previous.count === 1)
+    if (eligible && event.detail === 1) clickSequence.current = { tab, count: 1 };
+    else if (eligible && event.detail === 2 && previous?.tab === tab && previous.count === 1)
       clickSequence.current = { tab, count: 2 };
     else clickSequence.current = undefined;
     return true;
@@ -133,7 +160,8 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   function allowedDoubleClick(event: MouseEvent<HTMLButtonElement>) {
     const sequence = clickSequence.current;
     clickSequence.current = undefined;
-    return sequence?.tab === event.currentTarget && sequence.count === 2;
+    return event.isTrusted && event.button === 0 && event.detail === 2 &&
+      sequence?.tab === event.currentTarget && sequence.count === 2;
   }
   return { preview, bindings, cancelOnKey, allowedClick, allowedDoubleClick };
 }

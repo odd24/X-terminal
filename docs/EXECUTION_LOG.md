@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.20 按 [CR-043](changes/CR-043.md) 恢复普通本地双击复制，Release 预检通过原生双击、原生拖动及浏览器尾随事件隔离。便携发布门与证据位置见 [P26.20](records/P26.20.md)。Step-ID: P26.20。
+
 P26.19 按 [CR-042](changes/CR-042.md) 修正本地标签拖动与双击，随 Windows x64 0.1.29 一并交付。[P26.19](records/P26.19.md) · Step-ID: P26.19。
 
 P26.18 按 [CR-041](changes/CR-041.md) 交付 Windows x64 0.1.29，快捷指令名称、脚本别名及受控预览通过实窗及便携专项。[P26.18](records/P26.18.md) · Step-ID: P26.18。

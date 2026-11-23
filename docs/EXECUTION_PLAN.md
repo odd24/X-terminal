@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.20 按 [CR-043](changes/CR-043.md) 结合普通本地标签双击复制、拖动保护与 Windows 便携发布回归。[P26.20](records/P26.20.md)
+
 P26.19 按 [CR-042](changes/CR-042.md) 修正本地标签拖动与双击误复制。[P26.19](records/P26.19.md)
 
 P26.18 按 [CR-041](changes/CR-041.md) 交付快捷指令单行、脚本别名及受控本地预览。[P26.18](records/P26.18.md)

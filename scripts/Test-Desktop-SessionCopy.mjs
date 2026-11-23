@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawn} from 'node:child_process';
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createInterface} from 'node:readline';
@@ -466,7 +467,8 @@ try{
     await ui.evaluate(`${tab(b)}.closest('[data-pane]').querySelector('.pane-collapse').click()`);
     await ui.waitFor("document.querySelectorAll('[data-pane]').length===1");
     await checkMixedTabs(a,bCopy);
-    evidence={result:'PASS',mixedTabInteraction:true,sshDoubleClick:true,temporaryAuthentication:true,isolatedInput:true,copyPane};
+    evidence={result:'PASS',executable:desktop,desktopSha256:createHash('sha256').update(await readFile(desktop)).digest('hex'),
+      mixedTabInteraction:true,sshDoubleClick:true,temporaryAuthentication:true,isolatedInput:true,copyPane};
   }else{
     const first=await source('saved-peer'),second=await source('temporary-peer');
     const a=await connect(first,true), b=await connect(second,false);

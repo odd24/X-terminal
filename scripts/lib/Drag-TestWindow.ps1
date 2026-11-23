@@ -7,7 +7,8 @@ param(
     [switch]$PlaceAtWorkAreaStart,
     [switch]$MeasureMovement,
     [switch]$HoldOutside,
-    [ValidateSet('Left','Right')][string]$Click,
+    [switch]$AtomicDrag,
+    [ValidateSet('Left','Right','DoubleLeft')][string]$Click,
     [string]$LandingTitle,
     [ValidateSet('CtrlTab','CtrlShiftTab','CtrlShiftT','CtrlShiftB','CtrlShiftF','Alt1','Alt0','AltNumpad1')][string]$KeyboardChord
 )
@@ -23,6 +24,10 @@ public static class TerminalTestMouse {
  [StructLayout(LayoutKind.Sequential)] public struct Point { public int X,Y; }
  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left,Top,Right,Bottom; }
  [StructLayout(LayoutKind.Sequential)] public struct MonitorInfo { public int Size; public Rect Monitor,Work; public uint Flags; }
+ [StructLayout(LayoutKind.Sequential)] struct MouseInput {
+   public int X,Y; public uint Data,Flags,Time; public UIntPtr ExtraInfo;
+ }
+ [StructLayout(LayoutKind.Sequential)] struct Input { public uint Type; public MouseInput Mouse; }
  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h,ref Point point);
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out Rect rect);
  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h,uint flags);
@@ -38,9 +43,34 @@ public static class TerminalTestMouse {
  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int command);
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")] static extern int GetSystemMetrics(int metric);
+ [DllImport("user32.dll")] static extern uint SendInput(uint count, Input[] inputs, int size);
  [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra);
  [DllImport("user32.dll")] public static extern void keybd_event(byte key,byte scan,uint flags,UIntPtr extra);
+ public static bool SendOwnedGesture(Point[] points, IntPtr expectedRoot, bool doubleClick) {
+   int left=GetSystemMetrics(76), top=GetSystemMetrics(77);
+   int width=GetSystemMetrics(78), height=GetSystemMetrics(79);
+   if (width<2 || height<2) return false;
+   var events=new Input[doubleClick ? 5 : points.Length+2];
+   for (int i=0; i<points.Length; i++) {
+     var point=points[i];
+     if (point.X<left || point.X>=left+width || point.Y<top || point.Y>=top+height ||
+         GetAncestor(WindowFromPoint(point),2)!=expectedRoot) return false;
+     events[i==0 ? 0 : i+1].Mouse=new MouseInput {
+       X=(int)Math.Ceiling((point.X-left)*65536.0/width),
+       Y=(int)Math.Ceiling((point.Y-top)*65536.0/height),
+       Flags=0xe001
+     };
+   }
+   events[1].Mouse.Flags=2;
+   if (doubleClick) {
+     events[2].Mouse.Flags=4;
+     events[3].Mouse.Flags=2;
+   }
+   events[events.Length-1].Mouse.Flags=4;
+   return SendInput((uint)events.Length,events,Marshal.SizeOf(typeof(Input)))==events.Length;
+ }
  delegate bool WindowCallback(IntPtr h, IntPtr state);
  [DllImport("user32.dll")] static extern bool EnumWindows(WindowCallback callback,IntPtr state);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h,StringBuilder text,int length);
@@ -147,6 +177,9 @@ try {
         return
     }
     if ($Click -and ($steps.Count -ne 1 -or $steps[0].outside -or $steps[0].landings)) { throw 'A click requires one owned client point' }
+    if ($AtomicDrag -and ($Click -or $HoldOutside -or $MeasureMovement -or $LandingTitle -or $steps.Count -lt 2 -or
+        ($steps | Where-Object { $_.outside -or $_.landings -or $_.holdMs }))) { throw 'Atomic drag requires only points in one owned window' }
+    $atomicPoints=[Collections.Generic.List[TerminalTestMouse+Point]]::new()
     if ($MeasureMovement) {
         if ($Click) { throw 'Movement measurements require a drag.' }
         $dragStart = New-Object TerminalTestMouse+Rect
@@ -185,6 +218,11 @@ try {
             }
         }
         if ($i -eq $steps.Count-1 -and $steps[$i].outside -and $hit -eq $window) { throw 'The ending point is inside the owned test window' }
+        if ($AtomicDrag -or $Click -eq 'DoubleLeft') {
+            if ($i -eq 0) { $atomicRoot=$hit }
+            $atomicPoints.Add($point)
+            continue
+        }
         if (![TerminalTestMouse]::SetCursorPos($point.X,$point.Y)) { throw 'Cursor positioning failed' }
         Start-Sleep -Milliseconds 100
         if ($steps[$i].holdMs -gt 0) { Start-Sleep -Milliseconds ([int]$steps[$i].holdMs) }
@@ -199,6 +237,9 @@ try {
             $pressed = $true
             Start-Sleep -Milliseconds 100
         }
+    }
+    if ($atomicPoints.Count -and ![TerminalTestMouse]::SendOwnedGesture($atomicPoints.ToArray(),$atomicRoot,($Click -eq 'DoubleLeft'))) {
+        throw 'Unable to send the mouse gesture to the owned window'
     }
 } finally {
     if ($pressed) { [TerminalTestMouse]::mouse_event(4,0,0,0,[UIntPtr]::Zero) }

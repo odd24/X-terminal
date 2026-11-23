@@ -7,6 +7,8 @@ import path from 'node:path';
 import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]);
+const version=path.basename(path.dirname(executable)).match(/^SharedTerminal-(\d+\.\d+\.\d+)-windows-x64$/)?.[1]
+  ??JSON.parse(await readFile('package.json','utf8')).version;
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-local-scripts-中文-preview-'));
 const result={result:'IN_PROGRESS',executable,sha256:createHash('sha256').update(await readFile(executable)).digest('hex'),
   checks:[],screenshots:[]};
@@ -60,7 +62,7 @@ async function manage(name,action){
   await ui.evaluate(`[...document.querySelectorAll('.adb-row-menu button')].find(button=>button.textContent===${q(action)}).click()`);
 }
 async function screenshot(suffix){
-  const file=`windows-0.1.29-shortcuts-${suffix}.png`;
+  const file=`windows-${version}-shortcuts-${suffix}.png`;
   await ui.screenshot(file);result.screenshots.push(file);
 }
 const point=selector=>ui.evaluate(`(()=>{const r=${node(selector)}.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`);
@@ -252,6 +254,6 @@ try{
   throw error;
 }finally{
   await ui?.close();
-  await writeFile('artifacts/windows-0.1.29-shortcuts-preview-result.json',JSON.stringify(result,null,2)+'\n');
+  await writeFile(`artifacts/windows-${version}-shortcuts-preview-result.json`,JSON.stringify(result,null,2)+'\n');
   await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }

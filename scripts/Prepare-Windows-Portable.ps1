@@ -78,6 +78,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Local directory regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-LocalTabs.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Local tab regression failed. Candidate: $staging" }
+    node scripts/Test-Desktop-SessionCopy.mjs $desktop --tab-interactions --webview-pointer
+    if ($LASTEXITCODE -ne 0) { throw "Mixed local and SSH tab regression failed. Candidate: $staging" }
+    node scripts/Test-Desktop-ShortcutPreview.mjs $desktop
+    if ($LASTEXITCODE -ne 0) { throw "Shortcut alias and preview regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-ShortcutManagement.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Shortcut management regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-Shortcuts.mjs $desktop
@@ -97,6 +101,9 @@ try {
     $scripts = Get-Content -LiteralPath 'artifacts/local-scripts-software-result.json' -Raw | ConvertFrom-Json
     $directory = Get-Content -LiteralPath 'artifacts/local-directory-software-result.json' -Raw | ConvertFrom-Json
     $localTabs = Get-Content -LiteralPath 'artifacts/local-tabs-software-result.json' -Raw | ConvertFrom-Json
+    $mixedTabs = Get-Content -LiteralPath "artifacts/windows-$version-session-copy-ssh.json" -Raw | ConvertFrom-Json
+    $shortcutPreview = Get-Content -LiteralPath "artifacts/windows-$version-shortcuts-preview-result.json" -Raw | ConvertFrom-Json
+    $desktopHash = ($files | Where-Object name -eq 'shared-terminal-desktop.exe').sha256
     $shortcutManagement = Get-Content -LiteralPath 'artifacts/shortcut-management-software-result.json' -Raw | ConvertFrom-Json
     $desktopShortcuts = Get-Content -LiteralPath 'artifacts/desktop-shortcuts-software-result.json' -Raw | ConvertFrom-Json
     $mcpShortcuts = Get-Content -LiteralPath 'artifacts/mcp-shortcuts-software-result.json' -Raw | ConvertFrom-Json
@@ -105,13 +112,16 @@ try {
         $powershell.result -ne 'PASS' -or $powershell.executable -ne $desktop -or
         $scripts.result -ne 'PASS' -or $scripts.executable -ne $desktop -or
         $directory.result -ne 'PASS' -or $directory.executable -ne $desktop -or
-        $localTabs.result -ne 'PASS' -or $localTabs.executable -ne $desktop -or
+        $localTabs.result -ne 'PASS' -or $localTabs.executable -ne $desktop -or $localTabs.sha256 -ne $desktopHash -or
+        !$localTabs.nativeMouse -or !$localTabs.nativeDoubleClick -or
+        $mixedTabs.result -ne 'PASS' -or $mixedTabs.executable -ne $desktop -or $mixedTabs.desktopSha256 -ne $desktopHash -or
+        $shortcutPreview.result -ne 'PASS' -or $shortcutPreview.executable -ne $desktop -or $shortcutPreview.sha256 -ne $desktopHash -or
         $shortcutManagement.result -ne 'PASS' -or $shortcutManagement.executable -ne $desktop -or
         $desktopShortcuts.result -ne 'PASS' -or $desktopShortcuts.executable -ne $desktop -or
         $mcpShortcuts.result -ne 'PASS' -or $mcpShortcuts.executable -ne $desktop) {
         throw 'Release evidence mismatch'
     }
-    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts;mcpShortcuts=$mcpShortcuts}
+    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;mixedTabs=$mixedTabs;shortcutPreview=$shortcutPreview;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts;mcpShortcuts=$mcpShortcuts}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
 
     $resolvedStage = (Resolve-Path -LiteralPath $staging).Path
