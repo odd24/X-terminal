@@ -1,6 +1,6 @@
 # 执行台账
 
-P26.11 按 [CR-034](changes/CR-034.md) 对齐会话配置标题控件并统一会话标签关闭叉。Windows 视觉和行为结果见 [P26.11](records/P26.11.md)。Step-ID: P26.11。
+P26.11 按 [CR-034](changes/CR-034.md) 交付 Windows x64 0.1.24 直接运行目录。标题图标对齐、关闭叉对比度和原操作复验通过。[P26.11](records/P26.11.md) · Step-ID: P26.11。
 
 P26.10 按 [CR-033](changes/CR-033.md) 交付 Windows x64 0.1.23 直接运行目录。实际 Windows Desktop 核对两处新建入口、PowerShell 工作目录、回环 SSH、内存 UART 和保存失败路径。[P26.10](records/P26.10.md) · Step-ID: P26.10。
 
