@@ -1,10 +1,23 @@
 # Codex 首版接入方案
 
-## v12 右栏快捷指令
+## v13 右栏快捷指令
 
-[当前 v12 契约](../contracts/mcp/v12-tools.json) 保留 v11 的 29 项工具。新增 `shortcuts_list`、`shortcuts_create`、`shortcuts_update` 和 `shortcuts_remove`。通过「Agent 授权 → MCP 初版连接」预览桥进程的查看或管理权限，分别核对范围和期限后批准。
+[当前 v13 契约](../contracts/mcp/v13-tools.json) 含 33 项工具。四个快捷指令工具继续使用原名称。省略 `version` 走 [v12 契约](../contracts/mcp/v12-tools.json)，按「查看」「管理」批准，仅覆盖旧 ADB 与 BAT/CMD 引用。输入 `"version":"v2"` 使用经过单独批准的「扩展查看」「扩展管理」。
 
-`shortcuts_list` 使用查看权限，可用 `query` 筛选。批量写入使用管理权限，提交当前 `revision` 和固定 UUIDv7 `request_id`。结果不明时用管理权限单独传入 `shortcuts_list({"receipt_request_id":"原编号"})` 核对。未找到回执时仍视为结果未知。详细参数、排序和权限边界见 [P26.9](records/P26.9.md)。
+启动新版桌面，在「更多工具 → Agent 授权 → MCP 初版连接」复制本次启动参数，用它更新 Codex 的共享终端桥并启动同目录 `terminal-mcp.exe`。桥进程出现后刷新「MCP 快捷指令授权」，核对 PID 和范围，再明确批准所需期限。扩展查看可读取完整命令及会话发送模板，扩展管理可改配置及查原写入回执。会话读写和其他权限继续各自审批。
+
+| v2 参数 | 用途 |
+|---|---|
+| `target.type: "adb"` 与 `command` | 旧单条 ADB 快捷指令 |
+| `target.type: "script"` 与 `path` | 登记本地 BAT/CMD 引用。创建省略 `name` 或显式设为空字符串时，用含扩展名的文件名，长名保留最长 60 个字的主文件名 |
+| `target.type: "local"` 与 `command` | Windows 本地命令组。正文逐字保存，保留 CR/LF、引号和管道 |
+| `target.type: "send"` 与 `text` | 发送到点击时当前 SSH 或串口会话的单行文本。用条目上的 `append_enter` 控制追加 Enter |
+| `close_on_success` | ADB、本地命令和脚本成功后关闭结果标签。更新省略即保留，显式 `false` 关闭此选项 |
+| `moves: [{"ids":[…],"edge":"first"}]` | 按当前顺序把同区选中项移到该区首位。可用 `"last"` 移到区尾，也可继续提供同区 `anchor` 和 `side` |
+
+`shortcuts_list` 在没有查询时返回对应授权内按顺序排列的设置和修订号。`shortcuts_create`、`shortcuts_update`、`shortcuts_remove` 须提交当前 `revision` 和固定 UUIDv7 `request_id`。更新只传需要改的字段，更新脚本路径时省略名称会保留原别名。应答不明时用 `shortcuts_list` 传原 `receipt_request_id`，v2 请求还要带 `"version":"v2"`，省略 `query`。已有 v12 回执可通过原管理授权或扩展管理授权查询。
+
+脚本路径在 MCP 中作为引用登记。读取脚本正文、打开资源管理器、运行命令与实际发送由各自的 Desktop 操作处理。[P26.26](records/P26.26.md)
 
 ## 日志保存位置与 MCP
 

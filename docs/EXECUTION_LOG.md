@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.26 按 [CR-049](changes/CR-049.md) 为 Windows x64 0.1.36 同步快捷指令 MCP。v13 目录、实际旧桥兼容、扩展授权和配置回执定向验证通过。[P26.26](records/P26.26.md) · Step-ID: P26.26。
+
 P26.25 按 [CR-048](changes/CR-048.md) 精简 0.1.35 本地命令组结果。模拟 ADB 实窗回显、交互和错误路径专项通过。[P26.25](records/P26.25.md) · Step-ID: P26.25。
 
 P26.24 按 [CR-047](changes/CR-047.md) 修复 0.1.34 的本地命令组末步 ADB Shell。Windows 模拟终端和单台授权设备只读专项通过。[P26.24](records/P26.24.md) · Step-ID: P26.24。

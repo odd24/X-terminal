@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.26 按 [CR-049](changes/CR-049.md) 同步四类快捷指令的 MCP v13 契约和独立授权。[P26.26](records/P26.26.md)
+
 P26.25 按 [CR-048](changes/CR-048.md) 精简本地命令组的步骤输出。[P26.25](records/P26.25.md)
 
 P26.24 按 [CR-047](changes/CR-047.md) 修复本地命令组末步 ADB Shell 交互，验证模拟设备和实际设备的只读组合。[P26.24](records/P26.24.md)

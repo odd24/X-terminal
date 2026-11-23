@@ -2,14 +2,23 @@ import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { uuid } from './agent-management';
 
-type Scope = 'view' | 'manage';
-type Peer = {pending_id:string;pid:number;view_remaining_ms:number;manage_remaining_ms:number};
+const scopes = {view:'查看',manage:'管理',extended_view:'扩展查看',extended_manage:'扩展管理'} as const;
+type Scope = keyof typeof scopes;
+type Remaining = `${Scope}_remaining_ms`;
+type Peer = {pending_id:string;pid:number} & Record<Remaining,number>;
 type Preview = {preview_id:string;pending_id:string;pid:number;scope:Scope;seconds:number};
-const scopes = {view:'查看',manage:'管理'} as const;
+const scopeKeys = Object.keys(scopes) as Scope[];
+const remaining = (scope:Scope):Remaining => `${scope}_remaining_ms`;
+const scopeDetail: Record<Scope,string> = {
+  view:'读取和筛选旧式 ADB 指令与 BAT/CMD 脚本引用。',
+  manage:'修改旧式 ADB 指令与 BAT/CMD 脚本引用，查询原写入回执。',
+  extended_view:'读取四类配置，包括多步 Windows 本地命令原文、会话发送文本和执行选项。',
+  extended_manage:'修改四类配置，包括多步 Windows 本地命令、会话发送文本和执行选项，并查询原写入回执。',
+};
 const inlineObject = (value:unknown):value is Record<string,unknown> => !!value && typeof value==='object';
 const validPeer = (value:unknown):value is Peer => inlineObject(value) && uuid(value.pending_id)
   && Number.isSafeInteger(value.pid) && Number(value.pid)>0
-  && [value.view_remaining_ms,value.manage_remaining_ms].every(ms=>Number.isSafeInteger(ms)&&Number(ms)>=0&&Number(ms)<=300_000);
+  && scopeKeys.map(scope=>value[remaining(scope)]).every(ms=>Number.isSafeInteger(ms)&&Number(ms)>=0&&Number(ms)<=300_000);
 const invokeManagement = (request:Record<string,unknown>) => invoke<unknown>('shortcut_bridge_management',{request});
 
 export function ShortcutBridgePanel({serviceId}:{serviceId:string}) {
@@ -56,7 +65,7 @@ export function ShortcutBridgePanel({serviceId}:{serviceId:string}) {
   }
   return <fieldset>
     <legend>MCP 快捷指令授权</legend>
-    <p>查看和管理分别批准。查看可读取完整快捷指令，管理可修改右栏条目及查询原写入回执。两种授权都不授予终端或文件操作。</p>
+    <p>分别批准查看和管理。普通授权覆盖旧式 ADB 和 BAT/CMD 引用。扩展授权还覆盖本地命令和会话发送文本。执行或发送仍须在桌面触发。</p>
     <div className="config-actions">
       <button disabled={busy} onClick={()=>void run(async()=>{
         updateStatus(await invokeManagement({op:'status'}));
@@ -67,10 +76,10 @@ export function ShortcutBridgePanel({serviceId}:{serviceId:string}) {
         <option value={15}>15 秒</option><option value={60}>1 分钟</option><option value={300}>5 分钟</option>
       </select></label>
     </div>
-    {peer?<p>进程 PID {peer.pid}。上次读取时，查看剩余 {Math.ceil(peer.view_remaining_ms/1000)} 秒，管理剩余 {Math.ceil(peer.manage_remaining_ms/1000)} 秒。</p>
+    {peer?<p>进程 PID {peer.pid}。剩余期限 {scopeKeys.map(scope=>`${scopes[scope]} ${Math.ceil(peer[remaining(scope)]/1000)} 秒`).join(' · ')}</p>
       :<p>请先启动上方提供的 MCP 进程，再刷新授权状态。</p>}
-    <div className="config-actions">{Object.entries(scopes).map(([key,label])=>{
-      const scope=key as Scope;
+    <div className="config-actions">{scopeKeys.map(scope=>{
+      const label=scopes[scope];
       return <span key={scope}>
         <button disabled={busy||!peer||!!preview} onClick={()=>{if(peer)void prepare(scope,peer);}}>预览{label}快捷指令授权</button>
         <button disabled={busy||!peer} onClick={()=>{
@@ -84,6 +93,7 @@ export function ShortcutBridgePanel({serviceId}:{serviceId:string}) {
     {preview&&<fieldset aria-label="快捷指令授权预览" disabled={busy}>
       <legend>{scopes[preview.scope]}快捷指令</legend>
       <p>进程 PID {preview.pid} · 编号 {preview.pending_id} · {preview.seconds} 秒</p>
+      <p>{scopeDetail[preview.scope]}</p>
       <label><input aria-label="同意快捷指令授权" type="checkbox" checked={consent} onChange={event=>setConsent(event.target.checked)}/>我同意该进程使用以上权限</label>
       <div className="config-actions">
         <button onClick={()=>{dismiss();setMessage('已取消本次预览。');}}>取消快捷指令授权</button>

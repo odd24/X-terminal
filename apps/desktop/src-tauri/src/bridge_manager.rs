@@ -398,7 +398,8 @@ async fn peer(pipe: NamedPipeServer, shared: Arc<Shared>) -> io::Result<()> {
                 let Some(message)=message else {break;};
                 match message {
                     wire::RequestMessage::Status {}=>wire::ResultMessage::Status(wire::Status {broker_id:shared.id,service_id:shared.service_id,peer_pid:pid,paired_ticket:bound.as_ref().map(|v|v.view.summary.ticket_id),approved_scopes:bound.as_ref().map(|v|v.view.approved_scopes.clone()).unwrap_or_default(),protection:bound.as_ref().and_then(|v|v.view.protection)}),
-                    wire::RequestMessage::Shortcuts {request}=>shortcuts::call(shared.clone(),connected.clone(),id,request).await,
+                    wire::RequestMessage::Shortcuts {request}=>shortcuts::call(shared.clone(),connected.clone(),id,session_protocol::shortcuts::Compatible::Legacy(request)).await,
+                    wire::RequestMessage::ShortcutsV2 {request}=>shortcuts::call(shared.clone(),connected.clone(),id,session_protocol::shortcuts::Compatible::Extended(request)).await,
                     wire::RequestMessage::Call {request}=>{
                         if let Some(pair)=bound.as_mut() {
                             let expected_task=request.task_target();

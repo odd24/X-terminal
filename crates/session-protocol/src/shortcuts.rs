@@ -3,6 +3,8 @@ use crate::{Sensitive, Uuid};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod v2;
+
 pub const MAX_ITEMS: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -10,6 +12,15 @@ pub const MAX_ITEMS: usize = 32;
 pub enum Scope {
     View,
     Manage,
+    ExtendedView,
+    ExtendedManage,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Compatible<Legacy, Extended> {
+    Legacy(Legacy),
+    Extended(Extended),
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -128,6 +139,24 @@ impl Request {
             Self::Update(args) => Some((args.request_id, args.revision)),
             Self::Remove(args) => Some((args.request_id, args.revision)),
             Self::List(_) => None,
+        }
+    }
+}
+
+pub type Call = Compatible<Request, v2::Request>;
+
+impl Call {
+    pub fn scope(&self) -> Scope {
+        match self {
+            Self::Legacy(request) => request.scope(),
+            Self::Extended(request) => request.scope(),
+        }
+    }
+
+    pub fn write_key(&self) -> Option<(Uuid, Uuid)> {
+        match self {
+            Self::Legacy(request) => request.write_key(),
+            Self::Extended(request) => request.write_key(),
         }
     }
 }

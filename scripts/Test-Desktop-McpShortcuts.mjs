@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
+import {execFileSync,spawn} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
-import {access,mkdtemp,readFile,realpath,rm,writeFile} from 'node:fs/promises';
+import {access,copyFile,mkdir,mkdtemp,readFile,realpath,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {createInterface} from 'node:readline';
 import {requestId} from '../apps/desktop/src/request-id.ts';
 import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 import {openCodexMcpClient} from './lib/CodexMcpClient.mjs';
 import {readMcpCatalog} from './lib/McpCatalog.mjs';
 
 const executable=path.resolve(process.argv[2]);
+const previous=process.argv[3]&&path.resolve(process.argv[3]);
+let desktop=previous??executable;
+let catalogVersion=previous?12:13;
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-mcp-shortcuts-中文-'));
 const evidence={result:'IN_PROGRESS',executable,observations:[],checks:[],modelTurns:0};
 const nil='00000000-0000-0000-0000-000000000000';
@@ -29,7 +33,7 @@ const scriptItem=(name,target,pinned=false)=>({name,target:{type:'script',path:t
 const mut=(revision,args)=>({request_id:requestId(),revision,...args});
 const broker=request=>ui.invoke('bridge_management_request',{request});
 const setting=()=>ui.invoke('local_adb_settings',{settings:null});
-let ui,client,info;
+let ui,client,info,fixture;
 
 async function tool(name) {
   await ui.evaluate("document.querySelector('details.tools-menu').open=true");
@@ -41,7 +45,7 @@ async function openApprovalPanel() {
   await ui.evaluate('[...document.querySelectorAll("summary")].find(el=>el.textContent==="MCP 初版连接").click()');
 }
 async function boot() {
-  ui=await launchDesktop(root,{executable});
+  ui=await launchDesktop(root,{executable:desktop});
   assert.equal((await ui.invoke('service_status')).fixture,false);
   assert.deepEqual(await ui.invoke('service_list'),[]);
   await openApprovalPanel();
@@ -52,8 +56,8 @@ async function boot() {
   assert.deepEqual(JSON.parse(await ui.evaluate(`${args}.textContent`)),{
     command:info.executable,args:['--stdio','--broker',info.instance,'--desktop-pid',String(info.desktop_pid)],
   });
-  assert.equal(info.executable.toLowerCase(),path.join(path.dirname(executable),'terminal-mcp.exe').toLowerCase());
-  const contract=await readMcpCatalog();
+  assert.equal(info.executable.toLowerCase(),path.join(path.dirname(desktop),'terminal-mcp.exe').toLowerCase());
+  const contract=await readMcpCatalog(catalogVersion);
   client=await openCodexMcpClient({directory:root,info,broker,catalog:contract.tools,observations:evidence.observations});
   await ui.click('刷新快捷指令授权');
   await waitStatus('已刷新');
@@ -80,6 +84,7 @@ async function approve(scope,seconds=60) {
   assert.ok(text.includes(String(client.child.pid)));
   assert.ok(text.includes((await broker({op:'info'})).peer.pending_id));
   assert.ok(text.includes(String(seconds)+' 秒'));
+  if(scope.startsWith('扩展'))assert.match(text,/本地命令.*会话发送文本/);
   assert.equal(await ui.evaluate(`${query('[aria-label="同意快捷指令授权"]')}.checked`),false);
   assert.equal(await ui.evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="确认快捷指令授权").disabled'),true);
   await ui.evaluate(`${query('[aria-label="同意快捷指令授权"]')}.click()`);
@@ -113,6 +118,215 @@ async function openSidebar() {
 }
 async function absent(file) {
   await assert.rejects(access(file),{code:'ENOENT'});
+}
+
+async function loopback() {
+  const work=path.join(root,'owned-ssh');
+  await mkdir(work);
+  fixture=spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'),[work],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+  const lines=createInterface({input:fixture.stdout})[Symbol.asyncIterator]();
+  async function next() {
+    let timer;
+    try {
+      const line=await Promise.race([lines.next(),new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(new Error('owned SSH timeout')),8000);
+      })]);
+      return JSON.parse(line.value);
+    } finally {clearTimeout(timer);}
+  }
+  const {port,pin,password}=await next();
+  const ssh=request=>ui.invoke('ssh_request',{request});
+  const {connection}=await ssh({op:'quick_start',request_id:requestId(),cols:80,rows:24,
+    settings:{protocol:'ssh2',host:'127.0.0.1',port,username:'synthetic',auth:'password',encoding:'utf8'}});
+  const ref={connection_id:connection.connection_id,generation:connection.generation};
+  const answered=new Set();
+  let connected=false;
+  for(let retry=0;retry<160;retry++){
+    const status=await ssh({op:'status',connection:ref});
+    assert.notEqual(status.connection.state,'FAILED');
+    if(status.connection.state==='CONNECTED'){connected=true;break;}
+    const challenge=status.challenge;
+    if(challenge&&!answered.has(challenge.id)){
+      answered.add(challenge.id);
+      if(challenge.kind==='host_key'){
+        assert.equal(challenge.review.candidate.fingerprint,pin);
+        await ssh({op:'answer_host',connection:ref,challenge_id:challenge.id,approve:true});
+      }else await ssh({op:'authenticate',connection:ref,challenge_id:challenge.id,use_saved:false,password});
+    }
+    await delay(30);
+  }
+  assert.equal(connected,true);
+  await ui.selectTab(ref.connection_id);
+  return {ref,received:async()=>{
+    fixture.stdin.write(JSON.stringify({op:'metrics'})+'\n');
+    return (await next()).received;
+  }};
+}
+
+async function expandedChecks({legacyIds, desktopOnly, priorRequest, priorReceipt, scriptHash}) {
+  const compatibility=path.join(root,'legacy-bridge-install');
+  await mkdir(compatibility);
+  for(const file of ['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe']){
+    await copyFile(path.join(path.dirname(file==='terminal-mcp.exe'?previous:executable),file),path.join(compatibility,file));
+  }
+  desktop=path.join(compatibility,'shared-terminal-desktop.exe');
+  catalogVersion=12;
+  await boot();
+  await denied('shortcuts_list',{});
+  await approve('查看');
+  await approve('管理');
+  assert.deepEqual(project((await list()).items),legacyIds);
+  assert.deepEqual(await list({query:'PRIVATE_SEND'}),{revision:(await setting()).revision,items:[]});
+  assert.deepEqual(await receipt(priorRequest.request_id),priorReceipt);
+  assert.deepEqual(await success('shortcuts_remove',priorRequest),priorReceipt);
+  await shutdown(false);
+  evidence.checks.push('actual v12 bridge against updated Desktop, including persisted pre-upgrade receipt and identical legacy replay');
+
+  desktop=executable;
+  catalogVersion=13;
+  await boot();
+  const legacyArgs={};
+  const v2={version:'v2'};
+  const expanded=(extra={})=>list({...v2,...extra});
+  const versioned=(revision,args)=>({...v2,...mut(revision,args)});
+  const put=(revision,args)=>success('shortcuts_update',versioned(revision,args));
+  await denied('shortcuts_list',legacyArgs);
+  await denied('shortcuts_list',v2);
+  await approve('查看',300);
+  await approve('管理',300);
+  assert.deepEqual(project((await list()).items),legacyIds);
+  assert.deepEqual((await list({query:'PRIVATE_SEND'})).items,[]);
+  await denied('shortcuts_list',v2);
+  await denied('shortcuts_list',{...v2,receipt_request_id:priorRequest.request_id});
+  await denied('shortcuts_update',mut((await list()).revision,{changes:[{id:desktopOnly[0].id,name:'旧授权不可改'}]}),'NOT_FOUND');
+  await denied('shortcuts_remove',mut((await list()).revision,{ids:[desktopOnly[1].id]}),'NOT_FOUND');
+  await denied('shortcuts_list',{version:'v3'},'INVALID_ARGUMENT');
+
+  const {ref,received}=await loopback();
+  const initialReceived=await received();
+  await openSidebar();
+  await ui.selectTab(ref.connection_id);
+  await sidebarIds(project((await setting()).shortcuts));
+  await approve('扩展查看',300);
+  const initial=await expanded();
+  assert.equal(initial.version,'v2');
+  assert.deepEqual(project((await expanded({query:'PRIVATE_SEND'})).items),[desktopOnly[1].id]);
+  await denied('shortcuts_create',versioned(initial.revision,{items:[adbItem('未批准新建','adb devices')]}));
+  await revoke('查看');
+  await denied('shortcuts_list',legacyArgs);
+  await approve('扩展管理',300);
+  assert.deepEqual(await expanded({receipt_request_id:priorRequest.request_id}),priorReceipt);
+  await denied('sessions_list',{});
+  await denied('terminal_send',{transport:'SSH2',connection:ref,request_id:requestId(),text:'UNAPPROVED'});
+
+  const rootShell='adb root\r\nadb shell';
+  const otherBody='adb shell "dmesg -w | cat" | Select-String power\nprobe.exe "one two"';
+  const make=({name,type,body,pinned=false,...options})=>({name,pinned,...options,target:{
+    type,...(type==='script'?{path:body}:type==='send'?{text:body}:{command:body}),
+  }});
+  const batch=versioned(initial.revision,{items:[
+    make({name:'新版 ADB',type:'adb',body:'adb devices -l',pinned:true,close_on_success:true}),
+    make({type:'script',body:script,pinned:true,close_on_success:true}),
+    make({name:'两行本地命令',type:'local',body:rootShell,close_on_success:true}),
+    make({name:'单行会话模板',type:'send',body:'echo UNSENT',append_enter:true}),
+    make({name:'混合换行和引号',type:'local',body:otherBody}),
+  ]});
+  const created=await success('shortcuts_create',batch);
+  const [adbId,scriptId,localId,sendId,otherId]=created.ids;
+  const view=async()=>{const value=await expanded();await sidebarIds(project(value.items));return value;};
+  const by=(value,id)=>value.items.find(item=>item.id===id);
+  const createdView=await view();
+  assert.deepEqual(by(createdView,localId).target,{type:'local',command:rootShell});
+  assert.deepEqual(by(createdView,otherId).target,{type:'local',command:otherBody});
+  assert.deepEqual(by(createdView,sendId).target,{type:'send',text:'echo UNSENT'});
+  assert.equal(by(createdView,scriptId).name,path.basename(script));
+  assert.equal(by(createdView,scriptId).close_on_success,true);
+  assert.equal(by(createdView,sendId).append_enter,true);
+  assert.equal(by(createdView,sendId).close_on_success,undefined);
+  await denied('shortcuts_list',{receipt_request_id:batch.request_id},'NOT_FOUND');
+  assert.deepEqual(await success('shortcuts_create',batch),created);
+  await denied('shortcuts_create',{...batch,items:[adbItem('重复编号','adb version')]},'REQUEST_CONFLICT');
+  await denied('shortcuts_create',{request_id:batch.request_id,revision:initial.revision,items:[adbItem('旧版重复编号','adb version')]},'REQUEST_CONFLICT');
+  await denied('shortcuts_update',versioned(initial.revision,{changes:[{id:localId,name:'过期'}]}),'REVISION_CONFLICT');
+  await denied('shortcuts_update',versioned(created.revision,{changes:[{id:sendId,close_on_success:false}]}),'INVALID_ARGUMENT');
+  await denied('shortcuts_update',versioned(created.revision,{changes:[{id:localId,append_enter:false}]}),'INVALID_ARGUMENT');
+  await denied('shortcuts_update',versioned(created.revision,{changes:[{id:localId,name:'🙂'.repeat(65)}]}),'INVALID_ARGUMENT');
+  await denied('shortcuts_update',versioned(created.revision,{changes:[{id:sendId,target:{type:'send',text:'one\ntwo'}}]}),'INVALID_ARGUMENT');
+  await denied('shortcuts_list',{...v2,path:script},'INVALID_ARGUMENT');
+  await denied('shortcuts_create',versioned(created.revision,{items:[make({type:'script',body:'relative.cmd'})]}),'INVALID_ARGUMENT');
+  assert.deepEqual(await view(),createdView);
+
+  const patched=await put(created.revision,{changes:[
+    {id:localId,name:'两行命令改名',close_on_success:false},
+    {id:sendId,append_enter:false},
+    {id:scriptId,name:'用户别名'},
+  ]});
+  const longScript=path.join(root,'长'.repeat(65)+'.cmd');
+  const changedPath=await put(patched.revision,{changes:[{id:scriptId,target:{type:'script',path:longScript}}]});
+  const renamed=await view();
+  assert.equal(by(renamed,scriptId).name,'用户别名');
+  assert.equal(by(renamed,scriptId).close_on_success,true);
+  assert.equal(by(renamed,localId).close_on_success,false);
+  assert.equal(by(renamed,localId).target.command,rootShell);
+  assert.equal(by(renamed,sendId).append_enter,false);
+  assert.equal(by(renamed,sendId).target.text,'echo UNSENT');
+  assert.equal((await setting()).shortcuts.find(item=>item.id===localId).command,rootShell);
+  const cleared=await put(changedPath.revision,{changes:[{id:scriptId,name:''}]});
+  const shortName='长'.repeat(60)+'.cmd';
+  const clearedView=await view();
+  assert.equal(by(clearedView,scriptId).name,shortName);
+  assert.equal(Array.from(shortName).length,64);
+  const legacyChanged=await success('shortcuts_update',mut(cleared.revision,{changes:[{id:adbId,name:'旧客户端改名'}],
+    moves:[{ids:[scriptId],anchor:adbId,side:'before'}]}));
+  const edgeBase=await view();
+  assert.equal(by(edgeBase,adbId).close_on_success,true);
+  const pinnedOrder=edgeBase.items.filter(item=>item.pinned).map(item=>item.id);
+  const ordinaryOrder=edgeBase.items.filter(item=>!item.pinned).map(item=>item.id);
+  const ordinaryBlock=ordinaryOrder.filter(id=>[sendId,localId].includes(id));
+  await denied('shortcuts_update',versioned(legacyChanged.revision,{
+    changes:[{id:otherId,name:'原子拒绝'}],moves:[{ids:[localId,adbId],edge:'first'}],
+  }),'INVALID_ARGUMENT');
+  assert.deepEqual(await view(),edgeBase);
+  const first=await put(legacyChanged.revision,{moves:[
+    {ids:[sendId,localId],edge:'first'},{ids:[adbId],edge:'last'},
+  ]});
+  const expectedPinned=[...pinnedOrder.filter(id=>id!==adbId),adbId];
+  assert.deepEqual(project((await view()).items),[
+    ...expectedPinned,...ordinaryBlock,...ordinaryOrder.filter(id=>!ordinaryBlock.includes(id)),
+  ]);
+  const last=await put(first.revision,{moves:[{ids:[localId,sendId],edge:'last'},{ids:[adbId],edge:'first'}]});
+  assert.deepEqual(project((await view()).items),[
+    adbId,...expectedPinned.filter(id=>id!==adbId),...ordinaryOrder.filter(id=>!ordinaryBlock.includes(id)),...ordinaryBlock,
+  ]);
+  assert.deepEqual((await expanded({query:'混合换行'})).items.map(item=>item.target.command),[otherBody]);
+  const remove=versioned(last.revision,{ids:created.ids});
+  const dropped=client.begin('tools/call',{name:'shortcuts_remove',arguments:remove},4000);
+  client.discardResponse(dropped.id);
+  await assert.rejects(dropped.promise,/RPC timeout/);
+  const removed=await expanded({receipt_request_id:remove.request_id});
+  assert.deepEqual(removed.ids,created.ids);
+  assert.equal(client.discardedResponses,1);
+  await denied('shortcuts_list',{receipt_request_id:remove.request_id},'NOT_FOUND');
+  await view();
+  assert.equal(await hash(script),scriptHash);
+  await absent(longScript);
+  await absent(path.join(root,'script-executed.txt'));
+  await absent(path.join(root,'adb-calls.txt'));
+  assert.deepEqual(await received(),initialReceived);
+  await revoke('扩展查看');
+  await denied('shortcuts_list',v2);
+  await revoke('扩展管理');
+  await denied('shortcuts_list',{...v2,receipt_request_id:remove.request_id});
+  assert.deepEqual(await receipt(priorRequest.request_id),priorReceipt);
+  await shutdown(true);
+  await boot();
+  await denied('shortcuts_list',v2);
+  await denied('shortcuts_list',{...v2,receipt_request_id:remove.request_id});
+  await approve('扩展管理');
+  assert.deepEqual(await expanded({receipt_request_id:remove.request_id}),removed);
+  assert.deepEqual(await expanded({receipt_request_id:priorRequest.request_id}),priorReceipt);
+  await shutdown(false);
+  evidence.checks.push('v13 metadata-only four-type CRUD, exact CR/LF and quoted pipelines, alias fallback at 64, explicit false, legacy field preservation, full-section stable moves, receipts before and after upgrades, zero execution or SSH input');
 }
 
 try {
@@ -270,6 +484,7 @@ try {
   assert.deepEqual((await setting()).shortcuts.filter(item=>item.desktop_kind),desktopOnly);
   evidence.checks.push('legacy MCP scopes cannot read, create, edit, or remove Desktop-only arbitrary commands or session sends');
   await shutdown(false);
+  if(previous) await expandedChecks({legacyIds:[pinned,legacy],desktopOnly,priorRequest:remove,priorReceipt:removed,scriptHash:before});
   evidence.checks.push('both scopes expire, revoke is explicit, restart clears authority and exact protected receipt persists');
   evidence.result='PASS';
   console.log('PASS official stdio shortcut management, independent Desktop authority, transactional receipts and live sidebar');
@@ -281,7 +496,14 @@ try {
 }finally{
   await client?.close();
   await ui?.close();
-  await writeFile('artifacts/mcp-shortcuts-software-result.json',JSON.stringify(evidence,null,2)+'\n');
+  if(fixture&&fixture.exitCode===null&&fixture.signalCode===null){
+    const exited=new Promise(resolve=>fixture.once('exit',resolve));
+    fixture.stdin.end();
+    await exited;
+  }
+  const release=JSON.parse(await readFile('package.json','utf8')).version;
+  const report=previous?`windows-${release}-mcp-shortcuts-verification.json`:'mcp-shortcuts-software-result.json';
+  await writeFile(path.join('artifacts',report),JSON.stringify(evidence,null,2)+'\n');
   assert.equal(path.dirname(root).toLowerCase(),(await realpath(tmpdir())).toLowerCase());
   assert.ok(path.basename(root).startsWith('shared-terminal-mcp-shortcuts-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:15,retryDelay:100});

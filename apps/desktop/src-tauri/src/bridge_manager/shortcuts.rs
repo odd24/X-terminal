@@ -2,7 +2,7 @@ use super::{Manager, Shared, failure};
 use serde::{Deserialize, Serialize};
 use session_protocol::{
     bridge::ResultMessage,
-    shortcuts::{Error, Request, Scope},
+    shortcuts::{Call, Error, Scope},
 };
 use std::{
     path::PathBuf,
@@ -24,12 +24,16 @@ pub(super) struct Store {
 pub(super) struct Authorization {
     view: Option<Instant>,
     manage: Option<Instant>,
+    extended_view: Option<Instant>,
+    extended_manage: Option<Instant>,
 }
 impl Authorization {
     fn expiry(&mut self, scope: Scope) -> &mut Option<Instant> {
         match scope {
             Scope::View => &mut self.view,
             Scope::Manage => &mut self.manage,
+            Scope::ExtendedView => &mut self.extended_view,
+            Scope::ExtendedManage => &mut self.extended_manage,
         }
     }
 
@@ -37,6 +41,8 @@ impl Authorization {
         match scope {
             Scope::View => self.view,
             Scope::Manage => self.manage,
+            Scope::ExtendedView => self.extended_view,
+            Scope::ExtendedManage => self.extended_manage,
         }
     }
 }
@@ -61,6 +67,8 @@ pub struct Peer {
     pid: u32,
     view_remaining_ms: u64,
     manage_remaining_ms: u64,
+    extended_view_remaining_ms: u64,
+    extended_manage_remaining_ms: u64,
 }
 
 #[derive(Serialize)]
@@ -103,6 +111,8 @@ impl Manager {
                 pid: entry.peer.pid,
                 view_remaining_ms: remaining(entry.shortcuts.view),
                 manage_remaining_ms: remaining(entry.shortcuts.manage),
+                extended_view_remaining_ms: remaining(entry.shortcuts.extended_view),
+                extended_manage_remaining_ms: remaining(entry.shortcuts.extended_manage),
             }),
         })
     }
@@ -181,7 +191,7 @@ pub(super) async fn call(
     shared: Arc<Shared>,
     connected: Arc<AtomicBool>,
     id: Uuid,
-    request: Request,
+    request: Call,
 ) -> ResultMessage {
     let result = tauri::async_runtime::spawn_blocking(move || {
         let store = shared.shortcuts.as_ref().ok_or(Error::PermissionDenied)?;

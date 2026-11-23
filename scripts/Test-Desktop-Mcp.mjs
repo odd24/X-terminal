@@ -131,7 +131,7 @@ try {
   const protectedGrant=serial||security||exec||(official&&wait);
   const signed=await management(protectedGrant?{...baseGrant,op:'grant_protected',form:{kind:'scoped'},redaction:{sensitive_fields:false,literals:['P15_PRIVATE',...(exec?['synthetic-secret']:[]),...(security?[sentinels.literal]:[])]}}:{...baseGrant,op:'grant'});
   assert.equal(JSON.stringify(signed).includes('token'),false);
-  const catalogVersion=packageManifest?.mcpCatalogVersion??(preview?11:12);
+  const catalogVersion=packageManifest?.mcpCatalogVersion??(preview?11:13);
   const contract=await readMcpCatalog(catalogVersion);
   async function openClient(){
     if(official)return openCodexMcpClient({directory,info,broker,catalog:contract.tools,observations});
