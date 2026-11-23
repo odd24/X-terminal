@@ -32,7 +32,7 @@ export function locateTabDrop(x: number, y: number): TabDrop | undefined {
     if (location && anchor) return { kind: 'insert', anchor, after: x > location.rect.left + location.rect.width / 2 };
     return {kind:'merge',pane,bounds};
   }
-  const terminal = hit.closest('.terminal-pane-body > .terminal, .local-pane-body');
+  const terminal = hit.closest('.terminal-pane-body');
   if (!terminal) return;
   const bounds = terminal.getBoundingClientRect();
   const horizontal = (x - bounds.left) / bounds.width - .5;
