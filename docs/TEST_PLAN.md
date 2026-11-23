@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.16 使用 `Test-Desktop-TabSeparation.mjs` 验证方案 A 的终端接缝、短竖分隔、深浅配色、同地址混排和宽窄分屏，并执行标签交互和快捷键回归。[P26.16](records/P26.16.md)
+
 P26.15 使用 `Test-Desktop-TabSeparation.mjs` 验证同地址双 SSH 与本地混排、主题、宽窄分屏、横向滚动及精确目标。使用 `Test-Desktop-ShortcutManagement.mjs` 验证快捷指令两区域、单双列、边界、并发保存、重启及零误执行。[P26.15](records/P26.15.md)
 
 P26.14 使用 `Test-Desktop-Menus.mjs` 分两轮验证实际 Windows WebView。先对照旧工具栏和浅色同缩放菜单组，再验证深色模拟 150% 的窄分屏、长日志菜单、键盘、焦点和原操作。[P26.14](records/P26.14.md)

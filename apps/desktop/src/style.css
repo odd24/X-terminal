@@ -277,11 +277,16 @@ main.desktop-shell {
 .tab-tools { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin-bottom: var(--space-2); }
 [role="tablist"] { display: flex; flex: 1; overflow-x: auto; scrollbar-width: none; min-width: 0; gap: var(--space-1); padding-top: var(--space-1); }
 .connection-tab {
-  display: flex; flex-shrink: 0; border-radius: var(--radius-control);
-  background: var(--surface-raised); box-shadow: inset 0 0 0 var(--border-width) var(--border);
+  display: flex; flex-shrink: 0; position: relative;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
 }
 .connection-tab:is(:hover, :has(> :focus-visible)) { background: var(--control-hover); }
-.connection-tab:has(> :focus-visible) { box-shadow: inset 0 0 0 var(--border-width) var(--accent); }
+.connection-tab:not(:has(> [aria-selected="true"]))::before {
+  content: ''; position: absolute; inset-inline-end: 0; inset-block-start: 50%; translate: 0 -50%;
+  inline-size: var(--border-width); block-size: 14px; pointer-events: none;
+  background: color-mix(in srgb, var(--border) 66%, var(--tab-strip-background));
+}
+.connection-tab[data-insertion]::before { visibility: hidden; }
 .connection-tab button { font-weight: 400; border-color: transparent; background: transparent; }
 .connection-tab > [role="tab"]:hover { background: transparent; }
 .connection-tab:has(> [aria-selected="true"]) button { color: inherit; }
@@ -297,7 +302,6 @@ main.desktop-shell {
 [data-session-drag-handle] { cursor: grab; touch-action: none; user-select: none; }
 [data-tab-drag="true"] .connection-tab > [role="tab"] { cursor: grabbing; }
 .connection-tab[data-drag-source] { opacity: .62; }
-.connection-tab[data-insertion] { position: relative; }
 .connection-tab[data-insertion]::after { content: ''; position: absolute; inset-block: 2px; width: 3px; background: var(--accent); pointer-events: none; }
 .connection-tab[data-insertion="before"]::after { left: 0; }
 .connection-tab[data-insertion="after"]::after { right: 0; }
@@ -444,24 +448,26 @@ main.desktop-shell {
 .terminal-pane { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; border-radius: var(--radius-control); }
 .terminal-grid:not(.single) .terminal-pane { border: var(--border-width) solid var(--border-subtle); }
 .terminal-grid:not(.single) .pane-active { border-color: var(--accent); }
-.pane-tab-bar { flex-shrink: 0; margin-bottom: 0; background: var(--surface); }
-.desktop-shell .pane-tab-bar { padding-inline-end: var(--space-2); }
-.pane-tab-bar [role="tablist"] { padding-top: 0; }
-.pane-tab-bar .connection-tab button { min-height: 26px; padding-block: 0; }
-.pane-tab-bar .connection-tab:has(> [role="tab"][aria-selected="true"]) {
-  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
-  background: var(--terminal-background); color: var(--terminal-foreground);
-  box-shadow: inset 0 2px var(--accent);
+.pane-tab-bar {
+  --tab-strip-background: color-mix(in srgb, var(--surface), var(--border-subtle) 37%);
+  flex-shrink: 0; align-items: end; margin-bottom: 0; padding-block-start: var(--space-1);
+  background: var(--tab-strip-background);
 }
-.terminal-grid.single .pane-tab-bar { align-items: end; }
-.terminal-grid.single .pane-tab-bar .connection-tab button { min-height: 31px; }
+.desktop-shell .pane-tab-bar { padding-inline: var(--space-2); }
+.pane-tab-bar [role="tablist"] { padding-top: 0; gap: 2px; }
+.pane-tab-bar .connection-tab button { min-height: 26px; padding-block: 0; }
+.pane-tab-bar .connection-tab > [role="tab"] { padding-inline-end: var(--space-2); }
+.pane-tab-bar .connection-tab:has(> [role="tab"][aria-selected="true"]) {
+  --tab-close-ink: var(--selected-tab-close-ink);
+  background: var(--terminal-background); color: var(--tab-close-ink);
+}
+.pane-tab-bar .connection-tab > [aria-selected="true"] { font-weight: var(--weight-heading); }
+.terminal-grid.single .pane-tab-bar { padding-block-start: var(--space-2); }
+.terminal-grid.single .pane-tab-bar .connection-tab button { min-height: 34px; }
 .pane-tab-bar .connection-tab > button.tab-close-button {
   display: grid; position: relative; place-items: center; flex: none;
   box-sizing: border-box; inline-size: 26px; padding: 0; margin-inline-end: 2px;
   color: var(--tab-close-ink, var(--text)); background: transparent;
-}
-.pane-tab-bar .connection-tab:has(> [role="tab"][aria-selected="true"]) {
-  --tab-close-ink: var(--selected-tab-close-ink);
 }
 @supports (color: contrast-color(black)) {
   .pane-tab-bar .connection-tab:has(> [role="tab"][aria-selected="true"]) { --tab-close-ink: contrast-color(var(--terminal-background)); }
