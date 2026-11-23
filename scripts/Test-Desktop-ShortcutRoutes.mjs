@@ -9,6 +9,9 @@ import {requestId} from '../apps/desktop/src/request-id.ts';
 import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]);
+const perfIndex=process.argv.indexOf('--measure');
+const performanceReport=perfIndex<0?undefined:path.resolve(process.argv[perfIndex+1]);
+const powershell=performanceReport?execFileSync('where.exe',['pwsh.exe'],{encoding:'utf8'}).trim().split(/\r?\n/)[0]:undefined;
 const uart=process.argv.includes('--uart');
 const ttyBaseline=process.argv.includes('--expect-piped-shell');
 const variant=uart?'uart':ttyBaseline?'adb-shell-baseline':'ssh';
@@ -25,6 +28,7 @@ const ref=({connection_id,generation})=>({connection_id,generation});
 const {join}=path;
 let ui;
 const peers=[];
+const pushOutput=new Map();
 
 async function wait(read,reason,timeout=12000){
   const end=Date.now()+timeout;
@@ -76,6 +80,10 @@ async function connectSsh(name){
     return status.connection.state==='CONNECTED';
   },'SSH fixture not connected');
   child.stdin.write(JSON.stringify({op:'keyboard_echo'})+'\n');await read();
+  if(performanceReport)pushOutput.set(connection.connection_id,async text=>{
+    child.stdin.write(JSON.stringify({op:'push',text})+'\n');
+    await read();
+  });
   return connection;
 }
 async function connectUart(){
@@ -209,6 +217,12 @@ try{
   assert.equal((await ui.invoke('service_list')).find(connection=>connection.connection_id===first.connection_id).state,'CONNECTED');
   assert.equal(await ui.evaluate(`${row(send.name)}.getAttribute('aria-disabled')`),'true');
   await close(id);
+  if(performanceReport){
+    const {measureRoutes}=await import('./lib/MeasureRoutes.mjs');
+    await mode('already-root');
+    result.performance={};
+    await measureRoutes({ui,first,second,group:shellGroup.name,single:singleShell.name,activate,close,key,row,output,executable,powershell,pushOutput},result.performance);
+  }
   const paused=await run(pause.name);await seen('BAT_PAUSED');
   assert.equal(await selected(),paused);
   await key('Enter',13);
@@ -386,6 +400,6 @@ try{
       child.stdin.end();await exited;
     }
   }
-  await writeFile(`artifacts/windows-${version}-shortcut-routes-${variant}.json`,JSON.stringify(result,null,2)+'\n');
+  await writeFile(performanceReport??`artifacts/windows-${version}-shortcut-routes-${variant}.json`,JSON.stringify(result,null,2)+'\n');
   await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }

@@ -163,6 +163,15 @@ const tick=setInterval(()=>{
       assert.doesNotMatch(stream,new RegExp('SEQ_'+(id==='C'?'D':'C')+'_'));
     }
     sample.wireBytes=captured.bytes;
+    if(process.argv.includes('--tabs')){
+      sample.tabScale={};
+      for(const count of [4,20]){
+        if(count===20)for(let n=5;n<=20;n++){await tool('轻量命令行');await select(n);}
+        const times=[];
+        for(let i=0;i<30;i++)times.push(await timed(()=>select(i%2?1:count)));
+        sample.tabScale[count]=times;
+      }
+    }
     await exit();
     result.observations.push(sample);
   }
