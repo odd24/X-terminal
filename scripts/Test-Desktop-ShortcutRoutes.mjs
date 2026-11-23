@@ -10,6 +10,8 @@ import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]);
 const uart=process.argv.includes('--uart');
+const ttyBaseline=process.argv.includes('--expect-piped-shell');
+const variant=uart?'uart':ttyBaseline?'adb-shell-baseline':'ssh';
 const version=JSON.parse(await readFile('package.json','utf8')).version;
 const root=await mkdtemp(path.join(await realpath(tmpdir()),uart?'shared-terminal-serial-ui-中文-shortcut-':'shared-terminal-shortcut-routes-中文-'));
 const result={result:'IN_PROGRESS',executable,sha256:createHash('sha256').update(await readFile(executable)).digest('hex'),checks:[]};
@@ -132,15 +134,19 @@ try{
   const auto=make('成功关闭','probe delay',true);
   const failure=make('前段失败','probe fail | grep power\nprobe tail',true);
   const missing=make('缺少 grep','adb shell "dmesg -w" | grep power');
+  const singleShell={id:randomUUID(),name:'单条 shell',command:'adb shell'};
+  const shellGroup=make('root 后进入 shell','adb root\nadb shell');
+  const stateShell=make('检查设备后进入 shell','adb -s fixed get-state\nadb -s fixed shell',true);
+  const commandShell=make('执行设备命令','adb shell "dmesg -w"');
   const settings=await ui.invoke('local_adb_settings',{settings:{revision:null,executable:adb,
-    shortcuts:[legacy,local,fallback,send,pause,fail,auto,failure,missing]}});
+    shortcuts:[legacy,local,fallback,send,pause,fail,auto,failure,missing,singleShell,shellGroup,stateShell,commandShell]}});
   assert.equal(settings.shortcuts.find(item=>item.id===local.id).command,pipeline);
   await ui.command('Page.reload');
   const first=uart?await connectUart():await connectSsh('first');
   const second=uart?undefined:await connectSsh('second');
   await ui.evaluate(`(()=>{
     const original=window.fetch;
-    const state=window.routes={reads:0,sends:0,pending:[],hold:false};
+    const state=window.routes={reads:0,sends:0,pending:[],hold:false,localStarts:[]};
     window.fetch=async function(input,init){
       const command=new URL(String(input)).pathname;
       const payload=JSON.parse(init?.body??'{}');
@@ -151,6 +157,7 @@ try{
         return response;
       }
       if((command==='/ssh_request'||command==='/serial_request')&&['write','send'].includes(payload.request?.op))state.sends++;
+      if(command==='/local_terminal'&&payload.action?.kind==='run_adb')state.localStarts.push(payload.action);
       return original.call(this,input,init);
     };
   })()`);
@@ -215,11 +222,73 @@ try{
   await ui.click('关闭撰写');
   result.checks.push('legacy ADB and BAT open a focused local result from a live remote source; pause retains, exit 0 returns to source, exit 7 retains');
   if(!uart){
+    const snapshot=()=>ui.evaluate(`${node(output)}?.innerText`);
+    const type=async text=>{await ui.command('Input.insertText',{text});await key('Enter',13);};
+    const focus=()=>ui.waitFor("document.activeElement?.matches('.local-terminal:not([hidden]) .xterm-helper-textarea')");
+    const recorded=async from=>(await calls()).slice(from.length).trim().split(/\r?\n/);
+    await mode('already-root');
+    const singleStart=await calls();
+    const single=await run(singleShell.name);
+    await focus();await seen('fixture:/ #');
+    assert.ok((await recorded(singleStart)).includes('bare-shell-terminal|true'));
+    await type('exit');await seen('前台进程退出（0）');await close(single);
+
+    const groupStart=await calls();
+    const group=await run(shellGroup.name);
+    await focus();await seen('[2/2] 开始');
+    if(ttyBaseline){
+      await wait(async()=>(await recorded(groupStart)).includes('bare-shell-terminal|false'),'0.1.33 shell must be piped');
+      assert.doesNotMatch(await snapshot(),/fixture:\/ #/);
+      assert.ok((await recorded(groupStart)).includes('adb|-s|fixed|wait-for-device'));
+      await key('c',67,2);await seen('已中断整组命令');await close(group);
+      result.checks.push('0.1.33 single command sees a TTY; the exact root/shell group starts over pipes and has no prompt');
+    }else{
+      await seen('fixture:/ #');
+      const action=await ui.evaluate('window.routes.localStarts.at(-1)');
+      assert.equal(action.id,group);
+      await ui.invoke('local_terminal',{action});
+      await ui.command('Input.insertText',{text:'pwd'});
+      await seen('fixture:/ # pwd');
+      await key('Enter',13);await seen('/fixture-read-only');
+      await ui.invoke('local_terminal',{action:{kind:'resize',id:group,cols:94,rows:31}});
+      await delay(200);
+      await type('size');await seen('FIXTURE_SIZE:94x31');
+      await type('exit');await seen('[2/2] 完成');await seen('前台进程退出（0）');
+      assert.deepEqual((await recorded(groupStart)).filter(line=>!line.startsWith('adb|devices')),[
+        'adb|-s|fixed|root','adb|-s|fixed|shell','bare-shell-terminal|true',
+        'bare-shell-input|pwd','bare-shell-input|size','bare-shell-input|exit',
+      ]);
+      await close(group);
+
+      const stateStart=await calls();
+      const state=await run(stateShell.name);
+      await seen('fixture:/ #');
+      await type('exit 7');await seen('ADB 交互终端退出码 7');
+      assert.equal(await selected(),state);
+      await close(state);
+      const ended=await run(stateShell.name);await seen('fixture:/ #');
+      await type('exit');
+      await ui.waitFor(`!${node('[role=tab][data-connection-id="'+ended+'"]')}`);
+      assert.equal(await selected(),first.connection_id);
+      assert.equal((await recorded(stateStart)).filter(line=>line==='adb|-s|fixed|get-state').length,2);
+      const middle=await run(shellGroup.name);await seen('fixture:/ #');
+      await key('c',67,2);await seen('已中断整组命令');
+      assert.equal(await selected(),middle);await close(middle);
+      const commandStart=await calls();
+      const command=await run(commandShell.name);
+      await seen('cold boot');await seen('[1/1] 完成');await seen('前台进程退出（0）');
+      assert.ok((await recorded(commandStart)).includes('adb|-s|fixed|shell|dmesg -w'));
+      await close(command);
+      result.checks.push('standalone final bare ADB shell has a real TTY, keyboard echo and fixed-device dedup; 94x31 resize, exit 0/7, Ctrl+C and focus verified');
+    }
+  }
+  if(!uart&&!ttyBaseline){
     await mode('');
+    const pipelineStart=await calls();
     const success=await run(local.name);
     await seen('LOCAL_GREP:power signal');await seen('[2/2] 完成');
     assert.equal(await ui.evaluate(`${node(output)}.innerText.includes('cold boot')`),false);
-    const lines=(await calls()).split(/\r?\n/);
+    const lines=(await calls()).slice(pipelineStart.length).split(/\r?\n/);
     assert.ok(lines.indexOf('adb|-s|fixed|root')<lines.indexOf('adb|-s|fixed|wait-for-device'));
     assert.ok(lines.indexOf('adb|-s|fixed|wait-for-device')<lines.indexOf('adb|-s|fixed|shell|dmesg -w'));
     assert.ok(lines.includes('grep|power'));
@@ -278,7 +347,7 @@ try{
   console.log(`PASS shortcut routes ${uart?'memory UART':'SSH and Windows batch'}`);
 }catch(error){
   result.result='FAIL';result.error=String(error.stack);
-  if(ui)await ui.screenshot(`windows-${version}-shortcut-routes-${uart?'uart':'ssh'}-failure.png`).catch(()=>{});
+  if(ui)await ui.screenshot(`windows-${version}-shortcut-routes-${variant}-failure.png`).catch(()=>{});
   throw error;
 }finally{
   await ui?.close();
@@ -288,6 +357,6 @@ try{
       child.stdin.end();await exited;
     }
   }
-  await writeFile(`artifacts/windows-${version}-shortcut-routes-${uart?'uart':'ssh'}.json`,JSON.stringify(result,null,2)+'\n');
+  await writeFile(`artifacts/windows-${version}-shortcut-routes-${variant}.json`,JSON.stringify(result,null,2)+'\n');
   await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }

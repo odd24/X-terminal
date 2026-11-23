@@ -618,7 +618,8 @@ pub async fn local_terminal(
                     ShortcutPlan::Batch(plan) => {
                         let plan = plan.bind(target.as_deref())?;
                         (
-                            batch::Process::start(plan, &session.cwd).map(Foreground::Batch),
+                            batch::Process::start(plan, &session.cwd, session.cols, session.rows)
+                                .map(Foreground::Batch),
                             "本地命令组".into(),
                         )
                     }
@@ -655,8 +656,10 @@ pub async fn local_terminal(
             let session = sessions.get_mut(&id).ok_or("本地标签已关闭")?;
             session.cols = cols;
             session.rows = rows;
-            if let Some(Foreground::Console(process)) = &session.active {
-                process.resize(cols, rows);
+            match &session.active {
+                Some(Foreground::Console(process)) => process.resize(cols, rows),
+                Some(Foreground::Batch(process)) => process.resize(cols, rows),
+                None => {}
             }
             return Ok(serde_json::Value::Null);
         }

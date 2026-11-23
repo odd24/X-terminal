@@ -1,5 +1,5 @@
 use super::{Plan, Stage};
-use crate::local_terminal::conpty::{Attributes, OUTPUT_LIMIT, Output, quote, wide};
+use crate::local_terminal::conpty::{self, Attributes, OUTPUT_LIMIT, Output, quote, wide};
 use std::{
     ffi::OsStr,
     io::{self, Read, Write},
@@ -36,10 +36,15 @@ const JOB_LIST: usize = 0x0002_000d;
 const COMMAND_TIME: Duration = Duration::from_mins(30);
 const WAIT_DEVICE: Duration = Duration::from_secs(12);
 
-#[derive(Default)]
+enum Input {
+    Pipe(mpsc::SyncSender<Vec<u8>>),
+    Terminal(Arc<conpty::Process>),
+}
+
 struct Control {
     stopped: AtomicBool,
-    input: Mutex<Option<mpsc::SyncSender<Vec<u8>>>>,
+    input: Mutex<Option<Input>>,
+    size: Mutex<(u16, u16)>,
 }
 
 #[derive(Default)]
@@ -49,17 +54,17 @@ struct Stream {
 }
 
 impl Stream {
-    fn append(&self, bytes: &[u8]) {
+    fn append(&self, bytes: &[u8], overflow: bool) {
         let mut out = self.output.lock().unwrap();
         let count = bytes
             .len()
             .min(OUTPUT_LIMIT.saturating_sub(out.bytes.len()));
         out.bytes.extend_from_slice(&bytes[..count]);
-        out.overflow |= count != bytes.len();
+        out.overflow |= overflow || count != bytes.len();
         self.ready.notify_one();
     }
     fn line(&self, line: &str) {
-        self.append(format!("\r\n{line}\r\n").as_bytes());
+        self.append(format!("\r\n{line}\r\n").as_bytes(), false);
     }
 }
 
@@ -72,8 +77,12 @@ pub(in crate::local_terminal) struct Process {
 }
 
 impl Process {
-    pub fn start(plan: Plan, cwd: &Path) -> io::Result<Self> {
-        let control = Arc::new(Control::default());
+    pub fn start(plan: Plan, cwd: &Path, cols: u16, rows: u16) -> io::Result<Self> {
+        let control = Arc::new(Control {
+            stopped: AtomicBool::new(false),
+            input: Mutex::new(None),
+            size: Mutex::new((cols, rows)),
+        });
         let stream = Arc::new(Stream::default());
         let cwd = cwd.to_path_buf();
         let ctl = control.clone();
@@ -104,19 +113,24 @@ impl Process {
             self.control.stopped.store(true, Ordering::Release);
             return Ok(());
         }
-        let bytes = if bytes == [b'\r'] {
-            b"\r\n".to_vec()
-        } else {
-            bytes
-        };
-        self.control
-            .input
-            .lock()
-            .unwrap()
-            .as_ref()
-            .ok_or("本步骤暂无可用的标准输入")?
-            .try_send(bytes)
-            .map_err(|_| "本地命令输入队列已满或本步骤已退出".into())
+        match self.control.input.lock().unwrap().as_ref() {
+            Some(Input::Terminal(terminal)) => terminal.input(bytes),
+            Some(Input::Pipe(sender)) => {
+                let bytes = if bytes == [b'\r'] {
+                    b"\r\n".to_vec()
+                } else {
+                    bytes
+                };
+                sender
+                    .try_send(bytes)
+                    .map_err(|_| "本地命令输入队列已满或本步骤已退出".into())
+            }
+            None => Err("本步骤暂无可用的标准输入".into()),
+        }
+    }
+
+    pub fn resize(&self, cols: u16, rows: u16) {
+        *self.control.size.lock().unwrap() = (cols, rows);
     }
 }
 
@@ -212,17 +226,9 @@ fn spawn(
             return Err(io::Error::last_os_error());
         }
     }
-    let prefix = if stage.device {
-        vec![
-            "-s",
-            serial.ok_or(io::Error::other("missing fixed ADB device"))?,
-        ]
-    } else {
-        Vec::new()
-    };
+    let args = stage.bound_args(serial)?;
     let command = std::iter::once(quote(&stage.image.to_string_lossy()))
-        .chain(prefix.iter().map(|value| quote(value)))
-        .chain(stage.args.iter().map(|arg| quote(arg)))
+        .chain(args.iter().map(|arg| quote(arg)))
         .collect::<Vec<_>>()
         .join(" ");
     let mut command = wide(OsStr::new(&command));
@@ -272,7 +278,7 @@ fn drain(mut reader: impl Read, sink: &Stream, root_capture: Option<&Mutex<Vec<u
             terminal.push(byte);
             prior_cr = byte == b'\r';
         }
-        sink.append(&terminal);
+        sink.append(&terminal, false);
     }
 }
 
@@ -332,7 +338,7 @@ fn execute(
         })
         .collect();
     let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(32);
-    *control.input.lock().unwrap() = Some(tx);
+    *control.input.lock().unwrap() = Some(Input::Pipe(tx));
     let writer = thread::spawn(move || {
         while let Ok(bytes) = rx.recv() {
             if input.write_all(&bytes).is_err() {
@@ -382,6 +388,52 @@ fn execute(
     Ok(capture.map_or_else(Vec::new, |data| std::mem::take(&mut *data.lock().unwrap())))
 }
 
+fn interactive_shell(
+    stage: &Stage,
+    serial: Option<&str>,
+    cwd: &Path,
+    deadline: Instant,
+    control: &Control,
+    sink: &Stream,
+) -> Result<(), String> {
+    let args = stage
+        .bound_args(serial)
+        .map_err(|error| error.to_string())?;
+    let mut size = *control.size.lock().unwrap();
+    let process = Arc::new(
+        conpty::Process::start(&stage.image, &args, cwd, size.0, size.1)
+            .map_err(|error| format!("ADB 交互终端启动失败：{error}"))?,
+    );
+    *control.input.lock().unwrap() = Some(Input::Terminal(process.clone()));
+    let result = loop {
+        let output = std::mem::take(&mut *process.output.lock().unwrap());
+        if output.ready() {
+            sink.append(&output.bytes, output.overflow);
+        }
+        if control.stopped.load(Ordering::Acquire) {
+            break Err("已中断整组命令（Ctrl+C）".into());
+        }
+        if let Some(code) = output.exit {
+            break if code == 0 {
+                Ok(())
+            } else {
+                Err(format!("ADB 交互终端退出码 {code}"))
+            };
+        }
+        if Instant::now() >= deadline {
+            break Err("本步骤超时，已停止交互终端".into());
+        }
+        let next = *control.size.lock().unwrap();
+        if size != next {
+            process.resize(next.0, next.1);
+            size = next;
+        }
+        thread::sleep(Duration::from_millis(15));
+    };
+    control.input.lock().unwrap().take();
+    result
+}
+
 fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<(), String> {
     let deadline = Instant::now() + COMMAND_TIME;
     let total = plan.steps.len();
@@ -394,9 +446,24 @@ fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<
             return Err("已中断整组命令（Ctrl+C）".into());
         }
         sink.line(&format!("[{}/{}] 开始", index + 1, total));
+        if let [stage] = step.as_slice()
+            && index + 1 == total
+            && stage.device
+            && stage.args == ["shell"]
+        {
+            interactive_shell(stage, plan.serial.as_deref(), cwd, deadline, control, sink)?;
+            sink.line(&format!("[{}/{}] 完成", index + 1, total));
+            continue;
+        }
         let captured = execute(&step, plan.serial.as_deref(), cwd, deadline, control, sink)?;
         if step[0].root {
             let root = String::from_utf8_lossy(&captured).to_ascii_lowercase();
+            let restarting = root
+                .lines()
+                .any(|line| line.trim() == "restarting adbd as root");
+            let already_root = root
+                .lines()
+                .any(|line| line.trim() == "adbd is already running as root");
             if [
                 "cannot",
                 "error",
@@ -408,27 +475,27 @@ fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<
             ]
             .iter()
             .any(|pattern| root.contains(pattern))
-                || !["restarting adbd as root", "adbd is already running as root"]
-                    .iter()
-                    .any(|pattern| root.contains(pattern))
+                || !(restarting || already_root)
             {
                 return Err("ADB root 被拒绝或未确认成功，已停止后续步骤".into());
             }
-            sink.line("等待原 ADB 设备重新就绪");
-            let wait = Stage {
-                image: step[0].image.clone(),
-                args: vec!["wait-for-device".into()],
-                device: true,
-                root: false,
-            };
-            execute(
-                &[wait],
-                plan.serial.as_deref(),
-                cwd,
-                deadline.min(Instant::now() + WAIT_DEVICE),
-                control,
-                sink,
-            )?;
+            if restarting {
+                sink.line("等待原 ADB 设备重新就绪");
+                let wait = Stage {
+                    image: step[0].image.clone(),
+                    args: vec!["wait-for-device".into()],
+                    device: true,
+                    root: false,
+                };
+                execute(
+                    &[wait],
+                    plan.serial.as_deref(),
+                    cwd,
+                    deadline.min(Instant::now() + WAIT_DEVICE),
+                    control,
+                    sink,
+                )?;
+            }
         }
         sink.line(&format!("[{}/{}] 完成", index + 1, total));
     }

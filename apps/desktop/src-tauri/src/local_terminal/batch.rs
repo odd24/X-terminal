@@ -14,6 +14,18 @@ struct Stage {
     root: bool,
 }
 
+impl Stage {
+    fn bound_args(&self, serial: Option<&str>) -> std::io::Result<Vec<String>> {
+        let mut args = Vec::new();
+        if self.device {
+            let serial = serial.ok_or(std::io::Error::other("missing fixed ADB device"))?;
+            args.extend(["-s".into(), serial.into()]);
+        }
+        args.extend(self.args.iter().cloned());
+        Ok(args)
+    }
+}
+
 pub(super) struct Prepared {
     steps: Vec<Vec<Stage>>,
     pub devices: Vec<adb::Device>,
@@ -106,8 +118,8 @@ pub(super) fn prepare(
                 }
                 match args.first().map(String::as_str) {
                     Some("devices" | "version") => {}
-                    Some("root" | "shell" | "logcat" | "pull" | "push" | "reboot") => device = true,
-                    _ => return Err("组命令中的 ADB 仅支持 devices、version、root、shell、logcat、pull、push、reboot 与一致的 -s".into()),
+                    Some("root" | "shell" | "logcat" | "pull" | "push" | "reboot" | "get-state") => device = true,
+                    _ => return Err("组命令中的 ADB 仅支持 devices、version、root、shell、logcat、pull、push、reboot、get-state 与一致的 -s".into()),
                 }
                 needs_device |= device;
                 root = args[0] == "root";
