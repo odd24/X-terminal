@@ -8,9 +8,14 @@ import {createInterface} from 'node:readline';
 import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]);
+const hash=async file=>createHash('sha256').update(await readFile(file)).digest('hex');
+const testService=path.join(path.dirname(executable),'session-service.exe');
+const fixtureService=path.resolve('target/x86_64-pc-windows-msvc/debug/session-service.exe');
+const fixtureHash=await hash(testService);
+assert.equal(fixtureHash,await hash(fixtureService),'use the separately built memory UART test service');
 const temp=path.resolve(tmpdir());
 const root=await mkdtemp(path.join(temp,'shared-terminal-local-directory-中文-new-entries-'));
-const evidence={result:'IN_PROGRESS',executable,desktopSha256:createHash('sha256').update(await readFile(executable)).digest('hex'),checks:[]};
+const evidence={result:'IN_PROGRESS',executable,desktopSha256:await hash(executable),fixtureSha256:fixtureHash,checks:[]};
 let ui,peer,lines;
 const q=JSON.stringify;
 const rootMenu='.pane-active .new-menu';
@@ -77,7 +82,12 @@ try{
   const server=await nextPeer();
   ui=await launchDesktop(root,{executable,fixture:true});
   assert.equal((await ui.invoke('service_status')).fixture,true);
-  await tool('软件设置');await ui.click('本地终端');
+  const inventory=await ui.invoke('serial_request',{request:{op:'inventory'}});
+  assert.equal(inventory.result,'inventory');
+  assert.deepEqual(inventory.devices.map(device=>[device.port,device.instance_id]),[['COM7','SYNTHETIC-TEST-INSTANCE']]);
+  assert.deepEqual(inventory.unidentified_ports,['COM99']);
+  await tool('软件设置');await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=软件设置]')");
+  await ui.evaluate("[...document.querySelectorAll('dialog:modal[aria-label=软件设置] button')].find(button=>button.textContent==='本地终端').click()");
   await ui.waitFor(`!!${control('默认目录')}&&${control('默认目录')}.textContent!=='正在读取…'`);
   await ui.click('选择文件夹');
   execFileSync('pwsh',['-NoProfile','-File','scripts/lib/NativeImportDialog.ps1','-TargetProcessId',String(ui.app.pid),
@@ -87,18 +97,22 @@ try{
   await tool('轻量命令行');
   await localReady(1);
 
-  let plus=await points(query(rootMenu+' > summary'));
+  const plus=await points(query(rootMenu+' > summary'));
+  const leave=async()=>{
+    await move({x:20,y:260});
+    await ui.waitFor(`!${menu}.matches(':hover')`);
+  };
   await move(plus);await delay(160);assert.equal(await ui.evaluate(`${menu}.open`),false);
-  await move({x:8,y:8});await delay(390);assert.equal(await ui.evaluate(`${menu}.open`),false);
+  await leave();await delay(390);assert.equal(await ui.evaluate(`${menu}.open`),false);
   await move(plus);await ui.waitFor(opened);
   assert.deepEqual(await ui.evaluate(`[...${menu}.querySelectorAll('button')].map(b=>b.textContent)`),['本地终端','SSH 连接','串口连接']);
   await ui.screenshot('windows-0.1.23-tab-plus-menu.png');
   await move(await points(query(rootMenu+' .tools-menu-content > button')));
   await delay(200);assert.equal(await ui.evaluate(`${menu}.open`),true);
-  await move({x:8,y:8});await ui.waitFor(`!${menu}.open`);
+  await leave();await ui.waitFor(`!${menu}.open`);
   await move(plus);await ui.waitFor(opened);await key('Escape','Escape',27);
   await ui.waitFor(`!${menu}.open`);await delay(400);assert.equal(await ui.evaluate(`${menu}.open`),false);
-  await move({x:8,y:8});await move(plus);await ui.waitFor(opened);
+  await leave();await move(plus);await ui.waitFor(opened);
   await click(plus);await click(plus,2);await localReady(2);
   assert.equal(await localCount(),2);
   assert.equal(await ui.evaluate("document.querySelector('.pane-active .local-terminal:not([hidden])').dataset.mode"),'powershell');

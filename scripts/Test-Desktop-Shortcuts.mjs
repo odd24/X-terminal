@@ -139,7 +139,8 @@ try{
     {id:crypto.randomUUID(),name:'模拟设备',command:'adb devices -l'},
     {id:crypto.randomUUID(),name:'脚本样本',script_path:script},
   ]}});
-  await tool('软件设置');await ui.click('本地终端');
+  await tool('软件设置');await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=软件设置]')");
+  await ui.evaluate("[...document.querySelectorAll('dialog:modal[aria-label=软件设置] button')].find(button=>button.textContent==='本地终端').click()");
   await ui.waitFor("document.querySelector('.local-directory-settings button')?.disabled===false");
   await ui.click('选择文件夹');
   execFileSync('pwsh',['-NoProfile','-File','scripts/lib/NativeImportDialog.ps1','-TargetProcessId',String(ui.app.pid),

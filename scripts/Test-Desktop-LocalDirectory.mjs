@@ -25,7 +25,8 @@ async function clickTools(name) {
 
 async function settings(expected) {
   await clickTools('软件设置');
-  await ui.click('本地终端');
+  await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=软件设置]')");
+  await ui.evaluate("[...document.querySelectorAll('dialog:modal[aria-label=软件设置] button')].find(button=>button.textContent==='本地终端').click()");
   await ui.waitFor(`${setting('默认目录')}===${q(expected)}`);
 }
 
@@ -39,9 +40,10 @@ async function picker(choice) {
 }
 
 async function openShell(fromPlus) {
+  const previous=await ui.evaluate("document.querySelectorAll('.local-terminal').length");
   if(fromPlus)await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
   else await ui.click('本地终端（PowerShell）');
-  await ui.waitFor(`document.querySelector('${visible}')?.dataset.mode==='powershell'`);
+  await ui.waitFor(`document.querySelectorAll('.local-terminal').length===${previous+1}&&document.querySelector('${visible}')?.dataset.mode==='powershell'`);
 }
 
 async function checkShell(expected, probe) {
