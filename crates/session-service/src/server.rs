@@ -41,6 +41,20 @@ impl Store {
         }
         Ok(())
     }
+    fn visible_sessions(&self, identity: &Identity, now: u64) -> Vec<ConnectionInfo> {
+        self.sessions
+            .list()
+            .into_iter()
+            .filter(|info| {
+                self.require_ssh1_desktop(identity, info.reference())
+                    .is_ok()
+                    && self
+                        .pairing
+                        .can_observe(identity, info.reference(), now)
+                        .is_ok()
+            })
+            .collect()
+    }
 }
 #[cfg(test)]
 impl Store {
@@ -546,22 +560,24 @@ impl Runtime {
                     && crate::ssh::legacy::configured())
                 .then_some(true),
             }),
-            Request::List {} => Ok(Reply::Sessions(
-                store
-                    .sessions
-                    .list()
-                    .into_iter()
-                    .filter(|info| {
-                        store
-                            .require_ssh1_desktop(identity, info.reference())
-                            .is_ok()
-                            && store
-                                .pairing
-                                .can_observe(identity, info.reference(), now)
-                                .is_ok()
-                    })
-                    .collect(),
-            )),
+            Request::List {} => Ok(Reply::Sessions(store.visible_sessions(identity, now))),
+            Request::DesktopSnapshot {} => {
+                store.pairing.require_desktop(identity, now)?;
+                Ok(Reply::DesktopSnapshot {
+                    service_id: self.service_id,
+                    ssh1_preview: crate::ssh::legacy::configured(),
+                    sessions: store
+                        .visible_sessions(identity, now)
+                        .into_iter()
+                        .map(|info| {
+                            store
+                                .sessions
+                                .output_cursor(info.reference())
+                                .map(|cursor| (info, cursor))
+                        })
+                        .collect::<Result<_, ErrorCode>>()?,
+                })
+            }
             Request::Context {
                 connection,
                 window,

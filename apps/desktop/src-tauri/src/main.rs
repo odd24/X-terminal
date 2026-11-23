@@ -791,13 +791,14 @@ async fn service_list(
     let mut shared = state.0.lock().await;
     let service = shared.as_mut().map_err(|e| e.clone())?;
     let sessions = session_windows::list(service).await?;
-    windows.filter(window.label(), sessions)
+    windows.filter(window.label(), sessions, ConnectionInfo::reference)
 }
 
 #[derive(serde::Serialize)]
 struct DesktopSessionSnapshot {
     service: service::Status,
     sessions: Vec<ConnectionInfo>,
+    next_cursors: Vec<u64>,
 }
 
 #[tauri::command]
@@ -808,11 +809,15 @@ async fn desktop_session_snapshot(
 ) -> Result<DesktopSessionSnapshot, String> {
     let mut shared = state.0.lock().await;
     let service = shared.as_mut().map_err(|e| e.clone())?;
-    let status = service.status().await?;
-    let sessions = session_windows::list(service).await?;
+    let (status, sessions) = service.snapshot().await?;
+    let (sessions, next_cursors) = windows
+        .filter(window.label(), sessions, |(info, _)| info.reference())?
+        .into_iter()
+        .unzip();
     Ok(DesktopSessionSnapshot {
         service: status,
-        sessions: windows.filter(window.label(), sessions)?,
+        sessions,
+        next_cursors,
     })
 }
 #[tauri::command]

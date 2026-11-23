@@ -152,6 +152,7 @@ function App() {
   const pendingExitCheck = useRef(false);
   const transferring = useRef<string>(undefined);
   const liveConnections = useRef<Connection[]>([]);
+  const outputCursors = useRef<number[]>([]);
   const [softwareSettingsOpen, setSoftwareSettingsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [closeInfoOpen,setCloseInfoOpen]=useState(false);
@@ -699,7 +700,8 @@ function App() {
   function cancelWorkspaceSplit(){workspaceSession.current.cancelSplit();restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);}
   function collapseSplit(keep?:PaneKey){cancelWorkspaceSplit();panes.current.collapse(keep);routeChanged();}
   function paneSelection(key:PaneKey):PaneSelection{const slot=panes.current.slots.find(p=>p.key===key),binding=slot?.binding;
-    const live=binding&&liveConnections.current.find(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation&&c.protocol===binding.protocol);
+    const index=binding?liveConnections.current.findIndex(c=>c.connection_id===binding.connection_id&&c.generation===binding.generation&&c.protocol===binding.protocol):-1;
+    const live=liveConnections.current[index];
     const serviceOwner=serviceRef.current?.service_id;
     const owner=serviceStopped.current||preferencesOwner.current!==serviceOwner?'':serviceOwner??'';
     const pending=firstSsh1Fit.current;
@@ -711,7 +713,7 @@ function App() {
         return true;
       } } : undefined;
     const local=localSelected.current.has(key);
-    return {owner,connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:!local&&panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:local||!!binding&&(!!slot?.retired||!!slot?.pending||binding.connection_id===transferring.current),initialSsh1Fit};
+    return {owner,outputCursor:outputCursors.current[index],connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:!local&&panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:local||!!binding&&(!!slot?.retired||!!slot?.pending||binding.connection_id===transferring.current),initialSsh1Fit};
   }
   function registerPane(key:PaneKey,c?:TerminalController){if(c)controllers.current.set(key,c);else controllers.current.delete(key);if(panes.current.active===key&&!localSelected.current.has(key)){runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;}}
   useLayoutEffect(()=>{
@@ -720,7 +722,7 @@ function App() {
     runtime.current?.term.focus();
   },[renderedTarget]);
   useEffect(()=>{let disposed=false,timer=0;
-    async function poll(){try{const epoch=panes.current.epoch;const {service:native,sessions}=await invoke<{service:Status;sessions:Connection[]}>('desktop_session_snapshot');if(disposed)return;
+    async function poll(){try{const epoch=panes.current.epoch;const {service:native,sessions,next_cursors}=await invoke<{service:Status;sessions:Connection[];next_cursors:number[]}>('desktop_session_snapshot');if(disposed)return;
       composeHistory.current.retain(native.service_id);
       const previous = serviceRef.current;
       // The native service captures previous_close once when this owner starts.
@@ -730,9 +732,14 @@ function App() {
         serviceRef.current = native;
         setService(native);
       }
+      outputCursors.current=next_cursors;
       if (!sameConnectionList(liveConnections.current, sessions)) {
         liveConnections.current = sessions;
         setConnections(sessions);
+      }
+      for(const [key,controller] of controllers.current){
+        const route=paneSelection(key);
+        if(!route.suspended&&route.owner)controller.notifyOutput(route.outputCursor);
       }
       triggers.current.validate(native.service_id,sessions);
       const beforeRetain=panes.current.epoch;if(panes.current.retain(native.service_id,sessions,epoch===panes.current.epoch)){if(panes.current.epoch!==beforeRetain)routeChanged();else syncRoute();}

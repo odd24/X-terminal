@@ -161,7 +161,7 @@ impl Request {
                 conn(Area::Logging, verb, connection, Action::Export, request_id)
             }
             R::Ping {} => descriptor(Area::Session, Verb::Ping),
-            R::List {} => descriptor(Area::Session, Verb::List),
+            R::List {} | R::DesktopSnapshot {} => descriptor(Area::Session, Verb::List),
             R::Read { connection, .. } | R::ReadText { connection, .. } => {
                 conn(Area::Session, Verb::Read, *connection, Action::Read, None)
             }

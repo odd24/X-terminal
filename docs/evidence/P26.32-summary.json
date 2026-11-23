@@ -1,0 +1,503 @@
+{
+  "step": "P26.32",
+  "units": "milliseconds unless named explicitly; nearest-rank percentiles",
+  "original": {
+    "shortcutMs": {
+      "root 后进入 shell": {
+        "tab": {
+          "n": 30,
+          "p50": 17.6,
+          "p95": 21.6
+        },
+        "firstOutput": {
+          "n": 30,
+          "p50": 36.4,
+          "p95": 62.2
+        },
+        "accepted": {
+          "n": 30,
+          "p50": 90.2,
+          "p95": 112.1
+        },
+        "prompt": {
+          "n": 30,
+          "p50": 193.2,
+          "p95": 216
+        },
+        "echo": {
+          "n": 30,
+          "p50": 283.5,
+          "p95": 342.1
+        }
+      },
+      "单条 shell": {
+        "tab": {
+          "n": 30,
+          "p50": 17.6,
+          "p95": 24.8
+        },
+        "firstOutput": {
+          "n": 30,
+          "p50": 48.9,
+          "p95": 71.4
+        },
+        "accepted": {
+          "n": 30,
+          "p50": 108.5,
+          "p95": 123.7
+        },
+        "prompt": {
+          "n": 30,
+          "p50": 154.2,
+          "p95": 177.4
+        },
+        "echo": {
+          "n": 30,
+          "p50": 263.1,
+          "p95": 282.2
+        }
+      }
+    },
+    "sshEchoMs": {
+      "single": {
+        "n": 60,
+        "p50": 30,
+        "p95": 44.3
+      },
+      "split": {
+        "n": 60,
+        "p50": 30.5,
+        "p95": 50.9
+      }
+    },
+    "idle": [
+      {
+        "oneWindow": {
+          "windows": [
+            {
+              "snapshots": 272,
+              "reads": 0,
+              "rendererTaskMs": 1877
+            }
+          ],
+          "cpuMs": null
+        },
+        "twoWindows": {
+          "windows": [
+            {
+              "snapshots": 270,
+              "reads": 0,
+              "rendererTaskMs": 856
+            },
+            {
+              "snapshots": 269,
+              "reads": 269,
+              "rendererTaskMs": 2199
+            }
+          ],
+          "cpuMs": null
+        }
+      },
+      {
+        "oneWindow": {
+          "windows": [
+            {
+              "snapshots": 272,
+              "reads": 0,
+              "rendererTaskMs": 1785
+            }
+          ],
+          "cpuMs": {
+            "desktop": 218.75,
+            "service": 421.875,
+            "webview": 1265.625
+          }
+        },
+        "twoWindows": {
+          "windows": [
+            {
+              "snapshots": 270,
+              "reads": 0,
+              "rendererTaskMs": 918
+            },
+            {
+              "snapshots": 270,
+              "reads": 270,
+              "rendererTaskMs": 2381
+            }
+          ],
+          "cpuMs": {
+            "desktop": 312.5,
+            "service": 1109.375,
+            "webview": 1546.875
+          }
+        }
+      }
+    ],
+    "verifiedBurstBytes": [
+      null,
+      75010
+    ]
+  },
+  "candidate": {
+    "shortcutMs": {
+      "root 后进入 shell": {
+        "tab": {
+          "n": 30,
+          "p50": 17.5,
+          "p95": 21.4
+        },
+        "firstOutput": {
+          "n": 30,
+          "p50": 40.9,
+          "p95": 63.8
+        },
+        "accepted": {
+          "n": 30,
+          "p50": 88.5,
+          "p95": 116.6
+        },
+        "prompt": {
+          "n": 30,
+          "p50": 176.1,
+          "p95": 215.2
+        },
+        "echo": {
+          "n": 30,
+          "p50": 261.8,
+          "p95": 343.8
+        }
+      },
+      "单条 shell": {
+        "tab": {
+          "n": 30,
+          "p50": 17.9,
+          "p95": 21.5
+        },
+        "firstOutput": {
+          "n": 30,
+          "p50": 47.9,
+          "p95": 67.2
+        },
+        "accepted": {
+          "n": 30,
+          "p50": 93.3,
+          "p95": 115.1
+        },
+        "prompt": {
+          "n": 30,
+          "p50": 142.7,
+          "p95": 159.6
+        },
+        "echo": {
+          "n": 30,
+          "p50": 228.5,
+          "p95": 281.1
+        }
+      }
+    },
+    "sshEchoMs": {
+      "single": {
+        "n": 60,
+        "p50": 30.2,
+        "p95": 45.2
+      },
+      "split": {
+        "n": 60,
+        "p50": 27.4,
+        "p95": 40.7
+      }
+    },
+    "idle": [
+      {
+        "oneWindow": {
+          "windows": [
+            {
+              "snapshots": 271,
+              "reads": 0,
+              "rendererTaskMs": 1883
+            }
+          ],
+          "cpuMs": {
+            "desktop": 171.875,
+            "service": 406.25,
+            "webview": 1078.125
+          }
+        },
+        "twoWindows": {
+          "windows": [
+            {
+              "snapshots": 270,
+              "reads": 0,
+              "rendererTaskMs": 904
+            },
+            {
+              "snapshots": 271,
+              "reads": 29,
+              "rendererTaskMs": 1857
+            }
+          ],
+          "cpuMs": {
+            "desktop": 421.875,
+            "service": 796.875,
+            "webview": 2265.625
+          }
+        }
+      },
+      {
+        "oneWindow": {
+          "windows": [
+            {
+              "snapshots": 271,
+              "reads": 0,
+              "rendererTaskMs": 1896
+            }
+          ],
+          "cpuMs": {
+            "desktop": 203.125,
+            "service": 156.25,
+            "webview": 1078.125
+          }
+        },
+        "twoWindows": {
+          "windows": [
+            {
+              "snapshots": 271,
+              "reads": 0,
+              "rendererTaskMs": 866
+            },
+            {
+              "snapshots": 272,
+              "reads": 28,
+              "rendererTaskMs": 1716
+            }
+          ],
+          "cpuMs": {
+            "desktop": 187.5,
+            "service": 312.5,
+            "webview": 1359.375
+          }
+        }
+      }
+    ],
+    "verifiedBurstBytes": [
+      75010,
+      75010
+    ]
+  },
+  "local": {
+    "original": {
+      "startupMs": {
+        "n": 5,
+        "p50": 783.87,
+        "p95": 809.41
+      },
+      "powerShellReadyMs": {
+        "n": 10,
+        "p50": 283.07,
+        "p95": 390.51
+      },
+      "switchMs": {
+        "4": {
+          "n": 150,
+          "p50": 8.85,
+          "p95": 28.5
+        },
+        "20": {
+          "n": 150,
+          "p50": 9.39,
+          "p95": 13.29
+        }
+      }
+    },
+    "candidate": {
+      "startupMs": {
+        "n": 5,
+        "p50": 802.42,
+        "p95": 863.15
+      },
+      "powerShellReadyMs": {
+        "n": 10,
+        "p50": 281.53,
+        "p95": 301.08
+      },
+      "switchMs": {
+        "4": {
+          "n": 150,
+          "p50": 9.01,
+          "p95": 20.97
+        },
+        "20": {
+          "n": 150,
+          "p50": 9.69,
+          "p95": 13.54
+        }
+      }
+    },
+    "ordinaryOriginal": {
+      "startupMs": {
+        "n": 3,
+        "p50": 738.25,
+        "p95": 783.48
+      },
+      "powerShellReadyMs": {
+        "n": 6,
+        "p50": 282.18,
+        "p95": 297.19
+      }
+    },
+    "ordinaryCandidate": {
+      "startupMs": {
+        "n": 3,
+        "p50": 756.46,
+        "p95": 768.48
+      },
+      "powerShellReadyMs": {
+        "n": 6,
+        "p50": 283.15,
+        "p95": 310.26
+      }
+    }
+  },
+  "serial": {
+    "original": {
+      "echoMs": {
+        "n": 30,
+        "p50": 41.6,
+        "p95": 68.3
+      },
+      "recording": {
+        "written": 120,
+        "records": 30,
+        "gap": 0,
+        "rejected": 0,
+        "durable": true
+      }
+    },
+    "candidate": {
+      "echoMs": {
+        "n": 30,
+        "p50": 47.2,
+        "p95": 68.4
+      },
+      "recording": {
+        "written": 120,
+        "records": 30,
+        "gap": 0,
+        "rejected": 0,
+        "durable": true
+      }
+    }
+  },
+  "multiSource": {
+    "original": {
+      "result": "PASS",
+      "idle": {
+        "elapsedMs": 6006.470600000001,
+        "taskMs": 281.681,
+        "scriptMs": 127.499,
+        "layouts": 0,
+        "styles": 2
+      },
+      "multi": {
+        "elapsedMs": 6009.107,
+        "taskMs": 429.56500000000005,
+        "scriptMs": 114.88999999999996,
+        "layouts": 0,
+        "styles": 385
+      },
+      "flowing": {
+        "elapsedMs": 6143.491899999999,
+        "taskMs": 2980.046,
+        "scriptMs": 487.93800000000005,
+        "layouts": 239,
+        "styles": 665
+      },
+      "connections": 8,
+      "frames": 120,
+      "interval": 50,
+      "exactBytes": 245760,
+      "recording": {
+        "records": 120,
+        "bytes": 30720,
+        "durable": true
+      },
+      "visibleMs": {
+        "count": 120,
+        "p95": 56,
+        "max": 109
+      },
+      "generationRefreshMs": 137.16070000000036,
+      "closedAndRemovedTab": true,
+      "close": {
+        "ack": "ACKNOWLEDGED",
+        "exit": 0,
+        "audit": "CLOSED"
+      }
+    },
+    "candidate": {
+      "result": "PASS",
+      "idle": {
+        "elapsedMs": 6012.871,
+        "taskMs": 231.949,
+        "scriptMs": 103.994,
+        "layouts": 0,
+        "styles": 2
+      },
+      "multi": {
+        "elapsedMs": 6012.575100000001,
+        "taskMs": 332.77,
+        "scriptMs": 71.718,
+        "layouts": 0,
+        "styles": 391
+      },
+      "flowing": {
+        "elapsedMs": 6131.647499999999,
+        "taskMs": 2822.5789999999997,
+        "scriptMs": 473.15,
+        "layouts": 241,
+        "styles": 667
+      },
+      "connections": 8,
+      "frames": 120,
+      "interval": 50,
+      "exactBytes": 245760,
+      "recording": {
+        "records": 120,
+        "bytes": 30720,
+        "durable": true
+      },
+      "visibleMs": {
+        "count": 120,
+        "p95": 46.699951171875,
+        "max": 61.400146484375
+      },
+      "generationRefreshMs": 136.97420000000056,
+      "closedAndRemovedTab": true,
+      "close": {
+        "ack": "ACKNOWLEDGED",
+        "exit": 0,
+        "audit": "CLOSED"
+      }
+    }
+  },
+  "binaries": {
+    "shared-terminal-desktop.exe": "c87c405ba619d33a0701785dbdd6a2d38b3132362856877de10b15bcdd2d5147",
+    "session-service.exe": "933547dfb62b1b01d29fb7d110d9fa1b460c254c208ac7a167471b6aebc67316",
+    "terminal-mcp.exe": "2b94478451106ec6eb95fd9508407bf1fcff7245da1d4dc4eaef5afe865de1a8"
+  },
+  "reports": {
+    "P26.30-base3.json": "ee4233cf108130ac89953ead627ad6f446831053a7b05d8f2e1aaf3776745a0e",
+    "P26.31-original-full.json": "7ede58c174c03d65a764c80b962ee4186f207039566a3c9dfdff002c25ded2a6",
+    "P26.31-candidate1.json": "2321bfff2f348d2e9dc6923e8d6b7ce77281b5bb675fdce504d39d644c92479c",
+    "P26.31-candidate2.json": "45a2eddb86f4975761af08f12f8ad7d73a15e08235929da6e4bcb71a537a1377",
+    "P26.32-localbase.json": "b15a77c3866ee3ee82d5f956f5dcc652fe33c1684fa8e2f466092911fe932669",
+    "P26.32-localtrial.json": "80c3776e450c497cd2ae26dc2a04bcfeaf8d4c2672c0ca84dfbcc92a07dd4c28",
+    "P26.32-ordinary-base.json": "409d04a353f9e246ead818c3f5d2c1b709318503eace036f50dee57031b47c52",
+    "P26.32-ordinary-trial.json": "e2895585c6d3d32601626b8d1a0dfd8122f7f6e0ef70c9e1d061ccfb1186c0bc",
+    "P26.32-uart-base.json": "f4541ba6ea2a472eb0aa3c3ece442e9904eca072a5257f14a9f8b85baf3b074b",
+    "P26.32-uart-final.json": "0d4ae52a3ae14bbaf27f08626cf58367a72dabd94c17e36d62f822a6f6e9d478",
+    "P26.32-output-base.json": "1f43e4ca682ed9d9c100b2629742dcd966015ea01e14bff5eee23c0b02b56780",
+    "P26.32-output-trial.json": "accbffb1e0d05e0bd83587b82cb9ce9c128e38b2ed8e2b656eb17b51f6d0da3f"
+  }
+}

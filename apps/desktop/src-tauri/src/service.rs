@@ -249,6 +249,10 @@ impl Service {
         else {
             return Err("INVALID_REPLY".into());
         };
+        self.verified_status(service_id, ssh1_preview == Some(true))
+    }
+
+    fn verified_status(&self, service_id: Uuid, ssh1_preview: bool) -> Result<Status, String> {
         if service_id != self.service_id {
             return Err("INVALID_REPLY".into());
         }
@@ -256,10 +260,24 @@ impl Service {
             service_id: self.service_id,
             pid: self.child.id().ok_or("SERVICE_UNAVAILABLE")?,
             fixture: self.fixture,
-            ssh1_preview: ssh1_preview == Some(true),
+            ssh1_preview,
             exit_policy: "stop_on_desktop_exit",
             previous_close: self.previous_close.clone(),
         })
+    }
+
+    pub async fn snapshot(
+        &mut self,
+    ) -> Result<(Status, Vec<(session_core::session::ConnectionInfo, u64)>), String> {
+        let Reply::DesktopSnapshot {
+            service_id,
+            ssh1_preview,
+            sessions,
+        } = self.request(Request::DesktopSnapshot {}).await?
+        else {
+            return Err("INVALID_REPLY".into());
+        };
+        Ok((self.verified_status(service_id, ssh1_preview)?, sessions))
     }
 
     pub async fn stop(&mut self) -> crate::close_receipt::StopOutcome {

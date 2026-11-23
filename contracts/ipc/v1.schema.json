@@ -1502,6 +1502,19 @@
           {
             "additionalProperties": false,
             "properties": {
+              "op": {
+                "const": "desktop_snapshot",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
               "connection": {
                 "$ref": "#/$defs/ConnectionRef"
               },
@@ -7990,6 +8003,56 @@
               },
               "type": {
                 "const": "sessions",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "additionalProperties": false,
+                "properties": {
+                  "service_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "sessions": {
+                    "items": {
+                      "maxItems": 2,
+                      "minItems": 2,
+                      "prefixItems": [
+                        {
+                          "$ref": "#/$defs/ConnectionInfo"
+                        },
+                        {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      ],
+                      "type": "array"
+                    },
+                    "type": "array"
+                  },
+                  "ssh1_preview": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "service_id",
+                  "ssh1_preview",
+                  "sessions"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "const": "desktop_snapshot",
                 "type": "string"
               }
             },

@@ -80,7 +80,7 @@ async function connectSsh(name){
     return status.connection.state==='CONNECTED';
   },'SSH fixture not connected');
   child.stdin.write(JSON.stringify({op:'keyboard_echo'})+'\n');await read();
-  if(performanceReport)pushOutput.set(connection.connection_id,async text=>{
+  pushOutput.set(connection.connection_id,async text=>{
     child.stdin.write(JSON.stringify({op:'push',text})+'\n');
     await read();
   });
@@ -171,6 +171,43 @@ try{
     };
   })()`);
   await activate(first);
+  if(second&&process.argv.includes('--verify-reads')){
+    const visible=message=>`document.querySelector('.pane-active .xterm-rows')?.textContent.includes(${q(message)})`;
+    const snapshot=await ui.interceptIpc({command:'desktop_session_snapshot',mode:'hold'});
+    try{
+      await wait(async()=>await snapshot.count()>0,'snapshot response must be held');
+      await delay(650);
+      await pushOutput.get(first.connection_id)('FALLBACK_WITHOUT_SNAPSHOT\r\n');
+      await ui.waitFor(visible('FALLBACK_WITHOUT_SNAPSHOT'));
+    }finally{await snapshot.restore();}
+    await ui.evaluate(`(()=>{
+      const original=window.fetch;
+      window.fetch=async function(input,init){
+        const response=await original.call(this,input,init);
+        if(new URL(String(input)).pathname==='/service_read'){
+          const page=await response.clone().json();
+          if(page.connection.connection_id===${q(first.connection_id)}&&
+             new TextDecoder().decode(Uint8Array.from(page.events.flatMap(e=>e.bytes))).includes('LATE_ORIGINAL')){
+            window.fetch=original;
+            await new Promise(resolve=>window.releaseOldPage=resolve);
+          }
+        }
+        return response;
+      };
+    })()`);
+    await pushOutput.get(first.connection_id)('LATE_ORIGINAL\r\n');
+    await ui.waitFor("typeof window.releaseOldPage==='function'");
+    await ui.selectTab(second.connection_id);
+    assert.equal(await selected(),second.connection_id);
+    await ui.evaluate('window.releaseOldPage()');
+    await activate(second);
+    await pushOutput.get(second.connection_id)('SECOND_ONLY\r\n');
+    await ui.waitFor(visible('SECOND_ONLY'));
+    assert.equal(await ui.evaluate(visible('LATE_ORIGINAL')),false);
+    await activate(first);await ui.waitFor(visible('LATE_ORIGINAL'));
+    assert.equal(await ui.evaluate(visible('SECOND_ONLY')),false);
+    result.checks.push('idle fallback during a held snapshot; delayed old read never paints into a newly selected connection');
+  }
   await tool('基础撰写');
   await ui.waitFor(`!!${node('[aria-label="撰写正文"]')}`);
   await ui.fill('撰写正文','DRAFT_STAYS_IN_REMOTE');

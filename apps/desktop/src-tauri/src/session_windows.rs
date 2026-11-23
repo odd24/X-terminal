@@ -180,21 +180,20 @@ impl SessionWindows {
             .ok_or_else(|| "SESSION_IN_OTHER_WINDOW".into())
     }
 
-    pub fn filter(
+    pub fn filter<T>(
         &self,
         label: &str,
-        sessions: Vec<ConnectionInfo>,
-    ) -> Result<Vec<ConnectionInfo>, String> {
+        sessions: Vec<T>,
+        reference: impl Fn(&T) -> ConnectionRef,
+    ) -> Result<Vec<T>, String> {
         let windows = self.0.lock().map_err(|_| "WINDOW_STATE_UNAVAILABLE")?;
         Ok(sessions
             .into_iter()
             .filter(|session| {
                 if label == MAIN {
-                    windows
-                        .values()
-                        .all(|target| *target != session.reference())
+                    windows.values().all(|target| *target != reference(session))
                 } else {
-                    windows.get(label) == Some(&session.reference())
+                    windows.get(label) == Some(&reference(session))
                 }
             })
             .collect())

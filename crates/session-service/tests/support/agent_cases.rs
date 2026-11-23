@@ -210,6 +210,7 @@ async fn agent_identity_reads_only_granted_views_and_cannot_promote_or_read_conf
         Reply::Text(_)
     ));
     for request in [
+        Request::DesktopSnapshot {},
         Request::Screen { connection: hidden },
         Request::IssueRead {
             scopes: vec![first],

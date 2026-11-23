@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.32 实施 Desktop 私有会话快照和空闲读页优化，按证据决定后续标签与日志改动。[执行记录](records/P26.32.md)
+
 P26.31 完成 ADB 枚举与管道的进程退出等待改动，独立 Release 候选通过合成 SSH／ADB 路由。[实施记录](records/P26.31.md)
 
 P26.30 完成首轮发布版基线与隔离测量入口。[测量记录](records/P26.30.md)
@@ -475,6 +477,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.29 | 桌面性能优化执行文档 | DONE | [P26.29](records/P26.29.md) | Step-ID: P26.29 |
 | P26.30 | 建立桌面与快捷指令性能基线 | DONE | [P26.30](records/P26.30.md) | Step-ID: P26.30 |
 | P26.31 | 优化 ADB 设备枚举和子进程退出等待 | DONE | [P26.31](records/P26.31.md) | Step-ID: P26.31 |
+| P26.32 | 合并会话快照及输出调度，复验性能与回归 | DONE | [P26.32](records/P26.32.md) | Step-ID: P26.32 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |

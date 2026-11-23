@@ -211,6 +211,30 @@ async fn shared_output_reconnect_tickets_and_ui_disconnect() {
             ..
         }
     ));
+    assert_eq!(
+        error(observer.request(Request::DesktopSnapshot {}).await.unwrap()),
+        ErrorCode::PermissionDenied
+    );
+    let expected = ok(desktop.request(Request::List {}).await.unwrap());
+    let Reply::DesktopSnapshot {
+        service_id,
+        sessions,
+        ssh1_preview,
+    } = ok(desktop.request(Request::DesktopSnapshot {}).await.unwrap())
+    else {
+        panic!("expected desktop snapshot")
+    };
+    assert!(
+        matches!(expected, Reply::Sessions(list) if list.iter().eq(sessions.iter().map(|(info, _)| info)))
+    );
+    assert!(
+        sessions
+            .iter()
+            .any(|(info, cursor)| info.reference() == first && *cursor > 1)
+    );
+    assert!(
+        matches!(ok(desktop.request(Request::Ping {}).await.unwrap()), Reply::Pong { service_id: id, ssh1_preview: preview, .. } if id == service_id && (preview == Some(true)) == ssh1_preview)
+    );
     match ok(observer.request(Request::List {}).await.unwrap()) {
         Reply::Sessions(list) => assert_eq!(
             list.iter().map(|i| i.reference()).collect::<Vec<_>>(),
@@ -474,6 +498,16 @@ async fn bounded_output_gap_is_visible_across_processes() {
             .await
             .unwrap());
     }
+    let Reply::DesktopSnapshot { sessions, .. } =
+        ok(desktop.request(Request::DesktopSnapshot {}).await.unwrap())
+    else {
+        panic!("expected desktop snapshot")
+    };
+    assert!(
+        sessions
+            .iter()
+            .any(|(info, cursor)| info.reference() == connection && *cursor == 81)
+    );
     match ok(desktop
         .request(Request::Read {
             connection,
@@ -492,6 +526,83 @@ async fn bounded_output_gap_is_visible_across_processes() {
         _ => panic!(),
     }
     fixture.stop(&mut desktop).await;
+}
+
+#[tokio::test]
+#[ignore = "manual comparison with the built Windows release service"]
+async fn measure_shared_client_snapshot_contention() {
+    use std::time::Instant;
+    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../target/windows-x64-portable/x86_64-pc-windows-msvc/release/session-service.exe",
+    );
+    let root = ConfigTemp::new();
+    let mut fixture = Fixture::launch(
+        &binary,
+        Uuid::new_v4().to_string(),
+        true,
+        Some(&root.0),
+        &[],
+    )
+    .await;
+    let mut client = fixture.connect().await;
+    let connection = reference(ok(client.request(Request::CreateFixture {}).await.unwrap()));
+    let mut client = tokio::sync::Mutex::new(client);
+    let measure = |combined: bool, read: bool| {
+        let shared = &client;
+        async move {
+            let start = Instant::now();
+            let mut client = shared.lock().await;
+            let acquired = Instant::now();
+            if read {
+                assert!(matches!(
+                    ok(client
+                        .request(Request::Read {
+                            connection,
+                            cursor: 1,
+                            max_bytes: MAX_APPEND
+                        })
+                        .await
+                        .unwrap()),
+                    Reply::Output(_)
+                ));
+            } else if combined {
+                assert!(matches!(
+                    ok(client.request(Request::DesktopSnapshot {}).await.unwrap()),
+                    Reply::DesktopSnapshot { .. }
+                ));
+            } else {
+                assert!(matches!(
+                    ok(client.request(Request::Ping {}).await.unwrap()),
+                    Reply::Pong { .. }
+                ));
+                assert!(matches!(
+                    ok(client.request(Request::List {}).await.unwrap()),
+                    Reply::Sessions(_)
+                ));
+            }
+            let replied = Instant::now();
+            drop(client);
+            [
+                acquired.duration_since(start).as_micros(),
+                replied.duration_since(acquired).as_micros(),
+                acquired.elapsed().as_micros(),
+            ]
+        }
+    };
+    for n in 0..60 {
+        let combined = n % 2 == 1;
+        let (first, second, read) = tokio::join!(
+            measure(combined, false),
+            measure(combined, false),
+            measure(combined, true)
+        );
+        println!(
+            "SNAPSHOT_TIMING {}",
+            serde_json::json!({"combined":combined,"snapshots":[first,second],"read":read})
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    fixture.stop(client.get_mut()).await;
 }
 
 #[tokio::test]

@@ -34,12 +34,14 @@ async function stats(page){
 function ownedCpu(ps,desktop,service){
   // Traverse only this harness's descendants. Exclude ADB and PowerShell children.
   const command=`
+    Add-Type -Path 'scripts/lib/LoadSoakSnapshot.cs'
+    $rows=@([LoadSoakSnapshot]::Processes() | Where-Object Name -eq 'msedgewebview2.exe')
     $ids=@(${desktop}); $web=@()
     while ($ids.Count) {
       $next=@()
       foreach ($parent in $ids) {
-        foreach ($p in @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$parent AND Name='msedgewebview2.exe'")) {
-          $next+=$p.ProcessId; $web+=$p.ProcessId
+        foreach ($p in @($rows | Where-Object Parent -eq $parent)) {
+          $next+=$p.Pid; $web+=$p.Pid
         }
       }
       $ids=$next
@@ -139,7 +141,24 @@ export async function measureRoutes({ui,first,second,group,single,activate,close
     await ui.waitFor(`document.querySelector(${JSON.stringify(output)})?.innerText.includes('前台进程退出（0）')`);
     await close(await ui.evaluate("document.querySelector('.pane-active [role=tab][aria-selected=true]').dataset.connectionId"));
   }
+  const logging=request=>ui.invoke('logging_request',{request:{...request,connection:{
+    connection_id:first.connection_id,generation:first.generation}}});
+  const recording=second?undefined:await logging({op:'start',request_id:crypto.randomUUID(),limits:{segment_bytes:131072,segments:2}});
   report.singleEcho=await echo(ui,30,'K');
+  if(recording){
+    await logging({op:'stop',log_id:recording.log_id});
+    let state;
+    for(let i=0;i<200;i++){
+      state=await logging({op:'status',log_id:recording.log_id});
+      if(state.worker_finished)break;
+      await delay(20);
+    }
+    assert.ok(state.worker_finished&&state.durable);
+    assert.equal(state.source_gap_bytes,0);
+    assert.equal(state.rejected_raw_bytes,0);
+    assert.ok(state.written_raw_bytes>=120);
+    report.serialRecording={written:state.written_raw_bytes,records:state.written_records,gap:state.source_gap_bytes,rejected:state.rejected_raw_bytes,durable:state.durable};
+  }
   if(second){
     await key('b',66,10);
     await ui.splitTab(second.connection_id);

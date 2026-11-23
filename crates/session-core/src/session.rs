@@ -370,6 +370,9 @@ impl Sessions {
     pub fn info(&self, reference: ConnectionRef) -> Result<ConnectionInfo, ErrorCode> {
         Ok(self.get(reference)?.info.clone())
     }
+    pub fn output_cursor(&self, reference: ConnectionRef) -> Result<u64, ErrorCode> {
+        Ok(self.get(reference)?.output.next_seq)
+    }
     pub fn list(&self) -> Vec<ConnectionInfo> {
         let mut result: Vec<_> = self.connections.values().map(|c| c.info.clone()).collect();
         result.sort_by_key(|info| info.connection_id.0);

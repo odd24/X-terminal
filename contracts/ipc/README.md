@@ -1,5 +1,7 @@
 # Session IPC v1
 
+Desktop 专用的 `desktop_snapshot` 在一次应答内返回服务标识、SSH1 能力和可见会话／输出游标对。旧 Ping 和 List 继续有效，Observer 和 Agent 无此操作权限。窗口过滤、读页和配套版本要求见 [ADR-100](../../docs/decisions/ADR-100.md)。
+
 P13 的普通 `pong` 增加可选的 `ssh1_preview`。仅配置了 SSH1 helper pin 的服务向经过认证的 Desktop 返回 `true`，普通构建和其他身份省略此字段。该提示供界面决定是否显示可用的 SSH1 保存项启动，实际启动仍核对固定修订、同目录 helper 和本次连接审批。
 
 P14 SSH新增`forget_start`/`forget_status`，必填精确`connection`/`request_id`，返回`result=forget`及`state=REMOVED`的独立完成回执。新Agent请求须独立FORGET范围/lease，实际Actor/共享传输已回收才移除会话记录；清理未完返回InvalidState且不记录成功，原编号可显式重试。原owner有效ticket在移除/退休后只查完成回执，未知Agent查询拒绝、撤销/到期拒绝；不删除日志/Profile/用户文件，不扩权或自动重连。旧`forget`仍Desktop专用，串口新入口/GUI批准与真正stdio桥独立推进，见[ADR-054](../../docs/decisions/ADR-054.md)与[P14](../../docs/records/P14.md)。

@@ -1,13 +1,13 @@
 //! Length-prefixed, strictly typed, local session IPC v1.
 pub mod agent;
 pub mod bridge;
-pub mod shortcuts;
 pub mod config;
 pub mod export;
 pub mod logging;
 pub mod operation;
 pub mod rpc_audit;
 pub mod serial;
+pub mod shortcuts;
 pub mod ssh;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -148,6 +148,7 @@ pub enum Request {
     },
     Ping {},
     List {},
+    DesktopSnapshot {},
     ProtectedContext {
         connection: ConnectionRef,
         window: Option<session_core::context::TimeWindow>,
@@ -325,6 +326,11 @@ pub enum Reply {
         ssh1_preview: Option<bool>,
     },
     Sessions(Vec<ConnectionInfo>),
+    DesktopSnapshot {
+        service_id: Uuid,
+        ssh1_preview: bool,
+        sessions: Vec<(ConnectionInfo, u64)>,
+    },
     Connection(ConnectionInfo),
     Output(OutputPage),
     Context(session_core::context::Reply),

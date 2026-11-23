@@ -44,6 +44,8 @@ P26.7 使用 Test-Desktop-ShortcutManagement.mjs 在 Windows 实际窗口验证 
 
 P26.6 在隔离数据目录，用 Measure-Desktop-Performance.mjs 测启动、可输入、切换、空闲和双源输出；用 Measure-Desktop-CommonPaths.mjs 测配置、录制、合成 SSH、模拟 ADB 和独立内存 UART。保留发布目录回归和量化结果。[P26.6](records/P26.6.md)
 
+当前可在快捷路由专项追加 `--measure <报告路径>`，复验单／双窗口 30 秒空闲、源端主动输出、SSH 输入绘制以及模拟 ADB 提示符和交互。用本地性能脚本的 `--tabs` 比较 4 个本地标签与 12 个本地加 8 个服务标签，两组切换相同标签。记录回显与读页次数时保留样本数、CPU 采样方式、超时或失败。原生同客户端竞争专项和实测结果见 [P26.32](records/P26.32.md)。
+
 P26.5 用 Test-Desktop-LocalTabs.mjs 在 Windows 实际窗口核对双击、排序、取消、分屏和跨窗格移动，另用 Test-Desktop-SessionCopy.mjs 的标签专项核对合成 SSH 和混合窗格。[P26.5](records/P26.5.md)
 
 P26.4 的 Test-Desktop-LocalDirectory.mjs 在普通 Windows 桌面核对新建 PowerShell 和轻量命令行、原生选择与取消、重开持久化、原标签目录、目录消失时的提示与回退及恢复桌面。交付时复验 ADB 结果继承及批处理文件自己的工作目录。[P26.4](records/P26.4.md)

@@ -8,6 +8,7 @@ import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 const executable=path.resolve(process.argv[2]);
 const report=path.resolve(process.argv[3]);
 const runs=Number(process.argv[4]??5);
+const measureTabs=process.argv.includes('--tabs');
 assert.ok(Number.isInteger(runs)&&runs>=1&&runs<=10);
 const node=process.execPath;
 const profiles=execFileSync(path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),
@@ -87,7 +88,7 @@ const tick=setInterval(()=>{
   for(let run=0;run<runs;run++){
     const directory=path.join(root,String(run));await mkdir(directory);
     const start=performance.now();
-    ui=await launchDesktop(directory,{executable});
+    ui=await launchDesktop(directory,{executable,fixture:measureTabs});
     const sample={startupMs:performance.now()-start,lightMs:[],powerShellMs:[],switchMs:[],echoMs:[]};
     await ui.command('Performance.enable');
     await ui.evaluate(`(() => {
@@ -163,12 +164,16 @@ const tick=setInterval(()=>{
       assert.doesNotMatch(stream,new RegExp('SEQ_'+(id==='C'?'D':'C')+'_'));
     }
     sample.wireBytes=captured.bytes;
-    if(process.argv.includes('--tabs')){
+    if(measureTabs){
       sample.tabScale={};
       for(const count of [4,20]){
-        if(count===20)for(let n=5;n<=20;n++){await tool('轻量命令行');await select(n);}
+        if(count===20){
+          for(let n=5;n<=12;n++){await tool('轻量命令行');await select(n);}
+          for(let i=0;i<8;i++)await ui.invoke('fixture_create');
+          await until("document.querySelectorAll('[role=tab]').length===20");
+        }
         const times=[];
-        for(let i=0;i<30;i++)times.push(await timed(()=>select(i%2?1:count)));
+        for(let i=0;i<30;i++)times.push(await timed(()=>select(i%2?1:4)));
         sample.tabScale[count]=times;
       }
     }

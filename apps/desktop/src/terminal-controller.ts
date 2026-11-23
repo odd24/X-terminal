@@ -17,7 +17,7 @@ import type { ComposePacing } from './compose-pacing';
 export type PaneConnection=ComposeTarget&{state:string};
 type Ref=Pick<PaneConnection,'connection_id'|'generation'>;
 type Page={connection:Ref;events:{seq:number;bytes:number[];gap_bytes?:number}[];next_cursor:number;available_from:number;truncated:boolean;disconnected:boolean};
-export type PaneSelection={owner:string;connection?:PaneConnection;active:boolean;epoch:number;fixture:boolean;suspended?:boolean;
+export type PaneSelection={owner:string;connection?:PaneConnection;active:boolean;epoch:number;fixture:boolean;suspended?:boolean;outputCursor?:number;
   initialSsh1Fit?: { size: ReturnType<typeof dimensions>; take(): boolean }};
 export type TerminalView={status:string;inputFailure:string;failure:string;lastInput:string;decodeWarning:string;viewport:{cols:number;rows:number};renderedTarget?:ComposeTarget};
 export const initialTerminalView=():TerminalView=>({status:'正在连接会话服务',inputFailure:'',failure:'',lastInput:'尚无输入',decodeWarning:'',viewport:{cols:80,rows:24}});
@@ -47,6 +47,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     let timer=0,polling=false,lastPollAt=0,interactiveUntil=0;
     function wakeOutput(){interactiveUntil=Date.now()+500;if(!polling){clearTimeout(timer);timer=window.setTimeout(()=>void poll(),Math.max(0,16-(Date.now()-lastPollAt)));}}
     let cursor = 1;
+    let lastRead=0;
     let gap = false;
     let decoder = new OutputDecoder('utf8');
     // xterm 6 reset() clears buffers but leaves the parser state intact.
@@ -291,9 +292,14 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           lastSize = sizeKey(dimensions(term.cols, term.rows));
         }
         if(current.connection){
+          if(!changed&&current.writable&&selection.outputCursor===cursor&&view.renderedTarget&&
+            Date.now()>=interactiveUntil&&Date.now()-lastRead<1000){
+            timer=window.setTimeout(()=>void poll(),100);return;
+          }
           const page=await invoke<Page>('service_read',{connection:current.connection,cursor});
           if(disposed)return;if(!same(selection)){timer=window.setTimeout(()=>void poll(),0);return;}
           if(page.connection.connection_id!==current.connection.connection_id||page.connection.generation!==current.connection.generation)throw new Error('Invalid output identity');
+          lastRead=Date.now();
           if(page.truncated)await outputGap(`输出缺口：起始游标 ${page.available_from}，历史输出已覆盖`);
           if(disposed)return;if(!same(selection)){timer=window.setTimeout(()=>void poll(),0);return;}
           for(const event of page.events){if(event.gap_bytes){await outputGap(`设备接收输出缺口：丢失 ${event.gap_bytes} 字节`);if(disposed)return;if(!same(selection))break;continue;}display(decoder.decode(new Uint8Array(event.bytes)));}
@@ -312,6 +318,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     }
     void poll();
     return {runtime:current,clipboard:clip,compose,captureMenu,wakeOutput,
+      notifyOutput(next?:number){if(next!==undefined&&next>cursor)wakeOutput();},
       invalidate(){pacedCompose?.cancel();clip.invalidate();update({renderedTarget:undefined});},
       appearance(){
         term.options={...terminalAppearance(),fontSize:deps.preferences().font_size};
