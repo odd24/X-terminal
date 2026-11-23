@@ -26,7 +26,8 @@ use windows_sys::Win32::{
         Threading::{
             CREATE_NO_WINDOW, CreateProcessW, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
             GetExitCodeProcess, InitializeProcThreadAttributeList, PROCESS_INFORMATION,
-            STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
+            STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute,
+            WaitForMultipleObjects,
         },
     },
 };
@@ -363,6 +364,10 @@ fn execute(
         }
     });
     let result = (|| {
+        let mut handles: Vec<_> = children
+            .iter()
+            .map(|(_, child)| child.as_raw_handle())
+            .collect();
         while !children.is_empty() {
             if control.stopped.load(Ordering::Acquire) {
                 return Err("已中断整组命令（Ctrl+C）".into());
@@ -370,27 +375,25 @@ fn execute(
             if Instant::now() >= deadline {
                 return Err("本步骤超时，已停止后续步骤".into());
             }
-            let mut index = 0;
-            while index < children.len() {
-                let (part, child) = &children[index];
-                match unsafe { WaitForSingleObject(child.as_raw_handle(), 0) } {
-                    WAIT_OBJECT_0 => {
-                        let mut code = 0;
-                        if unsafe { GetExitCodeProcess(child.as_raw_handle(), &mut code) } == 0 {
-                            return Err("无法核对本机进程退出状态".into());
-                        }
-                        if code != 0 {
-                            return Err(format!("第 {part} 段退出码 {code}，已停止后续步骤"));
-                        }
-                        children.swap_remove(index);
-                    }
-                    WAIT_TIMEOUT => index += 1,
-                    _ => return Err("等待本机进程失败".into()),
-                }
+            // Wait for any pipeline stage to exit, checking cancellation at least every 15 ms.
+            let signal =
+                unsafe { WaitForMultipleObjects(handles.len() as u32, handles.as_ptr(), 0, 15) };
+            if signal == WAIT_TIMEOUT {
+                continue;
             }
-            if !children.is_empty() {
-                thread::sleep(Duration::from_millis(15));
+            let index = (signal - WAIT_OBJECT_0) as usize;
+            let Some((part, child)) = children.get(index) else {
+                return Err("等待本机进程失败".into());
+            };
+            let mut code = 0;
+            if unsafe { GetExitCodeProcess(child.as_raw_handle(), &mut code) } == 0 {
+                return Err("无法核对本机进程退出状态".into());
             }
+            if code != 0 {
+                return Err(format!("第 {part} 段退出码 {code}，已停止后续步骤"));
+            }
+            children.swap_remove(index);
+            handles.swap_remove(index);
         }
         Ok(())
     })();

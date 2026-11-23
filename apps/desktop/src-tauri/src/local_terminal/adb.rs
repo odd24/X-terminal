@@ -8,6 +8,7 @@ use std::{
     io::Read,
     os::windows::{
         fs::{MetadataExt, OpenOptionsExt},
+        io::AsRawHandle,
         process::CommandExt,
     },
     path::{Path, PathBuf},
@@ -18,8 +19,9 @@ use std::{
 use uuid::Uuid;
 pub(crate) mod shortcuts;
 use windows_sys::Win32::{
+    Foundation::WAIT_OBJECT_0,
     Storage::FileSystem::{FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT},
-    System::Threading::CREATE_NO_WINDOW,
+    System::Threading::{CREATE_NO_WINDOW, WaitForSingleObject},
 };
 
 const STORE: &str = "desktop-local-adb-v1.db";
@@ -337,16 +339,12 @@ pub(super) fn inventory(
         let _ = err_tx.send(capture(stderr));
     });
     let deadline = Instant::now() + Duration::from_secs(8);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Ok(status),
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break Err("ADB 枚举超时或读取失败");
-            }
-        }
+    let status = if unsafe { WaitForSingleObject(child.as_raw_handle(), 8_000) } == WAIT_OBJECT_0 {
+        child.wait().map_err(|_| "ADB 枚举超时或读取失败")
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+        Err("ADB 枚举超时或读取失败")
     };
     let bytes = out_rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
     let errors = err_rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
