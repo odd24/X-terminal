@@ -150,8 +150,8 @@ try {
   const info = await broker({op:'info'});
   assert.equal(info.executable.toLowerCase(),path.join(packageDir,'terminal-mcp.exe').toLowerCase());
   assert.equal(info.peer,null);
-  assert.equal(manifest.mcpCatalogVersion,12);
   const catalog = await readMcpCatalog(manifest.mcpCatalogVersion);
+  assert.equal(catalog.version,manifest.mcpCatalogVersion);
   const observations = [];
   client = await openCodexMcpClient({directory:root,info,broker,catalog:catalog.tools,observations});
   assert.equal((await client.request('tools/call',{name:'agent_status',arguments:{}})).result.structuredContent.reply.data.paired_ticket,null);
