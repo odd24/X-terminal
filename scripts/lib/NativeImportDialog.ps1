@@ -1,12 +1,12 @@
-param([Parameter(Mandatory)][int]$TargetProcessId, [Parameter(Mandatory)][string]$Root, [ValidateSet('select','cancel')][string]$Action, [string]$TargetPath, [ValidateSet('Import','ProtectedExport','SaveRecovery','LogViewer','TextLog','LocalScripts','LocalDirectory')][string]$Purpose='Import', [string]$TargetsBase64)
+param([Parameter(Mandatory)][int]$TargetProcessId, [Parameter(Mandatory)][string]$Root, [ValidateSet('select','cancel')][string]$Action, [string]$TargetPath, [ValidateSet('Import','ProtectedExport','SaveRecovery','LogViewer','TextLog','LocalScripts','LocalDirectory','LogDirectory','LocationViewer')][string]$Purpose='Import', [string]$TargetsBase64)
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 $testRoot=[IO.Path]::GetFullPath($Root)
 $save=$Purpose -in @('ProtectedExport','SaveRecovery','TextLog')
 $nativeEditorFallback=$Purpose -ne 'Import'
-$rootPrefix=switch($Purpose){'ProtectedExport'{'shared-terminal-save-ui-中文-protected-'} 'SaveRecovery'{'shared-terminal-save-ui-中文-recovery-'} 'LogViewer'{'shared-terminal-log-viewer-ui-中文-'} 'TextLog'{'shared-terminal-save-ui-中文-'} 'LocalScripts'{'shared-terminal-local-scripts-中文-'} 'LocalDirectory'{'shared-terminal-local-directory-中文-'} default{'shared-terminal-import-config-ui-中文-'}}
-$pickerTitle=switch($Purpose){'ProtectedExport'{'另存受保护文本'} 'SaveRecovery'{'另存终端导出'} 'LogViewer'{'选择日志打开程序'} 'TextLog'{'保存文本日志'} 'LocalScripts'{'选择本地脚本'} 'LocalDirectory'{'选择本地终端默认目录'} default{'选择原生连接配置 JSON'}}
+$rootPrefix=switch($Purpose){'ProtectedExport'{'shared-terminal-save-ui-中文-protected-'} 'SaveRecovery'{'shared-terminal-save-ui-中文-recovery-'} 'LogViewer'{'shared-terminal-log-viewer-ui-中文-'} 'TextLog'{'shared-terminal-save-ui-中文-'} 'LocalScripts'{'shared-terminal-local-scripts-中文-'} 'LocalDirectory'{'shared-terminal-local-directory-中文-'} 'LogDirectory'{'shared-terminal-log-location-中文-'} 'LocationViewer'{'shared-terminal-log-location-中文-'} default{'shared-terminal-import-config-ui-中文-'}}
+$pickerTitle=switch($Purpose){'ProtectedExport'{'另存受保护文本'} 'SaveRecovery'{'另存终端导出'} 'LogViewer'{'选择日志打开程序'} 'TextLog'{'保存文本日志'} 'LocalScripts'{'选择本地脚本'} 'LocalDirectory'{'选择本地终端默认目录'} 'LogDirectory'{'选择日志保存目录'} 'LocationViewer'{'选择日志打开程序'} default{'选择原生连接配置 JSON'}}
 if (![IO.Path]::GetFileName($testRoot).StartsWith($rootPrefix) -or ($nativeEditorFallback -and [IO.Path]::GetDirectoryName($testRoot) -ne [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar))) { throw 'Only the explicitly owned test root is allowed.' }
 if ($Action -eq 'select') {
  $targets=@($TargetPath)
@@ -16,8 +16,8 @@ if ($Action -eq 'select') {
  $paths = @(foreach($target in $targets) {
    $checked=[IO.Path]::GetFullPath($target)
    if (!$checked.StartsWith($testRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'Only a target under the exact owned test root is allowed.' }
-   $exists=if($Purpose -eq 'LocalDirectory'){[IO.Directory]::Exists($checked)}else{[IO.File]::Exists($checked)}
-   if ((!$save -and !$exists) -or ($Purpose -eq 'LogViewer' -and [IO.Path]::GetExtension($checked) -ne '.exe') -or ($Purpose -eq 'LocalScripts' -and [IO.Path]::GetExtension($checked) -notin @('.bat','.cmd'))) { throw 'Only a target under the exact owned test root is allowed.' }
+   $exists=if($Purpose -in @('LocalDirectory','LogDirectory')){[IO.Directory]::Exists($checked)}else{[IO.File]::Exists($checked)}
+   if ((!$save -and !$exists) -or ($Purpose -in @('LogViewer','LocationViewer') -and [IO.Path]::GetExtension($checked) -ne '.exe') -or ($Purpose -eq 'LocalScripts' -and [IO.Path]::GetExtension($checked) -notin @('.bat','.cmd'))) { throw 'Only a target under the exact owned test root is allowed.' }
    $checked
  })
  $resolved=if($paths.Count -eq 1){$paths[0]}else{($paths | ForEach-Object {'"'+$_+'"'}) -join ' '}
@@ -67,11 +67,11 @@ function Find-PickerButton($handle) {
     if ((Get-NativeClass $candidate) -ne 'Button' -or ![NativeImportTestWindow]::IsWindowEnabled($candidate)) { return [IntPtr]::Zero }
     $label=[Text.StringBuilder]::new(128);[void][NativeImportTestWindow]::GetWindowText($candidate,$label,128)
     $normal=$label.ToString().Replace('&','')
-    $matches=if($Action -eq 'cancel'){$normal -match '^(取消|Cancel)'}elseif($save){$normal -eq '保存'}elseif($Purpose -eq 'LocalDirectory'){$normal -eq '选择文件夹'}else{$normal -match '^(打开|Open)(\([Oo]\))?$'}
+    $matches=if($Action -eq 'cancel'){$normal -match '^(取消|Cancel)'}elseif($save){$normal -eq '保存'}elseif($Purpose -in @('LocalDirectory','LogDirectory')){$normal -eq '选择文件夹'}else{$normal -match '^(打开|Open)(\([Oo]\))?$'}
     if (!$matches) { return [IntPtr]::Zero }; return $candidate
 }
 function Find-NativeFileEditor($handle) {
-    if($Purpose -eq 'LocalDirectory') {
+    if($Purpose -in @('LocalDirectory','LogDirectory')) {
         $folderEditor=[NativeImportTestWindow]::GetDlgItem($handle,1152)
         if ((Get-NativeClass $folderEditor) -eq 'Edit') { return $folderEditor }
         return [IntPtr]::Zero

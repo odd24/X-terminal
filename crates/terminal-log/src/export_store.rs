@@ -87,7 +87,7 @@ impl ExportStore {
             for source in sources {
                 if cancelled(){return Err(io::ErrorKind::Interrupted.into());}
                 writeln!(output,"\r\n# 快照范围 {}",serde_json::to_string(source)?)?;
-                let mut file=crate::UserLogFile::open(data,&source.filename,connection,source.log_id,source.file_identity,source.writer_may_be_open)?;
+                let mut file=crate::UserLogFile::open_at(data,source.directory.as_deref(),&source.filename,connection,source.log_id,source.file_identity,source.writer_may_be_open)?;
                 file.copy_prefix(source.bytes,output,&mut *cancelled)?;
                 total.retained_records=total.retained_records.checked_add(source.flushed_records).ok_or_else(||io::Error::other("snapshot count exhausted"))?;
                 total.retained_gap_bytes=total.retained_gap_bytes.checked_add(source.source_gap_bytes).ok_or_else(||io::Error::other("snapshot gap exhausted"))?;

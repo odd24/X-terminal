@@ -721,6 +721,17 @@ fn config_descriptor(r: &config::ConfigRequest) -> Descriptor {
 fn logging_descriptor(r: &logging::Request) -> Descriptor {
     use logging::Request as L;
     match r {
+        L::DirectorySetting {} => descriptor(Area::Logging, Verb::Status),
+        L::SetDirectory { .. } => descriptor(Area::Logging, Verb::Maintain),
+        L::ReadableLocation {
+            connection, log_id, ..
+        } => resource(
+            Area::Logging,
+            Verb::Status,
+            ResourceKind::Log,
+            *log_id,
+            Some(*connection),
+        ),
         L::StartStatus {
             connection,
             request_id,

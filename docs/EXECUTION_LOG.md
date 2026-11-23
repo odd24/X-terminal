@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.23 按 [CR-046](changes/CR-046.md) 为 Windows x64 0.1.33 增加日志保存位置。原生目录、切换、身份核对和重启专项通过。[P26.23](records/P26.23.md) · Step-ID: P26.23。
+
 P26.22 按 [CR-045](changes/CR-045.md) 交付 Windows x64 0.1.32，脚本编辑与真实资源管理器定位通过定向验证。[P26.22](records/P26.22.md) · Step-ID: P26.22。
 
 P26.21 按 [CR-044](changes/CR-044.md) 集成各窗格快捷指令、本地管道、会话发送与结果收尾。Release 已通过回环 SSH、模拟 ADB 及内存 UART 专项。便携门和证据见 [P26.21](records/P26.21.md)。Step-ID: P26.21。

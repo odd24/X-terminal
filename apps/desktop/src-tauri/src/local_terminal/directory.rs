@@ -191,9 +191,12 @@ impl Drop for Apartment {
     }
 }
 
-fn choose(owner: usize) -> Result<Option<String>, String> {
+pub(crate) fn pick_folder(
+    owner: usize,
+    title: windows::core::PCWSTR,
+) -> Result<Option<String>, String> {
     unsafe {
-        let unavailable = |_| "无法打开默认目录选择器".to_string();
+        let unavailable = |_| "无法打开文件夹选择器".to_string();
         CoInitializeEx(None, COINIT_APARTMENTTHREADED)
             .ok()
             .map_err(unavailable)?;
@@ -210,9 +213,7 @@ fn choose(owner: usize) -> Result<Option<String>, String> {
                     | FOS_DONTADDTORECENT,
             )
             .map_err(unavailable)?;
-        dialog
-            .SetTitle(w!("选择本地终端默认目录"))
-            .map_err(unavailable)?;
+        dialog.SetTitle(title).map_err(unavailable)?;
         dialog
             .SetOkButtonLabel(w!("选择文件夹"))
             .map_err(unavailable)?;
@@ -227,11 +228,16 @@ fn choose(owner: usize) -> Result<Option<String>, String> {
             .and_then(|item| item.GetDisplayName(SIGDN_FILESYSPATH))
             .and_then(read_shell_path)
             .map_err(unavailable)?;
-        if !accessible(Path::new(&path)) {
-            return Err(UNAVAILABLE.into());
-        }
         Ok(Some(path))
     }
+}
+
+fn choose(owner: usize) -> Result<Option<String>, String> {
+    let path = pick_folder(owner, w!("选择本地终端默认目录"))?;
+    if path.as_ref().is_some_and(|p| !accessible(Path::new(p))) {
+        return Err(UNAVAILABLE.into());
+    }
+    Ok(path)
 }
 
 #[tauri::command]

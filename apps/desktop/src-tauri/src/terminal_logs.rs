@@ -175,7 +175,12 @@ struct Registry {
     entries: HashMap<Uuid, Entry>,
     window: RequestWindow,
 }
-pub(crate) struct OpenSource {
+pub(crate) enum OpenSource {
+    File(ReadableSource),
+    Directory(Option<String>),
+}
+pub(crate) struct ReadableSource {
+    pub directory: Option<String>,
     pub log_id: Uuid,
     pub filename: String,
     pub file_identity: [u8; 32],
@@ -192,7 +197,7 @@ enum Job {
     Open {
         target: Target,
         id: Uuid,
-        source: Option<OpenSource>,
+        source: OpenSource,
     },
     Release {
         id: Uuid,
@@ -216,12 +221,34 @@ fn error(e: std::io::Error) -> String {
     }
     .into()
 }
-fn open_managed_directory(directory: &Path) -> Result<(), String> {
-    let source = UserLogDirectory::ensure(directory).map_err(error)?;
+fn open_managed_directory(directory: &Path, custom: Option<&str>) -> Result<(), String> {
+    let source = UserLogDirectory::resolve(directory, custom, true).map_err(error)?;
     crate::export_save::open_directory(source.path(), 0)
 }
+fn open_readable(
+    directory: &Path,
+    connection: ConnectionRef,
+    source: ReadableSource,
+) -> Result<(), String> {
+    let file = UserLogFile::open_at(
+        directory,
+        source.directory.as_deref(),
+        &source.filename,
+        connection,
+        source.log_id,
+        source.file_identity,
+        source.writer_may_be_open,
+    )
+    .map_err(error)?;
+    crate::log_viewer::open(directory, file.path())
+}
 impl Manager {
-    pub async fn open_directory(&self, directory: PathBuf) -> Result<(), String> {
+    pub async fn open_original(
+        &self,
+        directory: PathBuf,
+        connection: ConnectionRef,
+        source: ReadableSource,
+    ) -> Result<(), String> {
         let permit = self
             .directory_open
             .clone()
@@ -229,7 +256,24 @@ impl Manager {
             .map_err(|_| "BUSY")?;
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            open_managed_directory(&directory)
+            open_readable(&directory, connection, source)
+        })
+        .await
+        .map_err(|_| "WORKER_FAILED")?
+    }
+    pub async fn open_directory(
+        &self,
+        directory: PathBuf,
+        custom: Option<String>,
+    ) -> Result<(), String> {
+        let permit = self
+            .directory_open
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "BUSY")?;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            open_managed_directory(&directory, custom.as_deref())
         })
         .await
         .map_err(|_| "WORKER_FAILED")?
@@ -355,19 +399,13 @@ impl Manager {
                                     Ok(())
                                 }
                                 Job::Open { target, id, source } => {
-                                    if let Some(source) = source {
-                                        let source = UserLogFile::open(
-                                            &directory,
-                                            &source.filename,
-                                            target.connection,
-                                            source.log_id,
-                                            source.file_identity,
-                                            source.writer_may_be_open,
-                                        )
-                                        .map_err(error)?;
-                                        crate::log_viewer::open(&directory, source.path())?;
-                                    } else {
-                                        open_managed_directory(&directory)?;
+                                    match source {
+                                        OpenSource::File(file) => {
+                                            open_readable(&directory, target.connection, file)?
+                                        }
+                                        OpenSource::Directory(custom) => {
+                                            open_managed_directory(&directory, custom.as_deref())?
+                                        }
                                     }
                                     shared
                                         .lock()
@@ -497,7 +535,7 @@ impl Manager {
                 Job::Open {
                     target: target.clone(),
                     id,
-                    source: None,
+                    source: open_source.ok_or("SOURCE_MISSING")?,
                 },
             ),
             Request::OpenFile { .. } => (
@@ -505,7 +543,7 @@ impl Manager {
                 Job::Open {
                     target: target.clone(),
                     id,
-                    source: Some(open_source.ok_or("SOURCE_MISSING")?),
+                    source: open_source.ok_or("SOURCE_MISSING")?,
                 },
             ),
             _ => return Err("INVALID_REQUEST".into()),

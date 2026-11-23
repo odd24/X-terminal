@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { logging, type ArchiveInfo, type HistoryEntry, type HistoryPage } from './logging-api';
 import { LiteralLogSearch, visibleControls, type LogMatch } from './log-search';
 import { requestId } from './request-id';
@@ -86,6 +87,19 @@ export function LogHistoryPanel() {
     const closed = await closeBrowser();
     if (mounted.current) { setSelected(value); setMatches([]); setSearchStatus(''); setMessage(closed ? '已切换历史目标；尚未打开读取。' : '历史目标已切换，旧读取关闭未确认；服务将按闲置期限回收。'); setBusy(false); }
   }
+  async function openOriginal() {
+    const info = entry?.info;
+    if (busy || !info) return;
+    setBusy(true);
+    try {
+      await invoke('open_original_log', { connection: info.connection, logId: info.log_id, protocol: info.protocol });
+      if (mounted.current) setMessage('已请求打开原可读日志。');
+    } catch (error) {
+      if (mounted.current) setMessage('无法打开原可读日志。登记可能不存在，或文件已移动、替换或不可访问。');
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
   async function browse(reopen: boolean) {
     const metadata = entry?.info;
     if (busy || !metadata) return; setBusy(true);
@@ -126,7 +140,7 @@ export function LogHistoryPanel() {
     <label>历史日志<select aria-label="历史日志选择" value={selected} disabled={busy || !entries.length} onChange={event => void choose(event.target.value)}><option value="">请选择历史日志</option>{entries.map(item => <option key={item.log_id} value={item.log_id}>{item.info && `${logTime(item.info.started_at_ms)} · ${item.info.protocol} · `}{item.log_id.slice(0, 8)} · {states[item.state]}</option>)}</select></label>
     {entry && <p aria-label="历史日志目标">日志 {entry.log_id} · {states[entry.state]}{shownInfo && ` · ${shownInfo.protocol} · ${shownInfo.connection.connection_id} / ${shownInfo.connection.generation} · ${shownInfo.encoding} · 初始文本 ${shownInfo.text_cursor} / 保留起点 ${shownInfo.available_from} · 保留分段 ${shownInfo.first_retained_segment}–${shownInfo.last_segment} · 声明源缺口 ${shownInfo.source_gap_bytes ?? '未知'} 字节`}</p>}
     <small>浏览独立于活动连接；仅显示已完成日志的保留范围，时间显示北京时间。完成标志与文件头不代表内容已全检。失败/未完成日志可在下方显式尝试只读前缀恢复。文本保留 ANSI 并以转义显示控制字符，不作为终端执行；HEX 是原始字节。当前页替换上一页，不累积整份文件到内存。</small>
-    <div className="config-actions"><button disabled={busy || !entry?.info} onClick={() => void browse(true)}>打开历史日志</button><button disabled={busy || !handle || page?.finished} onClick={() => void browse(false)}>读取下一页</button><button disabled={busy || !handle} onClick={() => { setBusy(true); void closeBrowser().then(closed => { if (mounted.current) { setMessage(closed ? '历史读取已关闭。' : '关闭未确认；服务将按闲置期限回收。'); setBusy(false); } }); }}>关闭历史读取</button></div>
+    <div className="config-actions"><button disabled={busy || !entry?.info} onClick={() => void browse(true)}>打开历史日志</button><button disabled={busy || !entry?.info} onClick={() => void openOriginal()}>打开原可读日志</button><button disabled={busy || !handle || page?.finished} onClick={() => void browse(false)}>读取下一页</button><button disabled={busy || !handle} onClick={() => { setBusy(true); void closeBrowser().then(closed => { if (mounted.current) { setMessage(closed ? '历史读取已关闭。' : '关闭未确认；服务将按闲置期限回收。'); setBusy(false); } }); }}>关闭历史读取</button></div>
     <label className="check"><input type="checkbox" aria-label="历史显示HEX" checked={hex} onChange={event => setHex(event.target.checked)} />显示原始 HEX</label>
     {page && <><p aria-label="历史分页范围">本页文本游标 {page.cursor}–{page.next_cursor}（不含结束值） · {page.records.length} 条 · {page.finished ? '保留范围全检通过' : '尚未全检'}</p><pre aria-label="历史日志内容">{display(page.records, hex) || '本页无新记录。'}</pre></>}
     <p role="status" aria-label="历史读取状态">{message}</p>

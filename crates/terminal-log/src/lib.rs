@@ -48,6 +48,7 @@ mod recovery_export;
 pub use recovery::{RecoveryInfo, RecoveryPage, RecoveryReader, RecoveryStop, RecoveryStopKind};
 pub use recovery_export::{RecoverySummary, export_recovery_jsonl};
 mod live_text;
+pub mod location;
 mod user_file;
 pub use user_file::{ReadableSnapshot, UserLogDirectory, UserLogFile};
 mod storage;
@@ -329,6 +330,30 @@ impl Logger {
                 metadata,
                 limits,
                 &window_name,
+            )?))
+        })
+    }
+    pub fn start_registered_readable(
+        root: PathBuf,
+        metadata: Metadata,
+        limits: Limits,
+        window_name: String,
+        directory: (Option<String>, UserLogDirectory),
+    ) -> io::Result<Self> {
+        if !root.is_absolute() || !metadata.valid() || !limits.valid() || window_name.len() > 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid readable setup",
+            ));
+        }
+        Self::spawn(metadata, move |id, metadata| {
+            Ok(Box::new(storage::FileJournal::open_registered(
+                root,
+                id,
+                metadata,
+                limits,
+                &window_name,
+                directory,
             )?))
         })
     }

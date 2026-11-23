@@ -168,6 +168,24 @@ impl FileJournal {
         )?);
         Ok(journal)
     }
+    pub(crate) fn open_registered(
+        root: PathBuf,
+        id: Uuid,
+        metadata: Metadata,
+        limits: Limits,
+        name: &str,
+        directory: (Option<String>, crate::UserLogDirectory),
+    ) -> io::Result<Self> {
+        let data = root
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid log root"))?
+            .to_path_buf();
+        let mut journal = Self::open(root, id, metadata.clone(), limits)?;
+        journal.live = Some(crate::live_text::LiveText::open_registered(
+            &data, name, &metadata, id, directory,
+        )?);
+        Ok(journal)
+    }
     fn paths(&self, segment: u64) -> (PathBuf, PathBuf) {
         (
             self.directory.join(format!("{segment:016}.rawlog")),

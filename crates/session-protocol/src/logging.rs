@@ -22,6 +22,16 @@ impl Limits {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    DirectorySetting {},
+    SetDirectory {
+        revision: Uuid,
+        directory: Option<String>,
+    },
+    ReadableLocation {
+        connection: ConnectionRef,
+        log_id: Uuid,
+        protocol: Protocol,
+    },
     TextExportStart {
         connection: ConnectionRef,
         log_id: Uuid,
@@ -158,6 +168,12 @@ pub enum Request {
 impl Request {
     pub fn validate(&self) -> bool {
         let connection = match self {
+            Self::DirectorySetting {} => return true,
+            Self::SetDirectory { directory, .. } => {
+                return directory.as_ref().is_none_or(|value| {
+                    !value.is_empty() && value.len() <= 8192 && !value.chars().any(char::is_control)
+                });
+            }
             Self::CaptureList {} => return true,
             Self::CleanupList { .. } => return true,
             Self::CleanupPreview { id, preview_id, .. }
@@ -294,6 +310,9 @@ impl Request {
             }
             Self::List { connection } => connection,
             Self::Status { connection, log_id }
+            | Self::ReadableLocation {
+                connection, log_id, ..
+            }
             | Self::Stop { connection, log_id }
             | Self::ReleaseFailed { connection, log_id } => {
                 if log_id.is_nil() {
@@ -391,6 +410,8 @@ pub enum Failure {
 pub struct ReadableInfo {
     pub filename: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_identity: Option<[u8; 32]>,
     pub written_records: u64,
     pub flushed_records: u64,
@@ -473,6 +494,18 @@ pub struct ExportInfo {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
+    DirectoryUnavailable {},
+    Directory {
+        revision: Uuid,
+        directory: Option<String>,
+        effective: String,
+    },
+    ReadableLocation {
+        directory: Option<String>,
+        filename: String,
+        file_identity: [u8; 32],
+        writer_may_be_open: bool,
+    },
     TextExport(Box<ExportInfo>),
     CleanupList {
         kind: CleanupKind,

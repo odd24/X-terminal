@@ -12,6 +12,7 @@ mod export_save;
 #[cfg(feature = "load-observer-test")]
 mod load_observer_test;
 mod local_terminal;
+mod log_directory;
 mod log_viewer;
 #[cfg(feature = "save-recovery-fixture")]
 mod save_recovery_fixture;
@@ -228,7 +229,8 @@ async fn open_managed_log_directory(
     state: State<'_, Desktop>,
     manager: State<'_, terminal_logs::Manager>,
 ) -> Result<(), String> {
-    manager.open_directory(state.2.clone()).await
+    let directory = log_directory::current(state.clone()).await?;
+    manager.open_directory(state.2.clone(), directory).await
 }
 
 #[tauri::command]
@@ -293,31 +295,15 @@ async fn terminal_log_request(
     let mut open_source = None;
     let mut snapshots = Vec::new();
     match &request {
+        R::OpenDirectory { .. } => {
+            let directory = log_directory::current(state.clone()).await?;
+            open_source = Some(terminal_logs::OpenSource::Directory(directory));
+        }
         R::OpenFile { log_id, .. } => {
-            let session_protocol::logging::Reply::Info(info) = forward_logging(
-                state.clone(),
-                session_protocol::logging::Request::Status {
-                    connection: target.connection,
-                    log_id: *log_id,
-                },
-            )
-            .await?
-            else {
-                return Err("INVALID_SOURCE".into());
-            };
-            if info.connection != target.connection
-                || info.protocol != target.protocol
-                || info.log_id != *log_id
-            {
-                return Err("INVALID_SOURCE".into());
-            }
-            let readable = info.readable.ok_or("SOURCE_NOT_READY")?;
-            open_source = Some(terminal_logs::OpenSource {
-                log_id: *log_id,
-                filename: readable.filename,
-                file_identity: readable.file_identity.ok_or("INVALID_SOURCE")?,
-                writer_may_be_open: !info.worker_finished,
-            });
+            open_source = Some(terminal_logs::OpenSource::File(
+                log_directory::original(state.clone(), target.connection, *log_id, target.protocol)
+                    .await?,
+            ));
         }
         R::Prepare {
             source: Source::Recorded { log_ids },
@@ -393,6 +379,7 @@ async fn terminal_log_request(
                 snapshots.push(terminal_log::ReadableSnapshot {
                     log_id: *log_id,
                     connection: target.connection,
+                    directory: live.directory,
                     filename: live.filename,
                     file_identity: live.file_identity.ok_or("INVALID_SOURCE")?,
                     writer_may_be_open: !info.worker_finished,
@@ -583,6 +570,9 @@ async fn logging_request(
 ) -> Result<session_protocol::logging::Reply, String> {
     use session_protocol::logging::Request as L;
     match &request {
+        L::DirectorySetting {} | L::SetDirectory { .. } | L::ReadableLocation { .. } => {
+            return Err("INVALID_LOG_REQUEST".into());
+        }
         L::Start { connection, .. }
         | L::Stop { connection, .. }
         | L::ReleaseFailed { connection, .. } => {
@@ -599,6 +589,9 @@ async fn logging_request(
     }
     let mut reply = forward_logging(state, request).await?;
     let logs = match &mut reply {
+        session_protocol::logging::Reply::DirectoryUnavailable {} => {
+            return Err("LOG_DIRECTORY_UNAVAILABLE".into());
+        }
         session_protocol::logging::Reply::Info(info) => std::slice::from_mut(info.as_mut()),
         session_protocol::logging::Reply::List { logs } => logs.as_mut_slice(),
         _ => &mut [],
@@ -606,6 +599,7 @@ async fn logging_request(
     for info in logs {
         if let Some(readable) = &mut info.readable {
             readable.file_identity = None;
+            readable.directory = None;
         }
     }
     Ok(reply)
@@ -1062,6 +1056,7 @@ fn main() {
             app.manage(log_viewer::Editor::new());
             app.manage(trigger_match::Manager::default());
             app.manage(local_terminal::Terminals::default());
+            app.manage(log_directory::Selection::default());
             app.manage(local_terminal::scripts::Picker(Arc::new(
                 tokio::sync::Semaphore::new(1),
             )));
@@ -1134,6 +1129,8 @@ fn main() {
             protected_export_desktop_request,
             terminal_log_request,
             open_managed_log_directory,
+            log_directory::log_directory_settings,
+            log_directory::open_original_log,
             log_viewer::log_viewer_settings,
             log_viewer::registered_log_viewers,
             log_viewer::select_registered_log_viewer,

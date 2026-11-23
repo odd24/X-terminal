@@ -1,7 +1,7 @@
 {
   "name": "shared-terminal",
   "private": true,
-  "version": "0.1.32",
+  "version": "0.1.33",
   "type": "module",
   "packageManager": "npm@11.9.0",
   "engines": {
@@ -78,6 +78,7 @@
     "test:desktop:input-latency": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-InputLatency.mjs",
     "test:desktop:dialog-drag": "node scripts/Test-Desktop-DialogDrag.mjs",
     "test:desktop:log-files": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-LogFiles.mjs",
+    "test:desktop:log-location": "node scripts/Test-Desktop-LogLocation.mjs",
     "test:desktop:log-menu": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-LogMenu.mjs",
     "test:desktop:compose-pacing": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-ComposePacing.mjs",
     "test:desktop:continuous-input": "cargo build -p session-service --example gui_ssh_fixture --locked && node scripts/Test-Desktop-ContinuousInput.mjs",

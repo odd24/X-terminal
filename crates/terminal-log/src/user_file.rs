@@ -34,11 +34,74 @@ impl UserLogDirectory {
     pub fn path(&self) -> &Path {
         &self.path
     }
+    pub fn resolve(data: &Path, custom: Option<&str>, create_default: bool) -> io::Result<Self> {
+        let Some(custom) = custom else {
+            return if create_default {
+                Self::ensure(data)
+            } else {
+                Self::open(data)
+            };
+        };
+        let path = PathBuf::from(custom);
+        let invalid = || io::Error::new(io::ErrorKind::InvalidInput, "invalid log directory");
+        if custom.is_empty()
+            || custom.len() > 8192
+            || custom.chars().any(char::is_control)
+            || !path.is_absolute()
+        {
+            return Err(invalid());
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
+            use windows_sys::Win32::System::WindowsProgramming::{DRIVE_FIXED, DRIVE_REMOVABLE};
+            let raw = custom.as_bytes();
+            if raw.len()<3||!raw[0].is_ascii_alphabetic()||&raw[1..3]!=b":\\"||
+              custom[3..].contains([':', '/', '<', '>', '|', '*', '?','"'])||path.components().skip(2).any(|p|!matches!(p,std::path::Component::Normal(x) if !x.to_string_lossy().ends_with(['.',' ']))){
+                return Err(invalid());
+            }
+            let drive: Vec<_> = custom[..3].encode_utf16().chain(Some(0)).collect();
+            if !matches!(
+                unsafe { GetDriveTypeW(drive.as_ptr()) },
+                DRIVE_FIXED | DRIVE_REMOVABLE
+            ) {
+                return Err(invalid());
+            }
+        }
+        let guards = storage::guards(&path)?;
+        let normalized = std::fs::canonicalize(&path)?;
+        let data_normalized = std::fs::canonicalize(data)?;
+        let canon = |p: &Path| {
+            if cfg!(windows) {
+                p.to_string_lossy().to_lowercase()
+            } else {
+                p.to_string_lossy().into_owned()
+            }
+        };
+        if Path::new(&canon(&normalized)).starts_with(canon(&data_normalized))
+            && canon(&normalized) != canon(&data_normalized.join("logs"))
+        {
+            return Err(invalid());
+        }
+        Ok(Self {
+            _guards: guards,
+            path,
+        })
+    }
 }
 pub struct UserLogFile {
     _directory: UserLogDirectory,
     _file: File,
     path: PathBuf,
+}
+pub(crate) fn valid_filename(filename: &str) -> bool {
+    filename.len() <= 1024
+        && filename.encode_utf16().count() <= 255
+        && filename.ends_with(".log")
+        && !filename.contains(['/', '\\', ':', '\0'])
+        && Path::new(filename).components().count() == 1
+        && !filename.starts_with('.')
+        && !filename.chars().any(char::is_control)
 }
 
 pub(crate) fn identity(file: &File) -> io::Result<[u8; 32]> {
@@ -138,20 +201,32 @@ impl UserLogFile {
         file_identity: [u8; 32],
         writer_may_be_open: bool,
     ) -> io::Result<Self> {
-        if filename.len() > 1024
-            || filename.encode_utf16().count() > 255
-            || !filename.ends_with(".log")
-            || filename.contains(['/', '\\', ':', '\0'])
-            || Path::new(filename).components().count() != 1
-            || filename.starts_with('.')
-            || log_id.is_nil()
-        {
+        Self::open_at(
+            data,
+            None,
+            filename,
+            connection,
+            log_id,
+            file_identity,
+            writer_may_be_open,
+        )
+    }
+    pub fn open_at(
+        data: &Path,
+        custom: Option<&str>,
+        filename: &str,
+        connection: ConnectionRef,
+        log_id: Uuid,
+        file_identity: [u8; 32],
+        writer_may_be_open: bool,
+    ) -> io::Result<Self> {
+        if !valid_filename(filename) || log_id.is_nil() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "invalid readable source",
             ));
         }
-        let directory = UserLogDirectory::open(data)?;
+        let directory = UserLogDirectory::resolve(data, custom, false)?;
         let path = directory.path.join(filename);
         let mut options = OpenOptions::new();
         options.read(true);
@@ -215,6 +290,8 @@ pub struct ReadableSnapshot {
     pub log_id: Uuid,
     pub connection: ConnectionRef,
     pub filename: String,
+    #[serde(skip_serializing)]
+    pub directory: Option<String>,
     #[serde(skip_serializing)]
     pub file_identity: [u8; 32],
     #[serde(skip_serializing)]

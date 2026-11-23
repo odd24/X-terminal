@@ -146,6 +146,7 @@ impl Manager {
         Ok(wire::Info {
             readable: status.readable.map(|v| wire::ReadableInfo {
                 filename: v.filename,
+                directory: v.directory,
                 file_identity: Some(v.file_identity),
                 written_records: v.written_records,
                 flushed_records: v.flushed_records,
@@ -219,6 +220,71 @@ impl Manager {
             return Err(ErrorCode::InvalidArgument);
         }
         match request {
+            Request::DirectorySetting {} | Request::SetDirectory { .. } => {
+                let _gate = self.gate.lock().await;
+                let root = self.readable_data().await?;
+                tokio::task::spawn_blocking(move || {
+                    let (revision, directory) = match request {
+                        Request::SetDirectory {
+                            revision,
+                            directory,
+                        } => terminal_log::location::set(&root, revision, directory)
+                            .map_err(|_| ErrorCode::InvalidArgument)?
+                            .ok_or(ErrorCode::InvalidState)?,
+                        _ => terminal_log::location::setting(&root)
+                            .map_err(|_| ErrorCode::InvalidState)?,
+                    };
+                    let effective = terminal_log::location::effective(&root, directory.as_deref())
+                        .to_str()
+                        .ok_or(ErrorCode::InvalidState)?
+                        .to_owned();
+                    Ok(Reply::Directory {
+                        revision,
+                        directory,
+                        effective,
+                    })
+                })
+                .await
+                .map_err(|_| ErrorCode::InvalidState)?
+            }
+            Request::ReadableLocation {
+                connection,
+                log_id,
+                protocol,
+            } => {
+                {
+                    let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    if let Some(entry) = inner.entries.get(&log_id) {
+                        if entry.metadata.connection != connection
+                            || entry.metadata.protocol != protocol
+                        {
+                            return Err(ErrorCode::NotFound);
+                        }
+                        let status = entry.logger.status();
+                        let readable = status.readable.ok_or(ErrorCode::NotFound)?;
+                        return Ok(Reply::ReadableLocation {
+                            directory: readable.directory,
+                            filename: readable.filename,
+                            file_identity: readable.file_identity,
+                            writer_may_be_open: !status.worker_finished,
+                        });
+                    }
+                }
+                let root = self.readable_data().await?;
+                tokio::task::spawn_blocking(move || {
+                    let entry = terminal_log::location::lookup(&root, log_id, connection, protocol)
+                        .map_err(|_| ErrorCode::InvalidState)?
+                        .ok_or(ErrorCode::NotFound)?;
+                    Ok(Reply::ReadableLocation {
+                        directory: entry.directory,
+                        filename: entry.filename,
+                        file_identity: entry.file_identity,
+                        writer_may_be_open: false,
+                    })
+                })
+                .await
+                .map_err(|_| ErrorCode::InvalidState)?
+            }
             Request::StartStatus {
                 connection,
                 request_id,
@@ -466,15 +532,27 @@ impl Manager {
                 else {
                     return Err(ErrorCode::InvalidState);
                 };
-                let root = tokio::task::spawn_blocking(move || {
+                let prepared = tokio::task::spawn_blocking(move || {
+                    let (_, destination) = terminal_log::location::setting(&directory)?;
+                    // Validate before attaching a capture. The worker revalidates at file creation.
+                    let Ok(pin) = terminal_log::UserLogDirectory::resolve(
+                        &directory,
+                        destination.as_deref(),
+                        true,
+                    ) else {
+                        return Ok(None);
+                    };
                     terminal_log::ManagedRoot::open(&directory).and_then(|root| {
                         let ids = root.ids()?;
-                        Ok((root, ids))
+                        Ok(Some(((root, ids), (destination, pin))))
                     })
                 })
                 .await
                 .map_err(|_| ErrorCode::InvalidState)?
                 .map_err(|_| ErrorCode::InvalidState)?;
+                let Some((root, destination)) = prepared else {
+                    return Ok(Reply::DirectoryUnavailable {});
+                };
                 let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
                 inner.reserve(request_id)?;
                 let mut ids: HashSet<_> = root.1.into_iter().collect();
@@ -505,7 +583,7 @@ impl Manager {
                     text_cursor: position.text_cursor,
                 };
                 let start_logger = || {
-                    Logger::start_readable(
+                    Logger::start_registered_readable(
                         root.0.path().to_path_buf(),
                         metadata.clone(),
                         terminal_log::Limits {
@@ -513,6 +591,7 @@ impl Manager {
                             segments: limits.segments,
                         },
                         window_name.unwrap_or_else(|| "终端".into()),
+                        destination,
                     )
                 };
                 #[cfg(feature = "t19-timeline-fixture")]
@@ -636,6 +715,12 @@ impl Manager {
                     inner.released.contains(&log_id),
                 )?)))
             }
+        }
+    }
+    async fn readable_data(&self) -> Result<std::path::PathBuf, ErrorCode> {
+        match self.config.request(Internal::LoggingDirectory).await {
+            Ok(Value::LoggingDirectory(path)) => Ok(path),
+            _ => Err(ErrorCode::InvalidState),
         }
     }
     pub(crate) async fn close(self) -> io::Result<()> {

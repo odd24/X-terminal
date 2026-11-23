@@ -25,7 +25,7 @@ export class ExportRequestError extends Error {
   readonly code: string;
   constructor(code: string, message: string) { super(message); this.code = code; }
 }
-export class LogRequestError extends Error {readonly code:string;readonly uncertain:boolean;constructor(code:string,message:string){super(message);this.code=code;this.uncertain=!['InvalidArgument','InvalidState','NotConnected','StaleGeneration','NotFound','CapacityExceeded','PermissionDenied','RequestExpired'].includes(code);}}
+export class LogRequestError extends Error {readonly code:string;readonly uncertain:boolean;constructor(code:string,message:string){super(message);this.code=code;this.uncertain=!['InvalidArgument','InvalidState','NotConnected','StaleGeneration','NotFound','CapacityExceeded','PermissionDenied','RequestExpired','LOG_DIRECTORY_UNAVAILABLE'].includes(code);}}
 export async function logging(request: Request | CleanupRequest | RecoveryExportRequest): Promise<Reply | ({ result: 'recovery_export' } & RecoveryExportInfo) | ({ result: 'cleanup' } & CleanupInfo) | { result: 'cleanup_list'; kind: CleanupKind; ids: string[] }> {
   try { return await invoke('logging_request', { request }); }
   catch (error) {
@@ -45,7 +45,7 @@ export async function logging(request: Request | CleanupRequest | RecoveryExport
       const messages: Record<string, string> = { InvalidArgument: '历史日志目标或游标参数不匹配；操作没有转向其他日志。', InvalidState: '日志文件未完成、已损坏、被占用或目录不可访问；不能确认范围完整。', RequestExpired: '读取句柄或游标已过期；需要明确重新打开日志。', NotFound: '日志或读取句柄已不存在。', CapacityExceeded: '日志读取队列或句柄已达上限；可关闭其他历史读取后重试。', PermissionDenied: '当前客户端无持久日志读取权限。', LOG_CHANNEL_UNAVAILABLE: '历史日志通道不可用；未自动重开或重试。' };
       throw new Error(messages[String(error)] ?? '历史日志请求失败，未自动重新读取。');
     }
-    const messages: Record<string, string> = { InvalidArgument: '日志参数无效或请求 ID 冲突，未启动新记录。', InvalidState: '连接已有日志，或配置/日志目录不可用；未自动恢复记录。', NotConnected: '当前连接尚未就绪，未开始记录。', StaleGeneration: '连接代次已变化，操作未转发到新连接。', NotFound: '该日志与目标连接不匹配或已不存在。', CapacityExceeded: '日志目录或服务记录已达上限；未删除历史，未开始新记录。', PermissionDenied: '当前客户端无日志管理权限。', LOG_CHANNEL_UNAVAILABLE: '日志通道不可用；结果可能未知，未自动重试。' };
+    const messages: Record<string, string> = { LOG_DIRECTORY_UNAVAILABLE: '日志目录不可用。请在软件设置中重新选择或恢复默认目录。', InvalidArgument: '日志参数无效或请求 ID 冲突，未启动新记录。', InvalidState: '连接已有日志，或配置/日志目录不可用；未自动恢复记录。', NotConnected: '当前连接尚未就绪，未开始记录。', StaleGeneration: '连接代次已变化，操作未转发到新连接。', NotFound: '该日志与目标连接不匹配或已不存在。', CapacityExceeded: '日志目录或服务记录已达上限；未删除历史，未开始新记录。', PermissionDenied: '当前客户端无日志管理权限。', LOG_CHANNEL_UNAVAILABLE: '日志通道不可用；结果可能未知，未自动重试。' };
     throw new LogRequestError(String(error),messages[String(error)] ?? '日志请求失败，未自动重试或重放。');
   }
 }

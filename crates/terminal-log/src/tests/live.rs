@@ -215,6 +215,7 @@ fn active_bundle_reads_all_frozen_flushed_bytes_beyond_preview_without_stopping(
     let frozen = fs::read(&file).unwrap();
     assert!(frozen.len() > 65536);
     let snapshot = ReadableSnapshot {
+        directory: None,
         log_id: status.log_id,
         connection: meta.connection,
         filename: live.filename.clone(),

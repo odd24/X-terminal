@@ -142,7 +142,7 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
         const hook={original,count:0,releases:[]};window.__desktopIpcResponseTest=hook;
         window.fetch=async function(input,init){
           const response=await original.call(this,input,init);
-          let operation,connection;try{const body=JSON.parse(init?.body);operation=body.request?.op;connection=(body.request?.connection??body.connection)?.connection_id;}catch{}
+          let operation,connection;try{const body=JSON.parse(init?.body);operation=body.request?.op??body.action?.kind;connection=(body.request?.connection??body.connection)?.connection_id;}catch{}
           if(new URL(String(input)).pathname===${JSON.stringify('/' + interceptedCommand)}&&operation===${JSON.stringify(op)}&&(${JSON.stringify(connectionId)}===undefined||connection===${JSON.stringify(connectionId)})){
             hook.count++;
             if(${JSON.stringify(mode)}==='hold_error')await new Promise(resolve=>hook.releases.push(resolve));

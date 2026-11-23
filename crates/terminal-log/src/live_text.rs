@@ -1,5 +1,5 @@
 //! User-facing, flat readable logs. Internal evidence journals remain separate.
-use crate::{Record, storage};
+use crate::Record;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
@@ -14,6 +14,8 @@ static CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[serde(deny_unknown_fields)]
 pub struct ReadableStatus {
     pub filename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
     pub file_identity: [u8; 32],
     pub written_records: u64,
     pub flushed_records: u64,
@@ -135,7 +137,7 @@ pub fn readable_stem(name: &str, timestamp_ms: u64) -> io::Result<String> {
     ))
 }
 pub(crate) struct LiveText {
-    _guards: Vec<File>,
+    _directory: crate::UserLogDirectory,
     output: BufWriter<File>,
     pub status: ReadableStatus,
     max: u64,
@@ -153,22 +155,42 @@ impl LiveText {
         id: uuid::Uuid,
         max: u64,
     ) -> io::Result<Self> {
+        Self::open_at(data, name, metadata, id, max, None)
+    }
+    pub fn open_registered(
+        data: &Path,
+        name: &str,
+        metadata: &crate::Metadata,
+        id: uuid::Uuid,
+        directory: (Option<String>, crate::UserLogDirectory),
+    ) -> io::Result<Self> {
+        Self::open_at(data, name, metadata, id, MAX_LIVE_BYTES, Some(directory))
+    }
+    fn open_at(
+        data: &Path,
+        name: &str,
+        metadata: &crate::Metadata,
+        id: uuid::Uuid,
+        max: u64,
+        selection: Option<(Option<String>, crate::UserLogDirectory)>,
+    ) -> io::Result<Self> {
         let _creation = CREATION
             .lock()
             .map_err(|_| io::Error::other("readable creation lock"))?;
-        let mut guards = storage::guards(data)?;
-        let root = data.join("logs");
-        match fs::create_dir(&root) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e),
-        }
-        guards.push(storage::pin(&root)?);
-        if fs::read_dir(&root)?.take(65).count() >= 64 {
+        let registered = selection.is_some();
+        let (custom, directory) = match selection {
+            Some(selection) => selection,
+            None => (None, crate::UserLogDirectory::ensure(data)?),
+        };
+        let root = directory.path();
+        if !registered && fs::read_dir(root)?.take(65).count() >= 64 {
             return Err(io::Error::new(
                 io::ErrorKind::FileTooLarge,
                 "readable log catalogue full",
             ));
+        }
+        if registered {
+            crate::location::reserve(data)?;
         }
         let stem = readable_stem(name, metadata.started_at_ms)?;
         for suffix in 0..=64 {
@@ -191,11 +213,12 @@ impl LiveText {
             };
             let file_identity = crate::user_file::identity(&file)?;
             let mut result = Self {
-                _guards: guards,
+                _directory: directory,
                 output: BufWriter::with_capacity(8192, file),
                 max: max.min(MAX_LIVE_BYTES),
                 status: ReadableStatus {
                     filename,
+                    directory: custom,
                     file_identity,
                     written_records: 0,
                     flushed_records: 0,
@@ -212,6 +235,19 @@ impl LiveText {
             };
             result.write(format!("# 终端通信日志 UTF-8\r\n# 日志 {id}；连接 {} / {}\r\n# 仅起录后的接收输出/终端回显；不含认证表单，未独立记录发送；起录前内容未记录。\r\n",metadata.connection.connection_id.0,metadata.connection.generation).as_bytes())?;
             result.checkpoint(true)?;
+            if registered {
+                crate::location::register(
+                    data,
+                    crate::location::Location {
+                        log_id: id,
+                        connection: metadata.connection,
+                        protocol: metadata.protocol,
+                        directory: result.status.directory.clone(),
+                        filename: result.status.filename.clone(),
+                        file_identity,
+                    },
+                )?;
+            }
             return Ok(result);
         }
         Err(io::Error::new(
