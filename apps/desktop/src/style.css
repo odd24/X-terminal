@@ -242,14 +242,13 @@ main.desktop-shell {
 .session-sidebar h2 { font-weight: 400; font-size: var(--text-body); margin-block: var(--space-1); }
 .session-sidebar .config-heading { gap: var(--space-1); align-items: center; }
 .tree-heading-actions { display: flex; align-items: center; gap: var(--space-1); }
-.tree-heading-actions > .icon-button, .tree-new-menu > summary { inline-size: 28px; block-size: 28px; }
-.tree-new-menu > summary { display: grid; place-items: center; list-style: none; border-radius: var(--radius-control); cursor: pointer; }
+.tree-heading-actions .icon-button { inline-size: 28px; block-size: 28px; min-block-size: 0; }
+.tree-new-menu > summary { list-style: none; cursor: pointer; }
 .tree-new-menu > summary:hover, .tree-new-menu[open] > summary, .tree-folder[aria-current="true"] { background: var(--control-hover); }
 .tree-new-menu .tools-menu-content { width: min(11rem, calc(100vw - 16px)); }
 .tree-new-menu .tools-menu-content > button { display: block; width: 100%; text-align: start; white-space: nowrap; }
 .new-menu .tools-menu-content > button { white-space: nowrap; }
 .tree-search input { min-height: 27px; padding: 2px var(--space-2); }
-.session-sidebar .config-heading > .icon-button { inline-size: 28px; block-size: 28px; }
 .tree-search { display: flex; flex-direction: column; gap: var(--space-1); }
 .tree-search input { box-sizing: border-box; width: 100%; min-width: 0; }
 .tree-scroll { flex: 1; min-height: var(--control-height); overflow: auto; padding: calc(var(--focus-width) + var(--focus-offset)); scroll-padding-block: calc(var(--focus-width) + var(--focus-offset)); }
@@ -448,6 +447,26 @@ main.desktop-shell {
 .pane-tab-bar .connection-tab:has([aria-selected="true"]) > [role="tab"] { padding-block: 0; }
 .terminal-grid.single .pane-tab-bar { align-items: end; }
 .terminal-grid.single .pane-tab-bar .connection-tab button { min-height: 31px; }
+.pane-tab-bar .connection-tab > button.tab-close-button {
+  display: grid; position: relative; place-items: center; flex: none;
+  box-sizing: border-box; inline-size: 26px; padding: 0; margin-inline-end: 2px;
+  color: var(--tab-close-ink, var(--text)); background: transparent;
+}
+.pane-tab-bar .connection-tab:has([aria-selected="true"]) {
+  --tab-close-ink: var(--selected-tab-close-ink);
+}
+@supports (color: contrast-color(black)) {
+  .pane-tab-bar .connection-tab:has([aria-selected="true"]) { --tab-close-ink: contrast-color(var(--terminal-background)); }
+}
+.tab-close-button::before {
+  content: ''; grid-area: 1 / 1; inline-size: 20px; block-size: 20px;
+  border-radius: 6px; pointer-events: none;
+}
+.tab-close-button > .control-icon { grid-area: 1 / 1; position: relative; pointer-events: none; }
+.tab-close-button:hover:not(:disabled)::before { background: color-mix(in srgb, currentColor 14%, transparent); }
+.tab-close-button:active:not(:disabled)::before { background: color-mix(in srgb, currentColor 18%, transparent); }
+.pane-tab-bar .connection-tab > button.tab-close-button:focus-visible { outline: none; }
+.tab-close-button:focus-visible::before { outline: var(--focus-width) solid currentColor; outline-offset: -2px; }
 .terminal-grid.single .pane-tab-bar [role="tablist"] { align-items: end; flex: 0 1 auto; }
 .tab-lane-drag { flex: 1; align-self: stretch; }
 .pane-tab-bar .new-menu > summary, .pane-tab-bar .pane-collapse {

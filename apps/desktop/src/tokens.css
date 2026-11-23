@@ -63,6 +63,7 @@
   --danger: #ffb3a7;
   --recording: #ff5b63;
   --terminal-background: #000000;
+  --selected-tab-close-ink: #ffffff;
   --terminal-foreground: #e7edf5;
   --terminal-cursor: #e7edf5;
   --terminal-cursor-accent: #000000;
@@ -102,6 +103,7 @@
   --danger: #a32424;
   --recording: #bd2636;
   --terminal-background: #ffffff;
+  --selected-tab-close-ink: #000000;
   --terminal-foreground: #172b40;
   --terminal-cursor: #172b40;
   --terminal-cursor-accent: #ffffff;
@@ -129,6 +131,11 @@
 }
 
 /* Explicit terminal schemes keep ANSI colors distinct and follow the shared font. */
+:root[data-terminal-palette="black_green"],
+:root[data-terminal-palette="black_white"],
+:root[data-terminal-palette="x"] {
+  --selected-tab-close-ink: #ffffff;
+}
 :root[data-terminal-palette="black_green"],
 :root[data-terminal-palette="black_white"] {
   --terminal-background: #000000;

@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.11 使用 `Test-Desktop-TabControls.mjs` 验证 Windows Desktop 上的两个标题图标、关闭叉状态、缩放、精确关闭和拖动隔离，使用回环 SSH、内存 UART 与受控本地终端。[P26.11](records/P26.11.md)
+
 P26.10 使用 `Test-Desktop-NewEntries.mjs` 在独立 Windows Desktop 上验证标签入口、PowerShell 工作目录、分屏焦点、SSH2 保存与信任、内存 UART 设备选择，以及取消、保存失败和失答。UART 专项使用独立测试服务目录，使用与交付一致的 Desktop 文件。证据见 [P26.10](records/P26.10.md)。
 
 P26.9 使用 `Test-Desktop-McpShortcuts.mjs` 从正式 Windows x64 目录连接官方客户端，经真实 stdio 检查原 29 工具与四个新增工具，核对 Desktop 授权、事务回执、人工并发和右栏同步。使用自建数据目录、模拟 ADB 和自建脚本，核对登记及移除期间的执行次数和文件指纹。[P26.9](records/P26.9.md)

@@ -1,4 +1,4 @@
-# 共享终端 0.1.23 · Windows x64 便携目录
+# 共享终端 0.1.24 · Windows x64 便携目录
 
 1. 保留交付目录内的三个相邻 EXE，可直接从该目录启动。
 2. 先在旧预览中正常退出桌面，再双击 `shared-terminal-desktop.exe`。应用需要 Microsoft Edge WebView2 运行时。

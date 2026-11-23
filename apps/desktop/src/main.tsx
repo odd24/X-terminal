@@ -44,7 +44,7 @@ import { QuickConnect, type SavedConnectIntent } from './quick-connect';
 import { SessionTabClosures } from './session-tab-closures';
 import { TabGroups } from './tab-groups';
 import { TabGroupsPanel } from './tab-groups-panel';
-import { SessionTabs } from './session-tabs';
+import { SessionTabs, TabCloseButton } from './session-tabs';
 import { WindowChrome } from './window-chrome';
 import type { TabDrop } from './tab-drag';
 import { SessionDragPreview, useSessionDrag } from './session-drag';
@@ -1314,7 +1314,7 @@ function App() {
                 onDoubleClick={event=>{if(drag.allowedDoubleClick(event)&&!tab.initial.script&&!closingLocal.current.has(tab.id))void openLocal(key,tab.powershell,tab.id,undefined,true);}}>
                 <span className="tab-label">{tab.title}</span>
               </button>
-              <button type="button" aria-label={`关闭 ${tab.title}`} onClick={()=>void closeLocal(tab.id)}>×</button>
+              <TabCloseButton label={`关闭 ${tab.title}`} close={()=>void closeLocal(tab.id)}/>
             </div>};
           })}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}

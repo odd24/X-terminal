@@ -2,7 +2,13 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode,
 import type { GroupConnection, TabGroup } from './tab-groups';
 import type { SessionDrag } from './session-drag';
 import type { TabRecording } from './tab-logging';
+import { ControlIcon } from './ui';
 type Connection=GroupConnection&{state:string};
+export function TabCloseButton({label,disabled,close}:{label:string;disabled?:boolean;close():void}){
+  return <button type="button" className="tab-close-button" aria-label={label} disabled={disabled} draggable={false} onClick={close}>
+    <ControlIcon icon="close" />
+  </button>;
+}
 export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,localTabs=[],order=[],endControls,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;localTabs?:{id:string;node:ReactNode}[];order?:string[];endControls?:ReactNode;children?:ReactNode}){
   const list=useRef<HTMLDivElement>(null);
   const menuNode=useRef<HTMLDivElement>(null);
@@ -102,7 +108,7 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
           onClick={event=>{if(!status.disabled&&!pending(connection)&&event.detail<2)toggleRecording(connection);}}>
           <span className="tab-record-icon" aria-hidden="true">{status.state==='unknown'?'?':status.state==='failed'?'!':status.state==='pending'?'…':''}</span>
         </button>}
-        {close&&<button aria-label={`关闭标签 ${id}`} disabled={pending(connection)} onClick={()=>close({...connection})}>×</button>}
+        {close&&<TabCloseButton label={`关闭标签 ${id}`} disabled={pending(connection)} close={()=>close({...connection})}/>}
       </div></Fragment>;
     })}
     </Fragment>)}{localBefore.get('')}</div>{children}

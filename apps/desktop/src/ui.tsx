@@ -179,7 +179,7 @@ export function ContextMenu({x,y,anchor,anchored=false,close,children,label="会
 
 const iconPaths = {
   close: 'M4 4l8 8M12 4l-8 8',
-  refresh: 'M13.5 7A5.5 5.5 0 1 0 13 10.5M13.5 3.5V7H10',
+  refresh: 'M13 8a5 5 0 1 0-1.46 3.54M13 4v4H9',
   plus: 'M8 3v10M3 8h10',
   collapse: 'M6 3H2.5v10H6m4-10h3.5v10H10M11 8H5m2-2L5 8l2 2',
 } as const;
@@ -221,9 +221,10 @@ export function keepCompositionInField(event: KeyboardEvent<HTMLFormElement>) {
   }
 }
 
-export function ToolbarMenu({className,label,text,summary,children,primary}: {
+export function ToolbarMenu({className,label,text,summary,children,primary,summaryClassName}: {
   className: string; label: string; text: ReactNode; summary?: RefObject<HTMLElement|null>; children: ReactNode;
   primary?: {title:string; activate():void};
+  summaryClassName?: string;
 }) {
   const element=useRef<HTMLDetailsElement>(null);
   const surface=useRef<HTMLDivElement>(null);
@@ -299,7 +300,7 @@ export function ToolbarMenu({className,label,text,summary,children,primary}: {
       index<0?(event.key==='ArrowDown'?0:controls.length-1):(index+(event.key==='ArrowDown'?1:-1)+controls.length)%controls.length;
     controls[next]?.focus();
   }}>
-    <summary ref={summary} aria-label={label} title={primary?.title??label} onClick={event=>{
+    <summary ref={summary} className={summaryClassName} aria-label={label} title={primary?.title??label} onClick={event=>{
       if(!primary)return;
       event.preventDefault();
       close(false);
