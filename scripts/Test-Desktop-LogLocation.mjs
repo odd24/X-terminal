@@ -8,9 +8,12 @@ import { createInterface } from 'node:readline';
 import { requestId } from '../apps/desktop/src/request-id.ts';
 import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { closeSoakDesktop } from './lib/LoadSoak.mjs';
+import { checkMcpLogLocation } from './lib/McpLogLocationChecks.mjs';
 
-const [executable, probe, reportFile] = process.argv.slice(2).map(file => path.resolve(file));
-assert.ok(executable && probe && reportFile);
+const mcp = process.argv[2] === '--mcp';
+const [executable, ...files] = process.argv.slice(mcp ? 3 : 2).map(file => path.resolve(file));
+const [probe, reportFile] = mcp ? [undefined, files[0]] : files;
+assert.ok(executable && reportFile && (mcp || probe));
 const root = await realpath(await mkdtemp(path.join(tmpdir(), 'shared-terminal-log-location-中文-')));
 const data = path.join(root, '应用 数据');
 const aDir = path.join(root, '目录 A');
@@ -135,13 +138,22 @@ async function view(file, index) {
   assert.equal((await rows()).length, index + 1);
 }
 async function exit(service) {
-  await closeSoakDesktop(ui, data, service, {});
+  if (await ui.invoke('desktop_live_sessions')) {
+    await closeSoakDesktop(ui, data, service, {});
+  } else {
+    await ui.evaluate("document.querySelector('.tools-menu').open=true");
+    await ui.click('退出桌面');
+    await wait(() => ui.app.exitCode === 0, 'owned desktop exit');
+    const receipt = JSON.parse(await readFile(path.join(data, 'desktop-close-receipts-v1', service.service_id + '.json'), 'utf8'));
+    assert.equal(receipt.shutdown_ack, 'ACKNOWLEDGED');
+    assert.equal(receipt.exit_code, 0);
+  }
   await ui.close();
   ui = undefined;
 }
 
-try {
-  await Promise.all([mkdir(data), mkdir(aDir), mkdir(bDir), mkdir(goneDir)]);
+async function verifyDesktop() {
+  await mkdir(goneDir);
   await mkdir(defaults);
   const prior = path.join(defaults, '旧版日志.log');
   await writeFile(prior, 'PREVIOUS VERSION FILE\r\n', { flag: 'wx' });
@@ -312,8 +324,48 @@ try {
   checks.restart = 'new service, saved path B, identity-bound old file A, restored default used for next recording';
   checks.unrelated = unrelated.length;
   await exit(restarted);
-  await writeFile(reportFile, JSON.stringify({ result: 'PASS', executable, root, checks, hardware: 'loopback SSH only' }, null, 2));
   console.log('PASS Windows native chooser, active A/B recording, frozen text export, stop notice and Explorer, replacement refusal, lost reply, restart and default restoration');
+}
+
+async function verifyMcp() {
+  const packageDirectory = path.dirname(executable);
+  const manifest = JSON.parse(await readFile(path.join(packageDirectory, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.version, '0.1.33');
+  assert.deepEqual(manifest.files.filter(file => file.name.endsWith('.exe')).map(file => file.name).sort(),
+    ['session-service.exe', 'shared-terminal-desktop.exe', 'terminal-mcp.exe']);
+  for (const file of manifest.files) {
+    const bytes = await readFile(path.join(packageDirectory, file.name));
+    assert.equal(bytes.length, file.bytes);
+    assert.equal(sha(bytes), file.sha256);
+  }
+  ui = await launchDesktop(data, { executable });
+  const service = await ui.invoke('service_status');
+  assert.equal(service.fixture, false);
+  const selectDirectory = async (before, after) => {
+    await settingPanel(before);
+    await saveDirectory(after);
+    await ui.click('关闭软件设置');
+  };
+  const restoreDefault = async current => {
+    await settingPanel(current);
+    await ui.click('恢复默认目录');
+    await ui.waitFor(`${pathText('当前日志保存位置')}===${JSON.stringify(defaults)}`);
+    await ui.click('关闭软件设置');
+  };
+  checks.mcp = await checkMcpLogLocation({
+    ui, data, aDir, bDir, defaults, service, manifest, connect, start, stop, durable, selectDirectory, restoreDefault, wait,
+  });
+  checks.release = { version: manifest.version, sourceCommit: manifest.sourceCommit,
+    executables: manifest.files.filter(file => file.name.endsWith('.exe')) };
+  await exit(service);
+  console.log('PASS official Codex stdio, exact 33 tools, protected read, wait, screen, and protected export across log directory changes');
+}
+
+try {
+  await Promise.all([mkdir(data), mkdir(aDir), mkdir(bDir)]);
+  if (mcp) await verifyMcp();
+  else await verifyDesktop();
+  await writeFile(reportFile, JSON.stringify({ result: 'PASS', executable, root, checks, hardware: 'loopback SSH only' }, null, 2));
 } catch (error) {
   await writeFile(reportFile, JSON.stringify({ result: 'FAIL', executable, root, checks, error: String(error.stack ?? error) }, null, 2));
   throw error;

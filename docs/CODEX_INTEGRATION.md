@@ -6,6 +6,16 @@
 
 `shortcuts_list` 使用查看权限，可用 `query` 筛选。批量写入使用管理权限，提交当前 `revision` 和固定 UUIDv7 `request_id`。结果不明时用管理权限单独传入 `shortcuts_list({"receipt_request_id":"原编号"})` 核对。未找到回执时仍视为结果未知。详细参数、排序和权限边界见 [P26.9](records/P26.9.md)。
 
+## 日志保存位置与 MCP
+
+Desktop 的「软件设置 → 日志 → 日志保存位置」控制实时可读 `.log`。MCP v12 的 33 项工具和参数保持原样。
+
+- `terminal_read`、`terminal_screen` 和 `terminal_wait` 使用授权会话的保留输出、原始源游标和固定水位。目录切换与已录文件移动均不改变会话读取范围。
+- `logs_export` 对已结束代次的批准快照先保护再写入应用托管区。用 `logs_export_status` 或 `logs_export_cancel` 传原连接和原请求编号。完成回执返回不透明产物 ID。需要用户文件时，由用户在 Desktop 另存。
+- 自定义录制目录、应用托管区、内部文件身份均由 Desktop 或服务管理。MCP 参数不接受录制目录、源文件或另存目标，也没有变更日志目录的工具。固定版本连接与快捷指令管理各自沿用原范围。
+
+Windows x64 0.1.33 的实际验证覆盖切换目录前后的读、屏幕与等待，以及原录制文件移走后按批准水位导出。[P26.23](records/P26.23.md#ai-接口同步)
+
 ## v11 工具与历次契约
 
 [ADR-095](decisions/ADR-095.md) 固定 v11 二十九项工具。[v11 契约](../contracts/mcp/initial-tools.json) 保留 [v10](../contracts/mcp/v10-tools.json) 的二十六项。

@@ -5,18 +5,18 @@ import { requestId } from '../../apps/desktop/src/request-id.ts';
 import { delay } from './DesktopHarness.mjs';
 
 const marker = 'P16 导出正文';
-const secret = 'P16_SYNTHETIC_EXPORT_SECRET';
+export const codexExportLiteral = 'P16_SYNTHETIC_EXPORT_SECRET';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-export async function approveCodexExport({ ui, openAgent, ref, serviceId, control }) {
-  await control({ op: 'push', text: `${marker} ${secret}\r\n` });
+export async function approveCodexExport({ ui, openAgent, ref, serviceId, control, extraLiterals = [] }) {
+  await control({ op: 'push', text: `${marker} ${codexExportLiteral}\r\n` });
   let raw;
   for (let i = 0; i < 100; i++) {
     raw = (await ui.invoke('service_read_text', { connection: ref, cursor: 1 })).events.map(event => event.text).join('');
-    if (raw.includes(`${marker} ${secret}`)) break;
+    if (raw.includes(`${marker} ${codexExportLiteral}`)) break;
     await delay(30);
   }
-  assert.ok(raw.includes(`${marker} ${secret}`), 'Desktop observes the original synthetic output');
+  assert.ok(raw.includes(`${marker} ${codexExportLiteral}`), 'Desktop observes the original synthetic output');
   await ui.invoke('ssh_request', { request: { op: 'disconnect', connection: ref, request_id: requestId() } });
   let ended;
   for (let i = 0; i < 100; i++) {
@@ -29,15 +29,17 @@ export async function approveCodexExport({ ui, openAgent, ref, serviceId, contro
   await openAgent();
   await ui.waitFor(`document.querySelector('[aria-label="Agent授权形式"] option[value="protected_export"]')?.disabled === false`);
   await ui.fill('Agent授权形式', 'protected_export');
-  await ui.click('添加精确文本规则');
-  await ui.fill('Agent精确文本规则1', secret);
+  for (const [index, literal] of [codexExportLiteral, ...extraLiterals].entries()) {
+    await ui.click('添加精确文本规则');
+    await ui.fill(`Agent精确文本规则${index + 1}`, literal);
+  }
   await ui.click('预览保护文本导出');
   const preview = `document.querySelector('[aria-label="保护文本导出预览"]')`;
   const consent = `${preview}.querySelector('input[type=checkbox]')`;
   await ui.waitFor(`!!${preview}`);
   assert.equal(await ui.evaluate(`${consent}.checked`), false);
   const visible = await ui.evaluate(`${preview}.textContent`);
-  assert.ok(visible.includes(secret));
+  assert.ok(visible.includes(codexExportLiteral));
   await ui.evaluate(`${consent}.click()`);
   await ui.click('批准单次保护文本导出');
   const handoff = `document.querySelector('[aria-label="保护文本导出交接"] textarea')`;
@@ -97,8 +99,8 @@ export async function checkCodexExport({ call, directory, target, signed }) {
   const managed = path.join(exports, state.artifact_id);
   assert.deepEqual(await readdir(managed), ['export.jsonl']);
   const body = await readFile(path.join(managed, 'export.jsonl'), 'utf8');
-  assert.ok(body.includes(`${marker} ${'*'.repeat(secret.length)}`), 'Managed UTF-8 text preserves the public marker and masks the literal');
-  assert.ok(!body.includes(secret));
+  assert.ok(body.includes(`${marker} ${'*'.repeat(codexExportLiteral.length)}`), 'Managed UTF-8 text preserves the public marker and masks the literal');
+  assert.ok(!body.includes(codexExportLiteral));
   return { query, retainedEndedOutput: target.retained_ended_output, artifactId: state.artifact_id,
     protectedText: true, wrongRequestDenied: true, readDenied: true, leaseDenied: true };
 }
