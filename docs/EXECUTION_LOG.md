@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.17 按 [CR-040](changes/CR-040.md) 交付 Windows x64 0.1.28，普通本地终端双击复制、目录语义和前台任务保护通过实窗专项。[P26.17](records/P26.17.md) · Step-ID: P26.17。
+
 P26.16 按 [CR-039](changes/CR-039.md) 交付 Windows x64 0.1.27，实窗对照通过方案 A 与标签行为回归。[P26.16](records/P26.16.md) · Step-ID: P26.16。
 
 P26.15 按 [CR-038](changes/CR-038.md) 交付 Windows x64 0.1.26 直接运行目录。同地址双 SSH 标签、主题与窄分屏，以及快捷指令首末移动、冲突和重启专项通过。[P26.15](records/P26.15.md) · Step-ID: P26.15。

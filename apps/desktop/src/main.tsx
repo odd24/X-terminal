@@ -399,13 +399,18 @@ function App() {
       setSearch(undefined);
     }
   },[search,paneEpoch]);
-  async function openLocal(pane:PaneKey,powershell=true,inherit?:string,script?:{button:string;revision:string},beside=false) {
+  function ownsLocalTab(pane:PaneKey,id:string) {
+    return !closingLocal.current.has(id)&&liveLocalTabs.current.some(tab=>tab.id===id)&&panes.current.paneOf(id)===pane;
+  }
+  async function openLocal(pane:PaneKey,powershell=true,{inherit,script,beside=false,adbResult=false}:{
+    inherit?:string;script?:{button:string;revision:string};beside?:boolean;adbResult?:boolean;
+  }={}) {
     if (openingLocal.current||closingDesktop.current) return undefined;
     openingLocal.current=true;
     const id=crypto.randomUUID();
     try {
       const initial=await terminalAction<LocalView>({kind:'open',id,inherit:inherit??null,powershell,script:script??null});
-      if(!panes.current.slots.some(slot=>slot.key===pane)) {
+      if(!panes.current.slots.some(slot=>slot.key===pane)||beside&&inherit&&!ownsLocalTab(pane,inherit)) {
         await terminalAction({kind:'close',id});return;
       }
       const title=initial.script??'本地 '+(++nextLocal.current);
@@ -413,13 +418,20 @@ function App() {
       const surface=document.createElement('div');
       surface.className='local-terminal-surface';
       panes.current.placeLocal(id,pane);
-      setLocalTabs(previous=>[...previous,{id,title,initial,surface,powershell}]);
+      setLocalTabs(previous=>[...previous,{id,title,initial,surface,powershell,origin:script?'script':adbResult?'adb-result':'ordinary'}]);
       if(beside&&inherit)insertTab(id,inherit,true);
       selectLocal(pane,id);
       if(!adbSettings)void loadAdb();
       return id;
     } catch(error) {setTabMessage(String(error));}
     finally {openingLocal.current=false;}
+  }
+  function copyLocalTab(pane:PaneKey,id:string,byDoubleClick:boolean) {
+    const tab=liveLocalTabs.current.find(item=>item.id===id);
+    if(!tab||tab.origin==='script'||!ownsLocalTab(pane,id))return;
+    if(byDoubleClick&&(tab.origin!=='ordinary'||shortcutFlight.current?.id===id
+      ||promptStates.current.get(id)?.copyBlocked!==false))return;
+    void openLocal(pane,tab.powershell,{inherit:id,beside:true});
   }
   function selectLocal(pane:PaneKey,id:string) {
     localSelected.current.set(pane,id);
@@ -456,7 +468,7 @@ function App() {
     adbDiagnosticRequests.current.set(button,request);
     setAdbStarting(true);
     const state=promptStates.current.get(source);
-    const id=state&&!state.busy&&!state.hasDraft?source:await openLocal(pane,false,source);
+    const id=state&&!state.busy&&!state.hasDraft?source:await openLocal(pane,false,{inherit:source,adbResult:true});
     if(!id){shortcutSettled(request);return;}
     shortcutFlight.current={request,id};
     setAdbIntent({button,revision,request,id});
@@ -1308,9 +1320,8 @@ function App() {
             pending:closingLocal.current.has(tab.id),
             select:()=>{selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);},
             close:()=>void closeLocal(tab.id),
-            copy:tab.initial.script?undefined:()=>{
-              if(!closingLocal.current.has(tab.id))void openLocal(key,tab.powershell,tab.id,undefined,true);
-            },
+            copy:tab.origin==='script'?undefined:()=>copyLocalTab(key,tab.id,false),
+            copyOnDoubleClick:()=>copyLocalTab(key,tab.id,true),
           }))}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}
             primary={{title:'新建本地终端（PowerShell）',activate:()=>void openLocal(key)}}>
@@ -1328,7 +1339,7 @@ function App() {
             keyboardFocus={adbKeyboardFocus?.pane===key&&adbKeyboardFocus.id===localId?adbKeyboardFocus.request:undefined}
             diagnostics={adbDiagnostics}
             close={()=>setAdbPanel(key,false)} reload={loadAdb}
-            execute={(item,revision)=>item.script_path?void openLocal(key,false,undefined,{button:item.id,revision}):void clickAdb(key,localId,item.id,revision)}/>}
+            execute={(item,revision)=>item.script_path?void openLocal(key,false,{script:{button:item.id,revision}}):void clickAdb(key,localId,item.id,revision)}/>}
           preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={findTerminal} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
       }} />

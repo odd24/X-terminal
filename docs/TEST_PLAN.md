@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.17 扩展 `Test-Desktop-LocalTabs.mjs` 核对普通本地终端双击、源目录、独立会话和模拟 ADB 边界，并复验 BAT/CMD 的原进程、拖动和 SSH 复制。[P26.17](records/P26.17.md)
+
 P26.16 使用 `Test-Desktop-TabSeparation.mjs` 验证方案 A 的终端接缝、短竖分隔、深浅配色、同地址混排和宽窄分屏，并执行标签交互和快捷键回归。[P26.16](records/P26.16.md)
 
 P26.15 使用 `Test-Desktop-TabSeparation.mjs` 验证同地址双 SSH 与本地混排、主题、宽窄分屏、横向滚动及精确目标。使用 `Test-Desktop-ShortcutManagement.mjs` 验证快捷指令两区域、单双列、边界、并发保存、重启及零误执行。[P26.15](records/P26.15.md)

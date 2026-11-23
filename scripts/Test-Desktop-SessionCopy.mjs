@@ -430,8 +430,15 @@ try{
     const fresh=await serial({op:'inventory'});
     await assert.rejects(serial({op:'quick_start',settings,request_id:requestId(),revision:fresh.revision,device_id:fresh.devices[0].device_id}),/InvalidState/);
     await ui.click('取消连接窗口');
+    await ui.waitFor("!document.querySelector('dialog:modal')");
+    const where=await point(tab(connection));
+    await pointerGesture(where,where);
+    await pointerGesture(where,where,2);
+    await ui.waitFor(`document.querySelector('dialog:modal[aria-label="连接串口设备"]')?.textContent.includes('没有其他可选端口')`);
+    assert.equal(await ui.evaluate(`${q('button.primary-action')}.disabled`),true);
+    await ui.click('取消连接窗口');
     assert.deepEqual((await sessions()).map(item=>({id:item.connection_id,state:item.state})),[{id:connection.connection_id,state:'CONNECTED'}]);
-    evidence={result:'PASS',memoryUart:true,excludedOriginalPort:true,settingsRetained:true,serviceRejectedSamePort:true};
+    evidence={result:'PASS',memoryUart:true,memoryUartDoubleClick:true,excludedOriginalPort:true,settingsRetained:true,serviceRejectedSamePort:true};
   }else if(tabInteractions){
     const first=await source('mixed-peer'),second=await source('copy-peer');
     const a=await connect(first,false),b=await connect(second,false);
