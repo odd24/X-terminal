@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.13 按 [CR-036](changes/CR-036.md) 交付 0.1.25 Windows x64 标签修复目录。普通本地终端、自建脚本及回环 SSH 通过标签拖动与复制专项。[P26.13](records/P26.13.md) · Step-ID: P26.13。
+
 P26.12 按 [CR-035](changes/CR-035.md) 交付 Windows x64 0.1.25 直接运行目录。Windows 专项验证本地右键配置持久化、原样输入、危险粘贴确认与目标失效。[P26.12](records/P26.12.md) · Step-ID: P26.12。
 
 P26.11 按 [CR-034](changes/CR-034.md) 交付 Windows x64 0.1.24 直接运行目录。标题图标对齐、关闭叉对比度和原操作复验通过。[P26.11](records/P26.11.md) · Step-ID: P26.11。

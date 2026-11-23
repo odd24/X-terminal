@@ -45,7 +45,7 @@ import { QuickConnect, type SavedConnectIntent } from './quick-connect';
 import { SessionTabClosures } from './session-tab-closures';
 import { TabGroups } from './tab-groups';
 import { TabGroupsPanel } from './tab-groups-panel';
-import { SessionTabs, TabCloseButton } from './session-tabs';
+import { SessionTabs, localDragSource } from './session-tabs';
 import { WindowChrome } from './window-chrome';
 import type { TabDrop } from './tab-drag';
 import { SessionDragPreview, useSessionDrag } from './session-drag';
@@ -772,7 +772,6 @@ function App() {
   }));
   const paneSlots=panes.current.slots;
   const localIds=localTabs.map(tab=>tab.id);
-  const localDragSource=(id:string)=>({connection_id:id,generation:0,protocol:'LOCAL',state:'CONNECTED'});
   const drag=useSessionDrag([...tabs,...localIds.map(localDragSource)],service?.service_id??'',dropTab,detached);
   const visibleIds=[...tabs.map(tab=>tab.connection_id),...localIds];
   const orderedIds=[...tabOrder.filter(id=>visibleIds.includes(id)),...visibleIds.filter(id=>!tabOrder.includes(id))];
@@ -1304,22 +1303,15 @@ function App() {
           endControls={localId&&<button type="button" className="adb-panel-toggle" aria-label="快捷指令" title="快捷指令" aria-keyshortcuts="Control+Shift+B"
             aria-expanded={adbOpen} aria-controls={adbPanelId} onClick={()=>setAdbPanel(key,!adbOpen)}><span className="sidebar-glyph" aria-hidden="true"/></button>}
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached} copy={(source,owner)=>copyTab(key,source,owner)}
-          order={orderedIds} localTabs={locals.map(tab=>{
-            const preview=drag.preview;
-            const insertion=preview?.destination?.kind==='insert'&&preview.destination.anchor===tab.id&&preview.id!==tab.id
-              ?(preview.destination.after?'after':'before'):undefined;
-            return {id:tab.id,node:<div className="connection-tab" key={tab.id} data-drag-source={preview?.id===tab.id?true:undefined} data-insertion={insertion}>
-              <button role="tab" type="button" className={localId===tab.id?'pane-focus':undefined} aria-selected={localId===tab.id} data-connection-id={tab.id}
-                {...drag.bindings(localDragSource(tab.id))}
-                title={tab.initial.script_directory??(tab.powershell?'Windows PowerShell':'轻量命令行')}
-                onKeyDown={drag.cancelOnKey}
-                onClick={event=>{if(drag.allowedClick(event)){selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);}}}
-                onDoubleClick={event=>{if(drag.allowedDoubleClick(event)&&!tab.initial.script&&!closingLocal.current.has(tab.id))void openLocal(key,tab.powershell,tab.id,undefined,true);}}>
-                <span className="tab-label">{tab.title}</span>
-              </button>
-              <TabCloseButton label={`关闭 ${tab.title}`} close={()=>void closeLocal(tab.id)}/>
-            </div>};
-          })}>
+          order={orderedIds} localTabs={locals.map(tab=>({
+            id:tab.id,label:tab.title,title:tab.initial.script_directory??(tab.powershell?'Windows PowerShell':'轻量命令行'),
+            pending:closingLocal.current.has(tab.id),
+            select:()=>{selectLocal(key,tab.id);if(localId===tab.id)focusPane(key,true);},
+            close:()=>void closeLocal(tab.id),
+            copy:tab.initial.script?undefined:()=>{
+              if(!closingLocal.current.has(tab.id))void openLocal(key,tab.powershell,tab.id,undefined,true);
+            },
+          }))}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}
             primary={{title:'新建本地终端（PowerShell）',activate:()=>void openLocal(key)}}>
             <button title="Windows PowerShell · Ctrl+Shift+T" onClick={()=>void openLocal(key)}>本地终端</button>

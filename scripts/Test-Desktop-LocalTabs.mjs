@@ -5,6 +5,7 @@ import path from 'node:path';
 import {launchDesktop,delay,dragNativeWindow} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]??'target/debug/shared-terminal-desktop.exe');
+const title=process.argv[2]?'共享终端':'共享终端 · 开发预览';
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-local-tabs-中文-'));
 const result={result:'IN_PROGRESS',executable,checks:[]};
 const q=JSON.stringify;
@@ -38,6 +39,19 @@ async function doubleClick(name) {
   const where=await point(tab(name));
   for(const count of [1,2]){await press(where,count);await release(where,count);}
 }
+async function copyTab(name,keyboard=false) {
+  if(keyboard){
+    await ui.evaluate(`${tab(name)}.focus()`);
+    for(const type of ['keyDown','keyUp'])await ui.command('Input.dispatchKeyEvent',{
+      type,key:'F10',code:'F10',windowsVirtualKeyCode:121,modifiers:8,
+    });
+  }else{
+    const at=await point(tab(name));
+    await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',...at,button:'right',buttons:2,clickCount:1});
+    await ui.command('Input.dispatchMouseEvent',{type:'mouseReleased',...at,button:'right',buttons:0,clickCount:1});
+  }
+  await ui.click('复制会话');
+}
 async function enter() {
   for(const type of ['keyDown','keyUp'])await ui.command('Input.dispatchKeyEvent',{type,key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
 }
@@ -55,17 +69,22 @@ try {
   await type('retained-draft');
   await ui.waitFor(`${output}?.innerText.includes('retained-draft')`);
   await ui.evaluate(`window.originalLocal=${output}.querySelector('.xterm')`);
-  await doubleClick('本地 1');await focused('本地 2');
+  await doubleClick('本地 1');await focused('本地 1');
+  assert.deepEqual(await names(),['本地 1']);
+  await copyTab('本地 1');await focused('本地 2');
   assert.equal(await ui.evaluate(`${output}.title`),directory);
   assert.ok(!(await ui.evaluate(`${output}.innerText`)).includes('retained-draft'));
   assert.deepEqual(await names(),['本地 1','本地 2']);
-  result.checks.push('lightweight double-click opens one adjacent terminal with the source directory and its own empty draft');
+  result.checks.push('lightweight double-click keeps the same tab; explicit copy opens one adjacent terminal with the same directory and an empty draft');
 
+  await ui.evaluate(`window.nativeTabDrags=0;document.addEventListener('dragstart',event=>{
+    if(event.isTrusted&&event.target.closest('.connection-tab'))window.nativeTabDrags++;
+  },true);`);
   const from=await point(tab('本地 1'));
   const to=await point(tab('本地 2'),.9);
   for(let attempt=0;;attempt++){
     try{
-      dragNativeWindow(ui.app,[from,{x:(from.x+to.x)/2,y:from.y},to],{executable,title:'共享终端',raise:true,placeAtWorkAreaStart:true});
+      dragNativeWindow(ui.app,[from,{x:(from.x+to.x)/2,y:from.y},to],{executable,title,raise:true,placeAtWorkAreaStart:true});
       break;
     }catch(error){
       if(attempt===2||!String(error.stderr).includes('not under the starting point'))throw error;
@@ -74,6 +93,7 @@ try {
   }
   await ui.waitFor(`${tab('本地 2')}.closest('.connection-tab').nextElementSibling?.querySelector('[role="tab"]')===${tab('本地 1')}`);
   assert.deepEqual(await names(),['本地 2','本地 1']);
+  assert.equal(await ui.evaluate('window.nativeTabDrags'),0);
   await focused('本地 1');
   assert.equal(await ui.evaluate(`${output}.querySelector('.xterm')===window.originalLocal`),true);
   await ui.waitFor(`${output}?.innerText.includes('retained-draft')`);
@@ -93,7 +113,13 @@ try {
   await ui.evaluate("document.querySelector('.pane-active .new-menu summary').click()");
   await focused('本地 3');
   await ui.waitFor(`/PS [\\s\\S]+>\\s*$/.test(${output}?.innerText??'')`);
-  await doubleClick('本地 3');await focused('本地 4');
+  await type("Read-Host 'PRESERVE_FOREGROUND'");await enter();
+  await ui.waitFor(`/PRESERVE_FOREGROUND:\\s*$/.test(${output}?.innerText??'')`);
+  await doubleClick('本地 3');await focused('本地 3');
+  assert.deepEqual(await names(),['本地 1','本地 2','本地 3']);
+  await type('RESPONSE_TO_ORIGINAL');await enter();
+  await ui.waitFor(`${output}?.innerText.includes('RESPONSE_TO_ORIGINAL')`);
+  await copyTab('本地 3',true);await focused('本地 4');
   await ui.waitFor(`/PS [\\s\\S]+>\\s*$/.test(${output}?.innerText??'')`);
   const verify=path.join(root,'duplicate-powershell.txt').replaceAll("'","''");
   await type(`Set-Content -LiteralPath '${verify}' -Value 'POWER_COPY_OK' -Encoding UTF8`);await enter();
@@ -104,7 +130,7 @@ try {
   }
   assert.match(await readFile(verify,'utf8'),/POWER_COPY_OK/);
   assert.deepEqual(await names(),['本地 1','本地 2','本地 3','本地 4']);
-  result.checks.push('PowerShell double-click opens one independent interactive PowerShell process');
+  result.checks.push('PowerShell double-click keeps the same tab; explicit copy opens one independent interactive PowerShell process');
   await tool('退出桌面');
   await ui.waitFor('!!document.querySelector("dialog[aria-label=\'退出桌面确认\']")');
   await ui.click('确认退出并停止服务');

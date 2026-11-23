@@ -59,7 +59,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
   function bindings(source: PaneLive) {
     return {
       'data-session-drag-handle': true,
-      draggable: !detached,
+      draggable: false,
       onDragStart(event: DragEvent<HTMLButtonElement>) {
         if (event.isTrusted) event.preventDefault();
       },
