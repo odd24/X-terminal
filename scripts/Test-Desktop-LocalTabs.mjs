@@ -63,7 +63,15 @@ try {
 
   const from=await point(tab('本地 1'));
   const to=await point(tab('本地 2'),.9);
-  dragNativeWindow(ui.app,[from,{x:(from.x+to.x)/2,y:from.y},to],{executable,title:'共享终端',raise:true});
+  for(let attempt=0;;attempt++){
+    try{
+      dragNativeWindow(ui.app,[from,{x:(from.x+to.x)/2,y:from.y},to],{executable,title:'共享终端',raise:true,placeAtWorkAreaStart:true});
+      break;
+    }catch(error){
+      if(attempt===2||!String(error.stderr).includes('not under the starting point'))throw error;
+      await delay(250);
+    }
+  }
   await ui.waitFor(`${tab('本地 2')}.closest('.connection-tab').nextElementSibling?.querySelector('[role="tab"]')===${tab('本地 1')}`);
   assert.deepEqual(await names(),['本地 2','本地 1']);
   await focused('本地 1');
