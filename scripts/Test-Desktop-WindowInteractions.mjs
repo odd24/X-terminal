@@ -196,7 +196,7 @@ try {
   assert.equal(await main.evaluate(`${tab(a)}.getAttribute('aria-selected')`),'true');
 
   for(const edge of ['left','right','top','bottom']){
-    const grid=await geometry(query(`[data-rendered-id="${a.connection_id}"] > .terminal`));
+    const grid=await geometry(query(`[data-rendered-id="${a.connection_id}"] > .terminal-pane-body > .terminal`));
     const point=center(grid);
     if(edge==='left')point.x=grid.left+grid.width*.20;
     if(edge==='right')point.x=grid.left+grid.width*.80;

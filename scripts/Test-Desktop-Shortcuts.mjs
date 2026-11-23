@@ -223,7 +223,7 @@ console.log('CHILD_RAW_READY');
   await native('Alt1');await current(mixed[0]);
   await ui.waitFor(`${query(pane)}?.dataset.renderedId===${q(ssh.ref.connection_id)}`);
   await type('SSH_ONLY_AFTER_ALT');
-  await ui.waitFor(`${query(pane+' > .terminal')}?.textContent.includes('SSH_ONLY_AFTER_ALT')`);
+  await ui.waitFor(`${query(pane+' > .terminal-pane-body > .terminal')}?.textContent.includes('SSH_ONLY_AFTER_ALT')`);
   await ctrlShift('F');await ui.waitFor(inFocus(find));
   await type('SSH_ONLY_AFTER_ALT');await enter();
   await ui.waitFor(`${query('[aria-label="终端查找状态"]')}?.textContent.startsWith('1 / 1')`);

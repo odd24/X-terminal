@@ -24,7 +24,7 @@ const plus='.pane-active .new-menu > summary';
 const localBody='.pane-active .local-pane-body:not([hidden])';
 const localOutput=localBody+' .local-terminal:not([hidden]) .local-terminal-output';
 const localInput=localBody+' .local-terminal:not([hidden]) .xterm-helper-textarea';
-const remoteInput='.pane-active > .terminal:not([hidden]) .xterm-helper-textarea';
+const remoteInput='.pane-active > .terminal-pane-body > .terminal:not([hidden]) .xterm-helper-textarea';
 let ui,peer,lines;
 
 const wait=expression=>ui.waitFor(expression);
@@ -94,7 +94,7 @@ async function openLocal(name){
 async function readTabs(stage){
   const result=await ui.evaluate(`(()=>{
     const rail=${node(rail)},canvas=document.createElement('canvas');canvas.width=canvas.height=1;
-    const terminal=rail.closest('[data-pane]').querySelector(':scope > .terminal:not([hidden]), .local-terminal:not([hidden]) .local-terminal-output');
+    const terminal=rail.closest('[data-pane]').querySelector(':scope > .terminal-pane-body > .terminal:not([hidden]), .local-terminal:not([hidden]) .local-terminal-output');
     const strip=getComputedStyle(rail.parentElement),railColor=strip.backgroundColor;
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
     const paint=color=>{ctx.fillStyle=color;ctx.fillRect(0,0,1,1);};

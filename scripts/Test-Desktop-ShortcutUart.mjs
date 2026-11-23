@@ -21,9 +21,9 @@ try{
   const ref={connection_id:connection.connection_id,generation:connection.generation};
   await ui.waitFor(`!!document.querySelector('[role="tab"][data-connection-id="${ref.connection_id}"]')`);
   await ui.selectTab(ref.connection_id);
-  await ui.evaluate("document.querySelector('.pane-active > .terminal .xterm-helper-textarea').focus()");
+  await ui.evaluate("document.querySelector('.pane-active > .terminal-pane-body > .terminal .xterm-helper-textarea').focus()");
   await ui.waitFor(active(terminalInput));
-  await ui.waitFor("document.querySelector('.pane-active > .terminal')?.textContent.includes('UART synthetic Android启动 log 2')");
+  await ui.waitFor("document.querySelector('.pane-active > .terminal-pane-body > .terminal')?.textContent.includes('UART synthetic Android启动 log 2')");
   const {key,enter}=desktopKeyboard(ui,[]);
   await key('F','KeyF',70,{modifiers:10});
   await ui.waitFor(active('[aria-label="终端查找文字"]'));
