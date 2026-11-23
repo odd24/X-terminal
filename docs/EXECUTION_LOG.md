@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.15 按 [CR-038](changes/CR-038.md) 交付 Windows x64 0.1.26 直接运行目录。同地址双 SSH 标签、主题与窄分屏，以及快捷指令首末移动、冲突和重启专项通过。[P26.15](records/P26.15.md) · Step-ID: P26.15。
+
 P26.14 按 [CR-037](changes/CR-037.md) 交付 0.1.25 Windows x64 菜单修订目录。两轮实窗菜单对照和受影响功能回归通过。[P26.14](records/P26.14.md) · Step-ID: P26.14。
 
 P26.13 按 [CR-036](changes/CR-036.md) 交付 0.1.25 Windows x64 标签修复目录。普通本地终端、自建脚本及回环 SSH 通过标签拖动与复制专项。[P26.13](records/P26.13.md) · Step-ID: P26.13。

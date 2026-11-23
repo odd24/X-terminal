@@ -32,3 +32,11 @@ export function insertShortcuts<T extends Shortcut>(items: readonly T[], ids: Re
   next.splice(next.findIndex(item=>item.id===anchor)+(after?1:0),0,...block);
   if(next.some((item,index)=>item!==items[index]))return next;
 }
+
+export function moveShortcutToEdge<T extends Shortcut>(items: readonly T[], id: string, edge: 'first'|'last'): T[]|undefined {
+  const item=items.find(row=>row.id===id);
+  if(!item)return;
+  const sameRegion=(row:Shortcut)=>pinned(row)===pinned(item);
+  const anchor=(edge==='first'?items:[...items].reverse()).find(sameRegion);
+  if(anchor&&anchor.id!==id)return insertShortcuts(items,new Set([id]),id,anchor.id,edge==='last');
+}

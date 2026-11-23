@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {insertShortcuts,setShortcutPins,stepShortcuts} from '../apps/desktop/src/local-shortcut-order.ts';
+import {insertShortcuts,moveShortcutToEdge,setShortcutPins,stepShortcuts} from '../apps/desktop/src/local-shortcut-order.ts';
 
 const items=['a','b','c','d','e','f'].map((id,i)=>({id,pinned:i<2}));
 const select=(...ids)=>new Set(ids);
@@ -24,4 +24,15 @@ test('drag moves the source region selection as a stable block',()=>{
   assert.equal(insertShortcuts(items,select('a'),'a','c',true),undefined);
   assert.equal(insertShortcuts(items,select('c','d'),'c','d',true),undefined);
   assert.equal(insertShortcuts(items,select('c'),'c','d',false),undefined);
+});
+
+test('move to either edge preserves peer order and stays within the existing region',()=>{
+  assert.equal(order(moveShortcutToEdge(items,'b','first')),'bacdef');
+  assert.equal(order(moveShortcutToEdge(items,'a','last')),'bacdef');
+  assert.equal(order(moveShortcutToEdge(items,'e','first')),'abecdf');
+  assert.equal(order(moveShortcutToEdge(items,'d','last')),'abcefd');
+  assert.equal(moveShortcutToEdge(items,'a','first'),undefined);
+  assert.equal(moveShortcutToEdge(items,'f','last'),undefined);
+  assert.equal(moveShortcutToEdge(items,'missing','first'),undefined);
+  assert.equal(order(items),'abcdef');
 });

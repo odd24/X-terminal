@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {mkdir,mkdtemp,readFile,realpath,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -8,7 +9,8 @@ import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 const executable=path.resolve(process.argv[2]??'target/debug/shared-terminal-desktop.exe');
 const previous=path.resolve('artifacts/SharedTerminal-0.1.19-windows-x64/shared-terminal-desktop.exe');
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-shortcut-management-中文-'));
-const result={result:'IN_PROGRESS',executable,checks:[],screenshots:[],measurements:{}};
+const result={result:'IN_PROGRESS',executable,sha256:createHash('sha256').update(await readFile(executable)).digest('hex'),
+  checks:[],screenshots:[],measurements:{}};
 const q=JSON.stringify;
 const panel='.pane-active .adb-shortcut-panel:not([hidden])';
 const body=panel+' .adb-panel-body';
@@ -72,6 +74,27 @@ async function pointerDrag(from,to,preview,cancel=false){
 async function key(key,windowsVirtualKeyCode){
   for(const type of ['keyDown','keyUp'])await ui.command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode});
 }
+async function clickAt(expression){
+  await ui.evaluate(`${expression}.scrollIntoView({block:'nearest',inline:'nearest'})`);
+  const point=await coordinates(expression);
+  assert.equal(await ui.evaluate(`${expression}.contains(document.elementFromPoint(${point.x},${point.y}))`),true);
+  for(const type of ['mousePressed','mouseReleased'])await ui.command('Input.dispatchMouseEvent',{type,...point,button:'left',clickCount:1});
+}
+const edgeTrigger=item=>`${row(item)}.querySelector('.adb-row-menu-trigger')`;
+const edgeMenu=item=>query(`[aria-label="${item.name} 的管理菜单"]`);
+const edgeItem=(item,label)=>`[...${edgeMenu(item)}.querySelectorAll('button')].find(b=>b.textContent===${q(label)})`;
+async function openEdges(item){
+  await clickAt(edgeTrigger(item));
+  await ui.waitFor(`!!${edgeMenu(item)}?.dataset.positioned`);
+}
+async function moveEdge(item,label,expected){
+  await openEdges(item);
+  assert.equal(await ui.evaluate(`${edgeItem(item,label)}.disabled`),false);
+  await clickAt(edgeItem(item,label));
+  await storageOrder(expected);await saved('顺序已保存');
+  await ui.waitFor(`document.activeElement===${edgeTrigger(item)}`);
+  assert.deepEqual(ids((await settings()).shortcuts),ids(expected));
+}
 async function sort(source,target,isHorizontal,after,cancel=false){
   const from=await coordinates(handle(source));
   const to=await coordinates(row(target),isHorizontal?(after ? .82 : .23):.5,isHorizontal ? .5 : (after ? .76 : .23));
@@ -108,7 +131,7 @@ try{
   const script=path.join(directory,'批处理样本.cmd');
   const scriptBytes=Buffer.from('@echo off\r\necho mark>"%~dp0..\\script-executed.txt"\r\n');
   await writeFile(script,scriptBytes);
-  const retained=path.join(directory,'长路径批处理保留.cmd');
+  const retained=path.join(directory,'长路径批处理保留.bat');
   await writeFile(retained,scriptBytes);
   const adbLog=path.join(root,'adb-calls.txt');
   const long='adb shell echo "'+'包含中文与空格的合成参数 '.repeat(16)+'命令结尾"';
@@ -128,6 +151,50 @@ try{
   result.measurements.compact=await ui.evaluate(`(()=>{const row=${row(c)},code=row.querySelector('code');return {cssPixels:row.getBoundingClientRect().height,truncated:code.scrollWidth>code.clientWidth};})()`);
   assert.ok(result.measurements.compact.cssPixels<45&&result.measurements.compact.truncated,JSON.stringify(result.measurements.compact));
   result.checks.push('0.1.19 mixed 32-item settings load exactly; compact single-column rows and clipped commands');
+
+  await ui.click('管理');await checked(a,b,c);await ui.click('置顶');await saved('已置顶');
+  await ui.click('完成管理');
+  await ui.waitFor(`${row(a)}?.dataset.pinned==='true'`);
+  await moveEdge(b,'移到最前',[b,a,c,d,e,f,g,...rest]);
+  await openEdges(b);
+  assert.equal(await ui.evaluate(`${edgeItem(b,'移到最前')}.disabled`),true);
+  await screenshot('windows-0.1.26-shortcuts-pinned-first.png');
+  await key('Escape',27);
+  await moveEdge(a,'移到最后',[b,c,a,d,e,f,g,...rest]);
+  await openEdges(a);
+  assert.equal(await ui.evaluate(`${edgeItem(a,'移到最后')}.disabled`),true);
+  await key('Escape',27);
+  await ui.click('双列显示');await columns(2);
+  await moveEdge(f,'移到最前',[b,c,a,f,d,e,g,...rest]);
+  await moveEdge(d,'移到最后',[b,c,a,f,e,g,...rest,d]);
+  await openEdges(d);
+  assert.equal(await ui.evaluate(`${edgeItem(d,'移到最后')}.disabled`),true);
+  await screenshot('windows-0.1.26-shortcuts-regular-last.png');
+  const oldEdge=await settings();
+  const concurrentName={...g,name:'并发改名保留'};
+  const external=await ui.invoke('local_adb_settings',{settings:{...oldEdge,shortcuts:oldEdge.shortcuts.map(item=>item.id===g.id?concurrentName:item)}});
+  await clickAt(edgeItem(d,'移到最前'));
+  await ui.waitFor(`${query(panel+' .adb-panel-error')}?.textContent.includes('已更新')`);
+  assert.deepEqual(await settings(),external);
+  await storageOrder([b,c,a,f,e,g,...rest,d]);
+  await ui.click('重新读取快捷指令');
+  await ui.waitFor(`${row(g)}.textContent.includes(${q(concurrentName.name)})`);
+  const persisted=[b,c,a,d,f,e,concurrentName,...rest];
+  await moveEdge(d,'移到最前',persisted);
+  const finalEdge=await settings();
+  await stop(true);
+  ui=await launchDesktop(root,{executable});
+  await openLocal();await openPanel();await columns(2);await storageOrder(persisted);
+  assert.deepEqual(await settings(),finalEdge);
+  assert.deepEqual((await settings()).shortcuts.filter(item=>item.pinned).map(item=>item.id),ids([b,c,a]));
+  assert.deepEqual(await onDisk(adbLog),['','']);
+  assert.deepEqual(await readFile(script),scriptBytes);
+  assert.deepEqual(await readFile(retained),scriptBytes);
+  result.checks.push('row menu first and last preserve both regions and stable peer order for ADB, BAT and CMD; disabled edges, single and dual columns, stale CAS rejection, explicit refresh and restart, zero command or script execution');
+  await ui.invoke('local_adb_settings',{settings:{...old,revision:finalEdge.revision}});
+  await stop(true);
+  ui=await launchDesktop(root,{executable});
+  await openLocal();await openPanel();await columns(1);await storageOrder(legacy);
 
   await ui.click('管理');await selected(0,32);
   await ui.click('全选');await selected(32,32);

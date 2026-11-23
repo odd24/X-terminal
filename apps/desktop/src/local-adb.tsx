@@ -1,7 +1,7 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {ContextMenu, ControlIcon, Dialog, Field, IconButton, Panel} from './ui';
-import {insertShortcuts,setShortcutPins,stepShortcuts} from './local-shortcut-order';
+import {insertShortcuts,moveShortcutToEdge,setShortcutPins,stepShortcuts} from './local-shortcut-order';
 import {useShortcutDrag} from './local-shortcut-drag';
 
 export type AdbShortcut = {id:string; name:string; command?:string; script_path?:string; pinned?:boolean};
@@ -65,7 +65,7 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
     if(busy||!pendingFocus.current||!open)return;
     const target=pendingFocus.current;
     pendingFocus.current=undefined;
-    scrollBody.current?.querySelector<HTMLElement>(`[data-sort-handle="${target}"]`)?.focus({preventScroll:false});
+    scrollBody.current?.querySelector<HTMLElement>(`[data-sort-handle="${target}"],[data-shortcut-id="${target}"] .adb-row-menu-trigger`)?.focus();
   },[settings?.revision,busy,open]);
   useLayoutEffect(()=>{
     if(!open||keyboardFocus===undefined||focusedRequest.current===keyboardFocus)return;
@@ -179,6 +179,9 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
   }
   function renderRow(item:AdbShortcut){
     const isPinned=!!item.pinned, single=new Set([item.id]);
+    const rowMenu=open&&menu?.id===item.id?menu:undefined;
+    const moveFirst=rowMenu&&moveShortcutToEdge(items,item.id,'first');
+    const moveLast=rowMenu&&moveShortcutToEdge(items,item.id,'last');
     const target=drag.preview?.id===item.id?drag.preview:undefined;
     const detail=item.script_path?'本地脚本 · '+item.script_path:'ADB · '+item.command;
     const content=<><span>{item.name}</span><code>{detail}</code></>;
@@ -221,12 +224,20 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
         onClick={event=>setMenu(menu?.id===item.id?undefined:{id:item.id,anchor:event.currentTarget})}><ControlIcon icon="more"/></button>
       {diagnostics[item.id]?.error&&<button type="button" className="adb-row-menu-trigger adb-diagnostic-alert" aria-label={item.name+' 的失败详情'}
         title={diagnostics[item.id].error??undefined} onClick={()=>setDiagnosticId(item.id)}>!</button>}
-      {open&&menu?.id===item.id&&<ContextMenu className="adb-row-menu" label={item.name+' 的管理菜单'}
-        x={0} y={0} anchor={menu.anchor} anchored close={()=>setMenu(undefined)}>
+      {rowMenu&&<ContextMenu className="adb-row-menu" label={item.name+' 的管理菜单'}
+        x={0} y={0} anchor={rowMenu.anchor} anchored close={()=>setMenu(undefined)}>
         <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);edit(item);}}>编辑</button>
         <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);pin(single,!isPinned);}}>{isPinned?'取消置顶':'置顶'}</button>
         <button role="menuitem" type="button" disabled={busy||!stepShortcuts(items,single,-1)} onClick={()=>{setMenu(undefined);move(single,-1);}}>上移</button>
         <button role="menuitem" type="button" disabled={busy||!stepShortcuts(items,single,1)} onClick={()=>{setMenu(undefined);move(single,1);}}>下移</button>
+        <button role="menuitem" type="button" disabled={busy||!moveFirst} onClick={()=>{
+          setMenu(undefined);
+          if(settings&&moveFirst)void save({...settings,shortcuts:moveFirst},'顺序已保存',item.id);
+        }}>移到最前</button>
+        <button role="menuitem" type="button" disabled={busy||!moveLast} onClick={()=>{
+          setMenu(undefined);
+          if(settings&&moveLast)void save({...settings,shortcuts:moveLast},'顺序已保存',item.id);
+        }}>移到最后</button>
         {item.script_path
           ?<button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);void selectScripts(item);}}>重新定位</button>
           :<button role="menuitem" type="button" disabled={!diagnostics[item.id]} onClick={()=>{setMenu(undefined);setDiagnosticId(item.id);}}>查看最近诊断</button>}
