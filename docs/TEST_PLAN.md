@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.12 使用 `Test-Desktop-LocalClipboard.mjs` 在实际 Windows 窗口验证本地右键路径、延迟回执和前台选择，使用隔离存储、模拟 ADB、自建 CMD 和受控剪贴板。[P26.12](records/P26.12.md)
+
 P26.11 使用 `Test-Desktop-TabControls.mjs` 验证 Windows Desktop 上的两个标题图标、关闭叉状态、缩放、精确关闭和拖动隔离，使用回环 SSH、内存 UART 与受控本地终端。[P26.11](records/P26.11.md)
 
 P26.10 使用 `Test-Desktop-NewEntries.mjs` 在独立 Windows Desktop 上验证标签入口、PowerShell 工作目录、分屏焦点、SSH2 保存与信任、内存 UART 设备选择，以及取消、保存失败和失答。UART 专项使用独立测试服务目录，使用与交付一致的 Desktop 文件。证据见 [P26.10](records/P26.10.md)。

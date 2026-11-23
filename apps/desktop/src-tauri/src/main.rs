@@ -1097,6 +1097,7 @@ fn main() {
             local_terminal::poll_local_output,
             local_terminal::local_adb_settings,
             local_terminal::directory::local_directory_settings,
+            local_terminal::directory::local_right_click,
             local_terminal::prepare_local_adb,
             local_terminal::scripts::pick_local_scripts,
             service_status,

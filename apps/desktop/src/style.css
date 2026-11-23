@@ -336,6 +336,13 @@ main.desktop-shell {
 .empty-actions button { min-width: 8rem; }
 .terminal-grid-idle { display: none !important; }
 .local-terminal, .local-terminal-socket, .local-terminal-surface { display: flex; flex: 1; min-height: 0; min-width: 0; flex-direction: column; }
+.local-terminal { position: relative; }
+.local-clipboard-status {
+  position: absolute; z-index: 2; inset-inline-end: var(--space-2); inset-block-end: var(--space-2);
+  max-inline-size: calc(100% - 2 * var(--space-2)); padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control); background: var(--surface-raised); color: var(--text);
+  pointer-events: none;
+}
 .local-terminal[hidden], .local-terminal-socket[hidden], .terminal-pane > .terminal[hidden] { display: none; }
 .local-terminal-output { flex: 1; min-height: 0; overflow: hidden; background: var(--terminal-background); }
 .local-terminal-output > .xterm { height: 100%; padding: 6px 4px; }

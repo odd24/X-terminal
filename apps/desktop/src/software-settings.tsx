@@ -8,8 +8,9 @@ import {LocalDirectorySettings} from './local-directory-settings';
 
 const sections=['外观','输入与剪贴板','日志','本地终端'] as const;
 
-export function SoftwareSettings({preferences, fontSizeControl, busy, canSave, message, update, save, read, close }: {
+export function SoftwareSettings({preferences, fontSizeControl, localRightClick, busy, canSave, message, update, save, read, close }: {
   preferences: DesktopPreferences; fontSizeControl: ReactNode; busy: boolean; canSave: boolean; message: string;
+  localRightClick: ReactNode;
   update: (patch: Partial<DesktopPreferences>) => void; save: () => void; read: () => void;
   close: () => void;
 }) {
@@ -19,7 +20,7 @@ export function SoftwareSettings({preferences, fontSizeControl, busy, canSave, m
     <nav className="settings-categories" aria-label="设置分类">
       {sections.map(name=><button type="button" key={name} aria-pressed={section===name} onClick={()=>setSection(name)}>{name}</button>)}
     </nav>
-    {section==='本地终端'?<LocalDirectorySettings/>:section==='日志'?<LogViewerSettings/>:<>
+    {section==='本地终端'?<><LocalDirectorySettings/>{localRightClick}</>:section==='日志'?<LogViewerSettings/>:<>
     <fieldset disabled={busy}>
     {section==='外观'?<div className="form-grid">
       <Field label="应用主题"><select aria-label="应用主题" value={preferences.theme} onChange={event => update({theme:event.target.value as ThemeChoice})}>
@@ -39,7 +40,7 @@ export function SoftwareSettings({preferences, fontSizeControl, busy, canSave, m
     </div>:<>
     <label className="check"><input aria-label="Ctrl+C选区复制" type="checkbox" checked={preferences.ctrl_c_copy} onChange={event => update({ctrl_c_copy:event.target.checked})} />Ctrl+C有选区时复制；关闭后交给终端</label>
     <label className="check"><input aria-label="Ctrl+V粘贴" type="checkbox" checked={preferences.ctrl_v_paste} onChange={event => update({ctrl_v_paste:event.target.checked})} />Ctrl+V粘贴到当前终端</label>
-    <p>右键打开终端日志菜单；粘贴请明确选择菜单项，或使用 Ctrl+Shift+V。</p>
+    <p>SSH 和串口终端右键打开日志菜单。本地终端的右键行为可在「本地终端」中设置。</p>
     </>}
     <div className="config-actions"><button disabled={!canSave} onClick={save}>保存桌面偏好</button><button onClick={read}>重新读取偏好</button></div>
     </fieldset>

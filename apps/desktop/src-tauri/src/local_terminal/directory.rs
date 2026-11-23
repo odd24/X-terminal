@@ -23,6 +23,7 @@ use super::scripts::Picker;
 
 const STORE: &str = "local-directory.db";
 const ENTRY: Uuid = Uuid::from_u128(0xad08f4ef_e858_4bbe_a1fe_71b57848a10a);
+const RIGHT_CLICK: Uuid = Uuid::from_u128(0xbe1c3dba_dbbc_46ef_b2d6_b32ab25bbf48);
 const STORAGE: &str = "无法读取或保存本地终端目录设置";
 const UNAVAILABLE: &str = "所选目录不存在或无法访问";
 
@@ -40,6 +41,50 @@ pub enum Action {
     Read,
     Choose,
     Restore,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RightClick {
+    #[default]
+    Smart,
+    Menu,
+}
+
+#[tauri::command]
+pub async fn local_right_click(
+    window: WebviewWindow,
+    desktop: State<'_, crate::Desktop>,
+    mode: Option<RightClick>,
+) -> Result<RightClick, String> {
+    const ERROR: &str = "无法读取或保存本地终端右键设置";
+    if window.label() != crate::session_windows::MAIN {
+        return Err(ERROR.into());
+    }
+    let root = desktop.2.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::log_viewer::with_native_settings(&root, STORE, mode.is_some(), |vault| {
+            let current = match vault.as_ref().map(|vault| vault.get(RIGHT_CLICK)) {
+                None | Some(Err(Error::NotFound)) => RightClick::default(),
+                Some(Ok(secret)) => serde_json::from_slice(secret.expose()).map_err(|_| ERROR)?,
+                Some(Err(_)) => return Err(ERROR.into()),
+            };
+            if let Some(mode) = mode {
+                let data = serde_json::to_vec(&mode).map_err(|_| ERROR)?;
+                let secret = Secret::new(data).map_err(|_| ERROR)?;
+                vault
+                    .ok_or(ERROR)?
+                    .set(RIGHT_CLICK, secret)
+                    .map_err(|_| ERROR)?;
+                Ok(mode)
+            } else {
+                Ok(current)
+            }
+        })
+        .map_err(|_| ERROR.into())
+    })
+    .await
+    .map_err(|_| ERROR.to_string())?
 }
 
 fn read(root: &Path) -> Result<Option<String>, String> {

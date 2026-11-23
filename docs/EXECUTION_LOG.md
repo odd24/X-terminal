@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.12 按 [CR-035](changes/CR-035.md) 实施本地终端右键复制与粘贴。Windows 专项验证配置持久化、原样输入、危险粘贴确认与目标失效。[P26.12](records/P26.12.md) · Step-ID: P26.12。
+
 P26.11 按 [CR-034](changes/CR-034.md) 交付 Windows x64 0.1.24 直接运行目录。标题图标对齐、关闭叉对比度和原操作复验通过。[P26.11](records/P26.11.md) · Step-ID: P26.11。
 
 P26.10 按 [CR-033](changes/CR-033.md) 交付 Windows x64 0.1.23 直接运行目录。实际 Windows Desktop 核对两处新建入口、PowerShell 工作目录、回环 SSH、内存 UART 和保存失败路径。[P26.10](records/P26.10.md) · Step-ID: P26.10。

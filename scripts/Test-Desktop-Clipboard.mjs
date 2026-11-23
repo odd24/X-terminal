@@ -6,7 +6,8 @@ import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 const directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-clipboard-ui-中文-'));
 let ui;
 try {
-  ui=await launchDesktop(directory,{fixture:true});
+  const executable=process.argv[2]&&path.resolve(process.argv[2]);
+  ui=await launchDesktop(directory,{fixture:true,...(executable?{executable}:{})});
   await ui.click('新建合成会话');await ui.waitFor(`document.querySelector('.status').textContent==='服务输出已同步'`);
   const [scope]=await ui.invoke('service_list');const ref={connection_id:scope.connection_id,generation:scope.generation};
   const read=cursor=>ui.invoke('service_read',{connection:ref,cursor});

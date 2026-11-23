@@ -13,6 +13,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { TerminalClipboard, type PasteProposal } from './terminal-clipboard';
 import { visibleControls } from './log-search';
+import {LocalRightClickSetting,useLocalRightClick} from './local-right-click';
 import { TerminalSearch } from './terminal-search-panel';
 import {desktopShortcut,shortcutEditor} from './desktop-shortcuts';
 import { initialTerminalView, type TerminalController, type TerminalView, type PaneSelection } from './terminal-controller';
@@ -280,6 +281,8 @@ function App() {
   const [search, setSearch] = useState<{local?:{pane:PaneKey;id:string}}>();
   const [shortcutHelp,setShortcutHelp]=useState(false);
   const clipboard = useRef<TerminalClipboard | undefined>(undefined);
+  const localClipboardEpoch=useRef(0);
+  const localRightClick=useLocalRightClick(!detached,()=>{localClipboardEpoch.current++;});
   const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
   const [clipboardMessage, setClipboardMessage] = useState('');
   function cancelPaste(){clipboard.current?.invalidate();setClipboardMessage('已取消粘贴；未发送');runtime.current?.term.focus();}
@@ -615,7 +618,7 @@ function App() {
     selectedRef.current=local?'':current.requested;setSelected(selectedRef.current);
     const c=local?undefined:controllers.current.get(panes.current.active);runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;setPaneEpoch(v=>v+1);
   }
-  function routeChanged(){firstSsh1Fit.current=undefined;setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
+  function routeChanged(){localClipboardEpoch.current++;firstSsh1Fit.current=undefined;setTerminalMenu(undefined);setComposeEnding('none');setComposeOrigin(undefined);drafts.current.invalidate();for(const c of controllers.current.values())c.invalidate();setPasteProposal(undefined);setClipboardMessage('');setServiceScreen(undefined);setSnapshot('');setComposeEpoch(v=>v+1);syncRoute();}
   function focusPane(key:PaneKey,keyboard=false){if(panes.current.active!==key&&panes.current.focus(key))routeChanged();if(keyboard){if(localSelected.current.has(key)){document.querySelector<HTMLElement>(`[data-pane="${key}"] .local-terminal:not([hidden]) .xterm-helper-textarea`)?.focus();}else controllers.current.get(key)?.runtime.term.focus();}}
   function cancelWorkspaceSplit(){workspaceSession.current.cancelSplit();restoredFocus.current=undefined;setWorkspaceEpoch(v=>v+1);}
   function collapseSplit(keep?:PaneKey){cancelWorkspaceSplit();panes.current.collapse(keep);routeChanged();}
@@ -1341,6 +1344,9 @@ function App() {
       const key=panes.current.paneOf(tab.id);
       const visible=localSelected.current.get(key)===tab.id;
       return createPortal(<LocalTerminal tab={tab} visible={visible} focused={visible&&panes.current.active===key}
+        rightClick={localRightClick.mode} routeEpoch={localClipboardEpoch.current} clipboardRoute={()=>
+          !closingDesktop.current&&!closingLocal.current.has(tab.id)&&panes.current.active===key&&localSelected.current.get(key)===tab.id
+          &&!document.querySelector('dialog:modal')?localClipboardEpoch.current:undefined}
         preferences={preferences} focus={()=>focusPane(key)} report={reportLocalPrompt.current} register={registerLocal} shortcutSettled={shortcutSettled}
         onDiagnostic={reportAdbDiagnostic} intent={adbIntent?.id===tab.id?adbIntent:undefined}/>,tab.surface,tab.id);
     })}
@@ -1387,7 +1393,7 @@ function App() {
     {broadcastOpen&&<Dialog label="明确选择多目标文本发送" close={closeBroadcast}><BroadcastPanel owner={serviceStopped.current?'':service?.service_id??''} connections={connections.map(c=>({...c,label:tabName(c)}))} run={broadcastRun.current} seed={broadcastSeed} close={closeBroadcast}/></Dialog>}
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
     {composeOpen && <Dialog label="撰写终端输入" modal={false} close={()=>{drafts.current.invalidate();setComposeOpen(false);}}><ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text, pacing) => composeSend.current?.(target, text, pacing) ?? false} close={() => setComposeOpen(false)} /></Dialog>}
-    {softwareSettingsOpen && <Dialog label="软件设置" close={()=>setSoftwareSettingsOpen(false)}><SoftwareSettings preferences={preferences} fontSizeControl={<TerminalFontSizeControl label="终端字号" value={fontSize} state={fontSizing.state} change={setFontSize}/>} busy={preferencesBusy} canSave={!!preferenceRevision.current} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setSoftwareSettingsOpen(false)} /></Dialog>}
+    {softwareSettingsOpen && <Dialog label="软件设置" close={()=>setSoftwareSettingsOpen(false)}><SoftwareSettings preferences={preferences} localRightClick={<LocalRightClickSetting {...localRightClick}/>} fontSizeControl={<TerminalFontSizeControl label="终端字号" value={fontSize} state={fontSizing.state} change={setFontSize}/>} busy={preferencesBusy} canSave={!!preferenceRevision.current} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setSoftwareSettingsOpen(false)} /></Dialog>}
     {configurationOpen && <Dialog label={configurationCreation?(configurationCreation.protocol==='ssh2'?'新建 SSH 配置':'新建串口配置'):'连接配置'} wide={!configurationCreation} close={closeConfiguration}><ConfigPanel key={configurationTarget?.id??configurationCreation?.protocol??'new'} creation={configurationCreation} onConnect={connectNewProfile} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget?.id} initialAction={configurationTarget?.action} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={closeConfiguration} /></Dialog>}
     <Dialog label="SSH2 连接工具" modal={false} open={sshOpen} close={()=>setSshOpen(false)}><SshPanel key={service?.service_id} open={sshOpen} connection={active} requested={selected} select={selectConnection} closePanel={()=>setSshOpen(false)} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} /></Dialog>
     <Dialog label="独立 exec 任务" modal={false} open={execOpen} close={()=>setExecOpen(false)}><ExecPanel open={execOpen} connection={active} close={()=>setExecOpen(false)} /></Dialog>

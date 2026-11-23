@@ -5,7 +5,7 @@ export function preparePaste(text: string, target: PasteTarget, epoch: number, b
   if (/[\uD800-\uDFFF]/u.test(text)) throw new Error('粘贴含不完整 Unicode 字符；未发送');
   if (bracketed && /\x1b\[20[01]~/.test(text)) throw new Error('粘贴含终端粘贴边界控制序列；未发送');
   const payload = bracketed ? `\x1b[200~${text}\x1b[201~` : text;
-  const limit = target.protocol === 'SSH1' ? 16384 : target.protocol === 'SSH2' ? 196608 : 65536;
+  const limit = target.protocol === 'SSH1' || target.protocol === 'LOCAL' ? 16384 : target.protocol === 'SSH2' ? 196608 : 65536;
   if (new TextEncoder().encode(payload).length > limit) throw new Error('粘贴超过单次输入上限；未发送');
   const confirm = text.length > 1024 || /[\r\n\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(text);
   return { target: { ...target }, epoch, text, payload, bracketed, confirm };

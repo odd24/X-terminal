@@ -5,6 +5,10 @@ import {FitAddon} from '@xterm/addon-fit';
 import {terminalAppearance} from './appearance';
 import type {DesktopPreferences} from './config-api';
 import {AdbDeviceDialog, type AdbChoice, type AdbDiagnostic, type AdbIntent} from './local-adb';
+import {ContextMenu,Dialog,Panel} from './ui';
+import {preparePaste,type PasteProposal} from './terminal-clipboard';
+import {visibleControls} from './log-search';
+import type {LocalRightClick} from './local-right-click';
 
 export type LocalView = {cwd:string; startup_warning:string|null; task:string|null; running:boolean; bytes:number[]|Uint8Array; overflow:boolean;
   message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null};
@@ -16,16 +20,20 @@ export function terminalAction<T = void>(action: {kind:string; id?:string} & Rec
 
 const MAX_HISTORY = 100;
 const MAX_SCROLLBACK = 5000;
+const MAX_LIGHTWEIGHT_LINE=8192;
+type ClipboardTarget={route:number;task:string|null;bracketed:boolean;revision:number};
+type LocalPaste={target:ClipboardTarget;proposal:PasteProposal;unsupported?:string};
 const outputMetadata=new TextDecoder('utf-8',{fatal:true});
 const localText = (text:string) => text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '�').replaceAll('\n', '\r\n');
 const cells = (text:string) => Array.from(text).reduce((count, character)=>
   count + (/\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Extended_Pictographic}|[\uFF01-\uFF60]/u.test(character)?2:1),0);
 
-export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, register, shortcutSettled, onDiagnostic}: {
+export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, register, shortcutSettled, onDiagnostic,rightClick,routeEpoch,clipboardRoute}: {
   tab:LocalTab; visible:boolean; focused:boolean; preferences:DesktopPreferences; intent?:AdbIntent;
   report(id:string, state:LocalPromptState):void; focus():void; shortcutSettled(request:string):void;
   register(id:string,terminal?:Terminal):void;
   onDiagnostic(intent:AdbIntent, diagnostic:AdbDiagnostic):void;
+  rightClick?:LocalRightClick; routeEpoch:number; clipboardRoute():number|undefined;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | undefined>(undefined);
@@ -45,13 +53,106 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
   const launchingShortcut = useRef(false);
   const lastDiagnostic = useRef<{intent:AdbIntent; diagnostic:AdbDiagnostic}|undefined>(undefined);
   const input = useRef({tail:Promise.resolve(), queued:0});
+  const clipboardRevision=useRef(0);
+  const selectionRevision=useRef(0);
+  const pendingPaste=useRef<LocalPaste>(undefined);
+  const [pastePreview,setPastePreview]=useState<LocalPaste>();
+  const [clipboardMenu,setClipboardMenu]=useState<{target:ClipboardTarget;x:number;y:number;anchor:HTMLElement;selection:string}>();
   const [failure, setFailure] = useState('');
+  const [clipboardStatus,setClipboardStatus]=useState('');
   const [atLimit, setAtLimit] = useState(false);
   const [choice, setChoice] = useState<{intent:AdbIntent; devices:AdbChoice['devices']}>();
   const [running, setRunning] = useState(tab.initial.running);
   const [cwd, setCwd] = useState(tab.initial.cwd);
-  const latest = useRef({visible, focused, report, onDiagnostic});
-  latest.current = {visible, focused, report, onDiagnostic};
+  const latest = useRef({visible, focused, report, onDiagnostic,focus,rightClick,clipboardRoute});
+  latest.current = {visible, focused, report, onDiagnostic,focus,rightClick,clipboardRoute};
+
+  function invalidateClipboard(){
+    clipboardRevision.current++;
+    pendingPaste.current=undefined;
+    setPastePreview(undefined);
+    setClipboardMenu(undefined);
+  }
+  function clipboardTarget():ClipboardTarget|undefined{
+    const route=latest.current.clipboardRoute(), current=view.current;
+    if(!alive.current||route===undefined||flight.current||uncertain.current||composing.current
+      ||current.running&&!current.task)return;
+    return {route,task:current.running?current.task:null,
+      bracketed:current.running&&!!term.current?.modes.bracketedPasteMode,revision:clipboardRevision.current};
+  }
+  function clipboardCurrent(target:ClipboardTarget){
+    const current=clipboardTarget();
+    return current?.route===target.route&&current.task===target.task&&current.bracketed===target.bracketed&&current.revision===target.revision;
+  }
+  async function copySelection(clear:boolean){
+    const terminal=term.current;
+    const text=terminal?.getSelection(),route=latest.current.clipboardRoute(),version=selectionRevision.current;
+    if(!terminal||!text||route===undefined)return;
+    invalidateClipboard();
+    setClipboardStatus('');
+    try{
+      await navigator.clipboard.writeText(text);
+      if(clear&&alive.current&&term.current===terminal&&route===latest.current.clipboardRoute()
+        &&selectionRevision.current===version&&terminal.getSelection()===text){
+        terminal.clearSelection();
+        terminal.focus();
+      }
+    }catch {
+      if(alive.current&&route===latest.current.clipboardRoute())setClipboardStatus('复制失败，选区已保留。');
+    }
+  }
+  function enqueue(text:string,task:string,guard?:()=>boolean){
+    const queue=input.current;
+    if(queue.queued>=32){setFailure('本地终端输入队列已满');return;}
+    queue.queued++;
+    queue.tail=queue.tail.then(async()=>{
+      if(alive.current&&view.current.running&&view.current.task===task&&(!guard||guard()))
+        await terminalAction({kind:'input',id:tab.id,request:task,text});
+    }).catch(error=>{if(alive.current)setFailure(String(error));}).finally(()=>{queue.queued--;});
+  }
+  function sendPaste(item:LocalPaste){
+    if(!clipboardCurrent(item.target)||item.unsupported)return;
+    const {text,payload}=item.proposal;
+    if(item.target.task){
+      // Confirming closes the preview. Route and task are checked again when input reaches the head of the queue.
+      const {route,task,bracketed}=item.target;
+      enqueue(payload,task,()=>latest.current.clipboardRoute()===route
+        &&!!term.current?.modes.bracketedPasteMode===bracketed);
+    }else {
+      const lineText=text.replace(/(?:\r\n|\r|\n)$/,'');
+      if(lineText)edit(lineText);
+      if(lineText!==text)edit('\r');
+    }
+    term.current?.focus();
+  }
+  async function pasteClipboard(text?:string){
+    invalidateClipboard();
+    const target=clipboardTarget();
+    if(!target)return;
+    setClipboardStatus('');
+    try{
+      const value=text??await invoke<string>('terminal_clipboard_read');
+      if(!clipboardCurrent(target))return;
+      const proposal=preparePaste(value,{protocol:'LOCAL',connection_id:tab.id,generation:0},target.revision,target.bracketed);
+      const draftText=value.replace(/(?:\r\n|\r|\n)$/,'');
+      const unsupported=target.task?undefined:/[\x00-\x1f\x7f]/.test(draftText)
+        ?'轻量命令行空闲时只接受一条命令。多行或控制字符请在前台进程中粘贴。'
+        :new TextEncoder().encode(line.current.text+draftText).length>MAX_LIGHTWEIGHT_LINE
+          ?'轻量命令最多接受 8192 字节。':undefined;
+      const item={target,proposal,unsupported};
+      if(proposal.confirm){pendingPaste.current=item;setPastePreview(item);}
+      else if(unsupported)setClipboardStatus(unsupported);
+      else sendPaste(item);
+    }catch(error){
+      if(clipboardCurrent(target))setClipboardStatus(typeof error==='string'?error:error instanceof Error?error.message:'读取剪贴板失败。');
+    }
+  }
+  function confirmPaste(item:LocalPaste){
+    if(pendingPaste.current!==item)return;
+    pendingPaste.current=undefined;
+    setPastePreview(undefined);
+    sendPaste(item);
+  }
 
   function publish() {
     latest.current.report(tab.id,{busy:tab.powershell||view.current.running||flight.current||!!uncertain.current,
@@ -92,6 +193,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       if(next.message && next.exit_code!==0) latest.current.onDiagnostic(diagnostic.intent,{...diagnostic.diagnostic,error:next.message});
       lastDiagnostic.current=undefined;
     }
+    if(view.current.task!==next.task||view.current.running!==next.running)invalidateClipboard();
     view.current = next;
     setRunning(next.running);
     setCwd(next.cwd);
@@ -216,7 +318,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       else if(data==='\x1b[H')cursor=0;
       else if(data==='\x1b[F')cursor=chars.length;
       else if(!/[\x00-\x1f\x7f]/.test(data)){
-        if(new TextEncoder().encode(line.current.text+data).length>8192){setFailure('轻量命令最多接受 8192 字节');return;}
+        if(new TextEncoder().encode(line.current.text+data).length>MAX_LIGHTWEIGHT_LINE){setFailure('轻量命令最多接受 8192 字节');return;}
         chars.splice(cursor,0,...Array.from(data));
         cursor+=Array.from(data).length;
       }else return;
@@ -236,41 +338,28 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     terminal.textarea?.setAttribute('aria-label','本地终端输入');
     term.current=terminal;
     register(tab.id,terminal);
-    function paste(text:string) {
-      if(!view.current.running && /[\r\n]/.test(text)){
-        setFailure('轻量模式每次只接受一行');
-        return;
-      }
-      terminal.paste(text);
-    }
     terminal.attachCustomKeyEventHandler(event=>{
       if(event.type!=='keydown')return true;
       if(event.ctrlKey&&event.shiftKey&&event.key.toLowerCase()==='c'){
-        const text=terminal.getSelection();
-        if(text)void navigator.clipboard.writeText(text).catch(()=>setFailure('复制失败'));
+        event.preventDefault();event.stopPropagation();
+        void copySelection(false);
         return false;
       }
       if(event.ctrlKey&&event.shiftKey&&event.key.toLowerCase()==='v'){
-        const task=view.current.task;
-        void navigator.clipboard.readText().then(text=>{
-          if(alive.current&&latest.current.focused&&view.current.task===task)paste(text);
-        }).catch(()=>setFailure('读取剪贴板失败'));
+        event.preventDefault();event.stopPropagation();
+        void pasteClipboard();
         return false;
       }
       return true;
     });
     const data=terminal.onData(text=>{
       if(!latest.current.focused)return;
+      invalidateClipboard();
       const task=view.current.running?view.current.task:null;
       if(!task){edit(text);return;}
-      const queue=input.current;
-      if(queue.queued>=32){setFailure('本地终端输入队列已满');return;}
-      queue.queued++;
-      queue.tail=queue.tail.then(async()=>{
-        if(alive.current&&view.current.running&&view.current.task===task)
-          await terminalAction({kind:'input',id:tab.id,request:task,text});
-      }).catch(error=>{if(alive.current)setFailure(String(error));}).finally(()=>{queue.queued--;});
+      enqueue(text,task);
     });
+    const selection=terminal.onSelectionChange(()=>{selectionRevision.current++;});
     let atScrollLimit=false;
     const written=terminal.onWriteParsed(()=>{
       if(!atScrollLimit&&terminal.buffer.normal.baseY>=MAX_SCROLLBACK){
@@ -278,16 +367,33 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
         setAtLimit(true);
       }
     });
-    const compositionStart=()=>{composing.current=true;publish();};
+    const compositionStart=()=>{invalidateClipboard();composing.current=true;publish();};
     const compositionEnd=()=>{composing.current=false;publish();};
     const nativePaste=(event:ClipboardEvent)=>{
-      if(!view.current.running&&/[\r\n]/.test(event.clipboardData?.getData('text')??'')){
-        event.preventDefault();event.stopPropagation();setFailure('轻量模式每次只接受一行');
+      event.preventDefault();event.stopPropagation();
+      if(event.clipboardData)void pasteClipboard(event.clipboardData.getData('text/plain'));
+    };
+    const context=(event:MouseEvent)=>{
+      event.preventDefault();event.stopPropagation();
+      latest.current.focus();
+      const text=terminal.getSelection();
+      if(latest.current.rightClick==='smart'){
+        if(text)void copySelection(true);
+        else void pasteClipboard();
+      }else{
+        invalidateClipboard();
+        const target=clipboardTarget();
+        if(target)setClipboardMenu({target,x:event.clientX,y:event.clientY,anchor:terminal.textarea??node,selection:text});
       }
+    };
+    const rightDown=(event:MouseEvent)=>{
+      if(event.button===2){event.preventDefault();event.stopPropagation();}
     };
     node.addEventListener('compositionstart',compositionStart,true);
     node.addEventListener('compositionend',compositionEnd,true);
     node.addEventListener('paste',nativePaste,true);
+    node.addEventListener('contextmenu',context,true);
+    node.addEventListener('mousedown',rightDown,true);
     function resize(){
       if(!latest.current.visible||!host.current?.clientHeight)return;
       addon.fit();
@@ -351,9 +457,15 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       node.removeEventListener('compositionstart',compositionStart,true);
       node.removeEventListener('compositionend',compositionEnd,true);
       node.removeEventListener('paste',nativePaste,true);
-      data.dispose();written.dispose();terminal.dispose();term.current=undefined;
+      node.removeEventListener('contextmenu',context,true);
+      node.removeEventListener('mousedown',rightDown,true);
+      data.dispose();written.dispose();selection.dispose();terminal.dispose();term.current=undefined;
     };
   },[tab.id]);
+  useLayoutEffect(()=>{
+    if(pendingPaste.current?.target.route!==routeEpoch){pendingPaste.current=undefined;setPastePreview(undefined);}
+    setClipboardMenu(previous=>previous?.target.route===routeEpoch?previous:undefined);
+  },[routeEpoch]);
 
   useLayoutEffect(()=>{
     if(term.current){
@@ -376,6 +488,28 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       <button type="button" onClick={()=>void terminalAction({kind:'open_script_directory',id:tab.id}).catch(error=>setFailure(String(error)))}>打开工作目录</button>
     </div>}
     <div className="terminal local-terminal-output" ref={host} aria-label="本地命令行输出" title={!tab.powershell?cwd:undefined}/>
+    {clipboardStatus&&<small className="local-clipboard-status" role="alert">{clipboardStatus}</small>}
+    {focused&&clipboardMenu&&<ContextMenu {...clipboardMenu} label="本地终端右键菜单" close={()=>setClipboardMenu(undefined)}>
+      <button role="menuitem" disabled={!clipboardMenu.selection} onClick={()=>{
+        if(clipboardCurrent(clipboardMenu.target)&&term.current?.getSelection()===clipboardMenu.selection)void copySelection(true);
+        else setClipboardMenu(undefined);
+      }}>复制</button>
+      <button role="menuitem" onClick={()=>{
+        if(clipboardCurrent(clipboardMenu.target))void pasteClipboard();
+        else setClipboardMenu(undefined);
+      }}>粘贴</button>
+    </ContextMenu>}
+    {focused&&pastePreview&&<Dialog label="本地粘贴确认" modal={false} close={()=>invalidateClipboard()}>
+      <Panel title="确认粘贴到本地终端">
+        <p>目标：{tab.title} · {pastePreview.target.task?'当前前台进程':'轻量命令行'}</p>
+        <p>{pastePreview.unsupported??'内容可能执行命令。继续输入、切换标签或结束当前任务会取消预览。'}</p>
+        <pre aria-label="本地粘贴内容预览">{visibleControls(JSON.stringify(pastePreview.proposal.text.slice(0,8192)))}{pastePreview.proposal.text.length>8192?' …预览已截断':''}</pre>
+        <div className="config-actions">
+          <button disabled={!!pastePreview.unsupported} onClick={()=>confirmPaste(pastePreview)}>确认粘贴</button>
+          <button data-dialog-autofocus onClick={()=>{invalidateClipboard();if(clipboardTarget())term.current?.focus();}}>取消粘贴</button>
+        </div>
+      </Panel>
+    </Dialog>}
     {atLimit&&<small>仅保留最近 {MAX_SCROLLBACK} 行滚动历史及当前屏幕</small>}
     {failure&&<small role="alert">{failure}</small>}
     {choice&&<AdbDeviceDialog devices={choice.devices} choose={serial=>void launchShortcut(choice.intent,serial)} close={()=>cancelShortcut(choice.intent)}/>}
