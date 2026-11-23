@@ -243,7 +243,7 @@ try {
   const end=await geometry(query('.terminal'));
   await main.command('Input.dispatchMouseEvent',{type:'mouseMoved',x:end.right-8,y:end.top+40});
   const terminal=await main.evaluate(`(()=>{
-    const host=document.querySelector('.terminal-pane > .terminal'),xterm=host.querySelector('.xterm');
+    const host=document.querySelector('.terminal-pane-body > .terminal'),xterm=host.querySelector('.xterm');
     const bounds=host.getBoundingClientRect(),rows=xterm.querySelector('.xterm-rows').getBoundingClientRect();
     const bars=xterm.querySelectorAll('.scrollbar.vertical'),bar=bars[0].getBoundingClientRect();
     return {left:rows.left-bounds.left,right:bounds.right-bar.right,background:getComputedStyle(host).backgroundColor,custom:bars.length,legacy:getComputedStyle(xterm.querySelector('.xterm-viewport')).overflowY};
@@ -253,7 +253,7 @@ try {
   await left.control({op:'push',text:'RETAINED-INDEPENDENT-A\r\n'});
   const log = await main.invoke('logging_request',{request:{op:'start',connection:ref(a),request_id:requestId(),limits:{segment_bytes:131072,segments:2}}});
 
-  const grid=await geometry(query('.terminal-pane > .terminal'));
+  const grid=await geometry(query('.terminal-pane-body > .terminal'));
   await drag(center(await geometry(tab(b))),{x:grid.left+grid.width*.80,y:center(grid).y});
   await main.waitFor(`${rendered(a,0)} && ${rendered(b,1)}`);
   child=await outsideDrag(a,true);

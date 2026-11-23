@@ -64,7 +64,7 @@ import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { QuickSerial } from './quick-serial';
 import {LocalTerminal, terminalAction, type LocalPromptState, type LocalTab, type LocalView} from './local-terminal';
-import {AdbShortcutPanel, loadAdbSettings, type AdbDiagnostic, type AdbIntent, type AdbSettings} from './local-adb';
+import {AdbShortcutPanel, loadAdbSettings, type AdbDiagnostic, type AdbIntent, type AdbSettings, type AdbShortcut} from './local-adb';
 import { LoggingPanel } from './logging-panel';
 import { serial, type SerialStatus } from './serial-api';
 import { requestId } from './request-id';
@@ -321,7 +321,7 @@ function App() {
     catch {return false;}
   });
   const [adbPanels,setAdbPanels]=useState<Partial<Record<PaneKey,boolean>>>({});
-  const [adbKeyboardFocus,setAdbKeyboardFocus]=useState<{pane:PaneKey;id:string;request:number}>();
+  const [adbKeyboardFocus,setAdbKeyboardFocus]=useState<{pane:PaneKey;request:number}>();
   const adbFocusNumber=useRef(0);
   const [adbIntent,setAdbIntent]=useState<AdbIntent&{id:string}>();
   const [adbStarting,setAdbStarting]=useState(false);
@@ -331,6 +331,8 @@ function App() {
   const promptStates=useRef(new Map<string,LocalPromptState>());
   const reportLocalPrompt=useRef((id:string,state:LocalPromptState)=>{promptStates.current.set(id,state);});
   const closingLocal=useRef(new Set<string>());
+  type ShortcutSource={pane:PaneKey;local:string}|{pane:PaneKey;owner:string;connection:ComposeTarget};
+  const shortcutOrigins=useRef(new Map<string,ShortcutSource>());
   function shortcutSettled(request:string) {
     if (shortcutFlight.current?.request!==request) return;
     shortcutFlight.current=undefined;
@@ -345,6 +347,7 @@ function App() {
   }
   useEffect(()=>{
     if(detached)return;
+    void loadAdb();
     const unlisten=appWindow.listen<string>('local-shortcuts-changed',()=>void loadAdb());
     return()=>{void unlisten.then(stop=>stop(),()=>{});};
   },[]);
@@ -352,15 +355,16 @@ function App() {
     setAdbPanels(previous=>({...previous,[pane]:open}));
     try {localStorage.setItem('local-adb-shortcuts-open',String(open));}
     catch { /* the current window still remembers the choice */ }
-    if (!open) document.querySelector<HTMLElement>(`[data-pane="${pane}"] .adb-panel-toggle`)?.focus();
+    if(open)void loadAdb();
+    else document.querySelector<HTMLElement>(`[data-pane="${pane}"] .adb-panel-toggle`)?.focus();
   }
-  function toggleAdbFromKeyboard(pane:PaneKey,id:string){
+  function toggleAdbFromKeyboard(pane:PaneKey){
     const open=adbPanels[pane]??adbDefaultOpen;
     setAdbPanel(pane,!open);
     if(open){
       setAdbKeyboardFocus(undefined);
-      localRenderers.current.get(id)?.focus();
-    }else setAdbKeyboardFocus({pane,id,request:++adbFocusNumber.current});
+      focusPane(pane,true);
+    }else setAdbKeyboardFocus({pane,request:++adbFocusNumber.current});
   }
   function findTerminal(){
     const pane=panes.current.active, id=localSelected.current.get(pane);
@@ -402,8 +406,8 @@ function App() {
   function ownsLocalTab(pane:PaneKey,id:string) {
     return !closingLocal.current.has(id)&&liveLocalTabs.current.some(tab=>tab.id===id)&&panes.current.paneOf(id)===pane;
   }
-  async function openLocal(pane:PaneKey,powershell=true,{inherit,script,beside=false,adbResult=false}:{
-    inherit?:string;script?:{button:string;revision:string};beside?:boolean;adbResult?:boolean;
+  async function openLocal(pane:PaneKey,powershell=true,{inherit,script,beside=false,adbResult=false,shortcutSource}:{
+    inherit?:string;script?:{button:string;revision:string};beside?:boolean;adbResult?:boolean;shortcutSource?:ShortcutSource;
   }={}) {
     if (openingLocal.current||closingDesktop.current) return undefined;
     openingLocal.current=true;
@@ -418,9 +422,10 @@ function App() {
       const surface=document.createElement('div');
       surface.className='local-terminal-surface';
       panes.current.placeLocal(id,pane);
+      if(shortcutSource)shortcutOrigins.current.set(id,shortcutSource);
       setLocalTabs(previous=>[...previous,{id,title,initial,surface,powershell,origin:script?'script':adbResult?'adb-result':'ordinary'}]);
       if(beside&&inherit)insertTab(id,inherit,true);
-      selectLocal(pane,id);
+      if(!shortcutSource||sourceSelected(shortcutSource))selectLocal(pane,id);
       if(!adbSettings)void loadAdb();
       return id;
     } catch(error) {setTabMessage(String(error));}
@@ -438,12 +443,15 @@ function App() {
     panes.current.focus(pane);
     routeChanged();
   }
-  async function closeLocal(id:string) {
+  async function closeLocal(id:string,successfulShortcut=false) {
     if(closingLocal.current.has(id))return;
     closingLocal.current.add(id);
     try {
       await terminalAction({kind:'close',id});
       const pane=panes.current.paneOf(id);
+      const origin=shortcutOrigins.current.get(id);
+      const restore=successfulShortcut&&origin&&origin.pane===pane&&panes.current.active===pane&&localSelected.current.get(pane)===id;
+      shortcutOrigins.current.delete(id);
       panes.current.forgetLocal(id);
       if (localSelected.current.get(pane)===id) {
         const next=localPeers(pane,id)[0];
@@ -455,23 +463,79 @@ function App() {
       localCount.current=Math.max(0,localCount.current-1);
       setLocalTabs(previous=>previous.filter(tab=>tab.id!==id));
       setTabOrder(previous=>previous.filter(other=>other!==id));
+      if(restore&&restoreShortcutOrigin(origin))return;
       if(!liveConnections.current.some(tab=>!tabClosures.current.isHidden(tab)&&panes.current.paneOf(tab.connection_id)===pane)&&!localPeers(pane,id).length)
         panes.current.closePane(pane,panes.current.active);
       routeChanged();
     } catch(error) {setTabMessage(String(error));}
     finally {closingLocal.current.delete(id);}
   }
-  async function clickAdb(pane:PaneKey, source:string, button:string, revision:string) {
-    if(shortcutFlight.current||closingLocal.current.has(source))return;
+  function shortcutSource(pane:PaneKey):ShortcutSource|undefined {
+    if(panes.current.active!==pane)return;
+    const local=localSelected.current.get(pane);
+    if(local)return ownsLocalTab(pane,local)?{pane,local}:undefined;
+    const route=paneSelection(pane);
+    if(route.connection&&['SSH1','SSH2','SERIAL'].includes(route.connection.protocol))
+      return {pane,owner:route.owner,connection:route.connection};
+  }
+  function sourceSelected(source:ShortcutSource) {
+    const live=shortcutSource(source.pane);
+    if(!live)return false;
+    if('local' in source)return 'local' in live&&live.local===source.local;
+    return 'connection' in live&&live.owner===source.owner&&live.connection.protocol===source.connection.protocol&&sameRef(live.connection,source.connection);
+  }
+  function restoreShortcutOrigin(source:ShortcutSource) {
+    const id='local' in source?source.local:source.connection.connection_id;
+    const destination=panes.current.paneOf(id);
+    if('local' in source){
+      if(!ownsLocalTab(destination,source.local))return false;
+      selectLocal(destination,source.local);
+    }else{
+      const target=liveConnections.current.find(c=>sameRef(c,source.connection)&&c.protocol===source.connection.protocol);
+      if(serviceStopped.current||source.owner!==serviceRef.current?.service_id||!target||tabClosures.current.isHidden(target))return false;
+      panes.current.focus(destination);
+      selectConnection(target.connection_id,target);
+    }
+    requestAnimationFrame(()=>{if(sourceSelected({...source,pane:destination}))focusPane(destination,true);});
+    return true;
+  }
+  async function executeShortcut(pane:PaneKey,item:AdbShortcut,revision:string) {
+    const source=shortcutSource(pane);
+    if(!source||closingDesktop.current)return;
+    if(item.desktop_kind==='send'){
+      if('local' in source||!source.owner||!shortcutSendReady(pane))return;
+      const epoch=panes.current.epoch;
+      try{
+        const send=await invoke<{text:string;append_enter:boolean}>('local_shortcut_text',{request:{button:item.id,revision}});
+        if(epoch!==panes.current.epoch||!sourceSelected(source)||!shortcutSendReady(pane))return;
+        const controller=controllers.current.get(pane);
+        if(controller?.compose(source.connection,send.text+(send.append_enter?'\r':'')))focusPane(pane,true);
+        else setTabMessage('当前会话不可写，快捷文本未发送');
+      }catch(error){if(sourceSelected(source))setTabMessage(String(error));}
+      return;
+    }
+    const inherit='local' in source?source.local:undefined;
+    if(item.script_path){
+      await openLocal(pane,false,{inherit,script:{button:item.id,revision},shortcutSource:source});
+      return;
+    }
+    if(shortcutFlight.current)return;
     const request=crypto.randomUUID();
     shortcutFlight.current={request};
-    adbDiagnosticRequests.current.set(button,request);
+    adbDiagnosticRequests.current.set(item.id,request);
     setAdbStarting(true);
-    const state=promptStates.current.get(source);
-    const id=state&&!state.busy&&!state.hasDraft?source:await openLocal(pane,false,{inherit:source,adbResult:true});
+    const state=inherit?promptStates.current.get(inherit):undefined;
+    const reuse=inherit&&!item.desktop_kind&&!item.close_on_success&&state&&!state.busy&&!state.hasDraft;
+    const id=reuse?inherit:await openLocal(pane,false,{inherit,adbResult:true,shortcutSource:source});
     if(!id){shortcutSettled(request);return;}
     shortcutFlight.current={request,id};
-    setAdbIntent({button,revision,request,id});
+    setAdbIntent({button:item.id,revision,request,id});
+  }
+  function shortcutSendReady(pane:PaneKey) {
+    const route=paneSelection(pane), view=paneViews[pane];
+    const target=route.connection;
+    return !!target&&route.owner&&['SSH1','SSH2','SERIAL'].includes(target.protocol)&&target.state==='CONNECTED'&&
+      !!view?.renderedTarget&&sameRef(target,view.renderedTarget)&&!view.failure&&!view.inputFailure&&!serviceStopped.current;
   }
   function reportAdbDiagnostic(intent:AdbIntent,diagnostic:AdbDiagnostic) {
     if(adbDiagnosticRequests.current.get(intent.button)===intent.request)
@@ -691,7 +755,7 @@ function App() {
     }
     const pane=panes.current.active, local=localSelected.current.get(pane);
     if(action.kind==='openLocal'){if(!detached)void openLocal(pane);return;}
-    if(action.kind==='sidebar'){if(local&&!closingLocal.current.has(local))toggleAdbFromKeyboard(pane,local);return;}
+    if(action.kind==='sidebar'){if(!detached&&shortcutSource(pane))toggleAdbFromKeyboard(pane);return;}
     if(action.kind==='search'){findTerminal();return;}
     if(action.kind!=='cycle'&&action.kind!=='index')return;
     // This is the published tab order, including the effects of groups and drag/drop.
@@ -1312,7 +1376,7 @@ function App() {
         const rail=<SessionTabs singlePane={paneSlots.length===1} tabs={paneTabs(key)} groups={tabGroups.current.list()} groupOf={id=>tabGroups.current.groupOf(id)}
           owner={service?.service_id??''} selected={localId??slot.requested} name={tabName} recording={tabLogs.control} toggleRecording={tabLogs.toggle}
           select={id=>{panes.current.focus(key);selectConnection(id);controllers.current.get(key)?.runtime.term.focus();}}
-          endControls={localId&&<button type="button" className="adb-panel-toggle" aria-label="快捷指令" title="快捷指令" aria-keyshortcuts="Control+Shift+B"
+          endControls={!detached&&(localId||c)&&<button type="button" className="adb-panel-toggle" aria-label="快捷指令" title="快捷指令" aria-keyshortcuts="Control+Shift+B"
             aria-expanded={adbOpen} aria-controls={adbPanelId} onClick={()=>setAdbPanel(key,!adbOpen)}><span className="sidebar-glyph" aria-hidden="true"/></button>}
           close={detached?undefined:target=>void closeTab(target)} pending={target=>tabClosures.current.pending(target)} assign={assignTab} drag={drag} detached={detached} copy={(source,owner)=>copyTab(key,source,owner)}
           order={orderedIds} localTabs={locals.map(tab=>({
@@ -1335,11 +1399,12 @@ function App() {
         return <TerminalPane context={(pane,value)=>setTerminalMenu({...value,pane,title:c?tabName(c):value.target.protocol})} key={slot.key} rendered={view.renderedTarget} id={slot.key} position={index+1} split={paneSlots.length>1} active={panes.current.active===slot.key} tabs={rail} showLocal={!!localId}
           local={locals.map(tab=><div key={tab.id} className="local-terminal-socket" hidden={localId!==tab.id}
             ref={node=>{if(node&&tab.surface.parentElement!==node)node.append(tab.surface);}}/>)}
-          localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} scope={localId} open={adbOpen} settings={adbSettings} starting={adbStarting}
-            keyboardFocus={adbKeyboardFocus?.pane===key&&adbKeyboardFocus.id===localId?adbKeyboardFocus.request:undefined}
+          localSidebar={!detached&&(localId||c)&&<AdbShortcutPanel id={adbPanelId} scope={localId??`${service?.service_id}/${c?.connection_id}/${c?.generation}`} open={adbOpen} settings={adbSettings} starting={adbStarting}
+            keyboardFocus={adbKeyboardFocus?.pane===key?adbKeyboardFocus.request:undefined}
+            sendLocation={!localId&&c&&shortcutSendReady(key)?(c.protocol==='SERIAL'?'当前串口 · ':'当前 SSH · ')+tabName(c):undefined}
             diagnostics={adbDiagnostics}
             close={()=>setAdbPanel(key,false)} reload={loadAdb}
-            execute={(item,revision)=>item.script_path?void openLocal(key,false,{script:{button:item.id,revision}}):void clickAdb(key,localId,item.id,revision)}/>}
+            execute={(item,revision)=>void executeShortcut(key,item,revision)}/>}
           preferences={preferences} selection={()=>paneSelection(slot.key)} register={registerPane} state={(id,view)=>setPaneViews(v=>({...v,[id]:view}))} focus={focusPane} invalidateDrafts={()=>drafts.current.invalidate()} input={()=>setComposeEpoch(v=>v+1)} search={findTerminal} proposal={(id,p)=>{if(panes.current.active===id)setPasteProposal(p);}} message={(id,text)=>{if(panes.current.active===id)setClipboardMessage(text);}} reset={id=>{if(panes.current.active===id){setSnapshot('');setServiceScreen(undefined);}}} status={view.failure||view.inputFailure||view.decodeWarning||
       (view.status==='服务输出已同步'||view.status==='服务就绪 · 尚无活动连接'?'':view.status)}/>;
       }} />
@@ -1351,7 +1416,8 @@ function App() {
           !closingDesktop.current&&!closingLocal.current.has(tab.id)&&panes.current.active===key&&localSelected.current.get(key)===tab.id
           &&!document.querySelector('dialog:modal')?localClipboardEpoch.current:undefined}
         preferences={preferences} focus={()=>focusPane(key)} report={reportLocalPrompt.current} register={registerLocal} shortcutSettled={shortcutSettled}
-        onDiagnostic={reportAdbDiagnostic} intent={adbIntent?.id===tab.id?adbIntent:undefined}/>,tab.surface,tab.id);
+        onDiagnostic={reportAdbDiagnostic} onResultSuccess={id=>{if(shortcutOrigins.current.has(id))void closeLocal(id,true);}}
+        intent={adbIntent?.id===tab.id?adbIntent:undefined}/>,tab.surface,tab.id);
     })}
     {clipboardMessage&&<CornerNotice key={clipboardMessage} heading="剪贴板" autoDismiss
       dismiss={()=>setClipboardMessage(previous=>previous===clipboardMessage?'':previous)}><span aria-label="剪贴板状态">{clipboardMessage}</span></CornerNotice>}

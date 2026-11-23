@@ -11,7 +11,7 @@ import {visibleControls} from './log-search';
 import type {LocalRightClick} from './local-right-click';
 
 export type LocalView = {cwd:string; startup_warning:string|null; task:string|null; running:boolean; bytes:number[]|Uint8Array; overflow:boolean;
-  message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null};
+  message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null; close_after_result?:boolean};
 export type LocalTab = {id:string; title:string; initial:LocalView; powershell:boolean; origin:'ordinary'|'adb-result'|'script'};
 export type LocalPromptState = {busy:boolean; hasDraft:boolean};
 export function terminalAction<T = void>(action: {kind:string; id?:string} & Record<string, unknown>) {
@@ -28,11 +28,12 @@ const localText = (text:string) => text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, 'ï¿
 const cells = (text:string) => Array.from(text).reduce((count, character)=>
   count + (/\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Extended_Pictographic}|[\uFF01-\uFF60]/u.test(character)?2:1),0);
 
-export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, register, shortcutSettled, onDiagnostic,rightClick,routeEpoch,clipboardRoute}: {
+export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, register, shortcutSettled, onDiagnostic,onResultSuccess,rightClick,routeEpoch,clipboardRoute}: {
   tab:LocalTab; visible:boolean; focused:boolean; preferences:DesktopPreferences; intent?:AdbIntent;
   report(id:string, state:LocalPromptState):void; focus():void; shortcutSettled(request:string):void;
   register(id:string,terminal?:Terminal):void;
   onDiagnostic(intent:AdbIntent, diagnostic:AdbDiagnostic):void;
+  onResultSuccess(id:string):void;
   rightClick?:LocalRightClick; routeEpoch:number; clipboardRoute():number|undefined;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -64,8 +65,8 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
   const [choice, setChoice] = useState<{intent:AdbIntent; devices:AdbChoice['devices']}>();
   const [running, setRunning] = useState(tab.initial.running);
   const [cwd, setCwd] = useState(tab.initial.cwd);
-  const latest = useRef({visible, focused, report, onDiagnostic,focus,rightClick,clipboardRoute});
-  latest.current = {visible, focused, report, onDiagnostic,focus,rightClick,clipboardRoute};
+  const latest = useRef({visible, focused, report, onDiagnostic,onResultSuccess,focus,rightClick,clipboardRoute});
+  latest.current = {visible, focused, report, onDiagnostic,onResultSuccess,focus,rightClick,clipboardRoute};
 
   function invalidateClipboard(){
     clipboardRevision.current++;
@@ -200,6 +201,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     setCwd(next.cwd);
     publish();
     if(!next.running)redraw();
+    if(next.close_after_result&&next.task&&next.exit_code===0&&!next.running)latest.current.onResultSuccess(tab.id);
   }
 
   async function run(command:string) {

@@ -1,18 +1,19 @@
 pub(crate) mod adb;
+mod batch;
 mod conpty;
 pub(crate) mod directory;
 pub(crate) mod scripts;
 
-use conpty::Process;
+use conpty::{Output, Process};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env, fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{Manager, State, WebviewWindow};
+use tauri::{Emitter, Manager, State, WebviewWindow};
 use uuid::Uuid;
 
 const MAX_SESSIONS: usize = 16;
@@ -28,13 +29,51 @@ struct Session {
     script: Option<String>,
     script_directory: Option<PathBuf>,
     drives: HashMap<String, PathBuf>,
-    active: Option<Process>,
+    active: Option<Foreground>,
     last_request: Option<Uuid>,
     message: Option<String>,
     interrupted: bool,
-    pending_adb: Option<(Uuid, Option<adb::Prepared>)>,
+    pending_adb: Option<(Uuid, Option<PreparedShortcut>)>,
+    close_on_success: bool,
     cols: u16,
     rows: u16,
+}
+
+enum Foreground {
+    Console(Process),
+    Batch(batch::Process),
+}
+
+impl Foreground {
+    fn output(&self) -> &Arc<Mutex<Output>> {
+        match self {
+            Self::Console(p) => &p.output,
+            Self::Batch(p) => &p.output,
+        }
+    }
+    fn signals(&self) -> (&Arc<tokio::sync::Notify>, &Arc<tokio::sync::Semaphore>) {
+        match self {
+            Self::Console(p) => (&p.output_ready, &p.output_reader),
+            Self::Batch(p) => (&p.output_ready, &p.output_reader),
+        }
+    }
+    fn input(&self, bytes: Vec<u8>) -> Result<(), String> {
+        match self {
+            Self::Console(p) => p.input(bytes),
+            Self::Batch(p) => p.input(bytes),
+        }
+    }
+}
+
+enum ShortcutPlan {
+    Adb(adb::Prepared),
+    Batch(batch::Prepared),
+}
+
+struct PreparedShortcut {
+    plan: ShortcutPlan,
+    revision: Uuid,
+    close_on_success: bool,
 }
 
 #[derive(Serialize)]
@@ -50,6 +89,8 @@ struct View {
     exit_code: Option<u32>,
     script: Option<String>,
     script_directory: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    close_after_result: bool,
 }
 
 #[derive(Deserialize)]
@@ -257,10 +298,10 @@ impl Session {
             }
             _ => {
                 let executable = adb::resolve(program, &self.cwd, root)?;
-                self.active = Some(
+                self.active = Some(Foreground::Console(
                     Process::start(&executable, argv, &self.cwd, self.cols, self.rows)
                         .map_err(|error| format!("{program} 启动失败：{error}"))?,
-                );
+                ));
                 self.interrupted = false;
                 Ok(None)
             }
@@ -272,12 +313,15 @@ impl Session {
             .active
             .as_ref()
             .map(|process| {
-                let mut output = process.output.lock().unwrap();
+                let mut output = process.output().lock().unwrap();
                 std::mem::take(&mut *output)
             })
             .unwrap_or_default();
         let exit_code = output.exit.take();
+        let close_after_result =
+            exit_code == Some(0) && !self.interrupted && self.close_on_success && !output.overflow;
         if let Some(code) = exit_code {
+            self.close_on_success = false;
             self.active.take();
             self.message = Some(match (self.interrupted, code) {
                 (true, 0xc000013a | 130) => "已中断（Ctrl+C）".into(),
@@ -296,6 +340,7 @@ impl Session {
             command: None,
             exit_code,
             script: self.script.clone(),
+            close_after_result,
             script_directory: self
                 .script_directory
                 .as_ref()
@@ -319,7 +364,7 @@ impl Terminals {
         let ready = session
             .active
             .as_ref()
-            .is_some_and(|process| process.output.lock().unwrap().ready());
+            .is_some_and(|process| process.output().lock().unwrap().ready());
         Ok(ready.then(|| session.view()))
     }
 }
@@ -343,12 +388,12 @@ pub async fn poll_local_output(
         let Some(process) = &session.active else {
             return Ok(tauri::ipc::Response::new(Vec::new()));
         };
-        let permit = process
-            .output_reader
+        let (ready, reader) = process.signals();
+        let permit = reader
             .clone()
             .try_acquire_owned()
             .map_err(|_| "本地输出已在读取")?;
-        (process.output_ready.clone(), permit)
+        (ready.clone(), permit)
     };
     let view = tokio::time::timeout(Duration::from_millis(1500), async {
         loop {
@@ -423,11 +468,11 @@ pub async fn local_terminal(
                     .ok_or("脚本入口已移除")?;
                 let (file, path) =
                     scripts::readable(item.script_path.as_deref().ok_or("此入口不是本地脚本")?)?;
-                Some((item.name.clone(), file, path))
+                Some((item.name.clone(), file, path, item.close_on_success))
             } else {
                 None
             };
-            let (cwd, startup_warning) = if let Some((_, _, path)) = &script {
+            let (cwd, startup_warning) = if let Some((_, _, path, _)) = &script {
                 (
                     path.parent().ok_or("找不到脚本工作目录")?.to_path_buf(),
                     None,
@@ -451,19 +496,21 @@ pub async fn local_terminal(
                 message: None,
                 interrupted: false,
                 pending_adb: None,
+                close_on_success: false,
                 cols: 80,
                 rows: 24,
             };
-            if let Some((name, _file, path)) = script {
+            if let Some((name, _file, path, close_on_success)) = script {
                 // cmd falls back to another directory for UNC working directories.
                 let image = env::var_os("SystemRoot")
                     .map(PathBuf::from)
                     .ok_or("找不到 Windows 系统目录")?
                     .join(r"System32\cmd.exe");
-                session.active = Some(
+                session.active = Some(Foreground::Console(
                     Process::start_script(&image, &path, &session.cwd, session.cols, session.rows)
                         .map_err(|error| format!("脚本启动失败：{error}"))?,
-                );
+                ));
+                session.close_on_success = close_on_success;
                 session.script_directory = Some(session.cwd.clone());
                 session.script = Some(name);
                 session.last_request = Some(Uuid::new_v4());
@@ -473,7 +520,7 @@ pub async fn local_terminal(
                     .map(PathBuf::from)
                     .ok_or("找不到 Windows 系统目录")?
                     .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
-                session.active = Some(
+                session.active = Some(Foreground::Console(
                     Process::start_windows_powershell(
                         &image,
                         &session.cwd,
@@ -481,7 +528,7 @@ pub async fn local_terminal(
                         session.rows,
                     )
                     .map_err(|error| format!("Windows PowerShell 启动失败：{error}"))?,
-                );
+                ));
                 session.last_request = Some(Uuid::new_v4());
             }
             let view = session.view();
@@ -555,13 +602,37 @@ pub async fn local_terminal(
                     return Err("本次 ADB 启动已失效".into());
                 }
                 let (_, plan) = session.pending_adb.take().unwrap();
-                let (image, args, command) = plan.unwrap().bind(target.as_deref())?;
+                let plan = plan.unwrap();
+                if adb::read(&desktop.2)?.revision != Some(plan.revision) {
+                    return Err("快捷指令已更新，本次任务未开始".into());
+                }
+                let (process, command) = match plan.plan {
+                    ShortcutPlan::Adb(plan) => {
+                        let (image, args, command) = plan.bind(target.as_deref())?;
+                        (
+                            Process::start(&image, &args, &session.cwd, session.cols, session.rows)
+                                .map(Foreground::Console),
+                            command,
+                        )
+                    }
+                    ShortcutPlan::Batch(plan) => {
+                        let plan = plan.bind(target.as_deref())?;
+                        (
+                            batch::Process::start(plan, &session.cwd).map(Foreground::Batch),
+                            "本地命令组".into(),
+                        )
+                    }
+                };
                 session.last_request = Some(request);
                 session.interrupted = false;
-                match Process::start(&image, &args, &session.cwd, session.cols, session.rows) {
+                session.close_on_success = plan.close_on_success;
+                match process {
                     Ok(process) => session.active = Some(process),
-                    Err(error) => session.message = Some(format!("ADB 启动失败：{error}")),
-                }
+                    Err(error) => {
+                        session.close_on_success = false;
+                        session.message = Some(format!("本地快捷指令启动失败：{error}"));
+                    }
+                };
                 let mut view = session.view();
                 view.command = Some(command);
                 view
@@ -584,7 +655,7 @@ pub async fn local_terminal(
             let session = sessions.get_mut(&id).ok_or("本地标签已关闭")?;
             session.cols = cols;
             session.rows = rows;
-            if let Some(process) = &session.active {
+            if let Some(Foreground::Console(process)) = &session.active {
                 process.resize(cols, rows);
             }
             return Ok(serde_json::Value::Null);
@@ -603,12 +674,54 @@ pub async fn local_adb_settings(
         return Err("ADB 设置仅在主窗口可用".into());
     }
     let root = desktop.2.clone();
-    tauri::async_runtime::spawn_blocking(move || match settings {
+    let changed = settings.is_some();
+    let result = tauri::async_runtime::spawn_blocking(move || match settings {
         Some(settings) => adb::save(&root, settings),
         None => adb::read(&root),
     })
     .await
-    .map_err(|_| "ADB 设置任务已结束")?
+    .map_err(|_| "ADB 设置任务已结束")??;
+    if changed {
+        let _ = window.emit("local-shortcuts-changed", result.revision);
+    }
+    Ok(result)
+}
+
+#[derive(Serialize)]
+pub struct ShortcutText {
+    text: String,
+    append_enter: bool,
+}
+
+#[tauri::command]
+pub async fn local_shortcut_text(
+    window: WebviewWindow,
+    desktop: State<'_, crate::Desktop>,
+    request: ScriptRequest,
+) -> Result<ShortcutText, String> {
+    if window.label() != crate::session_windows::MAIN {
+        return Err("发送快捷指令仅在主窗口可用".into());
+    }
+    let root = desktop.2.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = adb::read(&root)?;
+        if settings.revision != Some(request.revision) {
+            return Err("快捷指令已更新，请重新选择".into());
+        }
+        let item = settings
+            .shortcuts
+            .into_iter()
+            .find(|item| {
+                item.id == request.button && item.desktop_kind == Some(adb::DesktopKind::Send)
+            })
+            .ok_or("此入口不是会话发送指令")?;
+        Ok(ShortcutText {
+            text: item.command,
+            append_enter: item.append_enter,
+        })
+    })
+    .await
+    .map_err(|_| "快捷指令读取已结束")?
 }
 
 #[derive(Serialize)]
@@ -658,12 +771,27 @@ pub async fn prepare_local_adb(
                 .iter()
                 .find(|item| item.id == button)
                 .ok_or("按钮已移除")?;
-            adb::prepare(
-                &shortcut.command,
-                &cwd,
-                settings.executable.as_deref(),
-                &mut diagnostic,
-            )
+            let executable = settings.executable.as_deref();
+            let plan = match shortcut.desktop_kind {
+                Some(adb::DesktopKind::Local) => ShortcutPlan::Batch(batch::prepare(
+                    &shortcut.command,
+                    &cwd,
+                    executable,
+                    &mut diagnostic,
+                )?),
+                None if shortcut.script_path.is_none() => ShortcutPlan::Adb(adb::prepare(
+                    &shortcut.command,
+                    &cwd,
+                    executable,
+                    &mut diagnostic,
+                )?),
+                _ => return Err("此入口不执行本地命令".into()),
+            };
+            Ok(PreparedShortcut {
+                plan,
+                revision,
+                close_on_success: shortcut.close_on_success,
+            })
         })();
         let mut sessions = state.0.lock().unwrap();
         let session = sessions.get_mut(&id).ok_or("结果标签已关闭")?;
@@ -687,10 +815,22 @@ pub async fn prepare_local_adb(
                 });
             }
         };
+        let (devices, select, inherited_target) = match &prepared.plan {
+            ShortcutPlan::Adb(plan) => (
+                plan.devices.clone(),
+                plan.select,
+                plan.inherited_target.clone(),
+            ),
+            ShortcutPlan::Batch(plan) => (
+                plan.devices.clone(),
+                plan.fixed.is_none() && !plan.devices.is_empty(),
+                plan.fixed.clone(),
+            ),
+        };
         let choice = AdbChoice {
-            devices: prepared.devices.clone(),
-            select: prepared.select,
-            inherited_target: prepared.inherited_target.clone(),
+            devices,
+            select,
+            inherited_target,
             diagnostic,
         };
         session.pending_adb = Some((request, Some(prepared)));

@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.21 按 [CR-044](changes/CR-044.md) 实施全窗格快捷指令、Windows 本地组命令与精确会话发送。[P26.21](records/P26.21.md)
+
 P26.20 按 [CR-043](changes/CR-043.md) 结合普通本地标签双击复制、拖动保护与 Windows 便携发布回归。[P26.20](records/P26.20.md)
 
 P26.19 按 [CR-042](changes/CR-042.md) 修正本地标签拖动与双击误复制。[P26.19](records/P26.19.md)

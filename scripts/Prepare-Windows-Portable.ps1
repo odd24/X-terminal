@@ -82,6 +82,25 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Mixed local and SSH tab regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-ShortcutPreview.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Shortcut alias and preview regression failed. Candidate: $staging" }
+    node scripts/Test-Desktop-ShortcutRoutes.mjs $desktop
+    if ($LASTEXITCODE -ne 0) { throw "SSH and local shortcut routes failed. Candidate: $staging" }
+    $previousTarget = $env:CARGO_TARGET_DIR
+    $env:CARGO_TARGET_DIR = Join-Path $repo 'target/desktop-shortcuts-memory-uart'
+    try {
+        cargo build -p session-service --locked --features serial-ui-fixture
+        if ($LASTEXITCODE -ne 0) { throw 'Memory UART fixture build failed' }
+        $uartService = Join-Path $env:CARGO_TARGET_DIR 'debug/session-service.exe'
+    } finally {
+        if ($null -eq $previousTarget) { Remove-Item Env:CARGO_TARGET_DIR }
+        else { $env:CARGO_TARGET_DIR = $previousTarget }
+    }
+    $uartStage = Join-Path $staging 'memory-uart'
+    New-Item -ItemType Directory -Path $uartStage | Out-Null
+    $uartDesktop = Join-Path $uartStage 'shared-terminal-desktop.exe'
+    Copy-Item -LiteralPath $desktop -Destination $uartDesktop
+    Copy-Item -LiteralPath $uartService -Destination (Join-Path $uartStage 'session-service.exe')
+    node scripts/Test-Desktop-ShortcutRoutes.mjs $uartDesktop --uart
+    if ($LASTEXITCODE -ne 0) { throw "Memory UART shortcut routes failed. Candidate: $staging" }
     node scripts/Test-Desktop-ShortcutManagement.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Shortcut management regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-Shortcuts.mjs $desktop
@@ -103,6 +122,8 @@ try {
     $localTabs = Get-Content -LiteralPath 'artifacts/local-tabs-software-result.json' -Raw | ConvertFrom-Json
     $mixedTabs = Get-Content -LiteralPath "artifacts/windows-$version-session-copy-ssh.json" -Raw | ConvertFrom-Json
     $shortcutPreview = Get-Content -LiteralPath "artifacts/windows-$version-shortcuts-preview-result.json" -Raw | ConvertFrom-Json
+    $shortcutSsh = Get-Content -LiteralPath "artifacts/windows-$version-shortcut-routes-ssh.json" -Raw | ConvertFrom-Json
+    $shortcutUart = Get-Content -LiteralPath "artifacts/windows-$version-shortcut-routes-uart.json" -Raw | ConvertFrom-Json
     $desktopHash = ($files | Where-Object name -eq 'shared-terminal-desktop.exe').sha256
     $shortcutManagement = Get-Content -LiteralPath 'artifacts/shortcut-management-software-result.json' -Raw | ConvertFrom-Json
     $desktopShortcuts = Get-Content -LiteralPath 'artifacts/desktop-shortcuts-software-result.json' -Raw | ConvertFrom-Json
@@ -116,12 +137,14 @@ try {
         !$localTabs.nativeMouse -or !$localTabs.nativeDoubleClick -or
         $mixedTabs.result -ne 'PASS' -or $mixedTabs.executable -ne $desktop -or $mixedTabs.desktopSha256 -ne $desktopHash -or
         $shortcutPreview.result -ne 'PASS' -or $shortcutPreview.executable -ne $desktop -or $shortcutPreview.sha256 -ne $desktopHash -or
+        $shortcutSsh.result -ne 'PASS' -or $shortcutSsh.executable -ne $desktop -or $shortcutSsh.sha256 -ne $desktopHash -or
+        $shortcutUart.result -ne 'PASS' -or $shortcutUart.executable -ne $uartDesktop -or $shortcutUart.sha256 -ne $desktopHash -or
         $shortcutManagement.result -ne 'PASS' -or $shortcutManagement.executable -ne $desktop -or
         $desktopShortcuts.result -ne 'PASS' -or $desktopShortcuts.executable -ne $desktop -or
         $mcpShortcuts.result -ne 'PASS' -or $mcpShortcuts.executable -ne $desktop) {
         throw 'Release evidence mismatch'
     }
-    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;mixedTabs=$mixedTabs;shortcutPreview=$shortcutPreview;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts;mcpShortcuts=$mcpShortcuts}
+    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;mixedTabs=$mixedTabs;shortcutPreview=$shortcutPreview;shortcutSsh=$shortcutSsh;shortcutUart=$shortcutUart;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts;mcpShortcuts=$mcpShortcuts}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
 
     $resolvedStage = (Resolve-Path -LiteralPath $staging).Path

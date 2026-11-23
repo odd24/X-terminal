@@ -5,7 +5,8 @@ import {insertShortcuts,moveShortcutToEdge,setShortcutPins,stepShortcuts} from '
 import {useShortcutDrag} from './local-shortcut-drag';
 import {useShortcutPreview} from './shortcut-preview';
 
-export type AdbShortcut = {id:string; name:string; command?:string; script_path?:string; pinned?:boolean};
+export type AdbShortcut = {id:string; name:string; command?:string; script_path?:string; pinned?:boolean;
+  desktop_kind?:'local'|'send'; append_enter?:boolean; close_on_success?:boolean};
 type ShortcutLayout = {columns:1|2; expanded:boolean};
 export type AdbSettings = {revision:string|null; executable:string|null; shortcuts:AdbShortcut[]; layout?:ShortcutLayout};
 export type AdbIntent = {button:string; revision:string; request:string};
@@ -29,11 +30,12 @@ function scriptName(path:string,alias:string){
   return alias.trim()||stem+original.slice(-4);
 }
 
-export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardFocus, close, reload, execute, diagnostics}: {
+export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardFocus, close, reload, execute, diagnostics, sendLocation}: {
   id:string; scope:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():Promise<void>;
   execute(item:AdbShortcut, revision:string):void;
   diagnostics:Readonly<Record<string, AdbDiagnostic>>;
   keyboardFocus?:number;
+  sendLocation?:string;
 }) {
   const [editor, setEditor] = useState<Editor>();
   const [menu, setMenu] = useState<{id:string; anchor:HTMLButtonElement}>();
@@ -62,7 +64,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
   const regularItems=items.filter(item=>!item.pinned);
   const canAdd = !!settings && settings.shortcuts.length < 32 && !busy && !editor && !managing && !imports;
   const diagnostic = diagnosticId ? diagnostics[diagnosticId] : undefined;
-  const preview=useShortcutPreview(scope,settings?.revision??null,open&&!busy&&!editor&&!menu&&!addMenu&&!managing&&!imports&&!removal,panel);
+  const preview=useShortcutPreview(scope,settings?.revision??null,open&&!busy&&!editor&&!menu&&!addMenu&&!managing&&!imports&&!removal,panel,sendLocation);
   useEffect(()=>{
     if(!open){
       setMenu(undefined);setAddMenu(undefined);setManaging(false);setRemoval(undefined);setImports(undefined);
@@ -100,8 +102,8 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
     setFailure('');
     setEditor({kind:'shortcut', item:{...item}, revision:settings.revision});
   }
-  function add() {
-    edit({id:crypto.randomUUID(), name:'', command:''});
+  function add(kind?:AdbShortcut['desktop_kind']) {
+    edit({id:crypto.randomUUID(), name:'', command:'', desktop_kind:kind});
   }
   async function selectScripts(replace?:AdbShortcut) {
     if(!settings||saving.current)return;
@@ -204,7 +206,10 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
     const moveFirst=rowMenu&&moveShortcutToEdge(items,item.id,'first');
     const moveLast=rowMenu&&moveShortcutToEdge(items,item.id,'last');
     const target=drag.preview?.id===item.id?drag.preview:undefined;
-    const detail=item.script_path?'本地脚本 · '+item.script_path:'ADB · '+item.command;
+    const sending=item.desktop_kind==='send';
+    const unavailable=sending&&!sendLocation;
+    const detail=item.script_path?'本地脚本 · '+item.script_path:
+      (sending?(sendLocation??'当前 SSH 或串口')+' · ':item.desktop_kind==='local'?'Windows 本机 · ':'ADB · ')+item.command;
     const content=<><span>{item.name}</span>{layout.expanded&&<code>{detail}</code>}</>;
     return <li key={item.id} data-shortcut-id={item.id} data-pinned={isPinned}
       data-drag-source={drag.preview?.source===item.id||undefined}
@@ -225,7 +230,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
           if(!event.repeat)move(selection.has(item.id)?selection:single,event.key==='ArrowUp'?-1:1,item.id);
         }}><span aria-hidden="true">⠿</span></button></>:<>
       <button type="button" className="adb-shortcut-run adb-shortcut-text" aria-label={item.name} {...preview.fromRow(item)}
-        aria-disabled={starting||busy} onKeyDown={event=>{
+        aria-disabled={starting||busy||unavailable} onKeyDown={event=>{
           if(event.key==='ArrowLeft'&&preview.focusPreview(event.currentTarget)){event.preventDefault();return;}
           if(event.key==='Enter'){
             event.preventDefault();
@@ -240,7 +245,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
           }else if(event.repeat&&event.key===' ')event.preventDefault();
         }} onClick={event=>{
           preview.clear();
-          if(!managing&&!starting&&!saving.current&&event.detail<=1&&settings?.revision)execute(item,settings.revision);
+          if(!unavailable&&!managing&&!starting&&!saving.current&&event.detail<=1&&settings?.revision)execute(item,settings.revision);
         }}>{content}</button>
       <button type="button" className="adb-row-menu-trigger" aria-label={item.name+' 的管理操作'}
         aria-haspopup="menu" aria-expanded={menu?.id===item.id}
@@ -263,7 +268,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
         }}>移到最后</button>
         {item.script_path
           ?<button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);void selectScripts(item);}}>重新定位</button>
-          :<button role="menuitem" type="button" disabled={!diagnostics[item.id]} onClick={()=>{setMenu(undefined);setDiagnosticId(item.id);}}>查看最近诊断</button>}
+          :!sending&&<button role="menuitem" type="button" disabled={!diagnostics[item.id]} onClick={()=>{setMenu(undefined);setDiagnosticId(item.id);}}>查看最近诊断</button>}
         <button role="menuitem" type="button" disabled={busy} onClick={()=>{
           setMenu(undefined);
           if(settings)void save({...settings,shortcuts:items.filter(row=>row.id!==item.id)},'已移除入口');
@@ -310,9 +315,19 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
                 placeholder={editor.item.script_path?filename(editor.item.script_path):undefined}
                 onChange={event=>setEditor({...editor,item:{...editor.item,name:event.target.value}})}/></Field>
               {editor.item.script_path?<Field label="脚本路径"><input value={editor.item.script_path} readOnly/></Field>
-                :<Field label="完整 ADB 命令"><textarea aria-label="完整 ADB 命令" rows={5} wrap="soft" spellCheck={false} maxLength={8192}
-                  value={editor.item.command??''} placeholder="adb devices -l"
+                :editor.item.desktop_kind==='send'?<Field label="发送文本"><input aria-label="发送文本" maxLength={8192}
+                  value={editor.item.command??''} onChange={event=>setEditor({...editor,item:{...editor.item,command:event.target.value}})}/></Field>
+                :<Field label={editor.item.desktop_kind==='local'?'Windows 本地命令':'完整 ADB 命令'}><textarea rows={5} wrap="soft" spellCheck={false} maxLength={8192}
+                  value={editor.item.command??''} placeholder={editor.item.desktop_kind==='local'?'adb root\nadb shell "dmesg -w" | Select-String power':'adb devices -l'}
+                  aria-label={editor.item.desktop_kind==='local'?'Windows 本地命令':'完整 ADB 命令'}
                   onChange={event=>setEditor({...editor,item:{...editor.item,command:event.target.value}})}/></Field>}
+              {editor.item.desktop_kind==='send'?<label className="shortcut-checkbox">
+                <input type="checkbox" checked={!!editor.item.append_enter}
+                  onChange={event=>setEditor({...editor,item:{...editor.item,append_enter:event.target.checked}})}/>追加 Enter
+              </label>:<label className="shortcut-checkbox">
+                <input type="checkbox" checked={!!editor.item.close_on_success}
+                  onChange={event=>setEditor({...editor,item:{...editor.item,close_on_success:event.target.checked}})}/>执行成功后自动关闭结果标签
+              </label>}
             </>}
           <div className="config-actions">
             <button type="button" onClick={()=>{setEditor(undefined);setFailure('');}}>取消编辑</button>
@@ -356,7 +371,9 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
     {open&&addMenu&&<ContextMenu className="adb-row-menu" label="新建指令类型" x={0} y={0} anchor={addMenu}
       anchored close={()=>setAddMenu(undefined)}>
       <button role="menuitem" type="button" onClick={()=>{setAddMenu(undefined);add();}}>ADB 命令</button>
+      <button role="menuitem" type="button" onClick={()=>{setAddMenu(undefined);add('local');}}>本地命令</button>
       <button role="menuitem" type="button" onClick={()=>{setAddMenu(undefined);void selectScripts();}}>本地脚本</button>
+      <button role="menuitem" type="button" onClick={()=>{setAddMenu(undefined);add('send');}}>发送到当前会话</button>
     </ContextMenu>}
     {open&&imports&&<Dialog label="命名本地脚本" close={()=>{if(!busy){setImports(undefined);setFailure('');}}}>
       <Panel title="命名本地脚本">

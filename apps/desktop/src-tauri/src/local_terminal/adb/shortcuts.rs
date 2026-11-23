@@ -93,6 +93,7 @@ fn list(root: &Path, args: wire::List) -> Result<Outcome, Error> {
     let items = settings
         .shortcuts
         .into_iter()
+        .filter(|item| item.desktop_kind.is_none())
         .enumerate()
         .filter(|(_, item)| {
             query.is_empty()
@@ -244,6 +245,9 @@ fn mutate(items: &mut Vec<Shortcut>, request: Request) -> Result<Vec<Uuid>, Erro
                     command: String::new(),
                     script_path: None,
                     pinned: entry.pinned,
+                    desktop_kind: None,
+                    append_enter: false,
+                    close_on_success: false,
                 };
                 assign_target(&mut item, entry.target);
                 items.push(item);
@@ -290,7 +294,34 @@ fn save(
     if revision(&settings) != expected_revision {
         return Err(Error::RevisionConflict);
     }
-    let ids = mutate(&mut settings.shortcuts, request)?;
+    let available = |item: &Shortcut| item.desktop_kind.is_none();
+    let mut exposed: Vec<_> = settings
+        .shortcuts
+        .iter()
+        .filter(|item| available(item))
+        .cloned()
+        .collect();
+    let ids = mutate(&mut exposed, request)?;
+    let mut unpinned = exposed
+        .split_off(exposed.partition_point(|item| item.pinned))
+        .into_iter();
+    let mut pinned = exposed.into_iter();
+    let mut merged = Vec::with_capacity(settings.shortcuts.len());
+    for row in settings.shortcuts {
+        if !available(&row) {
+            merged.push(row);
+        } else if let Some(row) = if row.pinned {
+            pinned.next()
+        } else {
+            unpinned.next()
+        } {
+            merged.push(row);
+        }
+    }
+    merged.extend(pinned);
+    merged.extend(unpinned);
+    merged.sort_by_key(|row| !row.pinned);
+    settings.shortcuts = merged;
     validate(&settings).map_err(|_| Error::InvalidArgument)?;
     let revision = Uuid::new_v4();
     settings.revision = Some(revision);

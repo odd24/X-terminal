@@ -58,9 +58,22 @@ pub struct Shortcut {
     pub script_path: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop_kind: Option<DesktopKind>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub append_enter: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub close_on_success: bool,
 }
 
-fn adb_name(name: &str) -> bool {
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopKind {
+    Local,
+    Send,
+}
+
+pub(super) fn adb_name(name: &str) -> bool {
     Path::new(name)
         .file_name()
         .and_then(|name| name.to_str())
@@ -102,10 +115,28 @@ fn validate(settings: &Settings) -> Result<(), String> {
             return Err("请检查按钮名称、命令长度及编号".into());
         }
         if let Some(path) = &button.script_path {
-            if !button.command.is_empty() || !super::scripts::valid_path(path) {
+            if !button.command.is_empty()
+                || button.desktop_kind.is_some()
+                || button.append_enter
+                || !super::scripts::valid_path(path)
+            {
                 return Err("请选择本机 .bat 或 .cmd 脚本".into());
             }
             continue;
+        }
+        match button.desktop_kind {
+            Some(DesktopKind::Local) if !button.append_enter => {
+                super::batch::parse(&button.command)?;
+                continue;
+            }
+            Some(DesktopKind::Send) if !button.close_on_success => {
+                if button.command.is_empty() || button.command.chars().any(char::is_control) {
+                    return Err("请输入一段不含换行或控制字符的文本，Enter 请使用独立选项".into());
+                }
+                continue;
+            }
+            None if !button.append_enter => {}
+            _ => return Err("快捷指令选项无效".into()),
         }
         let args = arguments(&button.command)?;
         if args.len() < 2 || !adb_name(&args[0]) {
@@ -271,7 +302,7 @@ fn observed(bytes: &[u8]) -> String {
     preview
 }
 
-fn inventory(
+pub(super) fn inventory(
     image: &Path,
     cwd: &Path,
     global: &[String],

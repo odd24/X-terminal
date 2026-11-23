@@ -13,9 +13,9 @@ export function TerminalPane(props:Props){
  function focus(target:EventTarget){if(target instanceof Element&&!target.closest('.tab-record-button,.session-tab-menu'))latest.current.focus(props.id);}
  return <section className={`terminal-pane${props.active?' pane-active':''}`} data-pane={props.id} data-active={props.active} data-rendered-id={props.rendered?.connection_id} data-rendered-generation={props.rendered?.generation} aria-label={props.split?`终端窗格 ${props.position}`:'单终端窗格'} onPointerDown={event=>{if(event.button===0)focus(event.target);}} onFocusCapture={event=>focus(event.target)}>
   {props.tabs}
-  <div className="terminal" ref={host} hidden={props.showLocal} aria-label={props.split?`窗格 ${props.position} 服务终端`:'服务终端'} />
-  <div className="local-pane-body" hidden={!props.showLocal} data-split={props.split}>
-    {props.local}
+  <div className="terminal-pane-body" data-split={props.split}>
+    <div className="terminal" ref={host} hidden={props.showLocal} aria-label={props.split?`窗格 ${props.position} 服务终端`:'服务终端'} />
+    <div className="local-pane-body" hidden={!props.showLocal}>{props.local}</div>
     {props.localSidebar}
   </div>
   {!props.showLocal&&props.split&&props.status&&<small className="pane-status" role="status" title={props.status}>{props.status}</small>}

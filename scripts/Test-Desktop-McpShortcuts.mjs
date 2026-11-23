@@ -258,6 +258,17 @@ try {
   await denied('shortcuts_list',{});
   await approve('查看');
   assert.deepEqual(project((await list()).items),[pinned,legacy]);
+  const desktopOnly=[{id:randomUUID(),name:'仅桌面本机管道',desktop_kind:'local',command:'adb devices | Select-String device'},
+    {id:randomUUID(),name:'仅桌面会话发送',desktop_kind:'send',command:'PRIVATE_SEND',append_enter:true}];
+  const current=await setting();
+  const privateRev=await ui.invoke('local_adb_settings',{settings:{...current,shortcuts:[...current.shortcuts,...desktopOnly]}});
+  assert.deepEqual(project((await list()).items),[pinned,legacy]);
+  assert.deepEqual((await list({query:'PRIVATE_SEND'})).items,[]);
+  await denied('shortcuts_update',mut(privateRev.revision,{changes:[{id:desktopOnly[0].id,name:'不得编辑'}]}),'NOT_FOUND');
+  await denied('shortcuts_remove',mut(privateRev.revision,{ids:[desktopOnly[1].id]}),'NOT_FOUND');
+  await denied('shortcuts_create',mut(privateRev.revision,{items:[adbItem('不得扩写','adb devices | grep power')]}),'INVALID_ARGUMENT');
+  assert.deepEqual((await setting()).shortcuts.filter(item=>item.desktop_kind),desktopOnly);
+  evidence.checks.push('legacy MCP scopes cannot read, create, edit, or remove Desktop-only arbitrary commands or session sends');
   await shutdown(false);
   evidence.checks.push('both scopes expire, revoke is explicit, restart clears authority and exact protected receipt persists');
   evidence.result='PASS';

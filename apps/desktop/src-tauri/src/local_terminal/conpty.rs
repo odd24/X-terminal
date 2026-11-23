@@ -28,7 +28,7 @@ use windows_sys::Win32::{
     },
 };
 
-const OUTPUT_LIMIT: usize = 512 * 1024;
+pub(super) const OUTPUT_LIMIT: usize = 512 * 1024;
 const INPUT_QUEUE: usize = 32;
 const STARTUP_CLEAR: &[u8] = b"\x1b[?25l\x1b[2J\x1b[m\x1b[H";
 
@@ -52,7 +52,7 @@ impl Drop for Console {
     }
 }
 
-struct Attributes(Vec<usize>);
+pub(super) struct Attributes(pub(super) Vec<usize>);
 impl Drop for Attributes {
     fn drop(&mut self) {
         unsafe { DeleteProcThreadAttributeList(self.0.as_mut_ptr().cast()) };
@@ -82,7 +82,7 @@ fn pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
     })
 }
 
-fn wide(value: &OsStr) -> Vec<u16> {
+pub(super) fn wide(value: &OsStr) -> Vec<u16> {
     value.encode_wide().chain(Some(0)).collect()
 }
 

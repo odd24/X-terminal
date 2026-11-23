@@ -13,8 +13,8 @@ button:hover:not(:disabled) { background: var(--control-hover); }
 :is(button, input, select, textarea, summary, a):focus-visible { outline: var(--focus-width) solid var(--accent); outline-offset: var(--focus-offset); }
 input { width: var(--number-width); }
 label { color: var(--text-muted); font-size: var(--text-body); }
-.terminal-pane > .terminal { overflow: hidden; height: var(--terminal-height); border-radius: var(--radius-terminal); }
-.terminal-pane > .terminal > .xterm { height: 100%; padding: 6px 4px; }
+.terminal-pane-body > .terminal { overflow: hidden; height: var(--terminal-height); border-radius: var(--radius-terminal); }
+.terminal-pane-body > .terminal > .xterm { height: 100%; padding: 6px 4px; }
 .status { margin: var(--space-3) 0 var(--space-2); color: var(--accent); }
 .input-status, footer { color: var(--text-subtle); font-size: var(--text-sm); margin: var(--space-2) 0; }
 pre { max-height: var(--preview-height); overflow: auto; white-space: pre-wrap; background: var(--surface-raised); padding: var(--space-4); }
@@ -91,7 +91,7 @@ fieldset, details, .config-panel { min-width: 0; }
 .config-panel :is(input, select, textarea):disabled { color: var(--text-muted); }
 input[type="checkbox"], input[type="radio"] { min-height: auto; accent-color: var(--accent); }
 summary { cursor: pointer; padding-block: var(--space-2); }
-.terminal-pane > .terminal { background: var(--terminal-background); }
+.terminal-pane-body > .terminal { background: var(--terminal-background); }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } }
 @media (max-width: 850px) { main { padding: var(--space-4); } }
 
@@ -272,7 +272,7 @@ main.desktop-shell {
 .profile-summary > strong { font-weight: 400; }
 .profile-summary small { display: block; color: var(--text-muted); }
 .terminal-workspace { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
-.terminal-workspace .terminal-pane > .terminal { flex: 1; height: auto; min-height: 0; border-radius: var(--radius-control); }
+.terminal-workspace .terminal-pane-body > .terminal { flex: 1; height: auto; min-height: 0; border-radius: var(--radius-control); }
 .terminal-workspace :is(.status, .input-status) { margin-block: var(--space-1); }
 .tab-tools { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin-bottom: var(--space-2); }
 [role="tablist"] { display: flex; flex: 1; overflow-x: auto; scrollbar-width: none; min-width: 0; gap: var(--space-1); padding-top: var(--space-1); }
@@ -350,10 +350,11 @@ main.desktop-shell {
   border-radius: var(--radius-control); background: var(--surface-raised); color: var(--text);
   pointer-events: none;
 }
-.local-terminal[hidden], .local-terminal-socket[hidden], .terminal-pane > .terminal[hidden] { display: none; }
+.local-terminal[hidden], .local-terminal-socket[hidden], .terminal-pane-body > .terminal[hidden] { display: none; }
 .local-terminal-output { flex: 1; min-height: 0; overflow: hidden; background: var(--terminal-background); }
 .local-terminal-output > .xterm { height: 100%; padding: 6px 4px; }
-.local-pane-body { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; container: local-pane / inline-size; }
+.terminal-pane-body, .local-pane-body { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; }
+.terminal-pane-body { container: local-pane / inline-size; }
 .local-pane-body[hidden], .adb-shortcut-panel[hidden] { display: none; }
 .desktop-shell .pane-tab-bar > .adb-panel-toggle {
   display: grid; place-items: center; align-self: center; flex: 0 0 28px; margin-inline-start: auto;
@@ -366,11 +367,11 @@ main.desktop-shell {
   display: flex; flex: 0 0 300px; inline-size: min(300px, 100%); min-height: 0; flex-direction: column;
   background: var(--surface); border-inline-start: 1px solid var(--border-subtle);
 }
-.local-pane-body[data-split="true"] > .adb-shortcut-panel { position: absolute; inset-block: 0; inset-inline-end: 0; z-index: 5; }
+.terminal-pane-body[data-split="true"] > .adb-shortcut-panel { position: absolute; inset-block: 0; inset-inline-end: 0; z-index: 5; }
 @container local-pane (max-width: 760px) {
   .adb-shortcut-panel { position: absolute; inset-block: 0; inset-inline-end: 0; z-index: 5; }
 }
-.local-pane-body > .adb-shortcut-panel[data-expanded="true"] { position: absolute; inset: 0; inline-size: auto; z-index: 5; }
+.terminal-pane-body > .adb-shortcut-panel[data-expanded="true"] { position: absolute; inset: 0; inline-size: auto; z-index: 5; }
 .adb-panel-heading, .adb-panel-footer { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-2); }
 .adb-panel-heading { border-block-end: 1px solid var(--border-subtle); }
 .adb-panel-heading h2 { flex: 1; margin: 0; font-size: var(--text-sm); font-weight: 500; }
@@ -378,6 +379,8 @@ main.desktop-shell {
 .adb-panel-body { flex: 1; min-height: 0; padding: var(--space-2); overflow: auto; }
 .adb-panel-body fieldset { display: grid; gap: var(--space-2); min-inline-size: 0; padding: 0; border: 0; margin: 0; }
 .adb-panel-body :is(input, textarea) { inline-size: 100%; min-inline-size: 0; }
+.shortcut-checkbox { display: flex; align-items: center; gap: var(--space-2); }
+.adb-panel-body .shortcut-checkbox input { inline-size: auto; }
 .adb-panel-body textarea { font-family: var(--font-terminal); overflow-wrap: anywhere; resize: vertical; }
 .adb-panel-controls, .adb-bulk-controls, .adb-panel-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-2); border-block-end: 1px solid var(--border-subtle); }
 .adb-bulk-controls { background: var(--control-hover); }
@@ -512,7 +515,7 @@ main.desktop-shell {
 .pane-tab-bar .pane-collapse:hover { background: var(--control-hover); }
 .pane-tab-bar :is(.new-menu > summary, .pane-collapse):focus-visible { outline-offset: -2px; }
 .terminal-grid.single .pane-tab-bar .new-menu { align-self: center; }
-.terminal-workspace .terminal-pane > .terminal { border-start-start-radius: 0; border-start-end-radius: 0; }
+.terminal-workspace .terminal-pane-body > .terminal { border-start-start-radius: 0; border-start-end-radius: 0; }
 .pane-tab-bar .new-menu,.pane-collapse { flex: 0 0 auto; }
 .pane-tab-bar .new-menu { position: relative; }
 .tab-merge-preview { position: fixed; z-index: 110; display: grid; place-items: center; box-sizing: border-box; pointer-events: none;
@@ -576,7 +579,7 @@ main.desktop-shell {
 .log-viewer-path { display:block; color:var(--text-muted); }
 .log-viewer-settings [role="alert"] { color:var(--danger); }
 .log-menu-target, .app-dialog-corner h2 { font-weight: 400; }
-.terminal-grid.single .terminal-pane > .terminal { border-start-start-radius: 0; border-start-end-radius: 0; }
+.terminal-grid.single .terminal-pane-body > .terminal { border-start-start-radius: 0; border-start-end-radius: 0; }
 .terminal .xterm .composition-view {
   color: var(--preedit-foreground);
   background-color: var(--preedit-background);

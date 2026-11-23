@@ -9,7 +9,7 @@ type ScriptPreview = {filename:string; text:string; encoding:string; truncated:b
 type Preview = {target:Target; script?:ScriptPreview; error?:string};
 type Placement = {left:number;top:number;width:number}|'inline';
 
-export function useShortcutPreview(scope:string, revision:string|null, enabled:boolean, panel:RefObject<HTMLElement|null>) {
+export function useShortcutPreview(scope:string, revision:string|null, enabled:boolean, panel:RefObject<HTMLElement|null>, sendLocation?:string) {
   const [preview,setPreview]=useState<Preview>();
   const [placement,setPlacement]=useState<Placement>();
   const card=useRef<HTMLElement>(null);
@@ -148,11 +148,13 @@ export function useShortcutPreview(scope:string, revision:string|null, enabled:b
     onPointerEnter={()=>clearTimeout(leaving.current)} onPointerLeave={leave}
     onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}
     onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))leave();}}>
-    <small>{item.script_path?'脚本内容':'完整命令'}</small>
+    <small>{item.desktop_kind==='send'?sendLocation??'当前 SSH 或串口会话可执行':
+      item.script_path?'脚本内容 · Windows 本机':'完整命令 · Windows 本机'}</small>
     {displayed.script&&<strong>{visibleControls(displayed.script.filename)}</strong>}
     {text!==undefined?<pre>{visibleControls(text.replace(/\r\n?/g,'\n'))||'（空文件）'}</pre>
       :<p role="status">{displayed.error??'正在读取脚本预览…'}</p>}
     {displayed.script&&<small>{displayed.script.encoding}{displayed.script.truncated?' · 仅显示前 32 KiB':''}</small>}
+    {item.desktop_kind==='send'&&item.append_enter&&<small>追加 Enter</small>}
   </section>;
   return {fromRow,focusPreview,clear,node:element&&(docked?element:createPortal(element,document.body))};
 }
