@@ -3,6 +3,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {ContextMenu, ControlIcon, Dialog, Field, IconButton, Panel} from './ui';
 import {insertShortcuts,moveShortcutToEdge,setShortcutPins,stepShortcuts} from './local-shortcut-order';
 import {useShortcutDrag} from './local-shortcut-drag';
+import {useShortcutPreview} from './shortcut-preview';
 
 export type AdbShortcut = {id:string; name:string; command?:string; script_path?:string; pinned?:boolean};
 type ShortcutLayout = {columns:1|2; expanded:boolean};
@@ -20,9 +21,16 @@ type Editor = {kind:'shortcut'; item:AdbShortcut; revision:string|null} | {kind:
 const DEFAULT_LAYOUT:ShortcutLayout={columns:1,expanded:false};
 const noShortcuts:AdbShortcut[]=[];
 type Removal={snapshot:AdbSettings; ids:ReadonlySet<string>};
+type ScriptImport={snapshot:AdbSettings; files:{id:string;name:string;path:string;alias:string}[]};
+const filename=(path:string)=>path.split('\\').at(-1)??path;
+function scriptName(path:string,alias:string){
+  const original=filename(path);
+  const stem=Array.from(original.slice(0,-4)).slice(0,60).join('');
+  return alias.trim()||stem+original.slice(-4);
+}
 
-export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, close, reload, execute, diagnostics}: {
-  id:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():Promise<void>;
+export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardFocus, close, reload, execute, diagnostics}: {
+  id:string; scope:string; open:boolean; settings?:AdbSettings; starting:boolean; close():void; reload():Promise<void>;
   execute(item:AdbShortcut, revision:string):void;
   diagnostics:Readonly<Record<string, AdbDiagnostic>>;
   keyboardFocus?:number;
@@ -38,24 +46,30 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
   const [managing,setManaging]=useState(false);
   const [selection,setSelection]=useState<ReadonlySet<string>>(()=>new Set());
   const [removal,setRemoval]=useState<Removal>();
+  const [imports,setImports]=useState<ScriptImport>();
+  const panel=useRef<HTMLElement>(null);
   const scrollBody=useRef<HTMLDivElement>(null);
   const manageButton=useRef<HTMLButtonElement>(null);
   const pendingFocus=useRef<string>(undefined);
   const focusedRequest=useRef<number>(undefined);
   const saving = useRef(false);
+  const route=useRef({scope,open});
+  route.current={scope,open};
   const items=settings?.shortcuts??noShortcuts;
   const layout=settings?.layout??DEFAULT_LAYOUT;
   const picked=items.filter(item=>selection.has(item.id));
   const pinnedItems=items.filter(item=>item.pinned);
   const regularItems=items.filter(item=>!item.pinned);
-  const canAdd = !!settings && settings.shortcuts.length < 32 && !busy && !editor && !managing;
+  const canAdd = !!settings && settings.shortcuts.length < 32 && !busy && !editor && !managing && !imports;
   const diagnostic = diagnosticId ? diagnostics[diagnosticId] : undefined;
+  const preview=useShortcutPreview(scope,settings?.revision??null,open&&!busy&&!editor&&!menu&&!addMenu&&!managing&&!imports&&!removal,panel);
   useEffect(()=>{
     if(!open){
-      setMenu(undefined);setAddMenu(undefined);setManaging(false);setRemoval(undefined);
+      setMenu(undefined);setAddMenu(undefined);setManaging(false);setRemoval(undefined);setImports(undefined);
       setSelection(new Set());setFeedback('');
     }
   },[open]);
+  useEffect(()=>setImports(undefined),[scope]);
   useEffect(()=>{
     const ids=new Set(items.map(item=>item.id));
     setSelection(previous=>previous.size&&[...previous].some(id=>!ids.has(id))
@@ -97,7 +111,7 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
     let next:AdbSettings|undefined;
     try {
       const selected=await invoke<{name:string;path:string}[]>('pick_local_scripts',{multiple:!replace});
-      if(!selected.length)return;
+      if(!selected.length||!route.current.open||route.current.scope!==scope)return;
       if(replace){
         next={...settings,shortcuts:settings.shortcuts.map(item=>item.id===replace.id?{...item,script_path:selected[0].path}:item)};
       }else{
@@ -106,13 +120,19 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
           const key=file.path.toLowerCase();
           if(paths.has(key))return false;
           paths.add(key);return true;
-        }).map(file=>({id:crypto.randomUUID(),name:file.name,script_path:file.path}));
+        }).map(file=>({...file,id:crypto.randomUUID(),alias:''}));
         if(!added.length){setFailure('所选脚本已在列表中');return;}
-        next={...settings,shortcuts:[...settings.shortcuts,...added]};
+        setImports({snapshot:settings,files:added});
       }
     }catch(error){setFailure(String(error));}
     finally{saving.current=false;setBusy(false);}
     if(next)await save(next);
+  }
+  async function importNamedScripts(){
+    if(!imports||settings?.revision!==imports.snapshot.revision||imports.snapshot.shortcuts.length+imports.files.length>32)return;
+    const {snapshot,files}=imports;
+    const added=files.map(file=>({id:file.id,name:scriptName(file.path,file.alias),script_path:file.path}));
+    if(await save({...snapshot,shortcuts:[...snapshot.shortcuts,...added]},'已添加本地脚本'))setImports(undefined);
   }
   async function save(next:AdbSettings, message='已保存', focus?:string) {
     if (saving.current) return false;
@@ -144,7 +164,8 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
       const index = settings.shortcuts.findIndex(item=>item.id===editor.item.id);
       const shortcuts = [...settings.shortcuts];
       if (index < 0) shortcuts.push(editor.item);
-      else shortcuts[index] = editor.item;
+      else shortcuts[index] = editor.item.script_path
+        ?{...editor.item,name:scriptName(editor.item.script_path,editor.item.name)}:editor.item;
       void save({...next, shortcuts});
     }
   }
@@ -184,7 +205,7 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
     const moveLast=rowMenu&&moveShortcutToEdge(items,item.id,'last');
     const target=drag.preview?.id===item.id?drag.preview:undefined;
     const detail=item.script_path?'本地脚本 · '+item.script_path:'ADB · '+item.command;
-    const content=<><span>{item.name}</span><code>{detail}</code></>;
+    const content=<><span>{item.name}</span>{layout.expanded&&<code>{detail}</code>}</>;
     return <li key={item.id} data-shortcut-id={item.id} data-pinned={isPinned}
       data-drag-source={drag.preview?.source===item.id||undefined}
       data-drop={target?(target.after?'after':'before'):undefined} data-drop-horizontal={target?.horizontal||undefined}>
@@ -203,8 +224,9 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
           event.preventDefault();
           if(!event.repeat)move(selection.has(item.id)?selection:single,event.key==='ArrowUp'?-1:1,item.id);
         }}><span aria-hidden="true">⠿</span></button></>:<>
-      <button type="button" className="adb-shortcut-run adb-shortcut-text" aria-label={item.name} title={item.script_path??item.command}
+      <button type="button" className="adb-shortcut-run adb-shortcut-text" aria-label={item.name} {...preview.fromRow(item)}
         aria-disabled={starting||busy} onKeyDown={event=>{
+          if(event.key==='ArrowLeft'&&preview.focusPreview(event.currentTarget)){event.preventDefault();return;}
           if(event.key==='Enter'){
             event.preventDefault();
             if(!event.repeat&&!event.nativeEvent.isComposing&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey)event.currentTarget.click();
@@ -217,6 +239,7 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
             buttons[(index+buttons.length+(event.key==='ArrowUp'?-1:1))%buttons.length]?.focus();
           }else if(event.repeat&&event.key===' ')event.preventDefault();
         }} onClick={event=>{
+          preview.clear();
           if(!managing&&!starting&&!saving.current&&event.detail<=1&&settings?.revision)execute(item,settings.revision);
         }}>{content}</button>
       <button type="button" className="adb-row-menu-trigger" aria-label={item.name+' 的管理操作'}
@@ -226,7 +249,7 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
         title={diagnostics[item.id].error??undefined} onClick={()=>setDiagnosticId(item.id)}>!</button>}
       {rowMenu&&<ContextMenu className="adb-row-menu" label={item.name+' 的管理菜单'}
         x={0} y={0} anchor={rowMenu.anchor} anchored close={()=>setMenu(undefined)}>
-        <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);edit(item);}}>编辑</button>
+        <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);edit(item);}}>{item.script_path?'重命名':'编辑'}</button>
         <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);pin(single,!isPinned);}}>{isPinned?'取消置顶':'置顶'}</button>
         <button role="menuitem" type="button" disabled={busy||!stepShortcuts(items,single,-1)} onClick={()=>{setMenu(undefined);move(single,-1);}}>上移</button>
         <button role="menuitem" type="button" disabled={busy||!stepShortcuts(items,single,1)} onClick={()=>{setMenu(undefined);move(single,1);}}>下移</button>
@@ -248,7 +271,7 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
       </ContextMenu>}</>}
     </li>;
   }
-  return <aside id={id} className="adb-shortcut-panel" aria-label="快捷指令" data-expanded={layout.expanded} data-columns={layout.columns} hidden={!open}>
+  return <aside id={id} ref={panel} className="adb-shortcut-panel" aria-label="快捷指令" data-expanded={layout.expanded} data-columns={layout.columns} hidden={!open}>
     <div className="adb-panel-heading">
       <h2>快捷指令</h2>
       <IconButton icon="plus" label="新建快捷指令" disabled={!canAdd} aria-haspopup="menu" aria-expanded={!!addMenu}
@@ -283,7 +306,8 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
             ? <Field label="ADB 程序路径"><input autoFocus aria-label="ADB 程序路径" value={editor.path} placeholder="留空使用 PATH"
               onChange={event=>setEditor({...editor,path:event.target.value})}/></Field>
             : <>
-              <Field label="名称"><input autoFocus aria-label="指令名称" value={editor.item.name} maxLength={64}
+              <Field label={editor.item.script_path?'显示名称':'名称'}><input autoFocus aria-label="指令名称" value={editor.item.name} maxLength={64}
+                placeholder={editor.item.script_path?filename(editor.item.script_path):undefined}
                 onChange={event=>setEditor({...editor,item:{...editor.item,name:event.target.value}})}/></Field>
               {editor.item.script_path?<Field label="脚本路径"><input value={editor.item.script_path} readOnly/></Field>
                 :<Field label="完整 ADB 命令"><textarea aria-label="完整 ADB 命令" rows={5} wrap="soft" spellCheck={false} maxLength={8192}
@@ -318,7 +342,8 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
         {diagnostic.stderr&&<pre aria-label="ADB 枚举错误输出">{diagnostic.stderr}</pre>}
       </section>}
     </div>
-    {!removal&&failure&&<div className="adb-panel-error">
+    {preview.node}
+    {!removal&&!imports&&failure&&<div className="adb-panel-error">
       <small role="alert">{failure}</small>
       <button type="button" disabled={busy} onClick={()=>{reload();setFailure('');}}>重新读取快捷指令</button>
     </div>}
@@ -333,6 +358,32 @@ export function AdbShortcutPanel({id, open, settings, starting, keyboardFocus, c
       <button role="menuitem" type="button" onClick={()=>{setAddMenu(undefined);add();}}>ADB 命令</button>
       <button role="menuitem" type="button" onClick={()=>{setAddMenu(undefined);void selectScripts();}}>本地脚本</button>
     </ContextMenu>}
+    {open&&imports&&<Dialog label="命名本地脚本" close={()=>{if(!busy){setImports(undefined);setFailure('');}}}>
+      <Panel title="命名本地脚本">
+        <form className="script-import-form" onSubmit={event=>{event.preventDefault();void importNamedScripts();}}>
+          <p>留空使用原文件名。</p>
+          <div className="script-import-items">
+            {imports.files.map((file,index)=><Field key={file.id} label={file.name}>
+              {imports.files.some(other=>other.id!==file.id&&other.name===file.name)&&<small className="script-import-path" title={file.path}>{file.path}</small>}
+              <input aria-label={'显示名称 '+file.name} value={file.alias} placeholder={file.name} maxLength={64}
+                disabled={busy} data-dialog-autofocus={index===0?'':undefined}
+                onChange={event=>{
+                  const alias=event.currentTarget.value;
+                  setImports(draft=>draft&&({...draft,files:draft.files.map(item=>item.id===file.id?{...item,alias}:item)}));
+                }}/>
+            </Field>)}
+          </div>
+          {imports.snapshot.shortcuts.length+imports.files.length>32&&<p role="alert">最多保存 32 条快捷指令，请减少本次选择。</p>}
+          {settings?.revision!==imports.snapshot.revision&&<p role="alert">快捷指令已更新，请取消后重新导入。</p>}
+          {!!failure&&<p role="alert">{failure}</p>}
+          <div className="config-actions">
+            <button type="button" disabled={busy} onClick={()=>{setImports(undefined);setFailure('');}}>取消导入</button>
+            <button type="submit" disabled={busy||settings?.revision!==imports.snapshot.revision
+              ||imports.snapshot.shortcuts.length+imports.files.length>32}>确定导入</button>
+          </div>
+        </form>
+      </Panel>
+    </Dialog>}
     {open&&removal&&<Dialog label="移除快捷指令" close={()=>{if(!saving.current)setRemoval(undefined);}}
       fallbackFocus={()=>manageButton.current?.focus()}>
       <Panel title="移除快捷指令">

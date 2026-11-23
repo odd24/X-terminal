@@ -55,6 +55,10 @@ async function addWithPicker(paths) {
   await ui.waitFor('!!document.querySelector("[aria-label=\'新建指令类型\'][data-positioned]")');
   await ui.click('本地脚本');
   await choose(paths);
+  if(paths){
+    await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=\"命名本地脚本\"]')");
+    await ui.click('确定导入');
+  }
   await ui.waitFor("document.querySelector('[aria-label=\"新建快捷指令\"]')?.disabled===false");
 }
 async function management(name,action) {
@@ -172,8 +176,8 @@ try {
   await execute(firstName);
   await ui.waitFor("document.body.innerText.includes('脚本不可用')");
   await management(firstName,'重新定位');await choose([moved]);
-  await ui.waitFor(`[...document.querySelectorAll('${panel} .adb-shortcut-run')].some(b=>b.title.endsWith('移动脚本.cmd'))`);
-  await management(firstName,'编辑');await ui.fill('指令名称','重新定位样本');await ui.click('保存指令');
+  await ui.waitFor(`(async()=> (await window.__TAURI_INTERNALS__.invoke('local_adb_settings',{settings:null})).shortcuts.some(item=>item.script_path===${q(await realpath(moved))}))()`);
+  await management(firstName,'重命名');await ui.fill('指令名称','重新定位样本');await ui.click('保存指令');
   await ui.waitFor(`!!document.querySelector('${panel} .adb-shortcut-run[aria-label="重新定位样本"]')`);
   const beforeMove=await order();
   const shift=beforeMove.indexOf('重新定位样本')===1?'上移':'下移';

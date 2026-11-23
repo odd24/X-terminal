@@ -148,9 +148,9 @@ try{
   await openLocal();await openPanel();
   assert.deepEqual(await settings(),old);
   await columns(1);await storageOrder(legacy);
-  result.measurements.compact=await ui.evaluate(`(()=>{const row=${row(c)},code=row.querySelector('code');return {cssPixels:row.getBoundingClientRect().height,truncated:code.scrollWidth>code.clientWidth};})()`);
-  assert.ok(result.measurements.compact.cssPixels<45&&result.measurements.compact.truncated,JSON.stringify(result.measurements.compact));
-  result.checks.push('0.1.19 mixed 32-item settings load exactly; compact single-column rows and clipped commands');
+  result.measurements.compact=await ui.evaluate(`(()=>{const row=${row(c)};return {cssPixels:row.getBoundingClientRect().height,hasDetail:!!row.querySelector('code')};})()`);
+  assert.ok(result.measurements.compact.cssPixels<34&&!result.measurements.compact.hasDetail,JSON.stringify(result.measurements.compact));
+  result.checks.push('0.1.19 mixed 32-item settings load exactly; compact single-column rows show names only');
 
   await ui.click('管理');await checked(a,b,c);await ui.click('置顶');await saved('已置顶');
   await ui.click('完成管理');

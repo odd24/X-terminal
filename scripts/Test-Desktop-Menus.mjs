@@ -9,6 +9,7 @@ import {requestId} from '../apps/desktop/src/request-id.ts';
 import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]);
+const version=path.basename(path.dirname(executable)).match(/^SharedTerminal-(\d+\.\d+\.\d+)-windows-x64$/)?.[1]??'0.1.25';
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-menu-ui-中文-'));
 const evidence={result:'IN_PROGRESS',executable,desktopSha256:createHash('sha256').update(await readFile(executable)).digest('hex'),
   screenshots:[],surfaces:[],checks:[]};
@@ -53,7 +54,7 @@ const selected=()=>ui.evaluate("document.querySelector('.pane-active [role=tab][
 const action=label=>wait(`document.activeElement?.textContent===${q(label)}`);
 const close=async(selector,trigger)=>{await key('Escape');await wait(`!${node(selector)}?.dataset.positioned`);await active(trigger);};
 async function screenshot(name){
-  const file=`windows-0.1.25-menus-${name}.png`;
+  const file=`windows-${version}-menus-${name}.png`;
   await ui.screenshot(file);
   evidence.screenshots.push(file);
 }
@@ -162,7 +163,7 @@ try{
   await click(profile,'right');await surface('配置树右键',treeMenu,'03-light-tree-context');
   await key('End');await action('删除');await key('ArrowDown');await action('连接');await close(treeMenu,profile);
   await click(rowTrigger);await surface('快捷指令管理',rowMenu,'04-light-shortcut-more');
-  await key('Home');await action('编辑');await key('ArrowDown');await action('置顶');
+  await key('Home');await action('重命名');await key('ArrowDown');await action('置顶');
   await key('ArrowDown');await action('重新定位');await close(rowMenu,rowTrigger);
   await click(configPlus);await surface('配置加号','.tree-new-menu .app-menu');
   await key('ArrowDown');await action('新建 SSH 配置');await close('.tree-new-menu .app-menu',configPlus);
@@ -178,7 +179,7 @@ try{
   // The primary click and an explicit keyboard command still act at their own entry points.
   await click(plus);await wait("document.querySelectorAll('[role=tab]').length===2");
   await ui.click('关闭 本地 2');await wait("document.querySelectorAll('[role=tab]').length===1");
-  await click(rowTrigger);await action('编辑');await key('Enter');
+  await click(rowTrigger);await action('重命名');await key('Enter');
   await wait("!!document.querySelector('form[aria-label=快捷指令编辑]')");
   assert.equal(await ui.evaluate(`${node(localBody)}.querySelector('.xterm')===window.originalLocal&&${node(localBody)}.innerText.includes('MENU_DRAFT_123')`),true);
   await ui.click('取消编辑');
@@ -273,7 +274,7 @@ try{
 }catch(error){
   evidence.result='FAIL';
   evidence.error=String(error.stack);
-  await ui?.screenshot('windows-0.1.25-menus-failure.png').catch(()=>{});
+  await ui?.screenshot(`windows-${version}-menus-failure.png`).catch(()=>{});
   throw error;
 }finally{
   await ui?.close();
@@ -281,6 +282,6 @@ try{
     const exited=new Promise(resolve=>peer.once('exit',resolve));
     peer.kill();await exited;
   }
-  await writeFile('artifacts/windows-0.1.25-menus-result.json',JSON.stringify(evidence,null,2)+'\n');
+  await writeFile(`artifacts/windows-${version}-menus-result.json`,JSON.stringify(evidence,null,2)+'\n');
   await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }

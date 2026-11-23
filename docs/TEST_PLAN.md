@@ -2,6 +2,8 @@
 
 P26.19 用 `Test-Desktop-LocalTabs.mjs` 覆盖本地拖动跨服务首帧、实体鼠标排序、分屏和双击无新建，用脚本和 SSH 混排专项核对前台输入与远端复制。[P26.19](records/P26.19.md)
 
+P26.18 使用 `Test-Desktop-ShortcutPreview.mjs` 验证 Windows 实际选择器、批量确认、CAS、重启、预览滚动、权限、失效与零误执行，并复验原管理和菜单入口。[P26.18](records/P26.18.md)
+
 P26.17 扩展 `Test-Desktop-LocalTabs.mjs` 核对普通本地终端双击、源目录、独立会话和模拟 ADB 边界，并复验 BAT/CMD 的原进程、拖动和 SSH 复制。[P26.17](records/P26.17.md)
 
 P26.16 使用 `Test-Desktop-TabSeparation.mjs` 验证方案 A 的终端接缝、短竖分隔、深浅配色、同地址混排和宽窄分屏，并执行标签交互和快捷键回归。[P26.16](records/P26.16.md)

@@ -1,9 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
+    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
 };
 use tauri::{State, WebviewWindow};
+use uuid::Uuid;
 use windows::{
     Win32::{
         Foundation::HWND,
@@ -19,8 +21,27 @@ use windows::{
     },
     core::w,
 };
+use windows_sys::Win32::Globalization::{GetACP, MB_ERR_INVALID_CHARS, MultiByteToWideChar};
 
 pub struct Picker(pub Arc<tokio::sync::Semaphore>);
+const PREVIEW_LIMIT: usize = 32 * 1024;
+static PREVIEW_READER: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+const PREVIEW_ENCODING: &str = "无法识别脚本编码";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreviewRequest {
+    id: Uuid,
+    revision: Uuid,
+}
+
+#[derive(Serialize)]
+pub struct Preview {
+    filename: String,
+    text: String,
+    encoding: String,
+    truncated: bool,
+}
 
 pub fn valid_path(text: &str) -> bool {
     let bytes = text.as_bytes();
@@ -44,6 +65,146 @@ pub fn readable(text: &str) -> Result<(std::fs::File, PathBuf), String> {
     crate::config_import::open_local_file(path, extension)
         .map(|(file, path)| (file, PathBuf::from(path)))
         .map_err(|_| "脚本不可用，请从管理菜单重新定位".into())
+}
+
+fn decode_ansi(bytes: &[u8], code_page: u32) -> Option<String> {
+    let len = i32::try_from(bytes.len()).ok()?;
+    let size = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            MB_ERR_INVALID_CHARS,
+            bytes.as_ptr(),
+            len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if size == 0 {
+        return None;
+    }
+    let mut units = vec![0u16; size as usize];
+    let decoded = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            MB_ERR_INVALID_CHARS,
+            bytes.as_ptr(),
+            len,
+            units.as_mut_ptr(),
+            size,
+        )
+    };
+    (decoded == size)
+        .then(|| String::from_utf16(&units).ok())
+        .flatten()
+}
+
+fn decode_preview(bytes: &[u8], truncated: bool) -> Result<(String, String), String> {
+    if bytes.starts_with(&[0xff, 0xfe, 0, 0]) || bytes.starts_with(&[0, 0, 0xfe, 0xff]) {
+        return Err(PREVIEW_ENCODING.into());
+    }
+    if bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0xfe, 0xff]) {
+        let utf16 = &bytes[2..];
+        if !truncated && utf16.len() % 2 != 0 {
+            return Err(PREVIEW_ENCODING.into());
+        }
+        let little = bytes[0] == 0xff;
+        let mut units: Vec<u16> = utf16
+            .chunks_exact(2)
+            .map(|chunk| {
+                let pair = [chunk[0], chunk[1]];
+                if little {
+                    u16::from_le_bytes(pair)
+                } else {
+                    u16::from_be_bytes(pair)
+                }
+            })
+            .collect();
+        if truncated && matches!(units.last(), Some(0xd800..=0xdbff)) {
+            units.pop();
+        }
+        let text = String::from_utf16(&units).map_err(|_| PREVIEW_ENCODING)?;
+        return Ok((text, if little { "UTF-16 LE" } else { "UTF-16 BE" }.into()));
+    }
+    let payload = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]);
+    let utf8 = payload.unwrap_or(bytes);
+    match std::str::from_utf8(utf8) {
+        Ok(text) => return Ok((text.into(), "UTF-8".into())),
+        Err(error) if truncated && error.error_len().is_none() => {
+            let text =
+                std::str::from_utf8(&utf8[..error.valid_up_to()]).map_err(|_| PREVIEW_ENCODING)?;
+            return Ok((text.into(), "UTF-8".into()));
+        }
+        Err(_) if payload.is_some() => return Err(PREVIEW_ENCODING.into()),
+        Err(_) => {}
+    }
+    let code_page = unsafe { GetACP() };
+    let available = if truncated { bytes.len().min(3) } else { 0 };
+    (0..=available)
+        .find_map(|discard| decode_ansi(&bytes[..bytes.len() - discard], code_page))
+        .map(|text| (text, format!("Windows CP{code_page}")))
+        .ok_or_else(|| PREVIEW_ENCODING.into())
+}
+
+fn registered_script(root: &Path, request: &PreviewRequest) -> Result<String, String> {
+    let settings = super::adb::read(root)?;
+    if settings.revision != Some(request.revision) {
+        return Err("快捷指令已更新，请重新选择".into());
+    }
+    settings
+        .shortcuts
+        .into_iter()
+        .find(|item| item.id == request.id)
+        .and_then(|item| item.script_path)
+        .ok_or_else(|| "此入口不是已登记的本地脚本".into())
+}
+
+fn read_preview(root: &Path, request: &PreviewRequest) -> Result<Preview, String> {
+    let path = registered_script(root, request)?;
+    let (file, opened) = readable(&path)?;
+    let mut bytes = Vec::with_capacity(PREVIEW_LIMIT + 1);
+    file.take((PREVIEW_LIMIT + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "无法读取脚本预览")?;
+    let truncated = bytes.len() > PREVIEW_LIMIT;
+    bytes.truncate(PREVIEW_LIMIT);
+    let (text, encoding) = decode_preview(&bytes, truncated)?;
+    if text.contains('\0') {
+        return Err(PREVIEW_ENCODING.into());
+    }
+    if registered_script(root, request)? != path {
+        return Err("快捷指令已更新，请重新选择".into());
+    }
+    let filename = opened
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("脚本文件名不可用")?;
+    Ok(Preview {
+        filename: filename.into(),
+        text,
+        encoding,
+        truncated,
+    })
+}
+
+#[tauri::command]
+pub async fn preview_local_script(
+    window: WebviewWindow,
+    desktop: State<'_, crate::Desktop>,
+    request: PreviewRequest,
+) -> Result<Preview, String> {
+    if window.label() != crate::session_windows::MAIN {
+        return Err("本地脚本仅在主窗口可预览".into());
+    }
+    let permit = PREVIEW_READER
+        .try_acquire()
+        .map_err(|_| "另一项脚本预览仍在读取")?;
+    let root = desktop.2.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        read_preview(&root, &request)
+    })
+    .await
+    .map_err(|_| "脚本预览已结束")?
 }
 
 struct Apartment;
@@ -107,13 +268,7 @@ fn pick(owner: usize, multiple: bool) -> Result<Vec<Selection>, String> {
                 let path = raw.to_string();
                 CoTaskMemFree(Some(raw.0.cast()));
                 let (_, path) = readable(&path.map_err(|_| "脚本路径编码无效")?)?;
-                let name = path
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .chars()
-                    .take(64)
-                    .collect();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
                 Ok(Selection {
                     path: path.to_string_lossy().into_owned(),
                     name,

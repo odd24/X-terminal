@@ -1332,7 +1332,7 @@ function App() {
         return <TerminalPane context={(pane,value)=>setTerminalMenu({...value,pane,title:c?tabName(c):value.target.protocol})} key={slot.key} rendered={view.renderedTarget} id={slot.key} position={index+1} split={paneSlots.length>1} active={panes.current.active===slot.key} tabs={rail} showLocal={!!localId}
           local={locals.map(tab=><div key={tab.id} className="local-terminal-socket" hidden={localId!==tab.id}
             ref={node=>{if(node&&tab.surface.parentElement!==node)node.append(tab.surface);}}/>)}
-          localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} open={adbOpen} settings={adbSettings} starting={adbStarting}
+          localSidebar={localId&&<AdbShortcutPanel id={adbPanelId} scope={localId} open={adbOpen} settings={adbSettings} starting={adbStarting}
             keyboardFocus={adbKeyboardFocus?.pane===key&&adbKeyboardFocus.id===localId?adbKeyboardFocus.request:undefined}
             diagnostics={adbDiagnostics}
             close={()=>setAdbPanel(key,false)} reload={loadAdb}
