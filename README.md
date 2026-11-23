@@ -1,128 +1,65 @@
 # Windows 终端模拟器
 
-当前正式交付为 **Windows x64 0.1.36**，提供直接运行目录。本机开始菜单「共享终端」已指向 0.1.36，「共享终端 0.1.22」是回退入口。[启动说明](docs/WINDOWS_PORTABLE.md) · [正式部署](docs/records/P26.27.md)
+共享终端是用于 SSH 服务器工作、串口/UART 调试与日志采集的 Windows 桌面应用，支持通过 MCP 与 Codex 共享已批准的会话。
 
-面向 SSH/串口调试、延续 Xshell 使用习惯、支持 Codex 通过 MCP 协作的 Windows 桌面终端。
+**当前正式版本为 Windows x64 0.1.36。** 在已部署的电脑上，从开始菜单打开「共享终端」。「共享终端 0.1.22」是本机回退入口。使用便携目录时保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [0.1.36 部署验证](docs/records/P26.27.md)
 
-日常使用围绕 **SSH 服务器工作、串口/UART 通信或只接收抓取、两者基本通信日志**。MCP v13 提供 33 项工具，四个快捷指令工具可在单独批准扩展范围后使用 `version: "v2"` 管理四类配置。省略版本时使用原 ADB 和脚本引用范围。[Codex 接入](docs/CODEX_INTEGRATION.md#v13-右栏快捷指令)
+## 日常使用
 
-后续改动从[需求基线](docs/REQUIREMENTS.md)和[现行桌面交互基线](docs/UI_GUIDELINES.md#现行桌面交互基线)查用户已确认的偏好。实际 SSH 登录和 Android UART 单次只接收复验已有阶段证据，设备、认证和 Windows 环境的完整矩阵仍待验。[SSH 记录](docs/records/P12.1.md) · [UART 实机复验](docs/records/P10.1.md#修复预览与一次实机复验2026-11-09)
-
-## 开发预览与阶段资料
-
-下列入口及描述按各自开发阶段阅读。当前窗口、工具栏、标签分屏和日志操作见[便携版说明](docs/WINDOWS_PORTABLE.md)。
-
-S1 阶段的交互按[CR-009](docs/changes/CR-009.md)：会话标签直接关闭，不确认；会话导航中的已保存SSH2支持双击或右键“连接”，可用保存凭据自动一次登录，必要指纹与失败补录保留。程序退出/删除规则独立。实现和实测边界见[P12.1](docs/records/P12.1.md)。
-
-本地开发使用[预览说明](docs/LOCAL_PREVIEW.md)。`npm run preview:local` 生成三个相邻二进制、说明及指纹，并检查复制品启动与关闭。早期 9 工具和单次共享发送属于 P15/P16 初版证据。早期 29 项工具矩阵、0.1.36 安装版实测和模型验证边界见 [Codex 接入](docs/CODEX_INTEGRATION.md#现行使用约定与验证边界)。
-
-“Agent 授权”可按精确连接代次预览并批准独立范围/期限，查询原编号、当前有效范围、输入租约，显式撤销或人工接管；可明确选择时间窗、单次/任务形式和服务端输出保护。独立持久审计提供同步/失败状态与固定水位只读历史页，保留窗口/坏尾明确显示。窗口只恢复service_id/request_id，不恢复同意或token；原生回复不向WebView暴露token。签发后仍须从“MCP 初版连接”核对本次进程/原授权并单独配对；桌面批准不能代替Codex自身批准。详情见[使用说明](docs/ALPHA_USER_GUIDE.md)与[P14](docs/records/P14.md)。
-
-在授权目标类型中选择“已保存配置建连”，可独立批准SSH2/串口的固定Profile与配置版本；预览完整参数及串口初始DTR/RTS，批准前重新核对版本，变更后须重新预览。只授Connect且不立即建连，不授新连接的其他能力或认证批准。
-
-底部状态栏跟随活动连接，显示编码、本地终端列×行、日志及桌面输入状态；“连接与服务详情”可展开完整连接ID/代次和服务身份。配置名称由实际连接的配置ID关联，刷新会话树后反映配置改名；删除配置不会关闭既有连接，名称回退协议/短ID。视口尺寸不代表远端PTY已经应用，串口没有远端PTY；“桌面输入可用”也不代表设备执行成功或Agent已授权。日志面板关闭后记录继续，底部仍显示本次服务状态，查看/停止记录可重新打开“终端日志”。
-
-各功能的历史开发证据见[执行台账](docs/EXECUTION_LOG.md)和[开发预览使用说明](docs/ALPHA_USER_GUIDE.md)。Windows x64 0.1.12 的便携 ZIP 验收作为历史记录保留。MSI、代码签名及干净系统安装仍按 [P25/T21](docs/records/P25.md#正式-t21-前置)验收。[0.1.12 发布记录](docs/records/P25.md#windows-x64-0112-右下角通知2026-11-21)
+- **连接。** 从连接库打开已有 SSH2 或串口条目，也可用「更多工具」打开连接表单。SSH 按正常流程验证主机和身份。串口可用于交互或只接收。标签支持拖动排序、分屏和独立窗口，本地标签也可拖动。复制手势及适用会话见[桌面交互基线](docs/UI_GUIDELINES.md#现行桌面交互基线)。
+- **录制。** 用 SSH2 或串口标签上的录制按钮开始和停止。在「更多工具 → 软件设置 → 日志」设置可读日志目录。默认写入当前数据根的 `logs`，目录修改从下一次录制生效。工具栏文件夹打开当前目录，停录通知可打开该次原文件。[日志使用说明](docs/WINDOWS_PORTABLE.md) · [文件身份与测试](docs/records/P26.23.md)
+- **数据。** 默认数据根是 `%LOCALAPPDATA%\local.shared-terminal.desktop`。可用 `--data-dir` 指定独立绝对路径。同一数据根由一个运行中的服务持有，配置占用解除后可使用「重新检查配置目录」。[启动与排查](docs/WINDOWS_PORTABLE.md)
+- **Codex。** 在 Desktop 的「更多工具 → Agent 授权 → MCP 初版连接」核对当次桥进程及批准范围。本版 MCP v13 有 33 项工具。四个快捷指令工具在获得相应扩展批准后以 `version: "v2"` 管理四类配置。省略版本沿用原 ADB 和脚本引用范围。[Codex 接入](docs/CODEX_INTEGRATION.md#v13-右栏快捷指令)
 
 ## 执行入口
 
-1. 阅读 [AGENTS.md](AGENTS.md)：协作约束与每步 Git 提交规则。
-2. 阅读 [需求基线](docs/REQUIREMENTS.md) 和 [架构方案](docs/ARCHITECTURE.md)。
-3. 按 [执行计划](docs/EXECUTION_PLAN.md) 的依赖和阶段门推进。
-4. 在 [执行台账](docs/EXECUTION_LOG.md) 更新状态并创建步骤记录。
-5. 需求/架构发生变化时按 [变更管理](docs/CHANGE_CONTROL.md) 操作。
-
-配套文档：[Codex 接入](docs/CODEX_INTEGRATION.md) · [验收计划](docs/TEST_PLAN.md) · [变更日志](CHANGELOG.md)。
-
-## 已确认与暂定
-
-- 已确认：Windows、SSH1/SSH2、SERIAL、会话管理、标签组、同步输入、快速命令、撰写窗格、触发器、首版外部 Agent 为 Codex。
-- 暂定：Windows 10/11 x64；Tauri 2、React、xterm.js、Rust、SQLite；本地 stdio MCP 桥接。
-- 未确认：实际 SSH1 设备、串口参数、旧 UNIX 版本、认证环境、最低系统版本、正式产品名。
-- v1.0 必须包含用户提出的功能；内置 AI 聊天、SFTP、X11、云同步为后续候选，不代替首版 Codex 接入。
-
-各执行步骤按仓库规则本地提交。推送、发布和本机 Codex 注册变更均按用户明确授权执行。
+贡献者先查[仓库执行规则](AGENTS.md)、[需求](docs/REQUIREMENTS.md)及[执行路线](docs/EXECUTION_PLAN.md)。界面改动按[维护手册](docs/UI_GUIDELINES.md)复用控件并选择定向验证。查[执行台账](docs/EXECUTION_LOG.md)、[测试计划](docs/TEST_PLAN.md)、[变更管理](docs/CHANGE_CONTROL.md)和[变更日志](CHANGELOG.md)了解步骤及证据。
 
 ## 本地开发
 
-Node 24.14.0 / npm 11.9.0；Rust 1.99.1 MSVC（rust-toolchain.toml）；MSVC 与 Windows SDK、WebView2 是系统前置条件。版本和本机调查见 [ADR-001](docs/decisions/ADR-001.md) 与 [环境清单](docs/evidence/P01-environment.md)。
+使用 Node 24.14.0、npm 11.9.0、`rust-toolchain.toml` 固定的 Rust 1.99.1、MSVC、Windows SDK 和 WebView2。工具链脚本在仓库已有本地工具时切换环境，也可使用准备好的系统工具链。[环境清单](docs/evidence/P01-environment.md)
 
 ```powershell
 . ./scripts/Enter-Toolchain.ps1
 npm ci --ignore-scripts
-npm run lint
-npm run build
-npm test
-npm run test:screen
-cargo test -p transport-ssh2 --locked
-cargo test -p transport-serial --locked
-cargo build -p mcp-bridge --locked
-npm run test:mcp
-npm run test:codex-mcp
-cargo fmt --all -- --check
-cargo test --workspace --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
 npm run desktop
-# 生成本地调试版桌面可执行文件，不打安装包
-npm run desktop:build
-npm run test:desktop
 ```
 
-仓库本地 Rust 存放在被忽略的 .tools 目录，其他开发机可以使用已安装的 rustup；Enter-Toolchain 仅在本地工具存在时切换。安装依赖后可用 `node scripts/Dependency-Licenses.mjs --cargo` 更新依赖许可元数据。产品代码许可尚未确定，当前 workspace 标为 LicenseRef-Proprietary；不暗示获得第三方分发权。安装发布留待 P25。
+`npm run desktop` 启动 Tauri 开发窗口。独立调试产物用 `npm run desktop:build` 生成。常规默认目标为 `target/debug`，可用其中的 Desktop EXE 和 `--data-dir` 开独立测试实例。构建后可运行 `npm run preview:local`，复制三个相邻二进制并在隔离根做启动和退出检查。[开发预览与阶段资料](docs/LOCAL_PREVIEW.md)
 
-P03 的 SSH2 测试服务器只在回环地址启动，key/测试口令在内存生成；这证明协议子项，不代表 Linux/UNIX/真实设备验收。具体缺口见 [P03 矩阵](docs/evidence/P03-ssh2-matrix.md)。
+| 改动 | 检查入口 |
+|---|---|
+| Markdown | `pwsh -NoProfile -File scripts/Validate-Docs.ps1`，再检查相关锚点和 `git diff --check` |
+| 桌面前端 | `npm run lint`、`npm test`，前端打包用 `npm run build` |
+| 终端解析和历史 | 按影响运行 `npm run test:screen`、`npm run test:history` |
+| Rust | `cargo fmt --all -- --check`，对受影响的 crate 执行 `cargo test -p <crate> --locked` 和 `cargo clippy -p <crate> --all-targets --locked -- -D warnings` |
+| 原生行为与端到端 | `npm run desktop:build` 后按[维护手册定向用例](docs/UI_GUIDELINES.md#可用性与执行证据)运行专项。已有组合入口为 `npm run test:desktop`，后续发布专项另见打包脚本 |
 
-P05 可用 `cargo run -p transport-serial --example enumerate` 只读列举端口；不自动打开设备。真实字节收发与控制线行为待指定设备验证，见 [P05](docs/records/P05.md)。
+<a id="开发预览与阶段资料"></a>
+<a id="显示偏好与复制粘贴p12开发预览"></a>
 
-P06 已有只读 mock MCP 原型与真实 Codex CLI app-server 客户端互通测试，使用隔离配置、无模型推理，不修改全局设置。它不访问实际会话，见 [P06](docs/records/P06.md)。
+按[执行台账](docs/EXECUTION_LOG.md)查历史开发记录。旧版显示、复制和粘贴的阶段证据见 [P12](docs/records/P12.md)，现行行为见[维护手册](docs/UI_GUIDELINES.md#现行桌面交互基线)。
 
-P07 已增加协议中立状态机、有界原始输出、内存只读票据与 [IPC v1](contracts/ipc/README.md)，以及受限 Windows Named Pipe 服务。可运行 `cargo test -p session-core -p session-protocol -p session-service --locked`；桌面启动、原生 ACL/跨进程、页面暂停/重载、退出/崩溃已验证，这些合成结果不代表实际设备验收通过。
+<a id="已确认与暂定"></a>
 
-P08.1 已有独立 SQLite 配置存储与真实临时数据库测试：`cargo test -p config-store --locked`。配置迁移/备份/新目标恢复、Profile/目录 CRUD 可在库层使用，配置服务与编辑器已在 P08.3 接入，见 [ADR-008](docs/decisions/ADR-008.md)。
+## 架构
 
-P08.2 已有 Windows 用户级 DPAPI/AES-GCM 凭据库：`cargo test -p credential-vault --locked`，只用合成秘密验证真实保护 API、跨进程重开与篡改拒绝。配置服务与桌面凭据流程见 P08.3，见 [ADR-009](docs/decisions/ADR-009.md)。
+- [桌面前端](apps/desktop/src)使用 React、xterm.js 和共享样式。 [Tauri 原生层](apps/desktop/src-tauri/src)对接窗口、系统选择器、受控文件操作和本机会话服务。
+- [会话服务](crates/session-service)通过 [会话核心](crates/session-core)和[协议](crates/session-protocol)管理连接代次、输入调度、录制及授权。传输层包括 [SSH2](crates/transport-ssh2)、[串口](crates/transport-serial)与显式开启的 [SSH1 兼容路径](crates/transport-ssh1)。
+- [配置库](crates/config-store)、[凭据保护](crates/credential-vault)、[终端日志](crates/terminal-log)和 [MCP stdio 桥](crates/mcp-bridge)各有独立边界。[架构方案](docs/ARCHITECTURE.md)
 
-`npm run desktop:build` 同时构建相邻的 session-service.exe。直接运行 `target/debug/shared-terminal-desktop.exe` 默认不启用合成接口；追加 `--test-fixture` 可手动新建合成会话。键盘合成回显和高输出均通过同一服务，页面重载从保留游标重新呈现；输出覆盖会明确报缺口。退出桌面会停止服务，当前没有退出后的后台驻留；隐藏标签可保留窗口内连接，退出仍停止服务。服务不可用时不自动重连/重放，退出后重新启动会得到全新服务；不能把重载当作重连。启动失败请检查相邻服务文件与普通用户权限，当前不提供安装包。
+## 构建 Windows x64 便携目录
 
-P08.3 已有 Desktop 专用配置 IPC 后端、有界工作线程和明确配置故障；桌面已传入独立数据目录并提供编辑器。完整产物及边界见 [P08.3](docs/records/P08.3.md)。
+从仓库根、已准备依赖的 PowerShell 中构建目标版本。
 
-P08.3 桌面增量已接入“连接配置”：目录与 SSH2/SSH1/SERIAL Profile 编辑、复制/移动/删除、凭据引用管理，保存不打开设备。默认使用应用本地用户目录，可通过 --data-dir 绝对路径选择其他目录；所有自动化测试使用独立临时目录。私钥表单只输入本地普通文件路径，内容由服务读取并加密，源文件不修改，页面不接收私钥明文。主机密钥、配置导出与备份恢复、凭据整理现已接入。npm run test:desktop 同时运行生命周期和配置编辑器的真实 WebView 测试，也可单跑 npm run test:desktop:config。
+```powershell
+. ./scripts/Enter-Toolchain.ps1
+New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+cargo build -p session-service --example gui_ssh_fixture --locked --target-dir target
+$env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target/windows-x64-portable'
+cargo build -p session-service -p mcp-bridge --locked --release --target x86_64-pc-windows-msvc
+npm run tauri --workspace apps/desktop -- build --target x86_64-pc-windows-msvc --no-bundle --config src-tauri/tauri.release.conf.json
+pwsh -NoProfile -File scripts/Prepare-Windows-Portable.ps1 -DirectoryOnly
+```
 
-P08.3 已有主机密钥信任库与 GUI 管理：显示完整指纹，移除须勾选且与当前记录匹配；变更冲突不会自动删除。存储层只读判定未知/已知/变化，批准要求当前版本，SSH1/SSH2/端口分别隔离。真实首次/变化握手确认由 P09/P13 接入，见 [ADR-011](docs/decisions/ADR-011.md)；备份恢复/凭据整理现已提供桌面入口。
-
-P08.3 的恢复存储层已增加一致镜像/预览摘要和事务恢复，安全副本不覆盖原文件，中途 SQL 失败回滚。现已提供服务/桌面导出与恢复入口，详见 [ADR-012](docs/decisions/ADR-012.md)；原生桌面流程已验证，设备与安装恢复验收仍在后续步骤。
-
-P08.3 现有“配置导出与备份恢复”入口：便携 JSON 排除凭据引用/信任记录，配置备份保留引用/信任记录但不含秘密或 vault。预览并勾选后可恢复，替换前保存旧库；坏库可恢复到新目录，再用 --data-dir 指定该目录启动。缺引用会提示重新输入。所有操作通过统一服务，不重连已有会话；凭据整理支持元数据列表、引用检查和显式遗忘。可单跑 npm run test:desktop:archives，细节见 ADR-012。
-
-P08 凭据整理可运行 npm run test:desktop:credentials。只显示 UUID/引用数；检查当前配置和 artifacts 受管理备份，仍有引用或备份不可读时拒绝遗忘。界面明示外部副本不在核对范围，遗忘不承诺磁盘物理擦除。所有自动化均用随机临时目录和合成秘密，尚未连接实际设备。
-
-P09 服务已接入 Profile/受保护凭据、主机挑战、密码/加密密钥/交互认证、共享原始输出、有界 FIFO 输入/resize、增量 exec 任务和同 ID 递增代次的显式重连。所有写入明确连接代次和 request_id；成功只表示进入 SSH 发送管线，结果未知不自动重试或重放。只有 Desktop 可控制；Agent 授权与长期容量继续实施，细节见 ADR-014–ADR-018 和 [P09 记录](docs/records/P09.md)。
-
-桌面“SSH2 连接”面板可手动连接已保存 UTF-8/GBK/GB18030 SSH2 配置、确认完整主机指纹、提交临时密码/保存凭据/交互回答、关闭和显式重连；终端输入与尺寸经统一服务，输入诊断不显示真实按键。连接与exec均使用建立时冻结的编码；配置修改不改变旧代次，无法表示的文本整批拒绝。exec 面板支持状态、增量输出、显式缺口、取消与按任务 ID 查询；重载不重新执行。页面重载保留服务会话，不自动重连。
-
-完成 npm run desktop:build 后，可运行 npm run test:desktop:ssh 构建隔离回环服务器并操作真实 WebView，覆盖指纹/认证/输入/尺寸/退出/重载。npm run test:desktop 包含此场景和原生命周期、配置、备份、凭据回归；所有配置和合成秘密使用临时目录。尚未连接实际 Linux/UNIX/用户设备，不代表 G0–G4 或完整产品验收通过。
-
-串口面板支持显式设备/控制线确认、文本/HEX/换行/节奏、RTS/DTR/Break与独立有界HEX接收；文本按打开时的UTF-8/GBK/GB18030快照增量解码。真实驱动占用/拔插、控制线及参数兼容待实机验证。`npm run test:desktop:serial`仅以测试编译的内存端口操作实际WebView，结束后检查普通服务恢复，不代表COM驱动验证。
-
-“屏幕快照”读取桌面当前视口；“服务端屏幕”读取统一服务持续维护的屏幕，GUI重载不重建服务状态。快照标出编码/尺寸/来源游标、接收缺口/解码错误和截断情况；当前解析器支持有界普通屏重排，替代屏切换已有有限合成验证；极限历史容量仍有BUG-001差异，真实程序/更广VT兼容未完整验收。原始字节、解码文本与screen分别有界保留，已可显式启停持久终端日志，历史读取/浏览/字面搜索及普通导出/另存已接入，普通与未完整恢复产物均有独立原生另存入口。详见[ADR-028](docs/decisions/ADR-028.md)。`npm run test:desktop:output`验证专用读取入口、保留覆盖与跨连接控制序列隔离；完整桌面回归包含该专项。
-
-P11.3已实现独立有界日志引擎，可运行 cargo test -p terminal-log --locked 验证真实临时文件、轮转与故障。P11.4启停阶段已接入服务/桌面：在“终端日志”面板显式开始/停止，默认不记录；只包含启用后的终端新输出，关闭面板/重载不停止，重连不自动继承。同步/失败见日志状态；本次服务记录与持久历史分开显示，历史浏览/搜索与导出已接入，特殊目标、长期稳定性和跨重启保存恢复仍见步骤记录。格式和完整性边界见[日志格式](contracts/logging/README.md)。
-
-日志原生专项 npm run test:desktop:logging（前置 npm run desktop:build）使用独立临时目录/合成连接，验证启停/重载/轮转/故障；完整桌面回归现包含该专项。日志源缺口/拒绝记录/退休段必须结合查看，保留窗口同步不代表完整连接或远程成功。
-
-历史查看：打开“终端日志”→展开“历史日志与搜索”→刷新目录→选择日志→打开历史日志。历史目标与活动连接分开，重启后无连接也可读取已完成日志；下一页替换当前页，时间显示北京时间，文本控制字符可见，HEX保留原始字节。字面搜索区分大小写，完整扫描保留范围并统计匹配总数，最多显示前100条；取消/错误不声称全文完成，退休段/捕获前不在范围内。关闭日志面板会释放历史读取，终端记录仍继续。
-
-可运行 npm run test:desktop:history（前置桌面构建），完整回归包含。普通日志导出/另存、失败前缀浏览与显式容量整理已接入，验证范围与限制见[P11.4记录](docs/records/P11.4.md)。
-
-失败日志可在“终端日志 → 历史日志、搜索与导出 → 失败日志只读前缀恢复”中刷新并独立选择目标。关闭正在占用源文件的恢复读取后，点击“导出未完整恢复前缀”，生成应用目录内的 JSONL。任务身份固定，不随选项或活动连接切换；结果显示确切前缀计数和停止原因，即使到达文件结尾也不代表源日志完整。丢应答或重载后仅查询原任务，已有产物不会因取消而撤销。恢复导出完成后可使用独立“另存未完整恢复文件”入口打开系统选择器，已有文件仍需独立确认替换并保留备份；未完整报告持续保留。不要用普通日志另存入口处理恢复编号。可运行 npm run test:desktop:recovery（前置桌面构建）验证合成临时日志的浏览/导出与故障处理。
-
-
-## 显示偏好与复制粘贴（P12开发预览）
-
-1. 打开“外观”，选择深色、浅色或跟随系统，独立终端配色（跟随应用、黑底绿字、黑底白字）以及Consolas/Cascadia优先的终端字体；字号在工具栏调整，中文使用系统回退字体，无需安装字体。调整立即应用于本窗口。
-2. 可设置Ctrl+C有选区时复制、Ctrl+V粘贴、右键粘贴。无选区Ctrl+C仍发送终端中断；关闭选区复制后Ctrl+C交给终端。Ctrl+Shift+C/V和复制/粘贴按钮始终可用。关闭Ctrl+V时它是终端控制键，关闭右键粘贴则保留系统菜单。
-3. 点击“保存桌面偏好”后，当前数据目录的窗口重载或下次启动会读取这些设置；仅调整、不保存则重载丢弃。切换启动数据目录使用该目录自己的偏好。“重新读取偏好”会丢弃本窗口未保存的调整。
-4. 保存报错或结果不明时，先重新读取核对当前值；程序不会自动重试保存。设置改动会取消待确认粘贴；多行/控制字符粘贴仍须核对精确目标与预览，不能由习惯开关跳过确认。
-5. 配置备份包含显示/习惯偏好，恢复前预览明确展示，恢复后主窗口重新应用；便携连接JSON不带这些偏好。草稿、剪贴板内容、终端正文和发送同意不保存。P17布局已纳入同一受管理配置/备份，打开不自动连接；便携连接JSON不含布局。
-
-当前仍为开发预览，基础用户说明见[使用说明](docs/ALPHA_USER_GUIDE.md)，全局主题/字体/DPI/输入法及实机验收继续，不能把偏好专项当整个P12或G1完成。迁移/备份兼容与回退见[ADR-042](docs/decisions/ADR-042.md)、[配色schema 4](docs/decisions/ADR-043.md)，实际结果与失败记录见[P12](docs/records/P12.md)。
+[打包脚本](scripts/Prepare-Windows-Portable.ps1)生成并验证 `artifacts/SharedTerminal-<version>-windows-x64` 和清单，按候选产物运行发布专项。打包以当前 Git 提交为源码基准，并在交付路径已存在时停止。当前用户安装和 MCP 注册有单独的部署记录。MSI、Authenticode 签名及干净系统验收的状态见 [P25/T21](docs/records/P25.md#正式-t21-前置)。[发布记录](docs/records/P26.27.md)
