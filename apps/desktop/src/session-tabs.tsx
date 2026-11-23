@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type DragEvent } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode, type DragEvent } from 'react';
 import type { GroupConnection, TabGroup } from './tab-groups';
 import type { SessionDrag } from './session-drag';
 import type { TabRecording } from './tab-logging';
-import { ControlIcon } from './ui';
+import { ContextMenu, ControlIcon } from './ui';
 type Connection=GroupConnection&{state:string};
 type LocalTabItem={id:string;label:string;title:string;pending:boolean;select():void;close():void;copy?():void};
 export const localDragSource=(id:string):Connection=>({connection_id:id,generation:0,protocol:'LOCAL',state:'CONNECTED'});
@@ -13,30 +13,12 @@ export function TabCloseButton({label,disabled,close}:{label:string;disabled?:bo
 }
 export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,localTabs=[],order=[],endControls,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;localTabs?:LocalTabItem[];order?:string[];endControls?:ReactNode;children?:ReactNode}){
   const list=useRef<HTMLDivElement>(null);
-  const menuNode=useRef<HTMLDivElement>(null);
-  const [menu,setMenu]=useState<{connection:Connection;owner:string;x:number;y:number;focus:HTMLElement|null}>();
+  const [menu,setMenu]=useState<{connection:Connection;owner:string;x:number;y:number;anchor:HTMLElement}>();
   const source=menu?.owner===owner?tabs.find(c=>c.connection_id===menu.connection.connection_id&&c.generation===menu.connection.generation&&c.protocol===menu.connection.protocol):undefined;
   const copyAvailable=!!source&&source.state==='CONNECTED'&&['SSH2','SERIAL'].includes(source.protocol)&&!pending(source);
   const localSource=menu?.connection.protocol==='LOCAL'?localTabs.find(tab=>tab.id===menu.connection.connection_id):undefined;
-  const closeMenu=(restore:boolean)=>{setMenu(undefined);if(restore&&menu?.focus?.isConnected)menu.focus.focus({preventScroll:true});};
-  useLayoutEffect(()=>{
-    if(!menu||!menuNode.current)return;
-    const node=menuNode.current, bounds=node.getBoundingClientRect();
-    node.style.left=Math.max(8,Math.min(menu.x,innerWidth-bounds.width-8))+'px';
-    node.style.top=Math.max(8,Math.min(menu.y,innerHeight-bounds.height-8))+'px';
-    node.querySelector('button')?.focus({preventScroll:true});
-  },[menu]);
-  useEffect(()=>{
-    if(!menu)return;
-    const outside=(event:PointerEvent)=>{if(event.target instanceof Node&&!menuNode.current?.contains(event.target))setMenu(undefined);};
-    const dismiss=()=>setMenu(undefined);
-    window.addEventListener('pointerdown',outside,true);
-    window.addEventListener('resize',dismiss);
-    window.addEventListener('blur',dismiss);
-    return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',dismiss);window.removeEventListener('blur',dismiss);};
-  },[menu]);
-  function showMenu(connection:Connection,x:number,y:number){
-    setMenu({connection:{...connection},owner,x,y,focus:document.activeElement instanceof HTMLElement?document.activeElement:null});
+  function showMenu(connection:Connection,anchor:HTMLElement,x:number){
+    setMenu({connection:{...connection},owner,x,y:anchor.getBoundingClientRect().bottom,anchor});
   }
   const orderKey=order.join(',')+';'+tabs.map(tab=>tab.connection_id+':'+groupOf(tab.connection_id)).join(',');
   useLayoutEffect(()=>{
@@ -71,7 +53,11 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
       const insertion=destination?.kind==='insert'&&destination.anchor===id&&preview?.id!==id?(destination.after?'after':'before'):undefined;
       return <div className="connection-tab" key={id} data-drag-source={preview?.id===id?true:undefined} data-insertion={insertion}
         onMouseDown={event=>{if(event.button===2)event.preventDefault();}}
-        onContextMenu={event=>{event.preventDefault();event.stopPropagation();if(!local||local.copy)showMenu(connection,event.clientX,event.currentTarget.getBoundingClientRect().bottom);}}
+        onContextMenu={event=>{
+          event.preventDefault();event.stopPropagation();
+          const anchor=event.currentTarget.querySelector<HTMLElement>('[role="tab"]');
+          if(anchor&&(!local||local.copy))showMenu(connection,anchor,event.clientX);
+        }}
         onDragStart={event=>{
           if(event.isTrusted||local)return;
           event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-shared-terminal-tab',JSON.stringify({owner,...connection}));
@@ -81,7 +67,7 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
           onKeyDown={event=>{
             if(cancelOnKey(event))return;
             if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){
-              if(!local||local.copy){event.preventDefault();const bounds=event.currentTarget.getBoundingClientRect();showMenu(connection,bounds.left,bounds.bottom);}
+              if(!local||local.copy){event.preventDefault();showMenu(connection,event.currentTarget,event.currentTarget.getBoundingClientRect().left);}
               return;
             }
             if(local)return;
@@ -128,14 +114,13 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
     </Fragment>)}{renderLocals('')}</div>{children}
     {singlePane&&<div className="tab-lane-drag" aria-hidden="true" data-tauri-drag-region="" />}
     {endControls}
-    {menu&&(source||localSource?.copy)&&<div className="terminal-context-menu context-menu session-tab-menu" role="menu" aria-label="会话标签菜单" ref={menuNode}
-      onKeyDown={event=>{if(event.key==='Escape'||event.key==='Tab'){event.preventDefault();event.stopPropagation();closeMenu(true);}}}
-      onContextMenu={event=>event.preventDefault()}>
+    {menu&&(source||localSource?.copy)&&<ContextMenu className="session-tab-menu" label="会话标签菜单"
+      x={menu.x} y={menu.y} anchor={menu.anchor} close={()=>setMenu(undefined)}>
       <button type="button" role="menuitem" aria-disabled={localSource?!localSource.copy||localSource.pending:!copyAvailable} onClick={()=>{
-        if(localSource){if(localSource.copy&&!localSource.pending){closeMenu(true);localSource.copy();}return;}
-        if(!copyAvailable)return;closeMenu(true);copy(source,menu.owner);
+        if(localSource){if(localSource.copy&&!localSource.pending){setMenu(undefined);localSource.copy();}return;}
+        if(!copyAvailable)return;setMenu(undefined);copy(source,menu.owner);
       }}>{detached?'复制会话到主窗口':'复制会话'}</button>
       {source&&!copyAvailable&&<small>仅可复制仍在连接的 SSH2 或串口会话。</small>}
-    </div>}
+    </ContextMenu>}
   </div>;
 }

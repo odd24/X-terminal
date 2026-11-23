@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+P26.14 使用 `Test-Desktop-Menus.mjs` 分两轮验证实际 Windows WebView。先对照旧工具栏和浅色同缩放菜单组，再验证深色模拟 150% 的窄分屏、长日志菜单、键盘、焦点和原操作。[P26.14](records/P26.14.md)
+
 P26.13 使用本地标签、本地脚本和 SSH 标签真实窗口专项，覆盖窗口内拖动、原终端状态保留、双击不新建本地标签及显式复制。[P26.13](records/P26.13.md)
 
 P26.12 使用 `Test-Desktop-LocalClipboard.mjs` 在实际 Windows 窗口验证本地右键路径、延迟回执和前台选择，使用隔离存储、模拟 ADB、自建 CMD 和受控剪贴板。[P26.12](records/P26.12.md)

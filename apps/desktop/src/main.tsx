@@ -1224,7 +1224,7 @@ function App() {
         <section className="toolbar-group" aria-label="会话与终端">
           <h3>会话与终端</h3>
           <button disabled={localActive} onClick={() => setLoggingOpen(open => !open)}>终端日志</button>
-          <button disabled={!localActive&&!active} aria-keyshortcuts="Control+Shift+F" title="Ctrl+Shift+F" onClick={findTerminal}>查找终端</button>
+          <button disabled={!localActive&&!active} aria-keyshortcuts="Control+Shift+F" data-shortcut="Ctrl+Shift+F" title="Ctrl+Shift+F" onClick={findTerminal}>查找终端</button>
           {paneSlots.length>1&&<button onClick={()=>collapseSplit()}>收起分屏，保留连接</button>}
         </section>
         <section className="toolbar-group" aria-label="连接与布局">
@@ -1314,7 +1314,7 @@ function App() {
           }))}>
           {!detached&&<ToolbarMenu className="new-menu" label={paneSlots.length===1?'新建连接':'窗格 '+(index+1)+' 新建连接'} text={<ControlIcon icon="plus" />}
             primary={{title:'新建本地终端（PowerShell）',activate:()=>void openLocal(key)}}>
-            <button title="Windows PowerShell · Ctrl+Shift+T" onClick={()=>void openLocal(key)}>本地终端</button>
+            <button title="Windows PowerShell · Ctrl+Shift+T" aria-keyshortcuts="Control+Shift+T" data-shortcut="Ctrl+Shift+T" onClick={()=>void openLocal(key)}>本地终端</button>
             <button aria-label="连接服务器" onClick={event=>{preparePaneConnection(key,event.currentTarget);newSsh();}}>SSH 连接</button>
             <button onClick={event=>{preparePaneConnection(key,event.currentTarget);newSerial();}}>串口连接</button>
           </ToolbarMenu>}

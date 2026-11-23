@@ -338,8 +338,19 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     terminal.textarea?.setAttribute('aria-label','本地终端输入');
     term.current=terminal;
     register(tab.id,terminal);
+    function openClipboardMenu(x:number,y:number) {
+      invalidateClipboard();
+      const target=clipboardTarget();
+      if(target)setClipboardMenu({target,x,y,anchor:terminal.textarea??node,selection:terminal.getSelection()});
+    }
     terminal.attachCustomKeyEventHandler(event=>{
       if(event.type!=='keydown')return true;
+      if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){
+        event.preventDefault();event.stopPropagation();
+        const bounds=node.getBoundingClientRect();
+        if(!event.repeat)openClipboardMenu(bounds.left+12,bounds.top+12);
+        return false;
+      }
       if(event.ctrlKey&&event.shiftKey&&event.key.toLowerCase()==='c'){
         event.preventDefault();event.stopPropagation();
         void copySelection(false);
@@ -380,11 +391,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       if(latest.current.rightClick==='smart'){
         if(text)void copySelection(true);
         else void pasteClipboard();
-      }else{
-        invalidateClipboard();
-        const target=clipboardTarget();
-        if(target)setClipboardMenu({target,x:event.clientX,y:event.clientY,anchor:terminal.textarea??node,selection:text});
-      }
+      }else openClipboardMenu(event.clientX,event.clientY);
     };
     const rightDown=(event:MouseEvent)=>{
       if(event.button===2){event.preventDefault();event.stopPropagation();}

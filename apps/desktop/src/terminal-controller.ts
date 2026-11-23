@@ -171,6 +171,13 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     element.addEventListener('paste', paste, true);
     element.addEventListener('contextmenu', contextMenu, true);
     term.attachCustomKeyEventHandler(event => {
+      if(event.type==='keydown'&&(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')){
+        event.preventDefault();event.stopPropagation();
+        const bounds=element.getBoundingClientRect();
+        const captured=!event.repeat&&captureMenu(term.textarea??element,bounds.left+12,bounds.top+12);
+        if(captured)deps.context(captured);
+        return false;
+      }
       if (event.type !== 'keydown' || !event.ctrlKey || event.altKey || event.metaKey) return true;
       if (event.key.toLowerCase() === 'c' && ((deps.preferences().ctrl_c_copy && term.hasSelection()) || event.shiftKey)) { event.preventDefault(); void clip.copy(); return false; }
       if (event.key.toLowerCase() === 'v' && (event.shiftKey || deps.preferences().ctrl_v_paste)) { event.preventDefault(); void clip.paste(); return false; }
