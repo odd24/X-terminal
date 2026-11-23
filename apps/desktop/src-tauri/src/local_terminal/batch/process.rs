@@ -51,20 +51,36 @@ struct Control {
 struct Stream {
     output: Arc<Mutex<Output>>,
     ready: Arc<tokio::sync::Notify>,
+    // Updated under the output lock, even when the renderer drains the buffer.
+    partial_line: AtomicBool,
 }
 
 impl Stream {
     fn append(&self, bytes: &[u8], overflow: bool) {
-        let mut out = self.output.lock().unwrap();
+        self.buffer(&mut self.output.lock().unwrap(), bytes, overflow);
+    }
+
+    fn buffer(&self, out: &mut Output, bytes: &[u8], overflow: bool) {
         let count = bytes
             .len()
             .min(OUTPUT_LIMIT.saturating_sub(out.bytes.len()));
-        out.bytes.extend_from_slice(&bytes[..count]);
+        let accepted = &bytes[..count];
+        out.bytes.extend_from_slice(accepted);
+        if let Some(last) = accepted.last() {
+            self.partial_line.store(*last != b'\n', Ordering::Relaxed);
+        }
         out.overflow |= overflow || count != bytes.len();
         self.ready.notify_one();
     }
+
     fn line(&self, line: &str) {
-        self.append(format!("\r\n{line}\r\n").as_bytes(), false);
+        let mut out = self.output.lock().unwrap();
+        let prefix = if self.partial_line.load(Ordering::Relaxed) {
+            "\r\n"
+        } else {
+            ""
+        };
+        self.buffer(&mut out, format!("{prefix}{line}\r\n").as_bytes(), false);
     }
 }
 
@@ -437,26 +453,32 @@ fn interactive_shell(
 fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<(), String> {
     let deadline = Instant::now() + COMMAND_TIME;
     let total = plan.steps.len();
-    sink.line("在 Windows 本机执行");
+    sink.line("\r\n在 Windows 本机执行");
     if let Some(serial) = &plan.serial {
-        sink.line(&format!("固定 ADB 设备 {serial}"));
+        sink.line(&format!("\r\n固定 ADB 设备 {serial}"));
     }
     for (index, step) in plan.steps.into_iter().enumerate() {
         if control.stopped.load(Ordering::Acquire) {
             return Err("已中断整组命令（Ctrl+C）".into());
         }
-        sink.line(&format!("[{}/{}] 开始", index + 1, total));
-        if let [stage] = step.as_slice()
+        sink.line(&step.line);
+        if let [stage] = step.stages.as_slice()
             && index + 1 == total
             && stage.device
             && stage.args == ["shell"]
         {
             interactive_shell(stage, plan.serial.as_deref(), cwd, deadline, control, sink)?;
-            sink.line(&format!("[{}/{}] 完成", index + 1, total));
             continue;
         }
-        let captured = execute(&step, plan.serial.as_deref(), cwd, deadline, control, sink)?;
-        if step[0].root {
+        let captured = execute(
+            &step.stages,
+            plan.serial.as_deref(),
+            cwd,
+            deadline,
+            control,
+            sink,
+        )?;
+        if step.stages[0].root {
             let root = String::from_utf8_lossy(&captured).to_ascii_lowercase();
             let restarting = root
                 .lines()
@@ -482,7 +504,7 @@ fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<
             if restarting {
                 sink.line("等待原 ADB 设备重新就绪");
                 let wait = Stage {
-                    image: step[0].image.clone(),
+                    image: step.stages[0].image.clone(),
                     args: vec!["wait-for-device".into()],
                     device: true,
                     root: false,
@@ -497,7 +519,6 @@ fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<
                 )?;
             }
         }
-        sink.line(&format!("[{}/{}] 完成", index + 1, total));
     }
     Ok(())
 }

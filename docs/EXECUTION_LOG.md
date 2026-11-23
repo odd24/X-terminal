@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.25 按 [CR-048](changes/CR-048.md) 精简 0.1.35 本地命令组结果。模拟 ADB 实窗回显、交互和错误路径专项通过。[P26.25](records/P26.25.md) · Step-ID: P26.25。
+
 P26.24 按 [CR-047](changes/CR-047.md) 修复 0.1.34 的本地命令组末步 ADB Shell。Windows 模拟终端和单台授权设备只读专项通过。[P26.24](records/P26.24.md) · Step-ID: P26.24。
 
 P26.23 按 [CR-046](changes/CR-046.md) 为 Windows x64 0.1.33 增加日志保存位置。目录专项通过，官方 stdio 核对 33 项工具，实际保护读取、等待及导出通过。[P26.23](records/P26.23.md) · Step-ID: P26.23。

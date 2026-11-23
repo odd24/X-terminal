@@ -55,7 +55,7 @@ try {
   const run = `document.querySelector(${JSON.stringify('.adb-shortcut-panel:not([hidden]) .adb-shortcut-run[aria-label=只读设备验证]')})`;
   await ui.waitFor(`!!${run}`);
   await ui.evaluate(`${run}.click()`);
-  await ui.waitFor(`${output}?.includes('[1/2] 完成')&&${output}?.includes('[2/2] 开始')&&/[#$]\\s*$/.test(${output}??'')`);
+  await ui.waitFor(`/^device\\s*$/m.test(${output}??'')&&/[#$]\\s*$/.test(${output}??'')`);
   await ui.waitFor("document.activeElement?.matches('.local-terminal:not([hidden]) .xterm-helper-textarea')");
   report.realPrompt = true;
   await ui.command('Input.insertText', { text: 'pwd' });
@@ -66,7 +66,7 @@ try {
   report.pwdReturned = true;
   await ui.command('Input.insertText', { text: 'exit' });
   await key('Enter', 13);
-  await ui.waitFor(`${output}?.includes('[2/2] 完成')&&${output}?.includes('前台进程退出（0）')`);
+  await ui.waitFor(`${output}?.includes('前台进程退出（0）')`);
   report.exitCode = 0;
   await tool('退出桌面');
   await ui.waitFor('!!document.querySelector("dialog[aria-label=退出桌面确认]")');

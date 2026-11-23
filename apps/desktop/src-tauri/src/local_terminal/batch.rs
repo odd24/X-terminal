@@ -26,18 +26,23 @@ impl Stage {
     }
 }
 
+struct Step {
+    line: String,
+    stages: Vec<Stage>,
+}
+
 pub(super) struct Prepared {
-    steps: Vec<Vec<Stage>>,
+    steps: Vec<Step>,
     pub devices: Vec<adb::Device>,
     pub fixed: Option<String>,
 }
 
 pub(super) struct Plan {
-    steps: Vec<Vec<Stage>>,
+    steps: Vec<Step>,
     serial: Option<String>,
 }
 
-pub(super) fn parse(text: &str) -> Result<Vec<Vec<Vec<String>>>, String> {
+pub(super) fn parse(text: &str) -> Result<Vec<(&str, Vec<Vec<String>>)>, String> {
     if text.len() > MAX_LINE {
         return Err("本地命令超过 8192 字节".into());
     }
@@ -59,7 +64,7 @@ pub(super) fn parse(text: &str) -> Result<Vec<Vec<Vec<String>>>, String> {
         if stages.len() > 4 || stages.iter().any(Vec::is_empty) {
             return Err("每步需要一至四个非空程序，请检查管道符".into());
         }
-        steps.push(stages);
+        steps.push((line, stages));
     }
     if !(1..=16).contains(&steps.len()) {
         return Err("请输入一至十六个非空步骤".into());
@@ -84,7 +89,7 @@ pub(super) fn prepare(
     let mut adb_image: Option<PathBuf> = None;
     let mut selected: Option<String> = None;
     let mut needs_device = false;
-    for parts in parse(text)? {
+    for (line, parts) in parse(text)? {
         let mut step = Vec::new();
         let stages = parts.len();
         for mut args in parts {
@@ -164,7 +169,10 @@ pub(super) fn prepare(
                 root,
             });
         }
-        steps.push(step);
+        steps.push(Step {
+            line: line.to_owned(),
+            stages: step,
+        });
     }
     let mut devices = Vec::new();
     if let Some(image) = adb_image {
@@ -228,10 +236,15 @@ mod tests {
 
     #[test]
     fn keeps_quoted_pipe_remote_and_splits_only_unquoted_pipe() {
-        let steps = parse("adb root\r\nadb shell \"dmesg -w | cat\"|grep power").unwrap();
-        assert_eq!(steps[0][0], ["adb", "root"]);
-        assert_eq!(steps[1][0], ["adb", "shell", "dmesg -w | cat"]);
-        assert_eq!(steps[1][1], ["grep", "power"]);
+        let tail = "  adb shell \"dmesg -w | cat\"|grep power  ";
+        let input = format!("adb root\r\n\r\n{tail}");
+        let steps = parse(&input).unwrap();
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].0, "adb root");
+        assert_eq!(steps[1].0, tail);
+        assert_eq!(steps[0].1[0], ["adb", "root"]);
+        assert_eq!(steps[1].1[0], ["adb", "shell", "dmesg -w | cat"]);
+        assert_eq!(steps[1].1[1], ["grep", "power"]);
         assert!(parse("adb devices || grep device").is_err());
         assert!(parse("adb devices > out").is_err());
         assert!(parse("adb shell \"unterminated").is_err());

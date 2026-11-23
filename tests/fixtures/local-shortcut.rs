@@ -128,6 +128,11 @@ fn main() -> io::Result<()> {
         }
         "probe" => match args[0].as_str() {
             "tail" => println!("TAIL_SHOULD_RUN"),
+            "partial" => {
+                print!("OUTPUT_WITHOUT_NEWLINE");
+                io::stdout().flush()?;
+                thread::sleep(Duration::from_millis(250));
+            }
             "fail" => std::process::exit(7),
             "delay" => {
                 println!("WAITING_FOR_RELEASE");
