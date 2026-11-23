@@ -1,16 +1,17 @@
-param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$TargetPath,[Parameter(Mandatory)][ValidateSet('directory','saved-directory','script-directory','file','system-file')][string]$Action,[string]$LogId,[string]$ExistingExplorerWindows='[]')
+param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$TargetPath,[Parameter(Mandatory)][ValidateSet('directory','saved-directory','script-directory','script-file','file','system-file')][string]$Action,[string]$LogId,[string]$ExistingExplorerWindows='[]')
 $ErrorActionPreference='Stop'
 $ErrorView='NormalView'
 trap { Write-Output $_.ScriptStackTrace; break }
 $rootFull=[IO.Path]::GetFullPath($Root)
 $tempFull=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
 $name=[IO.Path]::GetFileName($rootFull)
-$rootPattern=if($Action -eq 'saved-directory'){'^shared-terminal-save-ui-中文-'}elseif($Action -eq 'script-directory'){'^shared-terminal-local-scripts-中文-'}else{'^shared-terminal-(log-menu|pane-groups|log-viewer)-ui-中文-'}
+$rootPattern=if($Action -eq 'saved-directory'){'^shared-terminal-save-ui-中文-'}elseif($Action -in @('script-directory','script-file')){'^shared-terminal-local-scripts-中文-'}else{'^shared-terminal-(log-menu|pane-groups|log-viewer)-ui-中文-'}
 if ([IO.Path]::GetDirectoryName($rootFull) -ne $tempFull -or $name -notmatch $rootPattern) { throw 'Only an owned log-test root is allowed.' }
 $targetFull=[IO.Path]::GetFullPath($TargetPath)
 $common=[IO.Path]::Combine($rootFull,'logs')
 if (($Action -eq 'directory' -and $targetFull -ne $common) -or ($Action -eq 'saved-directory' -and $targetFull -ne $rootFull) -or
     ($Action -eq 'script-directory' -and [IO.Path]::GetDirectoryName($targetFull) -ne $rootFull) -or
+    ($Action -eq 'script-file' -and ([IO.Path]::GetDirectoryName([IO.Path]::GetDirectoryName($targetFull)) -ne $rootFull -or [IO.Path]::GetExtension($targetFull) -notin @('.bat','.cmd'))) -or
     ($Action -in @('file','system-file') -and ([IO.Path]::GetDirectoryName($targetFull) -ne $common -or [IO.Path]::GetExtension($targetFull) -ne '.log' -or $LogId -notmatch '^[0-9a-f-]{36}$'))) { throw 'Refuse an unrelated shell target.' }
 Add-Type -TypeDefinition @'
 using System;
@@ -24,14 +25,19 @@ public static class LogShellLongPath {
 }
 '@
 $expected=[LogShellLongPath]::Of($targetFull)
-if ($Action -in @('directory','saved-directory','script-directory')) {
+if ($Action -in @('directory','saved-directory','script-directory','script-file')) {
  $shell=New-Object -ComObject Shell.Application
  $existing=@($ExistingExplorerWindows|ConvertFrom-Json)
- $label=if($Action -eq 'script-directory'){'owned test directory'}else{'shared test log directory'}
+ $label=switch ($Action) {'script-file'{'owned script selection'} 'script-directory'{'owned test directory'} default{'shared test log directory'}}
+ $folder=if($Action -eq 'script-file'){[IO.Path]::GetDirectoryName($expected)}else{$expected}
  for($n=0;$n -lt 100;$n++) {
   foreach($window in @($shell.Windows())) {
    try {
-    if ([LogShellLongPath]::Of([string]$window.Document.Folder.Self.Path) -ne $expected) { continue }
+    if ([LogShellLongPath]::Of([string]$window.Document.Folder.Self.Path) -ne $folder) { continue }
+    if ($Action -eq 'script-file') {
+     $selected=$window.Document.SelectedItems()
+     if ($selected.Count -ne 1 -or [LogShellLongPath]::Of([string]$selected.Item(0).Path) -ne $expected) { continue }
+    }
     if($existing -contains [string]$window.HWND) {
      Write-Output "PASS exact $label in an existing Explorer window"
     } else {
@@ -43,7 +49,7 @@ if ($Action -in @('directory','saved-directory','script-directory')) {
   }
   Start-Sleep -Milliseconds 100
  }
- throw 'The owned common log directory was not observed in Explorer.'
+ throw 'The exact owned location or selection was not observed in Explorer.'
 }
 if ($Action -eq 'system-file') {
  $application=[LogShellLongPath]::LogApplication()

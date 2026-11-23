@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {createHash} from 'node:crypto';
 import {mkdir,mkdtemp,readFile,realpath,rename,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -9,9 +10,9 @@ import {launchDesktop,delay} from './lib/DesktopHarness.mjs';
 const runNative=promisify(execFile);
 const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-local-scripts-中文-'));
 const executable=path.resolve(process.argv[2]??'target/debug/shared-terminal-desktop.exe');
-const result={result:'IN_PROGRESS',executable,checks:[]};
+const result={result:'IN_PROGRESS',executable,sha256:createHash('sha256').update(await readFile(executable)).digest('hex'),checks:[]};
 const sampleDir=path.join(root,'程序 & 测试');
-const first=path.join(sampleDir,'测试 & ! ^ (一).cmd');
+const first=path.join(sampleDir,'测试 & ! ^ (一), 选中.cmd');
 const second=path.join(sampleDir,'停止样本.bat');
 const movedDir=path.join(root,'已移动');
 const moved=path.join(movedDir,'移动脚本.cmd');
@@ -39,6 +40,9 @@ const enter=()=>key('Enter','Enter',13);
 const order=()=>ui.evaluate(`[...document.querySelectorAll('${panel} .adb-shortcut-run')].map(row=>row.getAttribute('aria-label'))`);
 const execute=name=>ui.evaluate(`[...document.querySelectorAll('${panel} .adb-shortcut-run')].find(row=>row.getAttribute('aria-label')===${q(name)}).click()`);
 const stored=()=>ui.invoke('local_adb_settings',{settings:null});
+const existingExplorer=()=>runNative('pwsh',['-NoProfile','-Command',
+  'ConvertTo-Json -Compress -InputObject @((New-Object -ComObject Shell.Application).Windows() | ForEach-Object {[string]$_.HWND})'],
+  {windowsHide:true,encoding:'utf8',timeout:8000});
 const scriptSource=marker=>Buffer.from([
   '@echo off',`echo ${marker}`,'cd','set /p "answer=TYPE_HERE: "', 'echo ANSWER_%answer%', 'pause','exit /b 7','',
 ].join('\r\n'));
@@ -115,6 +119,25 @@ try {
     new Set([await realpath(first),await realpath(second)]));
   assert.equal(await ui.evaluate("document.querySelectorAll('.local-terminal').length"),1);
   result.checks.push('native cancel, native multi-select, no execution on import, old ADB record preserved');
+  await ui.click('原有 ADB 指令 的管理操作');
+  await ui.waitFor('!!document.querySelector(".adb-row-menu[data-positioned]")');
+  assert.equal(await ui.evaluate("[...document.querySelectorAll('.adb-row-menu button')].some(button=>button.textContent==='打开文件所在位置')"),false);
+  await key('Escape','Escape',27);
+  const chosen=imported.shortcuts.find(item=>item.name===firstName);
+  const request={id:chosen.id,revision:imported.revision};
+  await assert.rejects(ui.invoke('reveal_local_script',{request:{...request,id:legacy.id}}),/已登记/);
+  await assert.rejects(ui.invoke('reveal_local_script',{request:{...request,revision:legacySettings.revision}}),/已更新/);
+  await assert.rejects(ui.invoke('reveal_local_script',{request:{...request,path:first}}));
+  const windows=await existingExplorer();
+  await management(firstName,'打开文件所在位置');
+  const selected=await runNative('pwsh',['-NoProfile','-File','scripts/lib/ObserveLogShell.ps1','-Root',root,
+    '-TargetPath',first,'-Action','script-file','-ExistingExplorerWindows',windows.stdout.trim()],
+    {windowsHide:true,encoding:'utf8',timeout:16000});
+  assert.match(selected.stdout,/PASS exact owned script selection/);
+  assert.equal(await ui.evaluate("document.querySelectorAll('.local-terminal').length"),1);
+  assert.deepEqual(await stored(),imported);
+  assert.deepEqual(await readFile(first),scriptSource('SCRIPT_ORIGINAL'));
+  result.checks.push('Explorer selected the exact registered Chinese script with spaces and a comma; management click and rejected requests did not start a script or change settings');
   await exit(ui,true);
   ui=await launchDesktop(root,{executable});
   await open();
@@ -145,9 +168,7 @@ try {
   assert.equal(await ui.evaluate("document.querySelectorAll('[role=tab]').length"),2);
   result.checks.push('script tab moves in the rail and double-click preserves the original foreground session and tab count');
   assert.ok((await ui.evaluate(text)).replace(/\r?\n/g,'').includes(note));
-  const existing=await runNative('pwsh',['-NoProfile','-Command',
-    'ConvertTo-Json -Compress -InputObject @((New-Object -ComObject Shell.Application).Windows() | ForEach-Object {[string]$_.HWND})'],
-    {windowsHide:true,encoding:'utf8',timeout:8000});
+  const existing=await existingExplorer();
   await ui.click('打开工作目录');
   const opened=await runNative('pwsh',['-NoProfile','-File','scripts/lib/ObserveLogShell.ps1','-Root',root,
     '-TargetPath',sampleDir,'-Action','script-directory','-ExistingExplorerWindows',existing.stdout.trim()],
@@ -173,11 +194,13 @@ try {
   await ui.waitFor(`document.querySelector('${consoleView}')?.dataset.foreground==='false'`);
   assert.equal((await ui.evaluate(text)).includes('SHOULD_NOT_REACH'),false);
   await rename(first,moved);
+  await management(firstName,'打开文件所在位置');
+  await ui.waitFor("document.querySelector('.adb-panel-error')?.textContent.includes('重新定位')");
   await execute(firstName);
   await ui.waitFor("document.body.innerText.includes('脚本不可用')");
   await management(firstName,'重新定位');await choose([moved]);
   await ui.waitFor(`(async()=> (await window.__TAURI_INTERNALS__.invoke('local_adb_settings',{settings:null})).shortcuts.some(item=>item.script_path===${q(await realpath(moved))}))()`);
-  await management(firstName,'重命名');await ui.fill('指令名称','重新定位样本');await ui.click('保存指令');
+  await management(firstName,'编辑');await ui.fill('指令名称','重新定位样本');await ui.click('保存指令');
   await ui.waitFor(`!!document.querySelector('${panel} .adb-shortcut-run[aria-label="重新定位样本"]')`);
   const beforeMove=await order();
   const shift=beforeMove.indexOf('重新定位样本')===1?'上移':'下移';

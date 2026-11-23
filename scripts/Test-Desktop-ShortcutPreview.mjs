@@ -15,7 +15,7 @@ const result={result:'IN_PROGRESS',executable,sha256:createHash('sha256').update
 const q=JSON.stringify, node=selector=>`document.querySelector(${q(selector)})`;
 const panel='.pane-active .adb-shortcut-panel:not([hidden])', card='.shortcut-preview[data-positioned]';
 const dialog='dialog:modal[aria-label="命名本地脚本"]', shortcut=name=>panel+` [aria-label="${name}"]`;
-const terminal='.pane-active .local-terminal:not([hidden]) .local-terminal-output';
+const closeOption='form[aria-label="快捷指令编辑"] .shortcut-checkbox input';
 const stored=()=>ui.invoke('local_adb_settings',{settings:null});
 const area=name=>node(shortcut(name));
 const count=()=>ui.evaluate("document.querySelectorAll('[role=tab]').length");
@@ -74,11 +74,13 @@ const calls=()=>ui.evaluate('window.previewTest.calls');
 const invokes=()=>ui.evaluate('window.previewTest.reads');
 async function instrument(){
   await ui.evaluate(`(()=>{
-    const probe=window.previewTest={calls:0,reads:0,pending:[],hold:false};
+    const probe=window.previewTest={calls:0,closes:0,reads:0,pending:[],hold:false};
     const fetch=window.fetch;
     window.fetch=async function(input,init){
       const name=new URL(String(input)).pathname;
-      if(name==='/prepare_local_adb'||name==='/local_terminal'&&JSON.parse(init.body).action.kind==='open')probe.calls++;
+      const action=name==='/local_terminal'?JSON.parse(init.body).action.kind:undefined;
+      if(name==='/prepare_local_adb'||action==='open')probe.calls++;
+      if(action==='close')probe.closes++;
       if(name!=='/preview_local_script')return fetch.call(this,input,init);
       probe.reads++;
       const response=await fetch.call(this,input,init);
@@ -132,9 +134,11 @@ try{
   await screenshot('02-names-only');
   result.checks.push('previous alias unchanged; native single cancel and confirm; one multi-file naming form with Tab, optional names and stable identity; compact list has no details');
 
-  await manage('执行验证','重命名');
+  await manage('执行验证','编辑');
   assert.equal(await ui.evaluate(`document.querySelector('form[aria-label="快捷指令编辑"] input[readonly]').value`),single.script_path);
+  assert.equal(await ui.evaluate(`${node(closeOption)}.checked`),false);
   await ui.fill('指令名称','尚未保存');
+  await ui.evaluate(`${node(closeOption)}.click()`);
   const beforeConflict=await stored();
   const concurrent=await ui.invoke('local_adb_settings',{settings:{...beforeConflict,shortcuts:beforeConflict.shortcuts.map(item=>item.id===adbRow.id?{...item,name:'并发保留'}:item)}});
   await ui.click('保存指令');await ui.waitFor("document.querySelector('.adb-panel-error')?.textContent.includes('已更新')");
@@ -142,12 +146,16 @@ try{
   await ui.click('重新读取快捷指令');
   await ui.click('取消编辑');
   await ui.waitFor(`!!${area('并发保留')}`);
-  await manage('执行验证','重命名');await ui.fill('指令名称','');await ui.click('保存指令');
+  await manage('执行验证','编辑');
+  await ui.fill('指令名称','');
+  await ui.evaluate(`${node(closeOption)}.click()`);
+  await ui.click('保存指令');
   await ui.waitFor(`!!${area('执行样本.cmd')}`);
   const renamed=await stored();
-  assert.deepEqual(renamed.shortcuts.find(item=>item.id===single.id),{...single,name:'执行样本.cmd'});
+  assert.deepEqual(renamed.shortcuts.find(item=>item.id===single.id),{...single,name:'执行样本.cmd',close_on_success:true});
   assert.equal(await readFile(runPath,'utf8'),runSource);
-  result.checks.push('in-place rename uses CAS and keeps exact id/path/file; stale revision refused and cleared alias restores full filename');
+  assert.equal(await calls(),0);
+  result.checks.push('Edit keeps exact id/path/file, saves alias and auto-close together without execution, rejects stale save, and restores full filename when alias is cleared');
 
   const request=id=>({request:{id,revision:renamed.revision}});
   const uid=name=>renamed.shortcuts.find(row=>row.name===name).id;
@@ -209,8 +217,9 @@ try{
   await delay(180);assert.equal(await ui.evaluate(`${node(card)}.textContent.includes('合成脚本头')`),false);
   await move({x:16,y:500});await gone();
   await rename(legacyPath,legacyPath+'.gone');
-  await hover(old.name);await peek('脚本不可用');
-  await move({x:16,y:500});await gone();
+  await key('Tab',9);await ui.evaluate(`${area(old.name)}.focus()`);
+  await peek('脚本不可用');
+  await key('Escape',27);await gone();
   await rename(legacyPath+'.gone',legacyPath);
   assert.equal(await calls(),0);
   assert.equal(await readFile(path.join(root,'adb-calls.txt'),'utf8').catch(()=>''),'');
@@ -235,16 +244,16 @@ try{
   await ui.waitFor(`${node(panel)}.dataset.columns==='2'`);
   const persistent=await stored();
   await stop();
-  ui=await launchDesktop(root,{executable});await open();
+  ui=await launchDesktop(root,{executable});await open();await instrument();
   assert.deepEqual(await stored(),persistent);
   await ui.waitFor(`!!${area('执行样本.cmd')}&&${node(panel)}.dataset.columns==='2'`);
   assert.equal(await count(),1);
   await ui.click('执行样本.cmd');
-  await ui.waitFor(`${node(terminal)}?.innerText.includes('EXPLICIT_SHORTCUT_RUN')`);
+  await ui.waitFor('window.previewTest.calls===1&&window.previewTest.closes===1');
   assert.match(await readFile(markerPath,'utf8'),/EXECUTED_ONLY_ON_CLICK/);
-  assert.equal(await count(),2);
+  await ui.waitFor("document.querySelectorAll('[role=tab]').length===1");
   await stop();
-  result.checks.push('expanded details and compact dual columns persist, configuration reopens, explicit row action alone starts the owned script');
+  result.checks.push('expanded details and compact dual columns persist, configuration reopens, and one explicitly launched script exits successfully and auto-closes');
   result.result='PASS';
   console.log('PASS Windows shortcut aliases and bounded local previews, passive interaction, restart and explicit execution');
 }catch(error){

@@ -1,5 +1,7 @@
 # 方案执行计划
 
+P26.22 按 [CR-045](changes/CR-045.md) 更新脚本「编辑」与资源管理器定位。[P26.22](records/P26.22.md)
+
 P26.21 按 [CR-044](changes/CR-044.md) 实施全窗格快捷指令、Windows 本地组命令与精确会话发送。[P26.21](records/P26.21.md)
 
 P26.20 按 [CR-043](changes/CR-043.md) 结合普通本地标签双击复制、拖动保护与 Windows 便携发布回归。[P26.20](records/P26.20.md)

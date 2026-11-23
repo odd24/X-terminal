@@ -1102,6 +1102,7 @@ fn main() {
             local_terminal::prepare_local_adb,
             local_terminal::scripts::pick_local_scripts,
             local_terminal::scripts::preview_local_script,
+            local_terminal::scripts::reveal_local_script,
             service_status,
             session_windows::desktop_live_sessions,
             session_windows::detach_session,

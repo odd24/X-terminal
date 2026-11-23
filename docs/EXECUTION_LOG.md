@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.22 按 [CR-045](changes/CR-045.md) 交付 Windows x64 0.1.32，脚本编辑与真实资源管理器定位通过定向验证。[P26.22](records/P26.22.md) · Step-ID: P26.22。
+
 P26.21 按 [CR-044](changes/CR-044.md) 集成各窗格快捷指令、本地管道、会话发送与结果收尾。Release 已通过回环 SSH、模拟 ADB 及内存 UART 专项。便携门和证据见 [P26.21](records/P26.21.md)。Step-ID: P26.21。
 
 P26.20 按 [CR-043](changes/CR-043.md) 恢复普通本地双击复制，Release 预检通过原生双击、原生拖动及浏览器尾随事件隔离。便携发布门与证据位置见 [P26.20](records/P26.20.md)。Step-ID: P26.20。

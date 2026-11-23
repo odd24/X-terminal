@@ -163,7 +163,8 @@ try{
   await click(profile,'right');await surface('配置树右键',treeMenu,'03-light-tree-context');
   await key('End');await action('删除');await key('ArrowDown');await action('连接');await close(treeMenu,profile);
   await click(rowTrigger);await surface('快捷指令管理',rowMenu,'04-light-shortcut-more');
-  await key('Home');await action('重命名');await key('ArrowDown');await action('置顶');
+  await key('Home');await action('编辑');await key('ArrowDown');await action('置顶');
+  await key('ArrowDown');await action('打开文件所在位置');
   await key('ArrowDown');await action('重新定位');await close(rowMenu,rowTrigger);
   await click(configPlus);await surface('配置加号','.tree-new-menu .app-menu');
   await key('ArrowDown');await action('新建 SSH 配置');await close('.tree-new-menu .app-menu',configPlus);
@@ -179,7 +180,7 @@ try{
   // The primary click and an explicit keyboard command still act at their own entry points.
   await click(plus);await wait("document.querySelectorAll('[role=tab]').length===2");
   await ui.click('关闭 本地 2');await wait("document.querySelectorAll('[role=tab]').length===1");
-  await click(rowTrigger);await action('重命名');await key('Enter');
+  await click(rowTrigger);await action('编辑');await key('Enter');
   await wait("!!document.querySelector('form[aria-label=快捷指令编辑]')");
   assert.equal(await ui.evaluate(`${node(localBody)}.querySelector('.xterm')===window.originalLocal&&${node(localBody)}.innerText.includes('MENU_DRAFT_123')`),true);
   await ui.click('取消编辑');
@@ -204,7 +205,7 @@ try{
   assert.equal((await ssh({op:'status',connection:target})).connection.state,'CONNECTED');
   await ui.selectTab(localId);await active(localInput);
   const remoteTab=`[role="tab"][data-connection-id="${target.connection_id}"]`;
-  const edge=await point('.pane-active .local-pane-body:not([hidden])',.86);
+  const edge=await point('.pane-active .terminal-pane-body',.86);
   await mouse('mousePressed',await point(remoteTab));await mouse('mouseMoved',edge);
   await wait("!!document.querySelector('.tab-split-preview[data-edge=right]')");
   await mouse('mouseReleased',edge);await wait("document.querySelectorAll('[data-pane]').length===2");

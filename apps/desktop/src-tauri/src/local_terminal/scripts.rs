@@ -19,7 +19,7 @@ use windows::{
             FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
         },
     },
-    core::w,
+    core::{HSTRING, w},
 };
 use windows_sys::Win32::Globalization::{GetACP, MB_ERR_INVALID_CHARS, MultiByteToWideChar};
 
@@ -30,7 +30,7 @@ const PREVIEW_ENCODING: &str = "无法识别脚本编码";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PreviewRequest {
+pub struct RegisteredScriptRequest {
     id: Uuid,
     revision: Uuid,
 }
@@ -145,7 +145,7 @@ fn decode_preview(bytes: &[u8], truncated: bool) -> Result<(String, String), Str
         .ok_or_else(|| PREVIEW_ENCODING.into())
 }
 
-fn registered_script(root: &Path, request: &PreviewRequest) -> Result<String, String> {
+fn registered_script(root: &Path, request: &RegisteredScriptRequest) -> Result<String, String> {
     let settings = super::adb::read(root)?;
     if settings.revision != Some(request.revision) {
         return Err("快捷指令已更新，请重新选择".into());
@@ -158,7 +158,7 @@ fn registered_script(root: &Path, request: &PreviewRequest) -> Result<String, St
         .ok_or_else(|| "此入口不是已登记的本地脚本".into())
 }
 
-fn read_preview(root: &Path, request: &PreviewRequest) -> Result<Preview, String> {
+fn read_preview(root: &Path, request: &RegisteredScriptRequest) -> Result<Preview, String> {
     let path = registered_script(root, request)?;
     let (file, opened) = readable(&path)?;
     let mut bytes = Vec::with_capacity(PREVIEW_LIMIT + 1);
@@ -190,7 +190,7 @@ fn read_preview(root: &Path, request: &PreviewRequest) -> Result<Preview, String
 pub async fn preview_local_script(
     window: WebviewWindow,
     desktop: State<'_, crate::Desktop>,
-    request: PreviewRequest,
+    request: RegisteredScriptRequest,
 ) -> Result<Preview, String> {
     if window.label() != crate::session_windows::MAIN {
         return Err("本地脚本仅在主窗口可预览".into());
@@ -205,6 +205,47 @@ pub async fn preview_local_script(
     })
     .await
     .map_err(|_| "脚本预览已结束")?
+}
+
+fn select_in_explorer(path: &Path) -> windows::core::Result<()> {
+    use windows::Win32::UI::Shell::{SHOpenFolderAndSelectItems, SHParseDisplayName};
+    unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+        let _apartment = Apartment;
+        let mut item = std::ptr::null_mut();
+        SHParseDisplayName(&HSTRING::from(path.as_os_str()), None, &mut item, 0, None)?;
+        let result = SHOpenFolderAndSelectItems(item, None, 0);
+        CoTaskMemFree(Some(item.cast()));
+        result
+    }
+}
+
+#[tauri::command]
+pub async fn reveal_local_script(
+    window: WebviewWindow,
+    desktop: State<'_, crate::Desktop>,
+    request: RegisteredScriptRequest,
+) -> Result<(), String> {
+    if window.label() != crate::session_windows::MAIN {
+        return Err("本地脚本位置仅在主窗口可打开".into());
+    }
+    let owner = window.hwnd().map_err(|_| "窗口不可用")?.0 as usize;
+    let root = desktop.2.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let saved = registered_script(&root, &request)?;
+        let (_file, opened) = readable(&saved)?;
+        if registered_script(&root, &request)? != saved {
+            return Err("快捷指令已更新，请重新选择".into());
+        }
+        if select_in_explorer(&opened).is_ok() {
+            return Ok(());
+        }
+        let parent = opened.parent().ok_or("无法定位脚本所在目录")?;
+        crate::export_save::open_directory(parent, owner)
+            .map_err(|_| "无法打开脚本所在目录，请检查文件后重新定位".into())
+    })
+    .await
+    .map_err(|_| "打开脚本位置的任务已结束")?
 }
 
 struct Apartment;

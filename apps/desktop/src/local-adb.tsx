@@ -105,6 +105,16 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
   function add(kind?:AdbShortcut['desktop_kind']) {
     edit({id:crypto.randomUUID(), name:'', command:'', desktop_kind:kind});
   }
+  async function revealScript(item:AdbShortcut) {
+    if(!settings?.revision||!item.script_path||saving.current)return;
+    const source=route.current.scope;
+    setFailure('');
+    try {
+      await invoke('reveal_local_script',{request:{id:item.id,revision:settings.revision}});
+    } catch(error) {
+      if(route.current.open&&route.current.scope===source)setFailure(String(error));
+    }
+  }
   async function selectScripts(replace?:AdbShortcut) {
     if(!settings||saving.current)return;
     saving.current=true;
@@ -254,7 +264,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
         title={diagnostics[item.id].error??undefined} onClick={()=>setDiagnosticId(item.id)}>!</button>}
       {rowMenu&&<ContextMenu className="adb-row-menu" label={item.name+' 的管理菜单'}
         x={0} y={0} anchor={rowMenu.anchor} anchored close={()=>setMenu(undefined)}>
-        <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);edit(item);}}>{item.script_path?'重命名':'编辑'}</button>
+        <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);edit(item);}}>编辑</button>
         <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);pin(single,!isPinned);}}>{isPinned?'取消置顶':'置顶'}</button>
         <button role="menuitem" type="button" disabled={busy||!stepShortcuts(items,single,-1)} onClick={()=>{setMenu(undefined);move(single,-1);}}>上移</button>
         <button role="menuitem" type="button" disabled={busy||!stepShortcuts(items,single,1)} onClick={()=>{setMenu(undefined);move(single,1);}}>下移</button>
@@ -267,7 +277,8 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
           if(settings&&moveLast)void save({...settings,shortcuts:moveLast},'顺序已保存',item.id);
         }}>移到最后</button>
         {item.script_path
-          ?<button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);void selectScripts(item);}}>重新定位</button>
+          ?<><button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);void revealScript(item);}}>打开文件所在位置</button>
+            <button role="menuitem" type="button" disabled={busy} onClick={()=>{setMenu(undefined);void selectScripts(item);}}>重新定位</button></>
           :!sending&&<button role="menuitem" type="button" disabled={!diagnostics[item.id]} onClick={()=>{setMenu(undefined);setDiagnosticId(item.id);}}>查看最近诊断</button>}
         <button role="menuitem" type="button" disabled={busy} onClick={()=>{
           setMenu(undefined);
