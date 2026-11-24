@@ -6,6 +6,8 @@
 
 开发候选的右侧快捷指令新增及编辑表单支持可选多行描述，批量脚本导入可逐项填写。紧凑列表保留一行名称。悬停、键盘预览和全部展开时，描述位于命令正文或脚本路径之前。脚本预览加载中和失败时显示描述，仍按条目、窗格和修订丢弃迟到响应。[CR-050](changes/CR-050.md) · [说明字段](../apps/desktop/src/local-adb.tsx)
 
+右栏快捷指令表单使用「编辑快捷指令」或「新增快捷指令」作标题，原收起位置显示「← 返回」。顶部返回与底部取消共用未保存确认。取消或成功保存后回到仍打开的列表，恢复滚动位置和原条目的管理焦点。新增成功定位新条目，保存失败保留草稿。[CR-051](changes/CR-051.md)
+
 ### 布局与操作
 
 - **窗口与工具栏。** 主窗口和独立窗口的工具栏各占一行，所属窗格的标签另起一行并紧贴终端。主窗口左上是连接库开关，右侧依次为「日志」、日志目录和「更多工具」。窄窗的工具菜单可滚动，方向键移动，Home/End 到首尾，Esc 关闭并返回触发点。保持已定稿的工具栏布局，用户明确要求时才调整。连接库紧凑，状态栏一行，详情按需展开。终端视口使用 xterm 自身滚动条，分屏拖柄与活动焦点仍可见。[窗口控件](../apps/desktop/src/window-chrome.tsx) · [窗口装配](../apps/desktop/src/main.tsx) · [CR-022 实窗证据](records/CR-022.md) · [工具栏定稿](records/P25.md#windows-x64-0110-精简顶部工具栏2026-11-21)
@@ -55,7 +57,7 @@
 | 标签、关闭、拖动、双击 | 同一候选构建运行 [LocalTabs](../scripts/Test-Desktop-LocalTabs.mjs) 与受影响的 [PaneGroups](../scripts/Test-Desktop-PaneGroups.mjs) / [SessionCopy](../scripts/Test-Desktop-SessionCopy.mjs)。同时断言普通本地实体双击只建一个，拖动和尾随双击建零个，忙碌、ADB 及脚本结果保持原会话。检查目录继承、同名精确身份和关闭后的焦点。[P26.20 发布门](records/P26.20.md) |
 | 样式、主题、焦点与尺寸 | `node scripts/Test-Desktop-TabSeparation.mjs <Desktop.exe>` 重建方案 A 浅色、白底终端、关闭焦点、深色录制、宽窄分屏与同地址对照。旧候选用 `--baseline`。另按影响使用 `npm run test:desktop:appearance`、[StandardWorkspaceDpi](../scripts/Test-Desktop-StandardWorkspaceDpi.mjs)。A 版 150% 为 CDP 模拟，宿主 100%。真实 DPI 和实际中文输入另记环境。[P26.16 对照](records/P26.16.md) |
 | 工具栏、弹窗、键盘、两个「＋」 | [Menus](../scripts/Test-Desktop-Menus.mjs)、[NewEntries](../scripts/Test-Desktop-NewEntries.mjs)、[Shortcuts](../scripts/Test-Desktop-Shortcuts.mjs) 按受影响场景选择，加 `npm run test:desktop:dialog-drag` 验证背景、取消与草稿保留。覆盖主/独立窗口、窄屏、无鼠标进入和返回触发点。 |
-| 粘贴、控制台和快捷指令 | [LocalClipboard](../scripts/Test-Desktop-LocalClipboard.mjs)、`npm run test:desktop:clipboard`。右栏用 [ShortcutPreview](../scripts/Test-Desktop-ShortcutPreview.mjs)、[ShortcutManagement](../scripts/Test-Desktop-ShortcutManagement.mjs) 或 [ShortcutRoutes](../scripts/Test-Desktop-ShortcutRoutes.mjs)。检查查看和编辑零执行、失效确认、精确字节和原命令行。 |
+| 粘贴、控制台和快捷指令 | [LocalClipboard](../scripts/Test-Desktop-LocalClipboard.mjs)、`npm run test:desktop:clipboard`。右栏用 [ShortcutPreview](../scripts/Test-Desktop-ShortcutPreview.mjs)、[ShortcutEditor](../scripts/Test-Desktop-ShortcutEditor.mjs)、[ShortcutManagement](../scripts/Test-Desktop-ShortcutManagement.mjs) 或 [ShortcutRoutes](../scripts/Test-Desktop-ShortcutRoutes.mjs)。检查编辑返回、焦点、查看和编辑零执行、失效确认、精确字节和原命令行。 |
 | 日志及异步状态 | `npm run test:desktop:log-location -- <Desktop.exe> <LogViewerProbe.exe> <报告路径>`、`npm run test:desktop:log-menu`、`npm run test:desktop:config-recheck` 及按影响的日志另存专项。探针从 [LogViewerProbe.rs](../scripts/lib/LogViewerProbe.rs) 用 `rustc` 编译。核对双录制目录、替换/移走拒绝、失败读回、丢应答命中、重启和目标变化。[P26.23](records/P26.23.md) · [P11.4](records/P11.4.md) |
 | MCP | 使用 [真实 stdio 快捷指令专项](../scripts/Test-Desktop-McpShortcuts.mjs)或目录专项的 `--mcp` 路径。按影响核对清单、旧客户端、扩展授权、撤销、精确字节和保护边界。工具发现、显式客户端执行及模型回合分别报告。[P26.26](records/P26.26.md) · [部署验证](records/P26.27.md) |
 

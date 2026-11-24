@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createInterface} from 'node:readline';
 import {requestId} from '../apps/desktop/src/request-id.ts';
-import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
+import {delay,desktopEvidence,launchDesktop} from './lib/DesktopHarness.mjs';
 import {openCodexMcpClient} from './lib/CodexMcpClient.mjs';
 import {readMcpCatalog} from './lib/McpCatalog.mjs';
 
@@ -15,7 +15,7 @@ const previous=process.argv[3]&&path.resolve(process.argv[3]);
 let desktop=previous??executable;
 let catalogVersion=previous?12:14;
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-mcp-shortcuts-中文-'));
-const evidence={result:'IN_PROGRESS',executable,observations:[],checks:[],modelTurns:0};
+const evidence={result:'IN_PROGRESS',...await desktopEvidence(executable),observations:[],checks:[],modelTurns:0};
 const nil='00000000-0000-0000-0000-000000000000';
 const script=path.join(root,'保留原文件.cmd');
 const replacement=path.join(root,'未创建目标.bat');
@@ -550,6 +550,8 @@ try {
   await ui.click('保存指令');
   await ui.waitFor('document.body.innerText.includes("ADB 快捷设置已更新，请重新读取后保存")');
   await ui.click('取消编辑');
+  await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=更改尚未保存]')");
+  await ui.click('放弃更改');
   await ui.waitFor(`!!${query(sidebar+' [aria-label="MCP 并发改名"]')}`);
   assert.equal((await list()).items.find(item=>item.id===legacy).name,'人工改名');
 

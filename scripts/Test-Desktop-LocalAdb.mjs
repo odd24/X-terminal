@@ -115,6 +115,8 @@ try {
   await manage('临时指令','编辑');
   await ui.fill('指令名称','取消的更改');
   await ui.click('取消编辑');
+  await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=更改尚未保存]')");
+  await ui.click('放弃更改');
   assert.deepEqual(await rows(),['设备列表','导出样本','临时指令']);
   await manage('临时指令','删除');
   await ui.waitFor(`document.querySelectorAll('${panel} .adb-shortcut-run').length===2`);

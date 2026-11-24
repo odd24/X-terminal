@@ -171,6 +171,8 @@ try{
   assert.deepEqual(await stored(),concurrent);
   await ui.click('重新读取快捷指令');
   await ui.click('取消编辑');
+  await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=更改尚未保存]')");
+  await ui.click('放弃更改');
   await ui.waitFor(`!!${area('并发保留')}`);
   await manage('执行验证','编辑');
   await ui.fill('指令描述','🙂'.repeat(501));

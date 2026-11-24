@@ -28,6 +28,10 @@ for(const file of manifest.files){
   const pe=bytes.readUInt32LE(0x3c);
   assert.equal(bytes.toString('ascii',pe,pe+4),'PE\0\0');
   assert.equal(bytes.readUInt16LE(pe+4),0x8664,'Windows x64 image');
+  const optional=pe+24;
+  assert.equal(bytes.readUInt16LE(optional),0x20b,'PE32+ optional header');
+  assert.ok(bytes.readUInt32LE(optional+108)>4,'certificate table slot');
+  assert.equal(bytes.readBigUInt64LE(optional+112+4*8),0n,'no embedded signature');
   if(file.name==='shared-terminal-desktop.exe')assert.equal(bytes.readUInt16LE(pe+24+68),2,'Windows GUI subsystem');
 }
 
