@@ -1,6 +1,6 @@
 # 共享终端全仓重构方案
 
-审阅基线为 `codex/execution-plan` 的 `8ad5cc2`（[P26.35](records/P26.35.md)）。2026-11-24 的授权范围为方案入库，实施待后续明确授权。R0–R9 是本文的工作包号。实施时逐步登记仓库 Step-ID，产品需求仍以[需求基线](REQUIREMENTS.md)及原 R01–R16 为准。方案接续 [P26.33](records/P26.33.md) 已完成的两轮局部重构，并挂在[现行执行路线](EXECUTION_PLAN.md#现行路线cr-006)下。
+审阅基线为 `codex/execution-plan` 的 `8ad5cc2`（[P26.35](records/P26.35.md)）。方案先经 P26.36 入库，随后获用户明确授权依序实施。执行结果从 [R0 基线记录](records/P26.37.md)开始登记。R0–R9 是本文的工作包号。实施时逐步登记仓库 Step-ID，产品需求仍以[需求基线](REQUIREMENTS.md)及原 R01–R16 为准。方案接续 [P26.33](records/P26.33.md) 已完成的两轮局部重构，并挂在[现行执行路线](EXECUTION_PLAN.md#现行路线cr-006)下。
 
 ## 一、结论与审查范围
 

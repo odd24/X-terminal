@@ -1,6 +1,8 @@
 # 执行台账
 
-P26.36 归档全仓重构方案，实施待后续明确授权。[执行记录](records/P26.36.md)
+P26.37 冻结 P26.35 桌面候选、契约及拖放和复制的对照结果。[基线记录](records/P26.37.md)
+
+P26.36 归档全仓重构方案，实施授权见 R0。[执行记录](records/P26.36.md)
 
 P26.35 窗口级快捷指令协调与定向回归。[执行记录](records/P26.35.md)
 
@@ -490,6 +492,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.34 | 窗口会话快照订阅与游标归属 | DONE | [P26.34](records/P26.34.md) | Step-ID: P26.34 |
 | P26.35 | 窗口快捷指令执行协调 | DONE | [P26.35](records/P26.35.md) | Step-ID: P26.35 |
 | P26.36 | 归档全仓重构方案 | DONE | [P26.36](records/P26.36.md) | Step-ID: P26.36 |
+| P26.37 | R0 冻结重构对照与契约 | DONE | [P26.37](records/P26.37.md) | Step-ID: P26.37 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
