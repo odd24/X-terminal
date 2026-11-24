@@ -6,25 +6,27 @@ import { CredentialsPanel } from './credentials-panel';
 import { Dialog, IconButton, PanelHeading, keepCompositionInField } from './ui';
 import { config, ConfigRequestError, readConfiguration, type Auth, type CredentialEdit, type Encoding, type Folder, type Profile, type Settings } from './config-api';
 import { ProfileDeletionConfirmation, useProfileDeletion } from './profile-deletion';
+import {SerialPortField,useConfigSerialPorts} from './serial-port-field';
+import type {Device} from './serial-api';
 
 type Draft = {
   id: string; name: string; folder: string; protocol: Settings['protocol']; encoding: Encoding;
   host: string; port: number; username: string; auth: Auth; ssh1: boolean;
-  serialPort: string; baud: number; bits: number; stopBits: number; parity: 'none' | 'odd' | 'even'; flow: 'none' | 'software' | 'hardware'; dtr: boolean; rts: boolean;
+  baud: number; bits: number; stopBits: number; parity: 'none' | 'odd' | 'even'; flow: 'none' | 'software' | 'hardware'; dtr: boolean; rts: boolean;
 };
-const blank = (): Draft => ({ id: crypto.randomUUID(), name: '', folder: '', protocol: 'ssh2', encoding: 'utf8', host: '', port: 22, username: '', auth: 'password', ssh1: false, serialPort: '', baud: 115200, bits: 8, stopBits: 1, parity: 'none', flow: 'none', dtr: false, rts: false });
+const blank = (): Draft => ({ id: crypto.randomUUID(), name: '', folder: '', protocol: 'ssh2', encoding: 'utf8', host: '', port: 22, username: '', auth: 'password', ssh1: false, baud: 115200, bits: 8, stopBits: 1, parity: 'none', flow: 'none', dtr: false, rts: false });
 function edit(profile: Profile): Draft {
   const base = { ...blank(), id: profile.id, name: profile.name, folder: profile.folder_id ?? '', protocol: profile.settings.protocol, encoding: profile.settings.encoding };
   const settings = profile.settings;
-  if (settings.protocol === 'serial') return { ...base, serialPort: settings.port, baud: settings.baud_rate, bits: settings.data_bits, stopBits: settings.stop_bits, parity: settings.parity, flow: settings.flow, dtr: settings.dtr_on_open, rts: settings.rts_on_open ?? false };
+  if (settings.protocol === 'serial') return { ...base, baud: settings.baud_rate, bits: settings.data_bits, stopBits: settings.stop_bits, parity: settings.parity, flow: settings.flow, dtr: settings.dtr_on_open, rts: settings.rts_on_open ?? false };
   return { ...base, host: settings.host, port: settings.port, username: settings.username, auth: settings.protocol === 'ssh2' ? settings.auth : 'password', ssh1: settings.protocol === 'ssh1' && settings.explicitly_enabled };
 }
-function settings(draft: Draft): Settings {
-  if (draft.protocol === 'serial') return { protocol: 'serial', port: draft.serialPort.trim().toUpperCase(), baud_rate: draft.baud, data_bits: draft.bits, stop_bits: draft.stopBits, parity: draft.parity, flow: draft.flow, dtr_on_open: draft.dtr, rts_on_open: draft.flow === 'hardware' ? null : draft.rts, encoding: draft.encoding };
+function settings(draft: Draft, serialPort: string): Settings {
+  if (draft.protocol === 'serial') return { protocol: 'serial', port: serialPort, baud_rate: draft.baud, data_bits: draft.bits, stop_bits: draft.stopBits, parity: draft.parity, flow: draft.flow, dtr_on_open: draft.dtr, rts_on_open: draft.flow === 'hardware' ? null : draft.rts, encoding: draft.encoding };
   const common = { host: draft.host.trim(), port: draft.port, username: draft.username, encoding: draft.encoding };
   return draft.protocol === 'ssh2' ? { ...common, protocol: 'ssh2', auth: draft.auth } : { ...common, protocol: 'ssh1', explicitly_enabled: draft.ssh1 };
 }
-export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ssh1Preview, creation, onConnect }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; onChanged?():void; ssh1Preview: boolean; creation?:{protocol:'ssh2'|'serial';folder:string}; onConnect?(profile:Profile):void }) {
+export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ssh1Preview, creation, onConnect }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; onChanged?():void; ssh1Preview: boolean; creation?:{protocol:'ssh2'|'serial';folder:string}; onConnect?(profile:Profile,device?:Device):void }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [filter, setFilter] = useState('*');
@@ -48,6 +50,9 @@ export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ss
   const [saveUncertain,setSaveUncertain]=useState(false);
   useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
   const current = profiles.find(profile => profile.id === draft.id);
+  const savedPort=current?.settings.protocol==='serial'?current.settings.port:undefined;
+  const serialPorts=useConfigSerialPorts(draft.protocol==='serial'?draft.id:undefined,savedPort);
+  const portUnavailable=draft.protocol==='serial'&&(serialPorts.busy||!serialPorts.port);
   const clearSecrets = () => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential('keep'); };
   const deletion=useProfileDeletion(result=>{
     if(result.snapshot)applyConfiguration(result.snapshot);
@@ -106,9 +111,11 @@ export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ss
   }, []);
   async function save(event: FormEvent) {
     event.preventDefault();
-    if(busy||!ready||saveInFlight.current||saveUncertain)return;
+    if(busy||!ready||saveInFlight.current||saveUncertain||portUnavailable
+      ||draft.protocol==='serial'&&serialPorts.pending())return;
     const connect=!!creation&&(event.nativeEvent as SubmitEvent).submitter?.getAttribute('value')==='connect';
-    const value = settings(draft);
+    const selectedDevice=serialPorts.selected;
+    const value = settings(draft,serialPorts.port??'');
     if (value.protocol === 'ssh1' && credential === 'replace') {
       if (!ssh1Preview || !value.explicitly_enabled) {
         setMessage('请先在配对预览中显式启用 SSH1，再保存密码。');
@@ -130,10 +137,11 @@ export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ss
       setBusy(true);
       setMessage('正在保存配置…');
       const reply=await persist();
-      if(reply.result!=='saved_profile'||reply.profile.id!==profile.id||reply.profile.settings.protocol!==value.protocol)
+      if(reply.result!=='saved_profile'||reply.profile.id!==profile.id||reply.profile.settings.protocol!==value.protocol
+        ||value.protocol==='serial'&&reply.profile.settings.protocol==='serial'&&reply.profile.settings.port!==value.port)
         throw new ConfigRequestError('INVALID_CONFIGURATION_REPLY',true);
       if(!active.current)return;
-      if(connect)onConnect?.(reply.profile);
+      if(connect)onConnect?.(reply.profile,selectedDevice);
       close();
     } catch(error) {
       if(!active.current)return;
@@ -192,7 +200,14 @@ export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ss
               {draft.protocol === 'ssh2' && <label>认证方式<select aria-label="认证方式" value={draft.auth} onChange={event => { clearSecrets(); change('auth', event.target.value as Auth); }}><option value="password">密码</option><option value="public_key">私钥与口令</option><option value="keyboard_interactive">交互认证</option></select></label>}
               {draft.protocol === 'ssh1' && <label className="check"><input aria-label="显式开启SSH1" type="checkbox" required checked={draft.ssh1} onChange={event => change('ssh1', event.target.checked)} />明确启用可能不安全的旧协议 SSH1</label>}
             </> : <>
-              <label>串口标识<input aria-label="串口标识" required pattern="[Cc][Oo][Mm][0-9]+" value={draft.serialPort} placeholder="COM89" onChange={event => change('serialPort', event.target.value)} /></label>
+              <div>
+                <SerialPortField id="config-serial-port" label="串口端口" devices={serialPorts.inventory?.devices??[]}
+                  savedPort={savedPort} value={serialPorts.value} loading={serialPorts.busy} disabled={serialPorts.busy}
+                  refreshDisabled={serialPorts.busy} choose={serialPorts.choose} refresh={serialPorts.refresh}/>
+                {serialPorts.error&&<small role="alert">读取串口列表失败，可刷新重试。{serialPorts.error}</small>}
+                {serialPorts.inventory&&!serialPorts.inventory.devices.length&&<small role="status">未检测到可识别串口，请连接设备后刷新。</small>}
+                {serialPorts.lost&&<small role="status">原设备已拔出、变化或暂时无法确认。连接前请重新选择设备。</small>}
+              </div>
               <label>波特率<input aria-label="波特率" required type="number" min={1} max={4294967295} value={draft.baud} onChange={event => change('baud', Number(event.target.value))} /></label>
               <label>数据位<select aria-label="数据位" value={draft.bits} onChange={event => change('bits', Number(event.target.value))}>{[5, 6, 7, 8].map(bits => <option key={bits}>{bits}</option>)}</select></label>
               <label>停止位<select aria-label="停止位" value={draft.stopBits} onChange={event => change('stopBits', Number(event.target.value))}><option>1</option><option>2</option></select></label>
@@ -208,7 +223,7 @@ export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ss
             {credential === 'replace' && (draft.protocol === 'ssh2' && draft.auth === 'public_key' ? <><label>本地私钥文件<input aria-label="本地私钥文件" required autoComplete="off" placeholder="C:\keys\id_ed25519" value={keyPath} onChange={event => setKeyPath(event.target.value)} /><small>仅本地盘的普通文件，服务读取并加密保存；文件内容不进入页面。</small></label><label>私钥口令<input aria-label="私钥口令" type="password" autoComplete="new-password" value={passphrase} onChange={event => setPassphrase(event.target.value)} /></label></> : <label>新密码<input aria-label="新密码" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /><small>允许显式保存空密码。</small></label>)}
             <small>移除引用不删除其他配置或备份可能使用的密文。保存、切换或关闭后清空新输入。</small>
           </fieldset>}
-          <div className="config-actions">{creation?<><button type="submit">保存</button><button type="submit" value="connect">保存并连接</button></>:<><button type="submit">保存配置</button><button type="button" disabled={!current} onClick={() => { clearSecrets(); setDraft({ ...draft, id: crypto.randomUUID(), name: `${draft.name} 副本` }); setMessage('已准备副本，不携带凭据；按需重新输入后保存。'); }}>复制配置</button><button ref={deleteButton} type="button" disabled={!current||!configurationRevision} onClick={() => {if(current){clearSecrets();deletion.start(current,configurationRevision);}}}>删除配置</button></>}</div>
+          <div className="config-actions">{creation?<><button type="submit" disabled={portUnavailable}>保存</button><button type="submit" value="connect" disabled={portUnavailable}>保存并连接</button></>:<><button type="submit" disabled={portUnavailable}>保存配置</button><button type="button" disabled={!current} onClick={() => { clearSecrets(); setDraft({ ...draft, id: crypto.randomUUID(), name: `${draft.name} 副本` }); setMessage('已准备副本，不携带凭据；按需重新输入后保存。'); }}>复制配置</button><button ref={deleteButton} type="button" disabled={!current||!configurationRevision} onClick={() => {if(current){clearSecrets();deletion.start(current,configurationRevision);}}}>删除配置</button></>}</div>
         </fieldset>
       </form>
     </div>

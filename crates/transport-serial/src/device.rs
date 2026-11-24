@@ -12,6 +12,7 @@ pub struct Device {
     port_name: String,
     instance_id: String,
     interface_path: String,
+    friendly_name: Option<String>,
 }
 impl Device {
     #[cfg(feature = "test-backend")]
@@ -20,6 +21,7 @@ impl Device {
             port_name: "COM7".into(),
             instance_id: "SYNTHETIC-TEST-INSTANCE".into(),
             interface_path: r"\\?\synthetic-test-interface".into(),
+            friendly_name: Some("内存串口夹具".into()),
         }
     }
     pub fn port_name(&self) -> &str {
@@ -27,6 +29,16 @@ impl Device {
     }
     pub fn instance_id(&self) -> &str {
         &self.instance_id
+    }
+    pub fn friendly_name(&self) -> Option<&str> {
+        self.friendly_name.as_deref()
+    }
+    pub fn same_identity(&self, other: &Self) -> bool {
+        self.port_name.eq_ignore_ascii_case(&other.port_name)
+            && self.instance_id.eq_ignore_ascii_case(&other.instance_id)
+            && self
+                .interface_path
+                .eq_ignore_ascii_case(&other.interface_path)
     }
 }
 impl fmt::Debug for Device {
@@ -125,15 +137,7 @@ pub(super) fn open_verified<T>(
     let matches = current
         .devices
         .iter()
-        .filter(|device| {
-            device.port_name.eq_ignore_ascii_case(&selected.port_name)
-                && device
-                    .instance_id
-                    .eq_ignore_ascii_case(&selected.instance_id)
-                && device
-                    .interface_path
-                    .eq_ignore_ascii_case(&selected.interface_path)
-        })
+        .filter(|device| device.same_identity(selected))
         .count();
     if matches != 1 {
         return Err(io::Error::new(
@@ -154,6 +158,7 @@ mod tests {
             port_name: "COM7".into(),
             instance_id: r"USB\SYNTHETIC\INSTANCE_A".into(),
             interface_path: r"\\?\synthetic#interface_a".into(),
+            friendly_name: None,
         }
     }
     fn config() -> Config {

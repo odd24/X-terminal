@@ -245,16 +245,20 @@ impl Manager {
                     .map_err(|_| ErrorCode::InvalidState)?;
                 let mut inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
                 inner.revision = Uuid::new_v4();
-                inner.devices.clear();
+                let previous = std::mem::take(&mut inner.devices);
                 let devices = inventory
                     .devices
                     .into_iter()
                     .map(|device| {
-                        let device_id = Uuid::new_v4();
+                        let device_id = previous
+                            .iter()
+                            .find_map(|(&id, old)| device.same_identity(old).then_some(id))
+                            .unwrap_or_else(Uuid::new_v4);
                         let summary = serial::DeviceSummary {
                             device_id,
                             port: device.port_name().into(),
                             instance_id: device.instance_id().into(),
+                            friendly_name: device.friendly_name().map(str::to_owned),
                         };
                         inner.devices.insert(device_id, device);
                         summary

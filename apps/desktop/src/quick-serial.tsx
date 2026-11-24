@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Panel, Field, IconButton, ErrorNotice, keepCompositionInField } from './ui';
+import { Panel, Field, ErrorNotice, keepCompositionInField } from './ui';
 import { config, readConfiguration, ConfigRequestError, type Profile, type Settings } from './config-api';
-import { serial, SerialRequestError, reference, type Inventory, type SerialReply } from './serial-api';
+import {findSerialDevice,readSerialInventory,serial,SerialRequestError,reference,type Device,type Inventory,type SerialReply} from './serial-api';
+import {SerialPortField} from './serial-port-field';
 import { requestId } from './request-id';
 import type { ConnectionRef } from './ssh-api';
 import {ConfigurationRecheck} from './configuration-recheck';
@@ -13,7 +14,7 @@ const defaults:SerialSettings={protocol:'serial',port:'',baud_rate:115200,data_b
 const failures:Record<string,string>={DEVICE_UNAVAILABLE:'设备已拔出或不可用，请检查接线并刷新端口。',ACCESS_OR_BUSY:'端口被占用或访问被拒绝，请关闭占用程序后重试。',INVALID_PARAMETERS:'设备不支持这些参数，请检查波特率和流控。',IO:'设备通信中断，请检查连接。',CANCELLED:'本次连接已取消。',WORKER_FAILED:'串口线程异常，未自动重连。'};
 function safe(error:unknown){return error instanceof SerialRequestError||error instanceof ConfigRequestError?error.message:'串口操作未完成；结果可能不明，没有自动重试。';}
 function savedAttempt():Attempt|undefined {try{const id=sessionStorage.getItem(slot);if(id&&/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id))return {id,cancelled:false,connected:false};}catch{/* unavailable */}return undefined;}
-export function QuickSerial({requestedProfile,copySettings,canStart,select,close,focus}:{requestedProfile?:string;copySettings?:SerialSettings;canStart?():boolean;select(id:string,expected?:ConnectionRef):void;close():void;focus(connection:ConnectionRef,profileId:string):void}){
+export function QuickSerial({requestedProfile,preferredDevice,copySettings,canStart,select,close,focus}:{requestedProfile?:string;preferredDevice?:Device;copySettings?:SerialSettings;canStart?():boolean;select(id:string,expected?:ConnectionRef):void;close():void;focus(connection:ConnectionRef,profileId:string):void}){
   const [settings,setSettings]=useState<SerialSettings>(()=>copySettings?{...copySettings,port:'',dtr_on_open:false,rts_on_open:copySettings.flow==='hardware'?null:false}:defaults),[inventory,setInventory]=useState<Inventory>(),[deviceId,setDeviceId]=useState('');
   const [profiles,setProfiles]=useState<Profile[]>([]),[profileId,setProfileId]=useState(''),[save,setSave]=useState(false);
   const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[message,setMessage]=useState('选择端口即可连接。只接收抓取UART日志无需发送命令。');
@@ -22,18 +23,31 @@ export function QuickSerial({requestedProfile,copySettings,canStart,select,close
   const [unknown,setUnknown]=useState(()=>!!savedAttempt()),[saveUnknown,setSaveUnknown]=useState(false);
   const attempt=useRef<Attempt|undefined>(savedAttempt()),mounted=useRef(true),flight=useRef(false);
   const devices=inventory?.devices.filter(d=>d.port!==copySettings?.port)??[];
-  const device=devices.find(d=>d.device_id===deviceId);
+  const device=findSerialDevice(devices,deviceId);
   const patch=(value:Partial<SerialSettings>)=>{setProfileId('');setSettings(previous=>({...previous,...value}));};
   const forget=()=>{try{sessionStorage.removeItem(slot);}catch{/* unavailable */}};
   async function load(initial=false){if(flight.current)return;flight.current=true;setLoading(true);setError('');
-    const [c,i]=await Promise.allSettled([readConfiguration(),serial({op:'inventory'})]);
+    const [c,i]=await Promise.allSettled([readConfiguration(),readSerialInventory()]);
     try{if(!mounted.current)return;
+      const loadedProfile=initial&&c.status==='fulfilled'?c.value.profiles.find(p=>p.id===requestedProfile):undefined;
       if(c.status==='fulfilled'){
         setProfiles(c.value.profiles.filter(p=>p.settings.protocol==='serial'));setConfigurationReady(true);setConfigurationError('');setConfigurationCode('');setSaveUnknown(false);
-        if(initial){const p=c.value.profiles.find(p=>p.id===requestedProfile);if(p?.settings.protocol==='serial'){setSettings(p.settings);setProfileId(p.id);}}
+        if(loadedProfile?.settings.protocol==='serial'){setSettings(loadedProfile.settings);setProfileId(loadedProfile.id);}
       }else{setConfigurationReady(false);setConfigurationCode(c.reason instanceof ConfigRequestError?c.reason.code:'UNKNOWN');setConfigurationError(`读取连接配置失败：${safe(c.reason)}`);}
-      if(i.status==='fulfilled'&&i.value.result==='inventory'){setInventory(i.value);setDeviceId(previous=>i.value.result==='inventory'&&i.value.devices.some(d=>d.device_id===previous&&d.port===settings.port)?previous:'');setInventoryError('');}
-      else{setInventory(undefined);setDeviceId('');setInventoryError(`读取端口清单失败：${i.status==='rejected'?safe(i.reason):'端口清单回复无效，请重新读取。'}`);}
+      if(i.status==='fulfilled'){
+        setInventory(i.value);
+        setInventoryError('');
+        if(initial&&preferredDevice){
+          const match=loadedProfile?.settings.protocol==='serial'&&loadedProfile.settings.port===preferredDevice.port
+            ?findSerialDevice(i.value.devices,preferredDevice.device_id,preferredDevice.port):undefined;
+          setDeviceId(match?.device_id??'');
+          if(!match)setMessage('原选择的串口设备已变化，请核对实际设备后重新选择。');
+        }else{
+          const retained=findSerialDevice(i.value.devices,deviceId,settings.port);
+          setDeviceId(retained?.device_id??'');
+          if(deviceId&&!retained)setMessage('原选择的串口设备已变化，请核对实际设备后重新选择。');
+        }
+      }else{setInventory(undefined);setDeviceId('');setInventoryError(`读取端口清单失败：${safe(i.reason)}`);}
     }finally{flight.current=false;if(mounted.current)setLoading(false);}
   }
   useEffect(()=>{mounted.current=true;void load(true);return()=>{mounted.current=false;const a=attempt.current;if(a&&!a.connected){a.cancelled=true;if(a.connection)void serial({op:'close',connection:a.connection}).catch(()=>{});}};},[]);
@@ -84,11 +98,12 @@ export function QuickSerial({requestedProfile,copySettings,canStart,select,close
     {error&&<ErrorNotice>{error}</ErrorNotice>}<p role="status">{loading?'正在读取端口与配置…':message}</p>
     <form noValidate onKeyDown={keepCompositionInField} onSubmit={e=>void connect(e)}>
       {!copySettings&&profiles.length>0&&<Field label="已保存的连接（可选）"><select aria-label="串口已保存连接" disabled={blocked} value={profileId} onChange={e=>{setProfileId(e.target.value);const p=profiles.find(p=>p.id===e.target.value);if(p?.settings.protocol==='serial')setSettings(p.settings);setDeviceId('');}}><option value="">直接填写新连接</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>}
-      <label htmlFor="uart-device">端口</label>
-      <div className="field-refresh-row">
-        <select id="uart-device" aria-label="UART端口" aria-invalid={!!fieldErrors.device} aria-describedby={fieldErrors.device?"uart-device-error":undefined} autoFocus required disabled={blocked} value={deviceId} onChange={e=>{setFieldErrors(old=>({...old,device:undefined}));setDeviceId(e.target.value);const d=devices.find(d=>d.device_id===e.target.value);if(d){if(profileId&&settings.port!==d.port)setProfileId('');setSettings(s=>({...s,port:d.port}));}}}><option value="">请选择端口</option>{devices.map(d=><option key={d.device_id} value={d.device_id}>{d.port} · {d.instance_id}</option>)}</select>
-        <IconButton icon="refresh" label="刷新端口" disabled={busy||loading} onClick={()=>void load()} />
-      </div>
+      <SerialPortField id="uart-device" label="端口" ariaLabel="UART端口" autoFocus devices={devices}
+        loading={loading} disabled={blocked} refreshDisabled={busy||loading} value={deviceId}
+        errorId={fieldErrors.device?'uart-device-error':undefined} refresh={()=>void load()}
+        choose={id=>{setFieldErrors(old=>({...old,device:undefined}));setDeviceId(id);
+          const selected=findSerialDevice(devices,id);
+          if(selected){if(profileId&&settings.port!==selected.port)setProfileId('');setSettings(s=>({...s,port:selected.port}));}}}/>
       {fieldErrors.device&&<span id="uart-device-error" className="field-error" role="alert">{fieldErrors.device}</span>}
       {inventory&&<small>{devices.length===0?(copySettings?'没有其他可选端口。连接另一设备后可刷新端口。':'没有可识别端口，请连接设备后刷新。'):`可选择 ${devices.length} 个端口。`}{inventory.unidentified_ports.length>0&&` 无法确认身份的端口：${inventory.unidentified_ports.join('、')}（不可打开）。`}{inventory.metadata_failures>0&&` 身份读取失败 ${inventory.metadata_failures} 项。`}</small>}
       <Field label="波特率" error={fieldErrors.baud} errorId="uart-baud-error"><input aria-label="UART波特率" aria-invalid={!!fieldErrors.baud} aria-describedby={fieldErrors.baud?"uart-baud-error":undefined} type="number" min="1" max="4000000" required disabled={blocked} value={settings.baud_rate} onChange={e=>{setFieldErrors(old=>({...old,baud:undefined}));patch({baud_rate:Number(e.target.value)});}}/></Field>

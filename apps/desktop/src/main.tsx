@@ -71,7 +71,7 @@ import {LocalTerminal, terminalAction, type LocalPromptState, type LocalTab, typ
 import {useLocalFileDrop} from './local-file-drop';
 import {AdbShortcutPanel, loadAdbSettings, type AdbDiagnostic, type AdbIntent, type AdbSettings, type AdbShortcut} from './local-adb';
 import { LoggingPanel } from './logging-panel';
-import { serial, type SerialStatus } from './serial-api';
+import { serial, type Device, type SerialStatus } from './serial-api';
 import { requestId } from './request-id';
 import { ssh, dimensions, disconnectSsh1, type SshReply } from './ssh-api';
 import { Ssh1Connect, type Ssh1Intent } from './ssh1-connect';
@@ -124,6 +124,7 @@ function App() {
   const [copyTarget,setCopyTarget]=useState<Ref>();
   const [treeRevision, setTreeRevision] = useState(0);
   const [requestedProfile, setRequestedProfile] = useState<Profile>();
+  const [requestedSerialDevice,setRequestedSerialDevice]=useState<Device>();
   const [tabOrder, setTabOrder] = useState<string[]>([]);
   const tabClosures=useRef(new SessionTabClosures());
   const tabGroups=useRef(new TabGroups());
@@ -1062,13 +1063,13 @@ function App() {
     } catch (error) { tabClosures.current.finish(target,'unknown');finishFeedback((error instanceof Error?error.message:'关闭未获确认。') + ' 结果可能未知，未自动重试；请在连接面板核对实际状态。'); }
     finally { setTabEpoch(value=>value+1); }
   }
-  function connectProfile(profile: Profile,slot?:string,configRevision?:string) {
+  function connectProfile(profile: Profile,slot?:string,configRevision?:string,device?:Device) {
     if (savedIntentFlight.current||ssh1Flight.current) return;
     if(!slot)cancelWorkspaceSplit();
     if(slot&&workspaceSession.current.layout?.tabs.find(t=>t.id===slot)?.profile_id!==profile.id){setTabMessage('布局配置引用已变化，请重新打开布局。');return;}
     workspaceLaunch.current=undefined;
     setRequestedProfile(profile);
-    if (profile.settings.protocol === 'serial') {const nonce=crypto.randomUUID();setSerialNonce(nonce);if(slot)workspaceLaunch.current={slot,nonce,owner:service?.service_id??'',protocol:'SERIAL'};setSerialDialog(true); return; }
+    if (profile.settings.protocol === 'serial') {const nonce=crypto.randomUUID();setSerialNonce(nonce);setRequestedSerialDevice(device);if(slot)workspaceLaunch.current={slot,nonce,owner:service?.service_id??'',protocol:'SERIAL'};setSerialDialog(true); return; }
     if (profile.settings.protocol === 'ssh1') {
       const owner = serviceRef.current;
       if (slot || !configRevision || !owner?.ssh1_preview || !profile.settings.explicitly_enabled) {
@@ -1115,7 +1116,7 @@ function App() {
       if (!prepared) ssh1Flight.current = false;
     }
   }
-  function closeSerial(connected=false){if(!finishCopyDialog(connected))return;if(workspaceLaunch.current?.protocol==='SERIAL')workspaceLaunch.current=undefined;setSerialDialog(false);setCopySource(undefined);setCopyTarget(undefined);}
+  function closeSerial(connected=false){if(!finishCopyDialog(connected))return;if(workspaceLaunch.current?.protocol==='SERIAL')workspaceLaunch.current=undefined;setSerialDialog(false);setRequestedSerialDevice(undefined);setCopySource(undefined);setCopyTarget(undefined);}
   function finishWorkspace(connection:Ref,profileId:string,protocol:'SSH2'|'SERIAL',nonce:string){const pending=workspaceLaunch.current;if(!pending||pending.protocol!==protocol||pending.nonce!==nonce)return;
     const target={...connection,protocol,state:'CONNECTED'};if(pending.owner===service?.service_id&&workspaceSession.current.bind(pending.owner,pending.slot,profileId,target)){workspacePlacements.current.set(pending.slot,{owner:pending.owner,connection:target});setWorkspaceEpoch(v=>v+1);}else {cancelWorkspaceSplit();setTabMessage('本次参数或布局已改变，连接作为独立会话保留，布局引用未改变。');}workspaceLaunch.current=undefined;
   }
@@ -1144,7 +1145,7 @@ function App() {
     const owner=serviceRef.current?.service_id;
     if(owner)paneLaunch.current={key,owner};
   }
-  function connectNewProfile(profile:Profile){
+  function connectNewProfile(profile:Profile,device?:Device){
     const route=configurationCreation;
     if(!route||creationRoute.current!==route)return;
     creationRoute.current=undefined;
@@ -1156,7 +1157,7 @@ function App() {
     }
     focusPane(route.key);
     paneLaunch.current={key:route.key,owner:route.owner};
-    connectProfile(profile);
+    connectProfile(profile,undefined,undefined,device);
   }
   function copyDialogBusy(){
     return quickOpen||serialDialog||savedIntentFlight.current||ssh1Flight.current||!!document.querySelector('dialog:modal');
@@ -1183,7 +1184,7 @@ function App() {
     paneLaunch.current=launch;
     connectionEntry.current=Array.from(document.querySelectorAll<HTMLElement>('[role="tab"]'))
       .find(tab=>tab.dataset.connectionId===source.connection.connection_id)??null;
-    setCopySource({...source,route:launch});setCopyTarget(undefined);setRequestedProfile(undefined);
+    setCopySource({...source,route:launch});setCopyTarget(undefined);setRequestedProfile(undefined);setRequestedSerialDevice(undefined);
     setTabMessage('');
     if(source.settings.protocol==='ssh2'){
       const intent=source.saved_profile?{profile_id:source.saved_profile,request_id:requestId()}:undefined;
@@ -1253,6 +1254,7 @@ function App() {
     workspaceLaunch.current=undefined;
     setSerialNonce(crypto.randomUUID());
     setRequestedProfile(undefined);
+    setRequestedSerialDevice(undefined);
     setSerialDialog(true);
   }
   function openTopLog(anchor: HTMLButtonElement) {
@@ -1446,6 +1448,7 @@ function App() {
         closeSsh1();
       }} /></Dialog>}
     {serialDialog&&<Dialog label="连接串口设备" close={()=>closeSerial()} fallbackFocus={()=>restoreConnectEntry(copySource?.route)}><QuickSerial key={serialNonce} requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined}
+      preferredDevice={requestedSerialDevice}
       copySettings={copySource?.settings.protocol==='serial'?copySource.settings:undefined} canStart={copySource?canStartCopy:undefined}
       select={(id,ref)=>selectNewConnection(id,ref,copySource?.route)} close={()=>closeSerial()} focus={(ref,profile)=>{
         if(copySource&&(!sessionCopy.current.ownsResult(copySource.route,ref)||!copyStillCurrent(copySource.route)))return;

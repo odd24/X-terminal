@@ -39,6 +39,31 @@ fn text(buffer: &[u16]) -> io::Result<String> {
     Ok(text)
 }
 
+fn friendly_name(set: &DeviceSet, info: &SP_DEVINFO_DATA) -> Option<String> {
+    let mut buffer = [0u16; 256];
+    let mut bytes = 0;
+    let mut kind = 0;
+    let found = unsafe {
+        SetupDiGetDeviceRegistryPropertyW(
+            set.0,
+            info,
+            SPDRP_FRIENDLYNAME,
+            &mut kind,
+            buffer.as_mut_ptr().cast(),
+            size_of_val(&buffer) as u32,
+            &mut bytes,
+        )
+    };
+    if found == 0
+        || kind != REG_SZ
+        || !bytes.is_multiple_of(2)
+        || bytes as usize > size_of_val(&buffer)
+    {
+        return None;
+    }
+    text(&buffer[..bytes as usize / 2]).ok()
+}
+
 fn port_name(set: &DeviceSet, info: &SP_DEVINFO_DATA) -> io::Result<String> {
     let key =
         unsafe { SetupDiOpenDevRegKey(set.0, info, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ) };
@@ -149,6 +174,7 @@ fn describe(set: &DeviceSet, interface: &SP_DEVICE_INTERFACE_DATA) -> io::Result
         port_name: port_name(set, &info)?,
         instance_id: text(&instance[..length as usize])?,
         interface_path,
+        friendly_name: friendly_name(set, &info),
     })
 }
 

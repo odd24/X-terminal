@@ -205,6 +205,8 @@ pub struct DeviceSummary {
     pub device_id: Uuid,
     pub port: String,
     pub instance_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub friendly_name: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
