@@ -40,9 +40,10 @@ async function tool(name) {
   await ui.click(name);
 }
 async function openApprovalPanel() {
-  await tool('Agent 授权');
-  await ui.waitFor('!![...document.querySelectorAll("summary")].find(el=>el.textContent==="MCP 初版连接")');
-  await ui.evaluate('[...document.querySelectorAll("summary")].find(el=>el.textContent==="MCP 初版连接").click()');
+  const summary='[...document.querySelectorAll("summary")].find(el=>el.textContent==="MCP 初版连接")';
+  if(!await ui.evaluate(`!!(${summary})`))await tool('Agent 授权');
+  await ui.waitFor(`!!(${summary})`);
+  await ui.evaluate(`(() => { const entry=${summary}; if(!entry.closest('details').open)entry.click(); })()`);
 }
 async function boot() {
   ui=await launchDesktop(root,{executable:desktop});
@@ -77,6 +78,13 @@ async function shutdown(activeLocal) {
 }
 const waitStatus=message=>ui.waitFor(`${query(state)}?.textContent.includes(${q(message)})`);
 async function approve(scope,seconds=60) {
+  const duration=query('[aria-label="快捷指令授权期限"]');
+  if(!await ui.evaluate(`!!${duration}?.getClientRects().length`)){
+    await openApprovalPanel();
+    await ui.click('刷新快捷指令授权');
+    await waitStatus('已刷新');
+  }
+  await ui.waitFor(`!!${duration}?.getClientRects().length`);
   await ui.fill('快捷指令授权期限',String(seconds));
   await ui.click(`预览${scope}快捷指令授权`);
   await ui.waitFor(`!!${query(preview)}`);
@@ -544,14 +552,20 @@ try {
   await ui.click('人工改名 的管理操作');
   await ui.waitFor('!!document.querySelector(".adb-row-menu[data-positioned]")');
   await ui.evaluate('[...document.querySelectorAll(".adb-row-menu button")].find(item=>item.textContent==="编辑").click()');
-  await ui.fill('指令名称','原人工草稿');
+  const draftField=query('[aria-label="指令名称"]');
+  await ui.waitFor(`document.activeElement===${draftField}&&${draftField}.value==='人工改名'`);
+  await ui.evaluate(`${draftField}.select()`);
+  await ui.command('Input.insertText',{text:'原人工草稿'});
   const concurrent=await success('shortcuts_update',mut(manual.revision,{changes:[{id:newAdb,name:'MCP 并发改名'}]}));
-  assert.equal(await ui.evaluate(`${query('[aria-label="指令名称"]')}.value`),'原人工草稿');
+  assert.equal(await ui.evaluate(`${draftField}.value`),'原人工草稿');
   await ui.click('保存指令');
   await ui.waitFor('document.body.innerText.includes("ADB 快捷设置已更新，请重新读取后保存")');
+  assert.equal(await ui.evaluate(`${draftField}.value`),'原人工草稿');
   await ui.click('取消编辑');
-  await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=更改尚未保存]')");
-  await ui.click('放弃更改');
+  if(!previous){
+    await ui.waitFor("!!document.querySelector('dialog:modal[aria-label=更改尚未保存]')");
+    await ui.click('放弃更改');
+  }
   await ui.waitFor(`!!${query(sidebar+' [aria-label="MCP 并发改名"]')}`);
   assert.equal((await list()).items.find(item=>item.id===legacy).name,'人工改名');
 
