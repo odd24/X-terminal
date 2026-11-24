@@ -895,13 +895,16 @@ function App() {
     dropTab(peers[index],{kind:'insert',anchor:peers[index+offset].connection_id,after:offset>0});
   }
   function paneTabs(key:PaneKey){return tabs.filter(tab=>panes.current.paneOf(tab.connection_id)===key);}
-  function insertTab(id:string,anchor:string,after:boolean){
+  function tabInsertion(id:string,anchor:string,after:boolean){
     const order=orderedIds.filter(other=>other!==id);
     const index=order.indexOf(anchor);
-    if(index<0)return false;
+    if(index<0)return;
     order.splice(index+(after?1:0),0,id);
-    setTabOrder(order);
-    return true;
+    return order;
+  }
+  function insertTab(id:string,anchor:string,after:boolean){
+    const order=tabInsertion(id,anchor,after);
+    if(order)setTabOrder(order);
   }
   function localPeers(pane:PaneKey,except:string){
     return liveLocalTabs.current.filter(tab=>tab.id!==except&&panes.current.paneOf(tab.id)===pane&&!closingLocal.current.has(tab.id));
@@ -910,97 +913,91 @@ function App() {
     if(closingLocal.current.has(id)||!localIds.includes(id)||destination.kind==='detach')return;
     const layout=panes.current;
     const origin=layout.paneOf(id);
+    const peers=localPeers(origin,id);
+    const sourceHasPeers=!!(paneTabs(origin).length||peers.length);
     let target=origin;
     if(destination.kind==='insert'){
-      if(destination.anchor===id||!insertTab(id,destination.anchor,destination.after))return;
+      const order=tabInsertion(id,destination.anchor,destination.after);
+      if(!order)return;
       target=layout.paneOf(destination.anchor);
+      if(!layout.hasPane(target))return;
+      setTabOrder(order);
     }else{
       target=destination.pane;
+      if(!layout.hasPane(target))return;
       if(destination.kind==='split'){
-        if(target===origin&&!paneTabs(origin).length&&!localPeers(origin,id).length)return;
-        const {edge}=destination;
-        const relocate=origin!==target&&!paneTabs(origin).length&&!localPeers(origin,id).length?origin:undefined;
-        const added=layout.addPane(target,edge==='left'||edge==='right'?'horizontal':'vertical',edge==='left'||edge==='top',relocate);
-        if(!added){setTabMessage('已达到四窗格上限。');return;}
+        const added=layout.splitLocalDrop(id,target,destination.edge,sourceHasPeers);
+        if(!added)return;
+        if(added==='full'){setTabMessage('已达到四窗格上限。');return;}
         target=added;
       }
     }
     if(origin!==target){
-      const peers=localPeers(origin,id);
       if(localSelected.current.get(origin)===id){
         if(peers.length)localSelected.current.set(origin,peers[0].id);
         else localSelected.current.delete(origin);
       }
-      layout.placeLocal(id,target);
-      if(!peers.length&&!paneTabs(origin).length)layout.closePane(origin,target);
+      layout.moveLocalDrop(id,target,sourceHasPeers);
     }
     cancelWorkspaceSplit();
     selectLocal(target,id);
     requestAnimationFrame(()=>{if(panes.current.active===target&&localSelected.current.get(target)===id)focusPane(target,true);});
   }
-  function dropTab(source:Connection,destination:TabDrop) {
+  function dropTab(source:Connection,destination:TabDrop,expectedOwner?:string) {
     if(source.protocol==='LOCAL'){dropLocal(source.connection_id,destination);return;}
     const owner=serviceRef.current?.service_id;
     const live=liveConnections.current.find(c=>c.connection_id===source.connection_id&&c.generation===source.generation&&c.protocol===source.protocol);
-    if(!owner||!live||serviceStopped.current)return;
+    if(!owner||expectedOwner!==undefined&&owner!==expectedOwner||!live||serviceStopped.current)return;
     const id=live.connection_id;
     if(detached){
       if(destination.kind==='detach')void dockSession(owner,live);
       return;
     }
     if(destination.kind==='group'){
+      if(!panes.current.hasPane(destination.pane))return;
       if(assignTab(live,destination.group))mergeTab(live,destination.pane);
       return;
     }
     if(destination.kind==='insert'){
-      if(id===destination.anchor)return;
+      const order=tabInsertion(id,destination.anchor,destination.after);
+      const target=panes.current.paneOf(destination.anchor);
+      if(!order||!panes.current.hasPane(target))return;
       if(!localIds.includes(destination.anchor)){
         const group=tabGroups.current.groupOf(destination.anchor);
         if(tabGroups.current.groupOf(id)!==group&&!assignTab(live,group))return;
       }
-      if(insertTab(id,destination.anchor,destination.after))mergeTab(live,panes.current.paneOf(destination.anchor));
+      setTabOrder(order);
+      mergeTab(live,target);
       return;
     }
     if(destination.kind==='detach'){void openSessionWindow(owner,live);return;}
     if(destination.kind==='merge'){mergeTab(live,destination.pane);return;}
-    const canSplit=(connection:Connection)=>connection.state==='CONNECTED'&&['SSH2','SERIAL'].includes(connection.protocol);
-    if(localSelected.current.has(destination.pane)&&canSplit(live)){
-      const {edge}=destination;
-      const layout=panes.current;
+    const layout=panes.current;
+    if(localSelected.current.has(destination.pane)){
       const origin=layout.paneOf(id);
-      const relocate=origin!==destination.pane&&paneTabs(origin).length===1&&!localPeers(origin,'').length?origin:undefined;
-      const next=layout.addPane(destination.pane,edge==='left'||edge==='right'?'horizontal':'vertical',edge==='left'||edge==='top',relocate);
-      if(next){
-        if(next===origin){layout.focus(next);selectConnection(id,live);}
-        else mergeTab(live,next);
-      }
-      else setTabMessage('已达到四窗格上限。');
+      const next=layout.splitDropBesideLocal(live,destination.pane,destination.edge,tabs,localPeers(origin,'').map(tab=>tab.id));
+      if(next==='full')setTabMessage('已达到四窗格上限。');
+      else if(next===origin){layout.focus(next);selectConnection(id,live);}
+      else if(next)mergeTab(live,next);
+      else setTabMessage('分屏需要两个仍在连接的 SSH2 或串口会话。');
       return;
     }
-    const slot=paneSlots.find(slot=>slot.key===destination.pane);
-    const peers=paneTabs(destination.pane);
-    const bound=peers.find(c=>c.connection_id===slot?.binding?.connection_id&&c.generation===slot.binding.generation);
-    const other=bound&&bound.connection_id!==id&&canSplit(bound)?bound:peers.find(c=>c.connection_id!==id&&canSplit(c));
-    if(!other||!canSplit(live)){
+    const visible=tabs.flatMap(tab=>{
+      const current=liveConnections.current.find(candidate=>candidate.connection_id===tab.connection_id&&candidate.generation===tab.generation&&candidate.protocol===tab.protocol);
+      return current?[current]:[];
+    });
+    const split=layout.splitRemoteDrop(owner,destination.pane,live,destination.edge,visible,localIds);
+    if(split==='missing-peer'){
       setTabMessage('分屏需要两个仍在连接的 SSH2 或串口会话。');
       return;
     }
-    const {edge}=destination;
-    try {
-      cancelWorkspaceSplit();
-      const layout=panes.current;
-      const previous=layout.active;
-      layout.focus(destination.pane);
-      if(bound?.connection_id!==other.connection_id)layout.select(other.connection_id,other);
-      try{layout.split(owner,other,live,edge==='left'||edge==='right'?'horizontal':'vertical',edge==='left'||edge==='top',tabs,localIds);}
-      finally{
-        layout.focus(previous);routeChanged();
-        if(layout.current.binding)focusRenderedTerminal(layout.current.binding);
-      }
-    } catch {setTabMessage('会话已变化，未创建分屏。');}
+    if(!split){setTabMessage('会话已变化，未创建分屏。');return;}
+    cancelWorkspaceSplit();
+    routeChanged();
+    if(layout.current.binding)focusRenderedTerminal(layout.current.binding);
   }
   function mergeTab(source:Connection,destination:PaneKey){
-    if(!panes.current.slots.some(slot=>slot.key===destination))return;
+    if(!panes.current.hasPane(destination))return;
     if(panes.current.move(source,destination,tabs,localIds)){
       cancelWorkspaceSplit();
       panes.current.focus(destination);

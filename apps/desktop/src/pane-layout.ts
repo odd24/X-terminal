@@ -1,3 +1,5 @@
+import type { TabEdge } from './tab-drag';
+
 export type PaneIdentity={connection_id:string;generation:number;protocol:string};
 export type PaneLive=PaneIdentity&{state:string};
 export type PaneKey='first'|'second'|'third'|'fourth';
@@ -16,6 +18,9 @@ function without(tree:PaneTree,key:PaneKey):PaneTree|undefined{
 export type PaneSlot={key:PaneKey;requested:string;binding?:PaneIdentity;pending:boolean;retired:boolean;expectedGeneration?:number};
 const equal=(a:PaneIdentity|undefined,b:PaneIdentity|undefined)=>!!a&&!!b&&a.connection_id===b.connection_id&&a.generation===b.generation&&a.protocol===b.protocol;
 const empty=(key:PaneKey):PaneSlot=>({key,requested:'',pending:false,retired:false});
+const canSplit=(tab:PaneLive)=>tab.state==='CONNECTED'&&(tab.protocol==='SSH2'||tab.protocol==='SERIAL');
+const axisFor=(edge:TabEdge):SplitAxis=>edge==='left'||edge==='right'?'horizontal':'vertical';
+const leadingEdge=(edge:TabEdge)=>edge==='left'||edge==='top';
 /** Window-only presentation. Every explicit route change invalidates unsent input. */
 export class PaneLayout{
  private value:PaneSlot[]=[empty('first')];
@@ -25,6 +30,7 @@ export class PaneLayout{
  owner='';active:PaneKey='first';epoch=0;
  get direction(){return typeof this.tree==='string'?'single':this.tree.direction;}
  get slots(){return leaves(this.tree).map(key=>{const s=this.value.find(slot=>slot.key===key)!;return {...s,binding:s.binding&&{...s.binding}};});}
+ hasPane(key:PaneKey){return this.value.some(slot=>slot.key===key);}
  paneOf(id:string){return this.membership.get(id)??leaves(this.tree)[0];}
  get current(){return this.slots.find(s=>s.key===this.active)!;}
  placeLocal(id:string,key:PaneKey){this.membership.set(id,key);}
@@ -39,6 +45,46 @@ export class PaneLayout{
   this.epoch++;
   return key;
  }
+ splitLocalDrop(id:string,target:PaneKey,edge:TabEdge,sourceHasPeers:boolean){
+  const origin=this.paneOf(id);
+  if(!this.hasPane(target)||origin===target&&!sourceHasPeers)return;
+  const relocate=origin!==target&&!sourceHasPeers?origin:undefined;
+  return this.addPane(target,axisFor(edge),leadingEdge(edge),relocate)??'full';
+ }
+ moveLocalDrop(id:string,target:PaneKey,sourceHasPeers:boolean){
+  const origin=this.paneOf(id);
+  if(origin===target||!this.hasPane(target))return;
+  this.placeLocal(id,target);
+  if(!sourceHasPeers)this.closePane(origin,target);
+ }
+ splitDropBesideLocal(tab:PaneLive,target:PaneKey,edge:TabEdge,visible:readonly PaneLive[],local:readonly string[]){
+  if(!this.hasPane(target)||!canSplit(tab))return;
+  const origin=this.paneOf(tab.connection_id);
+  const sourceHasPeers=local.some(id=>this.paneOf(id)===origin)||
+    visible.some(peer=>peer.connection_id!==tab.connection_id&&this.paneOf(peer.connection_id)===origin);
+  const relocate=origin!==target&&!sourceHasPeers?origin:undefined;
+  return this.addPane(target,axisFor(edge),leadingEdge(edge),relocate)??'full';
+ }
+ splitRemoteDrop(owner:string,target:PaneKey,tab:PaneLive,edge:TabEdge,visible:readonly PaneLive[],local:readonly string[]){
+  const slot=this.value.find(candidate=>candidate.key===target);
+  if(!slot||!owner||this.owner!==owner||!visible.some(candidate=>equal(candidate,tab)))return false;
+  if(!canSplit(tab))return 'missing-peer';
+  const peers=visible.filter(peer=>this.paneOf(peer.connection_id)===target);
+  const bound=peers.find(peer=>equal(slot.binding,peer));
+  const other=bound&&bound.connection_id!==tab.connection_id&&canSplit(bound)
+    ?bound:peers.find(peer=>peer.connection_id!==tab.connection_id&&canSplit(peer));
+  if(!other)return 'missing-peer';
+  const selectFirst=bound?.connection_id!==other.connection_id;
+  if(!selectFirst&&(slot.pending||slot.retired))return false;
+  const key=this.splitKey(target,tab,visible,local);
+  if(!key)return false;
+  const previous=this.active;
+  this.focus(target);
+  if(selectFirst)this.select(other.connection_id,other);
+  this.applySplit(target,key,tab,axisFor(edge),leadingEdge(edge),visible,local);
+  this.focus(previous);
+  return true;
+ }
  retain(owner:string,live:readonly PaneLive[],fulfill=true){let changed=false;
   if(owner!==this.owner){this.owner=owner;this.value=[empty('first')];this.active='first';this.tree='first';this.membership.clear();this.epoch++;changed=true;}
   for(const s of this.value){
@@ -51,18 +97,24 @@ export class PaneLayout{
  }
  focus(key:PaneKey){if(!this.value.some(s=>s.key===key))return false;if(this.active!==key){this.active=key;this.epoch++;}return true;}
  split(owner:string,first:PaneLive,second:PaneLive,direction:SplitAxis,leading=false,visible:readonly PaneLive[]=[],local:readonly string[]=[]){
-  if(!owner||owner!==this.owner||!equal(this.current.binding,first)||this.current.retired||this.current.pending||first.state!=='CONNECTED'||second.state!=='CONNECTED'||first.connection_id===second.connection_id||!['SSH2','SERIAL'].includes(first.protocol)||!['SSH2','SERIAL'].includes(second.protocol)||!['horizontal','vertical'].includes(direction))throw new Error('请选择两个不同且仍已连接的SSH或串口会话。');
-  const target=this.active,origin=this.paneOf(second.connection_id);
+  if(!owner||owner!==this.owner||!equal(this.current.binding,first)||this.current.retired||this.current.pending||!canSplit(first)||!canSplit(second)||first.connection_id===second.connection_id||!['horizontal','vertical'].includes(direction))throw new Error('请选择两个不同且仍已连接的SSH或串口会话。');
+  const target=this.active,key=this.splitKey(target,second,visible,local);
+  if(!key)throw new Error('已达到四窗格上限。');
+  this.applySplit(target,key,second,direction,leading,visible,local);
+ }
+ private splitKey(target:PaneKey,second:PaneLive,visible:readonly PaneLive[],local:readonly string[]){
+  const origin=this.paneOf(second.connection_id);
   const relocated=origin!==target&&this.value.find(slot=>slot.key===origin
     && equal(slot.binding,second)&&!slot.pending&&!slot.retired)
     &&!local.some(id=>this.paneOf(id)===origin)
     &&!visible.some(tab=>tab.connection_id!==second.connection_id&&this.paneOf(tab.connection_id)===origin);
-  const key=relocated?origin:paneKeys.find(key=>!this.value.some(slot=>slot.key===key));
-  if(!key)throw new Error('已达到四窗格上限。');
+  return relocated?origin:paneKeys.find(key=>!this.value.some(slot=>slot.key===key));
+ }
+ private applySplit(target:PaneKey,key:PaneKey,second:PaneLive,direction:SplitAxis,leading:boolean,visible:readonly PaneLive[],local:readonly string[]){
   for(const tab of visible)if(!this.membership.has(tab.connection_id))this.membership.set(tab.connection_id,this.paneOf(tab.connection_id));
   const branch={id:++this.nextSplit,direction,first:leading?key:target,second:leading?target:key};
-  if(relocated){
-   this.tree=replace(without(this.tree,origin)!,target,branch);
+  if(this.hasPane(key)){
+   this.tree=replace(without(this.tree,key)!,target,branch);
    this.epoch++;return;
   }
   this.move(second,key,visible,local);

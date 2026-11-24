@@ -52,3 +52,39 @@ test('moving and removing the last connection keeps its pane when a local tab st
  assert.equal(m.current.requested,'');
  assert.equal(m.paneOf('local'),'second');
 });
+
+test('full split drop leaves the old selection and all four panes intact',()=>{
+ const layout=ready(), extra={...a,connection_id:'extra'}, live=[a,b,serial,extra];
+ layout.addPane('first','horizontal',false);
+ layout.addPane('second','vertical',false);
+ layout.addPane('third','vertical',false);
+ layout.select(a.connection_id,a);
+ const original={tree:layout.tree,slots:layout.slots,active:layout.active,epoch:layout.epoch};
+ assert.equal(layout.splitRemoteDrop('service','first',a,'right',live,[]),false);
+ assert.deepEqual({tree:layout.tree,slots:layout.slots,active:layout.active,epoch:layout.epoch},original);
+ assert.equal(layout.paneOf(a.connection_id),'first');
+});
+
+test('a stale dragged generation or owner cannot move the current exact connection',()=>{
+ const layout=ready(), current={...b,generation:2}, live=[a,current];
+ const epoch=layout.epoch;
+ assert.equal(layout.splitRemoteDrop('service','first',b,'right',live,[]),false);
+ assert.equal(layout.splitRemoteDrop('old-service','first',current,'right',live,[]),false);
+ assert.equal(layout.epoch,epoch);
+ assert.equal(layout.splitRemoteDrop('service','first',current,'right',live,[]),true);
+ assert.equal(layout.active,'first');
+ assert.equal(layout.slots[1].binding.generation,2);
+});
+
+test('local drag reuses an isolated pane and closes it when its last tab moves',()=>{
+ const layout=ready();
+ const pane=layout.splitLocalDrop('local','first','bottom',true);
+ assert.equal(pane,'second');
+ layout.moveLocalDrop('local',pane,true);
+ assert.equal(layout.splitLocalDrop('local',pane,'left',false),undefined);
+ assert.equal(layout.splitLocalDrop('local','first','left',false),pane);
+ assert.deepEqual(layout.slots.map(slot=>slot.key),['second','first']);
+ layout.moveLocalDrop('local','first',false);
+ assert.deepEqual(layout.slots.map(slot=>slot.key),['first']);
+ assert.equal(layout.paneOf('local'),'first');
+});

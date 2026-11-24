@@ -4,7 +4,7 @@ import { locateTabDrop, type TabDrop } from './tab-drag';
 import type { PaneLive } from './pane-layout';
 
 export function useSessionDrag(tabs: PaneLive[], owner: string,
-  drop: (source: PaneLive, destination: TabDrop) => void, detached: boolean) {
+  drop: (source: PaneLive, destination: TabDrop, serviceOwner?: string) => void, detached: boolean) {
   const gesture = useRef<{ source: PaneLive; serviceOwner?: string; pointer: number; x: number; y: number; moving: boolean }>(undefined);
   const frame = useRef(0);
   const ignoreClick = useRef(false);
@@ -74,7 +74,7 @@ export function useSessionDrag(tabs: PaneLive[], owner: string,
     }
     cancelGesture();
     const destination = target(event.clientX, event.clientY,current.source);
-    if (destination) drop(current.source, destination);
+    if (destination) drop(current.source, destination, current.serviceOwner);
   }
   function bindings(source: PaneLive) {
     return {
