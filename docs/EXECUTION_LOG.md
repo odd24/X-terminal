@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.63 安装 0.1.38 并切换主开始菜单入口，实际运行安装目录中的桌面和同目录 v14 桥。[执行记录](records/P26.63.md)
+
 P26.62 正式交付 Windows x64 0.1.38 便携目录和 ZIP。16 项解压门禁、五个归档文件与 SHA-256 回读均通过。[执行记录](records/P26.62.md)
 
 P26.61 修正发布专项对 0.1.35 旧桌面的取消行为断言，复验跨版本 MCP stdio。[执行记录](records/P26.61.md)
@@ -568,6 +570,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.60 | 修复便携 ZIP 归档模块加载停滞 | DONE | [P26.60](records/P26.60.md) | Step-ID: P26.60 |
 | P26.61 | 修正跨版本 MCP 发布专项 | DONE | [P26.61](records/P26.61.md) | Step-ID: P26.61 |
 | P26.62 | Windows x64 0.1.38 本地正式发行 | DONE | [P26.62](records/P26.62.md) | Step-ID: P26.62 |
+| P26.63 | 部署 Windows x64 0.1.38 到当前用户 | DONE | [P26.63](records/P26.63.md) | Step-ID: P26.63 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
