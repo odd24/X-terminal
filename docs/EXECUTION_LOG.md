@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.51 交付 Windows x64 0.1.37 正式便携目录和 ZIP，登记构建版本、散列与发布证据。[执行记录](records/P26.51.md)
+
 P26.50 同步 0.1.37 版本并为三程序增加发布版本核验。[执行记录](records/P26.50.md)
 
 P26.49 整体验收 Windows x64 普通候选，复核旧断言、组合流程和静态门禁基线。[执行记录](records/P26.49.md)
@@ -532,6 +534,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.48 | R9 桌面夹具生命周期 | DONE | [P26.48](records/P26.48.md) | Step-ID: P26.48 |
 | P26.49 | R9 Windows 候选整体验收 | DONE | [P26.49](records/P26.49.md) | Step-ID: P26.49 |
 | P26.50 | 同步 Windows x64 0.1.37 版本 | DONE | [P26.50](records/P26.50.md) | Step-ID: P26.50 |
+| P26.51 | Windows x64 0.1.37 本地正式发行 | DONE | [P26.51](records/P26.51.md) | Step-ID: P26.51 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
