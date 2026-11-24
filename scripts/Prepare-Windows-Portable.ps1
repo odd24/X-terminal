@@ -96,6 +96,20 @@ try {
     node scripts/Test-Desktop-Mcp.mjs --official-client --read-boundaries (Join-Path $unpacked 'manifest.json')
     if ($LASTEXITCODE -ne 0) { throw "Extracted release MCP read regression failed. Candidate: $staging" }
     $desktop = Join-Path $unpacked 'shared-terminal-desktop.exe'
+    $desktopHash = ($files | Where-Object name -eq 'shared-terminal-desktop.exe').sha256
+    $savedSshEvidence = Join-Path $staging 'saved-ssh.json'
+    node scripts/Test-Desktop-SavedSshSetup.mjs $desktop $savedSshEvidence
+    if ($LASTEXITCODE -ne 0) { throw "Extracted saved SSH2 setup failed. Candidate: $staging" }
+    $fileDropEvidence = Join-Path $staging 'native-file-drop.json'
+    node scripts/Test-Desktop-FileDrop.mjs $desktop $fileDropEvidence
+    if ($LASTEXITCODE -ne 0) { throw "Extracted native file drop failed. Candidate: $staging" }
+    $deletionEvidence = Join-Path $staging 'profile-deletion.json'
+    node scripts/Test-Desktop-TreeActions.mjs $desktop $deletionEvidence "windows-$version"
+    if ($LASTEXITCODE -ne 0) { throw "Extracted profile deletion failed. Candidate: $staging" }
+    $contextMenuEvidence = Join-Path $staging 'context-menu.json'
+    $oldContextMenu = Join-Path $artifacts 'SharedTerminal-0.1.38-windows-x64/shared-terminal-desktop.exe'
+    node scripts/Test-Desktop-ContextMenuPolicy.mjs $desktop $oldContextMenu $contextMenuEvidence
+    if ($LASTEXITCODE -ne 0) { throw "Extracted native context menu policy failed. Candidate: $staging" }
     node scripts/Test-Desktop-LocalTerminal.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Extracted local terminal regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-LocalAdb.mjs $desktop
@@ -134,6 +148,9 @@ try {
     Copy-Item -LiteralPath $uartService -Destination (Join-Path $uartStage 'session-service.exe')
     node scripts/Test-Desktop-ShortcutRoutes.mjs $uartDesktop --uart
     if ($LASTEXITCODE -ne 0) { throw "Memory UART shortcut routes failed. Candidate: $staging" }
+    $serialConfigEvidence = Join-Path $staging 'serial-config.json'
+    node scripts/Test-Desktop-SerialConfig.mjs $uartDesktop $serialConfigEvidence
+    if ($LASTEXITCODE -ne 0) { throw "Extracted serial configuration failed. Candidate: $staging" }
     node scripts/Test-Desktop-ShortcutManagement.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "Shortcut management regression failed. Candidate: $staging" }
     node scripts/Test-Desktop-Shortcuts.mjs $desktop
@@ -158,7 +175,6 @@ try {
     $shortcutEditor = Get-Content -LiteralPath $shortcutEditorEvidence -Raw | ConvertFrom-Json
     $shortcutSsh = Get-Content -LiteralPath "artifacts/windows-$version-shortcut-routes-ssh.json" -Raw | ConvertFrom-Json
     $shortcutUart = Get-Content -LiteralPath "artifacts/windows-$version-shortcut-routes-uart.json" -Raw | ConvertFrom-Json
-    $desktopHash = ($files | Where-Object name -eq 'shared-terminal-desktop.exe').sha256
     $shortcutManagement = Get-Content -LiteralPath 'artifacts/shortcut-management-software-result.json' -Raw | ConvertFrom-Json
     $desktopShortcuts = Get-Content -LiteralPath 'artifacts/desktop-shortcuts-software-result.json' -Raw | ConvertFrom-Json
     $mcpShortcuts = Get-Content -LiteralPath "artifacts/windows-$version-mcp-shortcuts-verification.json" -Raw | ConvertFrom-Json
@@ -179,7 +195,24 @@ try {
         $mcpShortcuts.result -ne 'PASS' -or $mcpShortcuts.executable -ne $desktop -or $mcpShortcuts.desktopSha256 -ne $desktopHash) {
         throw 'Release evidence mismatch'
     }
-    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;mixedTabs=$mixedTabs;shortcutPreview=$shortcutPreview;shortcutEditor=$shortcutEditor;shortcutSsh=$shortcutSsh;shortcutUart=$shortcutUart;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts;mcpShortcuts=$mcpShortcuts}
+    $featureReports = [ordered]@{}
+    foreach ($gate in @(
+        @{name='savedSsh';path=$savedSshEvidence;executable=$desktop},
+        @{name='fileDrop';path=$fileDropEvidence;executable=$desktop},
+        @{name='profileDeletion';path=$deletionEvidence;executable=$desktop},
+        @{name='contextMenu';path=$contextMenuEvidence;executable=$desktop},
+        @{name='serialConfig';path=$serialConfigEvidence;executable=$uartDesktop}
+    )) {
+        $result = Get-Content -LiteralPath $gate.path -Raw | ConvertFrom-Json
+        if ($result.result -ne 'PASS' -or $result.executable -ne $gate.executable -or $result.desktopSha256 -ne $desktopHash) {
+            throw "Release feature evidence mismatch: $($gate.name)"
+        }
+        $featureReports[$gate.name] = $result
+    }
+    if ($featureReports.fileDrop.source -ne 'Win32 OLE CF_HDROP fixture') {
+        throw 'Release file-drop acceptance requires the Windows OLE source'
+    }
+    $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;mixedTabs=$mixedTabs;shortcutPreview=$shortcutPreview;shortcutEditor=$shortcutEditor;shortcutSsh=$shortcutSsh;shortcutUart=$shortcutUart;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts;mcpShortcuts=$mcpShortcuts;features=$featureReports}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
 
     $resolvedStage = (Resolve-Path -LiteralPath $staging).Path
