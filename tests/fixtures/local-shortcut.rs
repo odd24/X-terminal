@@ -84,6 +84,9 @@ fn main() -> io::Result<()> {
         "adb" => {
             if args == ["devices", "-l"] {
                 println!("List of devices attached\nfixed       device product:test");
+                if mode == "multiple" {
+                    println!("second      device product:test");
+                }
                 return Ok(());
             }
             assert_eq!(args[..2], ["-s", "fixed"]);

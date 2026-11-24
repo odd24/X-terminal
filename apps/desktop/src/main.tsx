@@ -1,3 +1,4 @@
+import {ShortcutExecution, sameShortcutSource, type ShortcutSource} from './shortcut-execution';
 import {ImportConfigPanel} from './import-config-panel';
 import {CloseReceiptPanel} from './close-receipt-panel';
 import {sameConnectionList, sameService, snapshotCursor, subscribeSessionSnapshots,
@@ -320,17 +321,12 @@ function App() {
   const [adbIntent,setAdbIntent]=useState<AdbIntent&{id:string}>();
   const [adbStarting,setAdbStarting]=useState(false);
   const [adbDiagnostics,setAdbDiagnostics]=useState<Record<string,AdbDiagnostic>>({});
-  const adbDiagnosticRequests=useRef(new Map<string,string>());
-  const shortcutFlight=useRef<{request:string;id?:string}|undefined>(undefined);
+  const [shortcutExecution]=useState(()=>new ShortcutExecution());
   const promptStates=useRef(new Map<string,LocalPromptState>());
   const reportLocalPrompt=useRef((id:string,state:LocalPromptState)=>{promptStates.current.set(id,state);});
   const closingLocal=useRef(new Set<string>());
-  type ShortcutSource={pane:PaneKey;local:string}|{pane:PaneKey;owner:string;connection:ComposeTarget};
-  const shortcutOrigins=useRef(new Map<string,ShortcutSource>());
   function shortcutSettled(request:string) {
-    if (shortcutFlight.current?.request!==request) return;
-    shortcutFlight.current=undefined;
-    setAdbStarting(false);
+    if(shortcutExecution.settle(request))setAdbStarting(false);
   }
   async function loadAdb() {
     const epoch=++adbSettingsEpoch.current;
@@ -416,7 +412,7 @@ function App() {
       const surface=document.createElement('div');
       surface.className='local-terminal-surface';
       panes.current.placeLocal(id,pane);
-      if(shortcutSource)shortcutOrigins.current.set(id,shortcutSource);
+      if(shortcutSource)shortcutExecution.origins.set(id,shortcutSource);
       setLocalTabs(previous=>[...previous,{id,title,initial,surface,powershell,origin:script?'script':adbResult?'adb-result':'ordinary'}]);
       if(beside&&inherit)insertTab(id,inherit,true);
       if(!shortcutSource||sourceSelected(shortcutSource))selectLocal(pane,id);
@@ -429,7 +425,7 @@ function App() {
     const tab=liveLocalTabs.current.find(item=>item.id===id);
     if(!tab||tab.origin==='script'||!ownsLocalTab(pane,id))return;
     if(gesture==='double-click'&&(tab.origin!=='ordinary'||!tab.powershell&&
-      (shortcutFlight.current?.id===id||promptStates.current.get(id)?.busy!==false)))return;
+      (shortcutExecution.startingTab(id)||promptStates.current.get(id)?.busy!==false)))return;
     void openLocal(pane,tab.powershell,{inherit:id,beside:true});
   }
   function selectLocal(pane:PaneKey,id:string) {
@@ -443,9 +439,8 @@ function App() {
     try {
       await terminalAction({kind:'close',id});
       const pane=panes.current.paneOf(id);
-      const origin=shortcutOrigins.current.get(id);
-      const restore=successfulShortcut&&origin&&origin.pane===pane&&panes.current.active===pane&&localSelected.current.get(pane)===id;
-      shortcutOrigins.current.delete(id);
+      const {restore,released}=shortcutExecution.closeResult(id,panes.current.active,localSelected.current.get(panes.current.active),successfulShortcut&&pane===panes.current.active);
+      if(released)setAdbStarting(false);
       panes.current.forgetLocal(id);
       if (localSelected.current.get(pane)===id) {
         const next=localPeers(pane,id)[0];
@@ -453,11 +448,10 @@ function App() {
         else localSelected.current.delete(pane);
       }
       promptStates.current.delete(id);
-      if(shortcutFlight.current?.id===id)shortcutSettled(shortcutFlight.current.request);
       localCount.current=Math.max(0,localCount.current-1);
       setLocalTabs(previous=>previous.filter(tab=>tab.id!==id));
       setTabOrder(previous=>previous.filter(other=>other!==id));
-      if(restore&&restoreShortcutOrigin(origin))return;
+      if(restore&&restoreShortcutOrigin(restore))return;
       if(!liveConnections.current.some(tab=>!tabClosures.current.isHidden(tab)&&panes.current.paneOf(tab.connection_id)===pane)&&!localPeers(pane,id).length)
         panes.current.closePane(pane,panes.current.active);
       routeChanged();
@@ -473,10 +467,7 @@ function App() {
       return {pane,owner:route.owner,connection:route.connection};
   }
   function sourceSelected(source:ShortcutSource) {
-    const live=shortcutSource(source.pane);
-    if(!live)return false;
-    if('local' in source)return 'local' in live&&live.local===source.local;
-    return 'connection' in live&&live.owner===source.owner&&live.connection.protocol===source.connection.protocol&&sameRef(live.connection,source.connection);
+    return sameShortcutSource(source,shortcutSource(source.pane));
   }
   function restoreShortcutOrigin(source:ShortcutSource) {
     const id='local' in source?source.local:source.connection.connection_id;
@@ -496,43 +487,25 @@ function App() {
   async function executeShortcut(pane:PaneKey,item:AdbShortcut,revision:string) {
     const source=shortcutSource(pane);
     if(!source||closingDesktop.current)return;
-    if(item.desktop_kind==='send'){
-      if('local' in source||!source.owner||!shortcutSendReady(pane))return;
-      const epoch=panes.current.epoch;
-      try{
-        const send=await invoke<{text:string;append_enter:boolean}>('local_shortcut_text',{request:{button:item.id,revision}});
-        if(epoch!==panes.current.epoch||!sourceSelected(source)||!shortcutSendReady(pane))return;
-        const controller=controllers.current.get(pane);
-        if(controller?.compose(source.connection,send.text+(send.append_enter?'\r':'')))focusPane(pane,true);
+    await shortcutExecution.execute(source,item,revision,{
+      selected:sourceSelected,epoch:()=>panes.current.epoch,writable:shortcutSendReady,
+      readText:request=>invoke('local_shortcut_text',{request}),
+      send(key,target,text){
+        if(controllers.current.get(key)?.compose(target,text))focusPane(key,true);
         else setTabMessage('当前会话不可写，快捷文本未发送');
-      }catch(error){if(sourceSelected(source))setTabMessage(String(error));}
-      return;
-    }
-    const inherit='local' in source?source.local:undefined;
-    if(item.script_path){
-      await openLocal(pane,false,{inherit,script:{button:item.id,revision},shortcutSource:source});
-      return;
-    }
-    if(shortcutFlight.current)return;
-    const request=crypto.randomUUID();
-    shortcutFlight.current={request};
-    adbDiagnosticRequests.current.set(item.id,request);
-    setAdbStarting(true);
-    const state=inherit?promptStates.current.get(inherit):undefined;
-    const reuse=inherit&&!item.desktop_kind&&!item.close_on_success&&state&&!state.busy&&!state.hasDraft;
-    const id=reuse?inherit:await openLocal(pane,false,{inherit,adbResult:true,shortcutSource:source});
-    if(!id){shortcutSettled(request);return;}
-    shortcutFlight.current={request,id};
-    setAdbIntent({button:item.id,revision,request,id});
+      },
+      error:setTabMessage,prompt:id=>promptStates.current.get(id),
+      open:(key,options)=>openLocal(key,false,options),starting:setAdbStarting,dispatch:setAdbIntent,
+    });
   }
   function shortcutSendReady(pane:PaneKey) {
     const route=paneSelection(pane), view=paneViews[pane];
     const target=route.connection;
-    return !!target&&route.owner&&['SSH1','SSH2','SERIAL'].includes(target.protocol)&&target.state==='CONNECTED'&&
+    return !!target&&!!route.owner&&['SSH1','SSH2','SERIAL'].includes(target.protocol)&&target.state==='CONNECTED'&&
       !!view?.renderedTarget&&sameRef(target,view.renderedTarget)&&!view.failure&&!view.inputFailure&&!serviceStopped.current;
   }
   function reportAdbDiagnostic(intent:AdbIntent,diagnostic:AdbDiagnostic) {
-    if(adbDiagnosticRequests.current.get(intent.button)===intent.request)
+    if(shortcutExecution.acceptsDiagnostic(intent))
       setAdbDiagnostics(previous=>({...previous,[intent.button]:diagnostic}));
   }
   const stopped = useRef(false);
@@ -1432,7 +1405,7 @@ function App() {
           !closingDesktop.current&&!closingLocal.current.has(tab.id)&&panes.current.active===key&&localSelected.current.get(key)===tab.id
           &&!document.querySelector('dialog:modal')?localClipboardEpoch.current:undefined}
         preferences={preferences} focus={()=>focusPane(key)} report={reportLocalPrompt.current} register={registerLocal} shortcutSettled={shortcutSettled}
-        onDiagnostic={reportAdbDiagnostic} onResultSuccess={id=>{if(shortcutOrigins.current.has(id))void closeLocal(id,true);}}
+        onDiagnostic={reportAdbDiagnostic} onResultSuccess={id=>{if(shortcutExecution.origins.has(id))void closeLocal(id,true);}}
         intent={adbIntent?.id===tab.id?adbIntent:undefined}/>,tab.surface,tab.id);
     })}
     {clipboardMessage&&<CornerNotice key={clipboardMessage} heading="剪贴板" autoDismiss

@@ -249,6 +249,19 @@ try{
     await ui.evaluate(`${node('[role=tab][data-connection-id="'+id+'"]')}.parentElement.querySelector('.tab-close-button').click()`);
     await activate(first);
   };
+  await mode('multiple');
+  const startCalls=await calls();
+  const tabCount=await ui.evaluate("document.querySelectorAll('[role=tab]').length");
+  await ui.evaluate(`(()=>{const button=${row(singleShell.name)};button.click();button.click();})()`);
+  await ui.waitFor(`!!document.querySelector('[aria-label="本次 ADB 设备"]')`);
+  const cancelledId=await selected();
+  assert.equal(await ui.evaluate("document.querySelectorAll('[role=tab]').length"),tabCount+1);
+  await ui.click('取消本次操作');
+  await ui.waitFor(`${row(singleShell.name)}?.getAttribute('aria-disabled')==='false'`);
+  assert.equal((await calls()).slice(startCalls.length).trim(),'adb|devices|-l');
+  await close(cancelledId);
+  await mode('');
+  result.checks.push('rapid activation opens one result; cancelling device selection releases startup without running a device command');
   const id=await run(legacy.name);
   await seen('List of devices attached');
   assert.equal((await ui.invoke('service_list')).find(connection=>connection.connection_id===first.connection_id).state,'CONNECTED');
@@ -360,7 +373,7 @@ try{
       result.checks.push('original commands echo once in order without phase labels or blank rows; unterminated output gets one separator; real TTY and fixed-device dedup, keyboard echo, resize, exit and interruption retained');
     }
   }
-  if(!uart&&!ttyBaseline){
+  if(!ttyBaseline){
     await mode('');
     const pipelineStart=await calls();
     const success=await run(local.name);
@@ -371,6 +384,9 @@ try{
     assert.ok(lines.indexOf('adb|-s|fixed|wait-for-device')<lines.indexOf('adb|-s|fixed|shell|dmesg -w'));
     assert.ok(lines.includes('grep|power'));
     await close(success);
+    result.checks.push('two-line local ADB pipeline from active remote session');
+  }
+  if(!uart&&!ttyBaseline){
     const select=await run(fallback.name);await seen('power signal');await seen('前台进程退出（0）');
     assert.ok((await ui.evaluate(`${node(output)}.innerText`)).split(/\r?\n/).some(line=>line.trimEnd()===fallback.command));
     assert.equal(await ui.evaluate(`${node(output)}.innerText.includes('cold boot')`),false);

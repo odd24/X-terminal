@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.35 窗口级快捷指令协调与定向回归。[执行记录](records/P26.35.md)
+
 P26.34 实施窗口会话快照订阅重构，修正移交窗口后的游标定位。[执行记录](records/P26.34.md)
 
 P26.33 完成桌面前端重构方案编制。[执行文档](records/P26.33.md)
@@ -484,6 +486,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.32 | 合并会话快照及输出调度，复验性能与回归 | DONE | [P26.32](records/P26.32.md) | Step-ID: P26.32 |
 | P26.33 | 编制桌面前端局部重构方案 | DONE | [P26.33](records/P26.33.md) | Step-ID: P26.33 |
 | P26.34 | 窗口会话快照订阅与游标归属 | DONE | [P26.34](records/P26.34.md) | Step-ID: P26.34 |
+| P26.35 | 窗口快捷指令执行协调 | DONE | [P26.35](records/P26.35.md) | Step-ID: P26.35 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
