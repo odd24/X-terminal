@@ -17,10 +17,11 @@ const panels=process.argv.includes('--connection-panels');
 const notices=process.argv.includes('--corner-notices');
 const refresh=notices||panels||process.argv.includes('--toolbar-refresh');
 const tabInteractions=process.argv.includes('--tab-interactions');
-const webviewPointer=refresh||process.argv.includes('--webview-pointer');
+const copyRaces=process.argv.includes('--copy-races');
+const webviewPointer=refresh||copyRaces||process.argv.includes('--webview-pointer');
 const tabVersion=path.basename(path.dirname(desktop)).match(/^SharedTerminal-(\d+\.\d+\.\d+)-windows-x64$/)?.[1]??'unpacked';
 const version=tabInteractions?tabVersion:notices?'0.1.12':panels?'0.1.11':refresh?'0.1.10':'0.1.9';
-const artifact=notices?'corner-notices':panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':'session-copy-ssh';
+const artifact=notices?'corner-notices':panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':copyRaces?'session-copy-races':'session-copy-ssh';
 const rootPrefix=notices?'shared-terminal-log-viewer-ui-中文-':'shared-terminal-session-copy-ui-中文-';
 const root=await mkdtemp(path.join(tmpdir(),rootPrefix));
 const processes=[];
@@ -441,6 +442,32 @@ try{
     await ui.click('取消连接窗口');
     assert.deepEqual((await sessions()).map(item=>({id:item.connection_id,state:item.state})),[{id:connection.connection_id,state:'CONNECTED'}]);
     evidence={result:'PASS',memoryUart:true,memoryUartDoubleClick:true,excludedOriginalPort:true,settingsRetained:true,serviceRejectedSamePort:true};
+  }else if(copyRaces){
+    const first=await source('focus-peer'),second=await source('copy-peer');
+    const a=await connect(first,false),b=await connect(second,false);
+    await activate(a);
+    await splitRight(b);
+    await ui.waitFor(`${tab(b)}?.getAttribute('aria-label')==='localhost'`);
+    const held=await ui.interceptIpc({command:'ssh_request',op:'status',connectionId:b.connection_id,mode:'hold'});
+    try{
+      const where=await point(tab(b));
+      const doubleClick=async()=>{
+        await pointerGesture(where,where);
+        await pointerGesture(where,where,2);
+      };
+      await doubleClick();
+      await wait(async()=>await held.count()===1,'observed copy status read');
+      await doubleClick();
+      await activate(a);
+      await ssh({op:'close',connection:ref(b)});
+      await ui.waitFor(`${tab(b)}?.title.includes('DISCONNECTED')`);
+      assert.equal(await held.count(),1,'rapid double-clicks started one copy read');
+    }finally{await held.restore();}
+    await ui.waitFor(`${q('[aria-label="标签操作状态"]')}?.textContent.includes('原会话或窗格已变化')`);
+    assert.equal(await ui.evaluate("!!document.querySelector('dialog:modal')"),false);
+    assert.equal(await ui.evaluate(`${pane}?.dataset.renderedId`),a.connection_id);
+    assert.equal((await metric(second)).accepted_connections,1);
+    evidence={result:'PASS',copyReadCount:1,closedSourceHasNoDialog:true,focusPreserved:true,secondEndpointConnections:1};
   }else if(tabInteractions){
     const first=await source('mixed-peer'),second=await source('copy-peer');
     const a=await connect(first,false),b=await connect(second,false);
@@ -572,7 +599,7 @@ try{
   }
   await close();
   await writeFile(`artifacts/windows-${version}-${artifact}.json`,JSON.stringify(evidence,null,2)+'\n');
-  console.log(tabInteractions?'PASS mixed local and SSH tabs, SSH double-click and exact copy input':notices?'PASS Windows corner notices, immediate dismissal and exact native actions':panels?'PASS Windows connection panels, exact lifecycle receipts, pane controls and unchanged toolbar':refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
+  console.log(copyRaces?'PASS delayed copy status, duplicate gesture and closed source focus':tabInteractions?'PASS mixed local and SSH tabs, SSH double-click and exact copy input':notices?'PASS Windows corner notices, immediate dismissal and exact native actions':panels?'PASS Windows connection panels, exact lifecycle receipts, pane controls and unchanged toolbar':refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
 }catch(error){
   if(ui)await ui.screenshot(`desktop-${version}-${artifact}-failure.png`).catch(()=>{});
   throw error;

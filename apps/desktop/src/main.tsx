@@ -46,6 +46,7 @@ import { ConfigPanel } from './config-panel';
 import { SshPanel } from './ssh-panel';
 import { QuickConnect, type SavedConnectIntent } from './quick-connect';
 import { SessionTabClosures } from './session-tab-closures';
+import { SessionCopy, copyRouteCurrent, type CopyRead, type CopyRoute } from './session-copy';
 import { TabGroups } from './tab-groups';
 import { TabGroupsPanel } from './tab-groups-panel';
 import { SessionTabs, localDragSource } from './session-tabs';
@@ -116,10 +117,9 @@ function App() {
   });
   const [navigationWidth, setNavigationWidth] = useState(260);
   const connectionEntry = useRef<HTMLElement>(null);
-  const paneLaunch = useRef<{key:PaneKey;owner:string;source?:Connection;fromDetached?:boolean}|undefined>(undefined);
-  const copyFlight=useRef(false);
-  const copyPlacement=useRef<{owner:string;anchor:Connection;child:Ref}|undefined>(undefined);
-  const [copySource,setCopySource]=useState<CopySource>();
+  const paneLaunch = useRef<{key:PaneKey;owner:string}|undefined>(undefined);
+  const sessionCopy=useRef(new SessionCopy());
+  const [copySource,setCopySource]=useState<CopySource&{route:CopyRoute}>();
   const [copyTarget,setCopyTarget]=useState<Ref>();
   const [treeRevision, setTreeRevision] = useState(0);
   const [requestedProfile, setRequestedProfile] = useState<Profile>();
@@ -267,7 +267,7 @@ function App() {
   const ssh1Flight=useRef(false);
   const firstSsh1Fit = useRef<{ owner: string; connection: Ref; pane: PaneKey; epoch: number; size: ReturnType<typeof dimensions> } | undefined>(undefined);
   function closeSsh1(){ssh1Flight.current=false;setSsh1Intent(undefined);}
-  function closeQuick(){if(workspaceLaunch.current?.protocol==='SSH2')workspaceLaunch.current=undefined;savedIntentFlight.current=undefined;setSavedIntent(undefined);setQuickOpen(false);setCopySource(undefined);setCopyTarget(undefined);setTabMessage(previous=>previous.startsWith('正在连接 ')?'':previous);}
+  function closeQuick(connected=false){if(!finishCopyDialog(connected))return;if(workspaceLaunch.current?.protocol==='SSH2')workspaceLaunch.current=undefined;savedIntentFlight.current=undefined;setSavedIntent(undefined);setQuickOpen(false);setCopySource(undefined);setCopyTarget(undefined);setTabMessage(previous=>previous.startsWith('正在连接 ')?'':previous);}
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
   const [serialDialog,setSerialDialog]=useState(false);
@@ -542,15 +542,10 @@ function App() {
   }, [service?.service_id, connectionIdentities]);
 
   useEffect(()=>{
-    const placement=copyPlacement.current;
-    if(!placement)return;
-    if(placement.owner!==service?.service_id){copyPlacement.current=undefined;return;}
     const live=liveConnections.current;
-    const child=live.find(c=>sameRef(c,placement.child)&&c.protocol===placement.anchor.protocol);
-    if(!child)return;
-    copyPlacement.current=undefined;
-    const anchor=live.find(c=>sameRef(c,placement.anchor)&&c.protocol===placement.anchor.protocol&&!tabClosures.current.isHidden(c));
-    if(!anchor)return;
+    const placement=sessionCopy.current.takePlacement(service?.service_id,live);
+    if(!placement||!copyStillCurrent(placement.route))return;
+    const {anchor,child}=placement;
     if(!assignTab(child,tabGroups.current.groupOf(anchor.connection_id)))return;
     setTabOrder(previous=>{
       const current=[...live.map(c=>c.connection_id).filter(id=>id!==child.connection_id),...liveLocalTabs.current.map(tab=>tab.id)];
@@ -1118,7 +1113,7 @@ function App() {
       if (!prepared) ssh1Flight.current = false;
     }
   }
-  function closeSerial(){if(workspaceLaunch.current?.protocol==='SERIAL')workspaceLaunch.current=undefined;setSerialDialog(false);setCopySource(undefined);setCopyTarget(undefined);}
+  function closeSerial(connected=false){if(!finishCopyDialog(connected))return;if(workspaceLaunch.current?.protocol==='SERIAL')workspaceLaunch.current=undefined;setSerialDialog(false);setCopySource(undefined);setCopyTarget(undefined);}
   function finishWorkspace(connection:Ref,profileId:string,protocol:'SSH2'|'SERIAL',nonce:string){const pending=workspaceLaunch.current;if(!pending||pending.protocol!==protocol||pending.nonce!==nonce)return;
     const target={...connection,protocol,state:'CONNECTED'};if(pending.owner===service?.service_id&&workspaceSession.current.bind(pending.owner,pending.slot,profileId,target)){workspacePlacements.current.set(pending.slot,{owner:pending.owner,connection:target});setWorkspaceEpoch(v=>v+1);}else {cancelWorkspaceSplit();setTabMessage('本次参数或布局已改变，连接作为独立会话保留，布局引用未改变。');}workspaceLaunch.current=undefined;
   }
@@ -1164,22 +1159,29 @@ function App() {
   function copyDialogBusy(){
     return quickOpen||serialDialog||savedIntentFlight.current||ssh1Flight.current||!!document.querySelector('dialog:modal');
   }
-  function copyStillCurrent(launch:NonNullable<typeof paneLaunch.current>){
-    if(serviceStopped.current||serviceRef.current?.service_id!==launch.owner||!panes.current.slots.some(s=>s.key===launch.key))return false;
-    const source=launch.source;
-    return !source||launch.fromDetached||!tabClosures.current.isHidden(source)&&!tabClosures.current.pending(source)
-      &&transferring.current!==source.connection_id&&panes.current.paneOf(source.connection_id)===launch.key
-      &&liveConnections.current.some(c=>sameRef(c,source)&&c.protocol===source.protocol&&c.state==='CONNECTED');
+  function finishCopyDialog(connected:boolean){
+    const route=copySource?.route;
+    if(!route)return true;
+    if(!sessionCopy.current.close(route,connected))return false;
+    if(paneLaunch.current===route)paneLaunch.current=undefined;
+    return true;
   }
-  function beginCopy(key:PaneKey,source:CopySource,fromDetached=false){
-    const launch={key,owner:source.owner,source:source.connection,fromDetached};
-    if(copyDialogBusy()||!copyStillCurrent(launch))return false;
+  function copyStillCurrent(launch:CopyRoute){
+    const {source}=launch;
+    return copyRouteCurrent(launch,serviceStopped.current?undefined:serviceRef.current?.service_id,
+      panes.current,liveConnections.current,!tabClosures.current.isHidden(source)&&!tabClosures.current.pending(source)
+        &&transferring.current!==source.connection_id);
+  }
+  function beginCopy(read:CopyRead,source:CopySource){
+    if(copyDialogBusy()||read.owner!==source.owner||!copyStillCurrent({...read,source:source.connection}))return false;
     if(source.settings.protocol!=='ssh2'&&source.settings.protocol!=='serial')return false;
+    const launch=sessionCopy.current.open(read,source.connection);
+    if(!launch)return false;
     workspaceLaunch.current=undefined;
     paneLaunch.current=launch;
     connectionEntry.current=Array.from(document.querySelectorAll<HTMLElement>('[role="tab"]'))
       .find(tab=>tab.dataset.connectionId===source.connection.connection_id)??null;
-    setCopySource(source);setCopyTarget(undefined);setRequestedProfile(undefined);
+    setCopySource({...source,route:launch});setCopyTarget(undefined);setRequestedProfile(undefined);
     setTabMessage('');
     if(source.settings.protocol==='ssh2'){
       const intent=source.saved_profile?{profile_id:source.saved_profile,request_id:requestId()}:undefined;
@@ -1191,8 +1193,7 @@ function App() {
   }
   async function copyTab(key:PaneKey,source:Connection,owner:string){
     const launch={key,owner,source};
-    if(copyFlight.current||copyDialogBusy()||!copyStillCurrent(launch))return;
-    copyFlight.current=true;
+    if(copyDialogBusy()||!copyStillCurrent(launch)||!sessionCopy.current.startRead(launch))return;
     try{
       const connection={connection_id:source.connection_id,generation:source.generation};
       if(detached){
@@ -1206,31 +1207,39 @@ function App() {
         ||status.connection.state!=='CONNECTED'||!status.source_settings||status.source_settings.protocol.toUpperCase()!==source.protocol)
         throw new Error('STALE_COPY_SOURCE');
       const profile='temporary_settings' in status&&!status.temporary_settings?status.profile_id:null;
-      if(!beginCopy(key,{owner,connection:source,settings:status.source_settings,saved_profile:profile}))
+      if(!beginCopy(launch,{owner,connection:source,settings:status.source_settings,saved_profile:profile}))
         setTabMessage('原会话或窗格已变化，请重新选择要复制的标签。');
     }catch{
       if(serviceRef.current?.service_id===owner)setTabMessage('未能读取原会话或打开连接窗口，请核对会话是否仍在连接。');
-    }finally{copyFlight.current=false;}
+    }finally{sessionCopy.current.finishRead(launch);}
   }
   const receiveCopy=useRef<(id:string)=>void>(()=>{});
-  receiveCopy.current=id=>{void invoke<CopySource>('take_detached_copy',{id}).then(source=>{
-    if(!beginCopy(panes.current.active,source,true))setTabMessage('无法从独立窗口复制会话，请先收起当前连接对话框再试。');
-  }).catch(()=>setTabMessage('独立窗口的原会话已变化，请重新选择复制。'));};
+  receiveCopy.current=id=>{
+    if(sessionCopy.current.isReadingDetached(id))return;
+    const read={key:panes.current.active,owner:serviceRef.current?.service_id??'',detachedId:id};
+    const reserved=!copyDialogBusy()&&sessionCopy.current.startRead(read);
+    void invoke<CopySource>('take_detached_copy',{id}).then(source=>{
+      if(read.owner===serviceRef.current?.service_id&&(!reserved||!beginCopy(read,source)))
+        setTabMessage('无法从独立窗口复制会话，请先收起当前连接对话框再试。');
+    }).catch(()=>{
+      if(read.owner===serviceRef.current?.service_id)setTabMessage('独立窗口的原会话已变化，请重新选择复制。');
+    }).finally(()=>sessionCopy.current.finishRead(read));
+  };
   useEffect(()=>{
     if(detached)return;
     const stop=appWindow.listen<string>('detached-session-copy',event=>receiveCopy.current(event.payload));
     return()=>{void stop.then(unlisten=>unlisten()).catch(()=>{});};
   },[]);
-  function canStartCopy(){const launch=paneLaunch.current;return !!launch&&copyStillCurrent(launch);}
-  function selectNewConnection(id:string,expected?:Ref){
+  function canStartCopy(){const launch=copySource?.route;return !!launch&&sessionCopy.current.owns(launch)&&copyStillCurrent(launch);}
+  function selectNewConnection(id:string,expected?:Ref,copy?:CopyRoute){
     const launch=paneLaunch.current;
     if(launch&&launch.owner!==serviceRef.current?.service_id)return;
-    if(launch?.source&&expected){
-      if(id===launch.source.connection_id)return;
+    if(copy){
+      if(launch!==copy||!expected||id!==expected.connection_id||!sessionCopy.current.acceptResult(copy,expected))return;
       setCopyTarget(expected);
-      if(!launch.fromDetached)copyPlacement.current={owner:launch.owner,anchor:launch.source,child:expected};
+      if(!copyStillCurrent(copy))return;
     }
-    if(launch&&!panes.current.focus(launch.key)&&!launch.source)return;
+    if(launch&&!panes.current.focus(launch.key))return;
     selectConnection(id,expected);
   }
   function newSsh() {
@@ -1251,7 +1260,8 @@ function App() {
     const value=controllers.current.get(pane)?.captureMenu(anchor,0,0);
     if(value)setTerminalMenu({...value,pane,title:tabName(active)});
   }
-  function restoreConnectEntry() {
+  function restoreConnectEntry(copy?:CopyRoute) {
+    if(copy&&paneLaunch.current&&paneLaunch.current!==copy)return;
     paneLaunch.current=undefined;
     if(document.activeElement===document.body)connectionEntry.current?.focus();
   }
@@ -1410,11 +1420,15 @@ function App() {
     {tabMessage&&<CornerNotice key={tabMessage} heading="会话标签" autoDismiss
       dismiss={()=>setTabMessage(previous=>previous===tabMessage?'':previous)}><span aria-label="标签操作状态">{tabMessage}</span></CornerNotice>}
     </section>
-    {quickOpen && <Dialog label="连接服务器" close={closeQuick} fallbackFocus={restoreConnectEntry}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent}
+    {quickOpen && <Dialog label="连接服务器" close={()=>closeQuick()} fallbackFocus={()=>restoreConnectEntry(copySource?.route)}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent}
       copySettings={copySource?.settings.protocol==='ssh2'?copySource.settings:undefined} canStart={copySource?canStartCopy:undefined}
-      connection={copySource?connections.find(c=>copyTarget&&sameRef(c,copyTarget)&&c.protocol==='SSH2'):active} select={selectNewConnection}
+      connection={copySource?connections.find(c=>copyTarget&&sameRef(c,copyTarget)&&c.protocol==='SSH2'):active}
+      select={(id,ref)=>selectNewConnection(id,ref,copySource?.route)}
       size={()=>{const term=(paneLaunch.current&&controllers.current.get(paneLaunch.current.key)?.runtime.term)||runtime.current?.term;return dimensions(term?.cols??80,term?.rows??24);}}
-      focus={(ref,profile)=>{finishWorkspace(ref,profile,'SSH2',savedIntent?.request_id??'');focusRenderedTerminal(ref);closeQuick();}} close={closeQuick} /></Dialog>}
+      focus={(ref,profile)=>{
+        if(copySource&&(!sessionCopy.current.ownsResult(copySource.route,ref)||!copyStillCurrent(copySource.route)))return;
+        finishWorkspace(ref,profile,'SSH2',savedIntent?.request_id??'');focusRenderedTerminal(ref);closeQuick(true);
+      }} close={()=>closeQuick()} /></Dialog>}
     {ssh1Intent&&<Dialog label={ssh1Intent.previous?'显式重连 SSH1':'连接 SSH1 保存配置'} close={closeSsh1} focusRestored={revealProfileConnectionFocus}><Ssh1Connect
       key={ssh1Intent.request_id} intent={ssh1Intent} close={closeSsh1}
       ownerMatches={()=>!serviceStopped.current&&serviceRef.current?.service_id===ssh1Intent.owner}
@@ -1425,9 +1439,12 @@ function App() {
         focusRenderedTerminal(ref);
         closeSsh1();
       }} /></Dialog>}
-    {serialDialog&&<Dialog label="连接串口设备" close={closeSerial} fallbackFocus={restoreConnectEntry}><QuickSerial key={serialNonce} requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined}
+    {serialDialog&&<Dialog label="连接串口设备" close={()=>closeSerial()} fallbackFocus={()=>restoreConnectEntry(copySource?.route)}><QuickSerial key={serialNonce} requestedProfile={requestedProfile?.settings.protocol==='serial'?requestedProfile.id:undefined}
       copySettings={copySource?.settings.protocol==='serial'?copySource.settings:undefined} canStart={copySource?canStartCopy:undefined}
-      select={selectNewConnection} close={closeSerial} focus={(ref,profile)=>{finishWorkspace(ref,profile,'SERIAL',serialNonce);focusRenderedTerminal(ref);closeSerial();}} /></Dialog>}
+      select={(id,ref)=>selectNewConnection(id,ref,copySource?.route)} close={()=>closeSerial()} focus={(ref,profile)=>{
+        if(copySource&&(!sessionCopy.current.ownsResult(copySource.route,ref)||!copyStillCurrent(copySource.route)))return;
+        finishWorkspace(ref,profile,'SERIAL',serialNonce);focusRenderedTerminal(ref);closeSerial(true);
+      }} /></Dialog>}
     {groupsOpen&&<Dialog label="管理标签分组" close={()=>setGroupsOpen(false)}><TabGroupsPanel key={service?.service_id} groups={tabGroups.current} owner={service?.service_id??''} connections={connections} label={connectionLabel} changed={()=>setGroupEpoch(value=>value+1)} select={selectConnection} close={()=>setGroupsOpen(false)}/></Dialog>}
     {workspaceOpen&&<Dialog label="保存与打开工作区" close={()=>setWorkspaceOpen(false)}><WorkspacesPanel capture={captureCurrentWorkspace} open={openWorkspace} close={()=>setWorkspaceOpen(false)}/></Dialog>}
     {agentOpen && service && <Dialog label="管理 Agent 授权" modal={false} close={()=>setAgentOpen(false)}><AgentPanel key={service.service_id} serviceId={service.service_id} target={active?.protocol==='SSH1'?undefined:active} profileId={active?.protocol==='SSH1'?undefined:activeDetails?.profile_id} encoding={activeDetails?.encoding} close={() => setAgentOpen(false)} /></Dialog>}
