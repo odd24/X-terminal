@@ -62,4 +62,4 @@ npm run tauri --workspace apps/desktop -- build --target x86_64-pc-windows-msvc 
 pwsh -NoProfile -File scripts/Prepare-Windows-Portable.ps1
 ```
 
-[打包脚本](scripts/Prepare-Windows-Portable.ps1)生成便携目录、清单、ZIP 与 SHA-256 校验文件，并在 ZIP 解压副本上运行发布专项。打包以当前 Git 提交为源码基准，并在交付路径已存在时停止。只需要目录时可传入 `-DirectoryOnly`。当前用户安装和 MCP 注册有单独的部署记录。MSI、Authenticode 签名及干净系统验收的状态见 [P25/T21](docs/records/P25.md#正式-t21-前置)。[0.1.38 发行记录](docs/records/P26.62.md)
+[打包脚本](scripts/Prepare-Windows-Portable.ps1)生成便携目录、清单、ZIP 与 SHA-256 校验文件，并在 ZIP 解压副本上运行发布专项。打包以当前 Git 提交为源码基准，并在交付路径已存在时停止。只需要目录时可传入 `-DirectoryOnly`。当前用户安装和 MCP 注册有单独的部署记录。MSI、Authenticode 签名及干净系统验收的状态见 [P25/T21](docs/records/P25.md#正式-t21-前置)。[0.1.39 发行记录](docs/records/P26.87.md)
