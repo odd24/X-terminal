@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.66 将 Codex 中 shared-terminal 的首选和回退路径切到 0.1.38，复验 v14 并断开 0.1.36 旧桥。[执行记录](records/P26.66.md)
+
 P26.65 卸载 13 个独立旧版本目录及无版本号的 0.1.0，保留当时仍被注册引用或占用的两版供后续切换。[执行记录](records/P26.65.md)
 
 P26.64 调整产品自有 MCP 启动脚本以兼容旧路径参数，验证 0.1.38 同目录 v14 及未授权边界。[执行记录](records/P26.64.md)
@@ -577,6 +579,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.63 | 部署 Windows x64 0.1.38 到当前用户 | DONE | [P26.63](records/P26.63.md) | Step-ID: P26.63 |
 | P26.64 | 适配旧安装路径的 MCP 启动入口 | DONE | [P26.64](records/P26.64.md) | Step-ID: P26.64 |
 | P26.65 | 卸载无占用和引用的历史安装 | DONE | [P26.65](records/P26.65.md) | Step-ID: P26.65 |
+| P26.66 | 切换全局 shared-terminal 注册并断开旧桥 | DONE | [P26.66](records/P26.66.md) | Step-ID: P26.66 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
