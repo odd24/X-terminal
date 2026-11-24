@@ -9,6 +9,7 @@ import {ContextMenu,Dialog,Panel} from './ui';
 import {preparePaste,type PasteProposal} from './terminal-clipboard';
 import {visibleControls} from './log-search';
 import type {LocalRightClick} from './local-right-click';
+import {lightweightDrop, type FileDropRoute} from './local-file-drop';
 
 export type LocalView = {cwd:string; startup_warning:string|null; task:string|null; running:boolean; bytes:number[]|Uint8Array; overflow:boolean;
   message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null; close_after_result?:boolean};
@@ -28,13 +29,14 @@ const localText = (text:string) => text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '�
 const cells = (text:string) => Array.from(text).reduce((count, character)=>
   count + (/\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Extended_Pictographic}|[\uFF01-\uFF60]/u.test(character)?2:1),0);
 
-export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, register, shortcutSettled, onDiagnostic,onResultSuccess,rightClick,routeEpoch,clipboardRoute}: {
+export function LocalTerminal({tab, visible, focused, preferences, intent, report, focus, register, shortcutSettled, onDiagnostic,onResultSuccess,rightClick,routeEpoch,clipboardRoute,fileDropRoutes,fileDropRoute}: {
   tab:LocalTab; visible:boolean; focused:boolean; preferences:DesktopPreferences; intent?:AdbIntent;
   report(id:string, state:LocalPromptState):void; focus():void; shortcutSettled(request:string):void;
   register(id:string,terminal?:Terminal):void;
   onDiagnostic(intent:AdbIntent, diagnostic:AdbDiagnostic):void;
   onResultSuccess(id:string):void;
   rightClick?:LocalRightClick; routeEpoch:number; clipboardRoute():number|undefined;
+  fileDropRoutes:Map<HTMLElement,FileDropRoute>; fileDropRoute():number|undefined;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | undefined>(undefined);
@@ -55,6 +57,8 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
   const lastDiagnostic = useRef<{intent:AdbIntent; diagnostic:AdbDiagnostic}|undefined>(undefined);
   const input = useRef({tail:Promise.resolve(), queued:0});
   const clipboardRevision=useRef(0);
+  const dropRevision=useRef(0);
+  const shellEdit=useRef<{task:string; generation:number}|undefined>(undefined);
   const selectionRevision=useRef(0);
   const pendingPaste=useRef<LocalPaste>(undefined);
   const [pastePreview,setPastePreview]=useState<LocalPaste>();
@@ -65,8 +69,8 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
   const [choice, setChoice] = useState<{intent:AdbIntent; devices:AdbChoice['devices']}>();
   const [running, setRunning] = useState(tab.initial.running);
   const [cwd, setCwd] = useState(tab.initial.cwd);
-  const latest = useRef({visible, focused, report, onDiagnostic,onResultSuccess,focus,rightClick,clipboardRoute});
-  latest.current = {visible, focused, report, onDiagnostic,onResultSuccess,focus,rightClick,clipboardRoute};
+  const latest = useRef({visible, focused, report, onDiagnostic,onResultSuccess,focus,rightClick,clipboardRoute,fileDropRoute});
+  latest.current = {visible, focused, report, onDiagnostic,onResultSuccess,focus,rightClick,clipboardRoute,fileDropRoute};
 
   function invalidateClipboard(){
     clipboardRevision.current++;
@@ -102,14 +106,43 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       if(alive.current&&route===latest.current.clipboardRoute())setClipboardStatus('复制失败，选区已保留。');
     }
   }
-  function enqueue(text:string,task:string,guard?:()=>boolean){
+  function queueInput(task:string,send:()=>Promise<void>,guard?:()=>boolean){
     const queue=input.current;
     if(queue.queued>=32){setFailure('本地终端输入队列已满');return;}
     queue.queued++;
     queue.tail=queue.tail.then(async()=>{
       if(alive.current&&view.current.running&&view.current.task===task&&(!guard||guard()))
-        await terminalAction({kind:'input',id:tab.id,request:task,text});
+        await send();
     }).catch(error=>{if(alive.current)setFailure(String(error));}).finally(()=>{queue.queued--;});
+  }
+  function enqueue(text:string,task:string,guard?:()=>boolean){
+    queueInput(task,()=>terminalAction({kind:'input',id:tab.id,request:task,text}),guard);
+  }
+  function dropIdentity(){
+    const route=latest.current.fileDropRoute();
+    const current=view.current, editor=shellEdit.current;
+    if(!alive.current||!latest.current.visible||route===undefined||flight.current||uncertain.current||composing.current
+      ||tab.origin!=='ordinary')return;
+    if(tab.powershell){
+      if(!current.running||!editor||editor.task!==current.task)return;
+      return route+':'+editor.task+':'+editor.generation;
+    }
+    if(!current.running)return route+':'+dropRevision.current;
+  }
+  function insertDrop(paths:string[],identity:string){
+    if(dropIdentity()!==identity)return;
+    invalidateClipboard();
+    const editor=shellEdit.current;
+    if(tab.powershell&&editor){
+      const {task,generation}=editor;
+      queueInput(task,()=>terminalAction({kind:'file_drop',id:tab.id,request:task,generation,paths}),
+        ()=>dropIdentity()===identity);
+      return;
+    }
+    const {text,cursor}=line.current;
+    const insertion=lightweightDrop(paths,text,cursor);
+    if(insertion===undefined){setFailure('当前光标在引号内，无法插入独立路径参数');return;}
+    edit(insertion);
   }
   function sendPaste(item:LocalPaste){
     if(!clipboardCurrent(item.target)||item.unsupported)return;
@@ -195,7 +228,11 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       if(next.message && next.exit_code!==0) latest.current.onDiagnostic(diagnostic.intent,{...diagnostic.diagnostic,error:next.message});
       lastDiagnostic.current=undefined;
     }
-    if(view.current.task!==next.task||view.current.running!==next.running)invalidateClipboard();
+    if(view.current.task!==next.task||view.current.running!==next.running){
+      dropRevision.current++;
+      shellEdit.current=undefined;
+      invalidateClipboard();
+    }
     view.current = next;
     setRunning(next.running);
     setCwd(next.cwd);
@@ -207,6 +244,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
   async function run(command:string) {
     if(!command.trim()||flight.current||uncertain.current)return;
     const request=crypto.randomUUID();
+    dropRevision.current++;
     flight.current=true;
     setFailure('');
     publish();
@@ -252,6 +290,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       shortcutSettled(next.request);
       return;
     }
+    dropRevision.current++;
     flight.current=true;
     publish();
     setFailure('');
@@ -341,6 +380,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     terminal.textarea?.setAttribute('aria-label','本地终端输入');
     term.current=terminal;
     register(tab.id,terminal);
+    fileDropRoutes.set(node,{identity:dropIdentity,insert:insertDrop});
     publish();
     function openClipboardMenu(x:number,y:number) {
       invalidateClipboard();
@@ -460,6 +500,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     return ()=>{
       disposed=true;
       alive.current=false;
+      fileDropRoutes.delete(node);
       register(tab.id);
       armOutput.current=()=>{};
       fitVisible.current=()=>{};
@@ -473,6 +514,20 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       data.dispose();written.dispose();selection.dispose();terminal.dispose();term.current=undefined;
     };
   },[tab.id]);
+  useEffect(()=>{
+    if(!tab.powershell||tab.origin!=='ordinary'||!visible||!running)return;
+    let disposed=false,timer=0;
+    async function refresh(){
+      const task=view.current.task;
+      if(!task||!view.current.running)return;
+      const generation=await terminalAction<number|null>({kind:'file_drop_epoch',id:tab.id,request:task}).catch(()=>null);
+      if(disposed||task!==view.current.task||!view.current.running)return;
+      shellEdit.current=generation===null?undefined:{task,generation};
+      timer=window.setTimeout(refresh,120);
+    }
+    void refresh();
+    return ()=>{disposed=true;clearTimeout(timer);shellEdit.current=undefined;};
+  },[tab.id,tab.powershell,tab.origin,visible,running]);
   useLayoutEffect(()=>{
     if(pendingPaste.current?.target.route!==routeEpoch){pendingPaste.current=undefined;setPastePreview(undefined);}
     setClipboardMenu(previous=>previous?.target.route===routeEpoch?previous:undefined);

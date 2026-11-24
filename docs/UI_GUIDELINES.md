@@ -57,6 +57,7 @@
 | 改动 | 最小回归与可复建参考 |
 |---|---|
 | 标签、关闭、拖动、双击 | 同一候选构建运行 [LocalTabs](../scripts/Test-Desktop-LocalTabs.mjs) 与受影响的 [PaneGroups](../scripts/Test-Desktop-PaneGroups.mjs) / [SessionCopy](../scripts/Test-Desktop-SessionCopy.mjs)。同时断言普通本地实体双击只建一个，拖动和尾随双击建零个，忙碌、ADB 及脚本结果保持原会话。检查目录继承、同名精确身份和关闭后的焦点。[P26.20 发布门](records/P26.20.md) |
+| 本地文件拖入 | [FileDrop](../scripts/Test-Desktop-FileDrop.mjs) 对候选校验正文落点高亮、当前光标引用和目录、多项、非焦点、取消及前台输入隔离。附加参数依次是候选 exe、报告路径，可选 `--event-fixture` 仅验证 Tauri 事件后的路径。 |
 | 样式、主题、焦点与尺寸 | `node scripts/Test-Desktop-TabSeparation.mjs <Desktop.exe>` 重建方案 A 浅色、白底终端、关闭焦点、深色录制、宽窄分屏与同地址对照。旧候选用 `--baseline`。另按影响使用 `npm run test:desktop:appearance`、[StandardWorkspaceDpi](../scripts/Test-Desktop-StandardWorkspaceDpi.mjs)。A 版 150% 为 CDP 模拟，宿主 100%。真实 DPI 和实际中文输入另记环境。[P26.16 对照](records/P26.16.md) |
 | 工具栏、弹窗、键盘、两个「＋」 | [Menus](../scripts/Test-Desktop-Menus.mjs)、[NewEntries](../scripts/Test-Desktop-NewEntries.mjs)、[Shortcuts](../scripts/Test-Desktop-Shortcuts.mjs) 按受影响场景选择，加 `npm run test:desktop:dialog-drag` 验证背景、取消与草稿保留。覆盖主/独立窗口、窄屏、无鼠标进入和返回触发点。 |
 | 粘贴、控制台和快捷指令 | [LocalClipboard](../scripts/Test-Desktop-LocalClipboard.mjs)、`npm run test:desktop:clipboard`。右栏用 [ShortcutPreview](../scripts/Test-Desktop-ShortcutPreview.mjs)、[ShortcutEditor](../scripts/Test-Desktop-ShortcutEditor.mjs)、[ShortcutManagement](../scripts/Test-Desktop-ShortcutManagement.mjs) 或 [ShortcutRoutes](../scripts/Test-Desktop-ShortcutRoutes.mjs)。检查编辑返回、焦点、查看和编辑零执行、失效确认、精确字节和原命令行。 |

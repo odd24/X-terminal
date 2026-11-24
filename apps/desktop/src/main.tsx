@@ -68,6 +68,7 @@ import { ExecPanel } from './exec-panel';
 import { SerialPanel } from './serial-panel';
 import { QuickSerial } from './quick-serial';
 import {LocalTerminal, terminalAction, type LocalPromptState, type LocalTab, type LocalView} from './local-terminal';
+import {useLocalFileDrop} from './local-file-drop';
 import {AdbShortcutPanel, loadAdbSettings, type AdbDiagnostic, type AdbIntent, type AdbSettings, type AdbShortcut} from './local-adb';
 import { LoggingPanel } from './logging-panel';
 import { serial, type SerialStatus } from './serial-api';
@@ -277,6 +278,7 @@ function App() {
   const [shortcutHelp,setShortcutHelp]=useState(false);
   const clipboard = useRef<TerminalClipboard | undefined>(undefined);
   const localClipboardEpoch=useRef(0);
+  const localFileDrop=useLocalFileDrop(!detached);
   const localRightClick=useLocalRightClick(!detached,()=>{localClipboardEpoch.current++;});
   const [pasteProposal, setPasteProposal] = useState<PasteProposal>();
   const [clipboardMessage, setClipboardMessage] = useState('');
@@ -1408,6 +1410,10 @@ function App() {
       const key=panes.current.paneOf(tab.id);
       const visible=localSelected.current.get(key)===tab.id;
       return createPortal(<LocalTerminal tab={tab} visible={visible} focused={visible&&panes.current.active===key}
+        fileDropRoutes={localFileDrop} fileDropRoute={()=>
+          !closingDesktop.current&&!closingLocal.current.has(tab.id)&&panes.current.paneOf(tab.id)===key
+          &&localSelected.current.get(key)===tab.id&&!document.querySelector('dialog:modal')
+            ?localClipboardEpoch.current:undefined}
         rightClick={localRightClick.mode} routeEpoch={localClipboardEpoch.current} clipboardRoute={()=>
           !closingDesktop.current&&!closingLocal.current.has(tab.id)&&panes.current.active===key&&localSelected.current.get(key)===tab.id
           &&!document.querySelector('dialog:modal')?localClipboardEpoch.current:undefined}

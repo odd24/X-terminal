@@ -360,6 +360,7 @@ main.desktop-shell {
 .local-terminal[hidden], .local-terminal-socket[hidden], .terminal-pane-body > .terminal[hidden] { display: none; }
 .local-terminal-output { flex: 1; min-height: 0; overflow: hidden; background: var(--terminal-background); }
 .local-terminal-output > .xterm { height: 100%; padding: 6px 4px; }
+.local-terminal-output[data-file-drop-target] { outline: 2px solid var(--accent); outline-offset: -2px; }
 .terminal-pane-body, .local-pane-body { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; }
 .terminal-pane-body { container: local-pane / inline-size; }
 .local-pane-body[hidden], .adb-shortcut-panel[hidden] { display: none; }

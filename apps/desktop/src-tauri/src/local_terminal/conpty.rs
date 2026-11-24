@@ -219,13 +219,19 @@ impl Process {
         cwd: &Path,
         cols: u16,
         rows: u16,
+        task: uuid::Uuid,
     ) -> io::Result<Self> {
         // Windows PowerShell builds its own module search path. An intermediate
         // host can otherwise pass along PowerShell 7's incompatible modules.
         let block = child_environment("PSModulePath", None);
         Self::start_configured(
             executable,
-            &["-NoLogo".into()],
+            &[
+                "-NoLogo".into(),
+                "-NoExit".into(),
+                "-EncodedCommand".into(),
+                super::file_drop::bootstrap(task),
+            ],
             cwd,
             cols,
             rows,

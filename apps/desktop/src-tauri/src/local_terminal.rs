@@ -2,6 +2,7 @@ pub(crate) mod adb;
 mod batch;
 mod conpty;
 pub(crate) mod directory;
+mod file_drop;
 pub(crate) mod scripts;
 
 use conpty::{Output, Process};
@@ -30,6 +31,7 @@ struct Session {
     script_directory: Option<PathBuf>,
     drives: HashMap<String, PathBuf>,
     active: Option<Foreground>,
+    powershell: bool,
     last_request: Option<Uuid>,
     message: Option<String>,
     interrupted: bool,
@@ -130,6 +132,16 @@ pub enum Action {
         id: Uuid,
         request: Uuid,
         text: String,
+    },
+    FileDropEpoch {
+        id: Uuid,
+        request: Uuid,
+    },
+    FileDrop {
+        id: Uuid,
+        request: Uuid,
+        generation: u32,
+        paths: Vec<String>,
     },
     Resize {
         id: Uuid,
@@ -428,6 +440,32 @@ pub async fn local_terminal(
     if window.label() != crate::session_windows::MAIN {
         return Err("本地命令行仅在主窗口可用".into());
     }
+    let live_shell = |id, request| {
+        state.0.lock().unwrap().get(&id).is_some_and(|session| {
+            session.powershell && session.active.is_some() && session.last_request == Some(request)
+        })
+    };
+    let action = match action {
+        Action::FileDropEpoch { id, request } => {
+            let epoch = live_shell(id, request)
+                .then(|| file_drop::epoch(request))
+                .flatten();
+            return Ok(serde_json::json!(epoch));
+        }
+        Action::FileDrop {
+            id,
+            request,
+            generation,
+            paths,
+        } => {
+            if !live_shell(id, request) {
+                return Err("PowerShell 编辑目标已关闭或变化".into());
+            }
+            file_drop::insert(request, generation, paths).await?;
+            return Ok(serde_json::Value::Null);
+        }
+        other => other,
+    };
     let startup = if matches!(
         &action,
         Action::Open {
@@ -492,6 +530,7 @@ pub async fn local_terminal(
                 script_directory: None,
                 drives: HashMap::new(),
                 active: None,
+                powershell: false,
                 last_request: None,
                 message: None,
                 interrupted: false,
@@ -516,6 +555,7 @@ pub async fn local_terminal(
                 session.last_request = Some(Uuid::new_v4());
                 session.message = None;
             } else if powershell {
+                let request = Uuid::new_v4();
                 let image = env::var_os("SystemRoot")
                     .map(PathBuf::from)
                     .ok_or("找不到 Windows 系统目录")?
@@ -526,10 +566,12 @@ pub async fn local_terminal(
                         &session.cwd,
                         session.cols,
                         session.rows,
+                        request,
                     )
                     .map_err(|error| format!("Windows PowerShell 启动失败：{error}"))?,
                 ));
-                session.last_request = Some(Uuid::new_v4());
+                session.last_request = Some(request);
+                session.powershell = true;
             }
             let view = session.view();
             sessions.insert(id, session);
@@ -663,6 +705,7 @@ pub async fn local_terminal(
             }
             return Ok(serde_json::Value::Null);
         }
+        Action::FileDropEpoch { .. } | Action::FileDrop { .. } => unreachable!(),
     };
     serde_json::to_value(view).map_err(|error| error.to_string())
 }

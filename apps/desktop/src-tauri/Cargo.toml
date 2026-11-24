@@ -17,6 +17,7 @@ log-disk-full-fixture = ["terminal-log/log-disk-full-fixture"]
 tauri-build = { version = "=2.7.4", features = [] }
 
 [dependencies]
+base64 = "=0.23.1"
 config-model = { path = "../../../crates/config-model" }
 credential-vault = { path = "../../../crates/credential-vault" }
 tauri = { version = "=2.12.5", features = [] }
@@ -25,7 +26,7 @@ session-protocol = { path = "../../../crates/session-protocol" }
 session-service = { path = "../../../crates/session-service" }
 terminal-log = { path = "../../../crates/terminal-log" }
 windows = { version = "=0.62.2", features = ["Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_System_Com", "Win32_UI_WindowsAndMessaging"] }
-tokio = { version = "=1.54.1", features = ["process", "sync", "time", "io-util"] }
+tokio = { version = "=1.54.1", features = ["process", "sync", "time", "io-util", "net"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 sha2 = "=0.11.1"
