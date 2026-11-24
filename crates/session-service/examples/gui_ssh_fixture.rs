@@ -39,6 +39,15 @@ async fn main() {
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();
         match value["op"].as_str().unwrap() {
             "metrics" => {}
+            "clock" => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros();
+                println!("{}", serde_json::json!({"wall_at_us":now}));
+                std::io::stdout().flush().unwrap();
+                continue;
+            }
             "stall_next_data" => fixture.stall_next_data(),
             "unblock_data" => fixture.unblock.notify_one(),
             "keyboard_echo" => fixture.keyboard_echo.store(true, Ordering::SeqCst),

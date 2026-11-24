@@ -111,6 +111,114 @@ async function echo(ui,n,prefix){
   }
   return times;
 }
+
+const wallNow=()=>performance.timeOrigin+performance.now();
+
+async function clockBracket(readClock){
+  let best;
+  for(let attempt=0;attempt<8;attempt++){
+    const before=wallNow(),sample=await readClock(),after=wallNow();
+    const offset=sample-(before+after)/2,halfRoundTrip=(after-before)/2;
+    if(!best||halfRoundTrip<best.halfRoundTrip)best={offset,halfRoundTrip};
+  }
+  return best;
+}
+
+async function echoStageSample(ui,marker,timing,background){
+  await ui.evaluate(`(()=>{
+    performance.clearMarks();
+    window.__terminalEchoTiming=${timing};
+    const pane=document.querySelector('.pane-active');
+    const textarea=pane.querySelector('.xterm-helper-textarea');
+    textarea.focus();
+    const rows=pane.querySelector('.xterm-rows'), trace={start:performance.now(),connection:pane.dataset.renderedId};
+    window.echoStageSample=trace;
+    const noteInput=()=>{ trace.input=performance.now(); };
+    pane.addEventListener('beforeinput',noteInput,{once:true,capture:true});
+    const observer=new MutationObserver(()=>{
+      if(!rows.textContent.includes(${JSON.stringify(marker)}))return;
+      trace.dom=performance.now();
+      observer.disconnect();
+      pane.removeEventListener('beforeinput',noteInput,true);
+      requestAnimationFrame(()=>{trace.frameAt=performance.now();});
+    });
+    observer.observe(rows,{subtree:true,childList:true,characterData:true});
+  })()`);
+  await Promise.all([ui.command('Input.insertText',{text:marker}),background?.()]);
+  await ui.waitFor('window.echoStageSample.frameAt!==undefined');
+  if(timing)await ui.waitFor(`['terminal-echo-writer','terminal-echo-reply'].every(name=>
+    performance.getEntriesByName(name).some(mark=>mark.detail.connection===window.echoStageSample.connection))`);
+  return ui.evaluate(`({
+    ...window.echoStageSample,origin:performance.timeOrigin,
+    marks:performance.getEntriesByType('mark').filter(mark=>mark.name.startsWith('terminal-echo-')&&mark.detail.connection===window.echoStageSample.connection)
+      .map(mark=>({name:mark.name,t:mark.startTime,...mark.detail}))
+  })`);
+}
+
+export async function measureEchoStages({ui,first,second,activate,key,pushOutput,fixtureControl}){
+  const control=fixtureControl.get(first.connection_id);
+  const rendererClock=()=>ui.evaluate('performance.timeOrigin+performance.now()');
+  const peerClock=async()=>(await control({op:'clock'})).wall_at_us/1000;
+  const rendererStart=await clockBracket(rendererClock),peerStart=await clockBracket(peerClock);
+  const batches=[];
+  let sequence=0;
+  try{
+    await activate(first);
+    for(const scenario of ['single','split','split-load']){
+      if(scenario==='split'){
+        await key('b',66,10);
+        await ui.splitTab(second.connection_id,'vertical');
+        await ui.waitFor("document.querySelectorAll('[data-pane][data-rendered-id]').length===2");
+        await activate(first);
+      }
+      for(const timing of [false,true,true,false]){
+        const samples=[];
+        for(let sample=0;sample<34;sample++){
+          const sequenceId=++sequence;
+          const marker=`L${String(sequenceId).padStart(4,'0')}Q`;
+          const background=scenario==='split-load'
+            ?()=>pushOutput.get(second.connection_id)(`${'x'.repeat(1500)}\r\nLOAD${sequenceId}END\r\n`)
+            :undefined;
+          const trace=await echoStageSample(ui,marker,timing,background);
+          if(sample>=4)samples.push({sequenceId,marker,trace});
+        }
+        batches.push({scenario,timing,samples});
+      }
+    }
+    const loadedPane=`[data-rendered-id="${second.connection_id}"] .xterm-rows`;
+    await ui.waitFor(`document.querySelector(${JSON.stringify(loadedPane)})?.textContent.includes('LOAD${sequence}END')`);
+  }finally{
+    await ui.evaluate('window.__terminalEchoTiming=false;performance.clearMarks()');
+  }
+  const peerEnd=await clockBracket(peerClock),rendererEnd=await clockBracket(rendererClock);
+  const remote=await control({op:'metrics'});
+  const clockError=Math.max(rendererStart.halfRoundTrip,rendererEnd.halfRoundTrip)+
+    Math.max(peerStart.halfRoundTrip,peerEnd.halfRoundTrip)+
+    Math.abs(rendererEnd.offset-rendererStart.offset)+Math.abs(peerEnd.offset-peerStart.offset);
+  for(const batch of batches){
+    batch.samples=batch.samples.map(({sequenceId,marker,trace})=>{
+      const received=remote.received.map((bytes,index)=>Buffer.from(bytes).toString()===marker?index:-1).filter(i=>i>=0);
+      assert.equal(received.length,1,'each timed probe must reach its SSH peer once');
+      const remoteAt=remote.received_at_us[received[0]]/1000-peerStart.offset+rendererStart.offset-trace.origin;
+      const stages={sequenceId,controllerToDom:trace.dom-trace.start,domToFrame:trace.frameAt-trace.dom};
+      if(!batch.timing){assert.equal(trace.marks.length,0);return stages;}
+      const find=(name,match=()=>true)=>trace.marks.find(mark=>mark.name===`terminal-echo-${name}`&&match(mark));
+      const dispatch=find('dispatch'),queue=find('queue',mark=>mark.id===dispatch?.id);
+      const reply=find('reply',mark=>mark.id===dispatch?.id);
+      const page=find('page');
+      const writer=find('writer',mark=>mark.next===page?.next);
+      assert.ok(queue&&dispatch&&reply&&page&&writer,'missing renderer measurement stage');
+      return {...stages,inputToQueue:Number.isFinite(trace.input)?queue.t-trace.input:null,queuedToDispatch:dispatch.t-queue.t,
+        writeIpc:reply.t-dispatch.t,dispatchToPeer:remoteAt-dispatch.t,peerToReadRequest:page.readStarted-remoteAt,
+        readIpc:page.t-page.readStarted,pageToWriter:writer.t-page.t,writerToDom:trace.dom-writer.t};
+    });
+  }
+  await ui.click('收起分屏，保留连接');
+  await activate(first);
+  await key('b',66,10);
+  return {batches,clockError,rendererStart,rendererEnd,peerStart,peerEnd};
+}
+
 export async function measureRoutes({ui,first,second,group,single,activate,close,key,row,output,executable,powershell,pushOutput},report){
   await install(ui);
   report.shortcuts=[];

@@ -14,6 +14,9 @@ import { serial, serialResult, type SerialStatus } from './serial-api';
 import type { DesktopPreferences } from './config-api';
 import type { ComposeTarget } from './compose-drafts';
 import type { ComposePacing } from './compose-pacing';
+
+const echoTimingActive = () => (window as Window & { __terminalEchoTiming?: boolean }).__terminalEchoTiming === true;
+
 export type PaneConnection=ComposeTarget&{state:string};
 type Ref=Pick<PaneConnection,'connection_id'|'generation'>;
 type Page={connection:Ref;events:{seq:number;bytes:number[];gap_bytes?:number}[];next_cursor:number;available_from:number;truncated:boolean;disconnected:boolean};
@@ -86,6 +89,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       const epoch=selection.epoch;
       const inputOwner=owner;
       const id = requestId();
+      const timing = import.meta.env.VITE_TERMINAL_ECHO_TIMING === '1' && echoTimingActive() && keyboard && protocol === 'SSH2';
       const resizeRouteMatches = () => {
         const route = deps.selection();
         return owner === inputOwner && current.protocol === protocol && bound(target) && route.active && !route.suspended && route.epoch === epoch;
@@ -104,6 +108,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           if (!disposed && bound(target)) setLastInput('串口驱动已接受；不代表设备已执行');
           return true;
         }
+        if(timing)performance.mark('terminal-echo-dispatch',{detail:{id:dispatchId,connection:target.connection_id}});
         const reply = await ssh('text' in action
           ? { op: 'write_text', connection: target, request_id: dispatchId, text: action.text }
           : 'bytes' in action
@@ -114,6 +119,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           try { return await ssh({ op: 'input_status', connection: target, request_id: dispatchId }); }
           catch { throw error; }
         });
+        if(timing)performance.mark('terminal-echo-reply',{detail:{id:dispatchId,connection:target.connection_id}});
         if (reply.result !== 'input'||reply.request_id!==dispatchId) throw new Error('receipt');
         let receipt: Receipt = reply;
         const deadline = Date.now() + 17000;let waitMs=4;
@@ -133,6 +139,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         try { await dispatch(action); }
         catch(error) { if (!ssh1Resize || resizeRouteMatches()) throw error; }
       };
+      if(timing)performance.mark('terminal-echo-queue',{detail:{id,connection:target.connection_id}});
       const accepted=pacing?queue.enqueue(async()=>{
         try{await pacing.run(part=>dispatch({text:part}),()=>!disposed&&owner===inputOwner&&current.protocol===protocol&&bound(target)&&active()&&deps.selection().epoch===epoch&&deps.selection().connection?.state==='CONNECTED'&&current.writable);}
         finally{if(pacedCompose===pacing)pacedCompose=undefined;}
@@ -296,9 +303,12 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
             Date.now()>=interactiveUntil&&Date.now()-lastRead<1000){
             timer=window.setTimeout(()=>void poll(),100);return;
           }
+          const timing=import.meta.env.VITE_TERMINAL_ECHO_TIMING==='1'&&echoTimingActive()&&current.protocol==='SSH2';
+          const readStarted=timing?performance.now():0;
           const page=await invoke<Page>('service_read',{connection:current.connection,cursor});
           if(disposed)return;if(!same(selection)){timer=window.setTimeout(()=>void poll(),0);return;}
           if(page.connection.connection_id!==current.connection.connection_id||page.connection.generation!==current.connection.generation)throw new Error('Invalid output identity');
+          if(timing&&page.events.length)performance.mark('terminal-echo-page',{detail:{connection:page.connection.connection_id,readStarted,next:page.next_cursor}});
           lastRead=Date.now();
           if(page.truncated)await outputGap(`输出缺口：起始游标 ${page.available_from}，历史输出已覆盖`);
           if(disposed)return;if(!same(selection)){timer=window.setTimeout(()=>void poll(),0);return;}
@@ -306,6 +316,8 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           if(page.disconnected&&page.events.length===0)display(decoder.finish());
           if(page.events.length)interactiveUntil=Date.now()+500;
           cursor=page.next_cursor;await current.writer.drain();if(disposed)return;
+          if(timing&&page.events.length&&same(selection))
+            performance.mark('terminal-echo-writer',{detail:{connection:page.connection.connection_id,next:page.next_cursor}});
           if(same(selection)){if(view.renderedTarget?.connection_id!==current.connection.connection_id||view.renderedTarget.generation!==current.connection.generation||view.renderedTarget.protocol!==current.protocol)update({renderedTarget:{...current.connection,protocol:current.protocol}});if(!gap)setStatus(page.disconnected?'会话已断开':'服务输出已同步');
             if (!page.disconnected) syncInitialSsh1Fit(selection);
           }

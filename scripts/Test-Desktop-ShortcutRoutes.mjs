@@ -11,8 +11,10 @@ import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 const executable=path.resolve(process.argv[2]);
 const perfIndex=process.argv.indexOf('--measure');
 const performanceReport=perfIndex<0?undefined:path.resolve(process.argv[perfIndex+1]);
+const echoStages=process.argv.includes('--echo-stages');
 const powershell=performanceReport?execFileSync('where.exe',['pwsh.exe'],{encoding:'utf8'}).trim().split(/\r?\n/)[0]:undefined;
 const uart=process.argv.includes('--uart');
+assert.ok(!echoStages||performanceReport&&!uart,'echo stages require --measure on the loopback SSH path');
 const ttyBaseline=process.argv.includes('--expect-piped-shell');
 const variant=uart?'uart':ttyBaseline?'adb-shell-baseline':'ssh';
 const version=JSON.parse(await readFile('package.json','utf8')).version;
@@ -29,6 +31,7 @@ const {join}=path;
 let ui;
 const peers=[];
 const pushOutput=new Map();
+const fixtureControl=new Map();
 
 async function wait(read,reason,timeout=12000){
   const end=Date.now()+timeout;
@@ -79,11 +82,10 @@ async function connectSsh(name){
     }
     return status.connection.state==='CONNECTED';
   },'SSH fixture not connected');
-  child.stdin.write(JSON.stringify({op:'keyboard_echo'})+'\n');await read();
-  pushOutput.set(connection.connection_id,async text=>{
-    child.stdin.write(JSON.stringify({op:'push',text})+'\n');
-    await read();
-  });
+  const control=async request=>{child.stdin.write(JSON.stringify(request)+'\n');return read();};
+  await control({op:'keyboard_echo'});
+  pushOutput.set(connection.connection_id,async text=>{await control({op:'push',text});});
+  if(echoStages)fixtureControl.set(connection.connection_id,control);
   return connection;
 }
 async function connectUart(){
@@ -111,7 +113,7 @@ async function stop(){
   await ui.click('确认退出并停止服务');
   await wait(()=>ui.app.exitCode===0,'desktop did not exit');
 }
-try{
+async function run(){
   if(uart){
     const fixture=await readFile(path.resolve('target/desktop-shortcuts-memory-uart/debug/session-service.exe'));
     assert.deepEqual(await readFile(join(path.dirname(executable),'session-service.exe')),fixture,
@@ -153,6 +155,11 @@ try{
   await ui.command('Page.reload');
   const first=uart?await connectUart():await connectSsh('first');
   const second=uart?undefined:await connectSsh('second');
+  if(echoStages){
+    const {measureEchoStages}=await import('./lib/MeasureRoutes.mjs');
+    result.performance={echoStages:await measureEchoStages({ui,first,second,activate,key,pushOutput,fixtureControl})};
+    return;
+  }
   await ui.evaluate(`(()=>{
     const original=window.fetch;
     const state=window.routes={reads:0,sends:0,pending:[],hold:false,localStarts:[]};
@@ -438,9 +445,12 @@ try{
     assert.equal(!!uiSaved.close_on_success,false);
     result.checks.push('fixed mock-device root and restart, local grep and Select-String, denial/timeout/interruption stop tail, interactive input, pipeline segment failure, missing grep and background auto-close');
   }
+}
+try{
+  await run();
   await stop();
   result.result='PASS';
-  console.log(`PASS shortcut routes ${uart?'memory UART':'SSH and Windows batch'}`);
+  console.log(echoStages?'PASS isolated echo stages':`PASS shortcut routes ${uart?'memory UART':'SSH and Windows batch'}`);
 }catch(error){
   result.result='FAIL';result.error=String(error.stack);
   if(ui)await ui.screenshot(`windows-${version}-shortcut-routes-${variant}-failure.png`).catch(()=>{});
