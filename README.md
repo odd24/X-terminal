@@ -2,7 +2,7 @@
 
 共享终端是用于 SSH 服务器工作、串口/UART 调试与日志采集的 Windows 桌面应用，支持通过 MCP 与 Codex 共享已批准的会话。
 
-**当前正式版本为 Windows x64 0.1.36。** 在已部署的电脑上，从开始菜单打开「共享终端」。「共享终端 0.1.22」是本机回退入口。使用便携目录时保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [0.1.36 部署验证](docs/records/P26.27.md)
+**当前正式版本为 Windows x64 0.1.37。** 从开始菜单打开「共享终端」。本机保留「共享终端 0.1.36」和「共享终端 0.1.22」作为回退入口。使用便携目录时保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [0.1.37 部署验证](docs/records/P26.52.md)
 
 ## 日常使用
 
@@ -62,4 +62,4 @@ npm run tauri --workspace apps/desktop -- build --target x86_64-pc-windows-msvc 
 pwsh -NoProfile -File scripts/Prepare-Windows-Portable.ps1 -DirectoryOnly
 ```
 
-[打包脚本](scripts/Prepare-Windows-Portable.ps1)生成并验证 `artifacts/SharedTerminal-<version>-windows-x64` 和清单，按候选产物运行发布专项。打包以当前 Git 提交为源码基准，并在交付路径已存在时停止。当前用户安装和 MCP 注册有单独的部署记录。MSI、Authenticode 签名及干净系统验收的状态见 [P25/T21](docs/records/P25.md#正式-t21-前置)。[发布记录](docs/records/P26.27.md)
+[打包脚本](scripts/Prepare-Windows-Portable.ps1)生成并验证 `artifacts/SharedTerminal-<version>-windows-x64` 和清单，按候选产物运行发布专项。打包以当前 Git 提交为源码基准，并在交付路径已存在时停止。当前用户安装和 MCP 注册有单独的部署记录。MSI、Authenticode 签名及干净系统验收的状态见 [P25/T21](docs/records/P25.md#正式-t21-前置)。[0.1.37 发布记录](docs/records/P26.51.md)

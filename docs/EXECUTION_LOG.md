@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.52 将当前用户的主开始菜单入口切到 0.1.37，保留 0.1.36 和 0.1.22 回退，安装目录隔离核验通过。[执行记录](records/P26.52.md)
+
 P26.51 交付 Windows x64 0.1.37 正式便携目录和 ZIP，登记构建版本、散列与发布证据。[执行记录](records/P26.51.md)
 
 P26.50 同步 0.1.37 版本并为三程序增加发布版本核验。[执行记录](records/P26.50.md)
@@ -535,6 +537,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.49 | R9 Windows 候选整体验收 | DONE | [P26.49](records/P26.49.md) | Step-ID: P26.49 |
 | P26.50 | 同步 Windows x64 0.1.37 版本 | DONE | [P26.50](records/P26.50.md) | Step-ID: P26.50 |
 | P26.51 | Windows x64 0.1.37 本地正式发行 | DONE | [P26.51](records/P26.51.md) | Step-ID: P26.51 |
+| P26.52 | Windows x64 0.1.37 当前用户部署 | DONE | [P26.52](records/P26.52.md) | Step-ID: P26.52 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
