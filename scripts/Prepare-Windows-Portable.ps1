@@ -85,9 +85,9 @@ try {
     $archive = Join-Path $staging "$artifactName.zip"
     $unpacked = $candidate
     if (!$DirectoryOnly) {
-        Compress-Archive -LiteralPath $candidate -DestinationPath $archive -CompressionLevel Optimal
+        [IO.Compression.ZipFile]::CreateFromDirectory($candidate, $archive, [IO.Compression.CompressionLevel]::Optimal, $true)
         $extracted = Join-Path $staging 'extracted'
-        Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+        [IO.Compression.ZipFile]::ExtractToDirectory($archive, $extracted)
         $unpacked = Join-Path $extracted $artifactName
     }
     $evidence = Join-Path $staging "$artifactName-verification.json"

@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.60 修复本机 PowerShell 归档模块加载停滞，校验正式候选的 ZIP 结构与往返散列。[执行记录](records/P26.60.md)
+
 P26.59 同步 0.1.38 版本、锁文件和便携说明，作为正式包的源码基线。[执行记录](records/P26.59.md)
 
 P26.58 实现右栏返回、未保存确认、滚动和焦点恢复，并扩展 Windows 发布门禁。[执行记录](records/P26.58.md)
@@ -559,6 +561,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.57 | 登记右栏编辑导航及 0.1.38 交付 | DONE | [P26.57](records/P26.57.md) | Step-ID: P26.57 |
 | P26.58 | 实现右栏编辑导航及发布验证入口 | DONE | [P26.58](records/P26.58.md) | Step-ID: P26.58 |
 | P26.59 | 同步 Windows x64 0.1.38 版本 | DONE | [P26.59](records/P26.59.md) | Step-ID: P26.59 |
+| P26.60 | 修复便携 ZIP 归档模块加载停滞 | DONE | [P26.60](records/P26.60.md) | Step-ID: P26.60 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
