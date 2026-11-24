@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.79 验收包含文件拖入和串口端口选择的 Windows 便携候选。[执行记录](records/P26.79.md)
+
 P26.78 实现串口配置端口选择、刷新和连接核对，隔离内存串口专项通过。[执行记录](records/P26.78.md)
 
 P26.77 登记串口配置使用系统端口下拉与刷新。[执行记录](records/P26.77.md)
@@ -616,6 +618,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.76 | 验收文件拖入试用候选 | DONE | [P26.76](records/P26.76.md) | Step-ID: P26.76 |
 | P26.77 | 登记串口配置的端口选择 | DONE | [P26.77](records/P26.77.md) | Step-ID: P26.77 |
 | P26.78 | 实现串口设备选择与刷新 | DONE | [P26.78](records/P26.78.md) | Step-ID: P26.78 |
+| P26.79 | 验收文件拖入与串口配置合并候选 | DONE | [P26.79](records/P26.79.md) | Step-ID: P26.79 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |

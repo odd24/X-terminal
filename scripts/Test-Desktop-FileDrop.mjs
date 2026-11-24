@@ -94,7 +94,8 @@ try{
   const second=path.join(root,'second ‘ quoted $.txt');
   await mkdir(special);
   await writeFile(second,'owned fixture');
-  ui=await launchDesktop(root,{executable});
+  ui=await launchDesktop(root,{executable,windowsHide:false});
+  if(!eventFixture)await ui.command('Page.bringToFront');
   await ui.evaluate(String(()=>{
     const original=window.fetch;
     window.fileDropReceipt=[];

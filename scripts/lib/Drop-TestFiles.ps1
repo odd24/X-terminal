@@ -38,7 +38,10 @@ public interface IFileTestDropSource {
 [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
 public sealed class FileTestDrop : IFileTestDropSource {
     [StructLayout(LayoutKind.Sequential)] struct Point { public int x, y; }
+    [StructLayout(LayoutKind.Sequential)] struct Rect { public int left, top, right, bottom; }
     [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr window, ref Point point);
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out Rect rect);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint flags);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window, IntPtr order, int x, int y, int width, int height, uint flags);
@@ -84,12 +87,25 @@ public sealed class FileTestDrop : IFileTestDropSource {
         if (!ClientToScreen(window, ref point)) throw new Exception("Cannot map owned client point.");
         if (!Owned(window, point)) {
             var workArea = Screen.FromHandle(window).WorkingArea;
-            if (!SetWindowPos(window, new IntPtr(-1), workArea.Left + 48, workArea.Top + 32, 0, 0, 0x51))
-                throw new Exception("Cannot position the owned test window.");
-            Thread.Sleep(150);
-            point = new Point {x = x, y = y};
-            if (!ClientToScreen(window, ref point) || !Owned(window, point))
-                throw new Exception("The drop point (" + point.x + "," + point.y + ") is outside the visible owned test window. Work area: " + workArea);
+            ShowWindow(window, 9);
+            Rect bounds;
+            if (!GetWindowRect(window, out bounds)) throw new Exception("Cannot measure the owned test window.");
+            int width = bounds.right - bounds.left;
+            int height = bounds.bottom - bounds.top;
+            int[] columns = { workArea.Left + 32, workArea.Right - width - 32 };
+            int[] rows = { workArea.Top + 32, workArea.Bottom - height - 32 };
+            foreach (int top in rows) {
+                foreach (int left in columns) {
+                    if (Owned(window, point)) break;
+                    if (!SetWindowPos(window, new IntPtr(-1), left, top, 0, 0, 0x41))
+                        throw new Exception("Cannot position the owned test window.");
+                    Thread.Sleep(120);
+                    point = new Point {x = x, y = y};
+                    if (!ClientToScreen(window, ref point)) throw new Exception("Cannot remap the owned client point.");
+                }
+            }
+            if (!Owned(window, point)) throw new Exception("The drop point (" + point.x + "," + point.y +
+                ") is outside the visible owned test window. Work area: " + workArea);
         }
         Point previous;
         if (!GetCursorPos(out previous)) throw new Exception("Cannot read cursor position.");
