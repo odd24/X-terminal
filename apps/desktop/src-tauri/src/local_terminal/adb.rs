@@ -2,7 +2,7 @@ use super::{MAX_LINE, arguments, conpty::quote, executable};
 use credential_vault::{Error, Secret, Vault};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     env,
     fs::OpenOptions,
     io::Read,
@@ -28,6 +28,7 @@ const STORE: &str = "desktop-local-adb-v1.db";
 const ENTRY: Uuid = Uuid::from_u128(0x2a329f3b_a966_49f4_ac7e_24372a4d2670);
 const SHORTCUTS_ENTRY: Uuid = Uuid::from_u128(0x2099a5f3_5274_48f3_b80c_7290d5004e88);
 const MANAGED_ENTRY: Uuid = Uuid::from_u128(0x95667a60_818d_47c2_a5ff_284e49ae4e62);
+const DESCRIPTIONS_ENTRY: Uuid = Uuid::from_u128(0x6f1b53ad_07fd_48b6_a3ea_41b3cd24cb8e);
 const INVENTORY_LIMIT: usize = 64 * 1024;
 const STORAGE: &str = "ADB 快捷设置读取或写入失败";
 const MAX_SHORTCUTS: usize = 32;
@@ -54,6 +55,8 @@ pub struct Layout {
 pub struct Shortcut {
     pub id: Uuid,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,6 +69,39 @@ pub struct Shortcut {
     pub append_enter: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub close_on_success: bool,
+}
+
+fn normalize_descriptions(settings: &mut Settings) -> Result<(), String> {
+    for item in &mut settings.shortcuts {
+        if let Some(value) = &item.description {
+            let value = value.replace("\r\n", "\n").replace('\r', "\n");
+            if value.chars().take(501).count() > 500
+                || value
+                    .chars()
+                    .any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
+            {
+                return Err("描述最多 500 字，仅可包含文本、换行和制表符".into());
+            }
+            item.description = (!value.trim().is_empty()).then_some(value);
+        }
+    }
+    Ok(())
+}
+
+fn settings_records(settings: &Settings) -> credential_vault::Result<[(Uuid, Secret); 2]> {
+    let mut base = settings.clone();
+    let descriptions: BTreeMap<_, _> = base
+        .shortcuts
+        .iter_mut()
+        .filter_map(|item| {
+            item.description
+                .take()
+                .map(|description| (item.id, description))
+        })
+        .collect();
+    let base = Secret::new(serde_json::to_vec(&base).map_err(|_| Error::Corrupt)?)?;
+    let descriptions = Secret::new(serde_json::to_vec(&descriptions).map_err(|_| Error::Corrupt)?)?;
+    Ok([(MANAGED_ENTRY, base), (DESCRIPTIONS_ENTRY, descriptions)])
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -152,18 +188,31 @@ fn read_store(vault: Option<&mut Vault>) -> Result<Settings, String> {
     let Some(vault) = vault else {
         return Ok(Settings::default());
     };
-    let mut item = vault.get(MANAGED_ENTRY);
-    for entry in [SHORTCUTS_ENTRY, ENTRY] {
-        if !matches!(item, Err(Error::NotFound)) {
-            break;
+    let [managed, descriptions] = vault
+        .get_pair(MANAGED_ENTRY, DESCRIPTIONS_ENTRY)
+        .map_err(|_| STORAGE)?;
+    let mut settings: Settings = if let Some(value) = managed {
+        serde_json::from_slice(value.expose()).map_err(|_| STORAGE)?
+    } else {
+        let mut item = vault.get(SHORTCUTS_ENTRY);
+        if matches!(item, Err(Error::NotFound)) {
+            item = vault.get(ENTRY);
         }
-        item = vault.get(entry);
+        match item {
+            Ok(value) => serde_json::from_slice(value.expose()).map_err(|_| STORAGE)?,
+            Err(Error::NotFound) => Settings::default(),
+            Err(_) => return Err(STORAGE.into()),
+        }
+    };
+    if let Some(record) = descriptions {
+        let mut by_id: BTreeMap<Uuid, String> =
+            serde_json::from_slice(record.expose()).map_err(|_| STORAGE)?;
+        for item in &mut settings.shortcuts {
+            item.description = by_id.remove(&item.id);
+        }
     }
-    match item {
-        Ok(value) => serde_json::from_slice(value.expose()).map_err(|_| STORAGE.into()),
-        Err(Error::NotFound) => Ok(Settings::default()),
-        Err(_) => Err(STORAGE.into()),
-    }
+    normalize_descriptions(&mut settings).map_err(|_| STORAGE)?;
+    Ok(settings)
 }
 
 pub fn read(root: &Path) -> Result<Settings, String> {
@@ -172,6 +221,7 @@ pub fn read(root: &Path) -> Result<Settings, String> {
 }
 
 pub fn save(root: &Path, mut settings: Settings) -> Result<Settings, String> {
+    normalize_descriptions(&mut settings)?;
     validate(&settings)?;
     let _lock = lock_store(root).map_err(|error| match error.raw_os_error() {
         Some(32 | 33) => "ADB 快捷设置正在保存，请重新读取后提交",
@@ -193,9 +243,13 @@ pub fn save(root: &Path, mut settings: Settings) -> Result<Settings, String> {
         }
         settings.shortcuts.sort_by_key(|shortcut| !shortcut.pinned);
         settings.revision = Some(Uuid::new_v4());
-        let bytes = serde_json::to_vec(&settings).map_err(|_| STORAGE)?;
-        let secret = Secret::new(bytes).map_err(|_| "ADB 快捷设置超过 64 KiB")?;
-        vault.set(MANAGED_ENTRY, secret).map_err(|_| STORAGE)?;
+        let [base, descriptions] = settings_records(&settings).map_err(|error| match error {
+            Error::Invalid | Error::Capacity => "ADB 快捷设置超过 64 KiB",
+            _ => STORAGE,
+        })?;
+        vault
+            .set_pair_if(base, descriptions, || true)
+            .map_err(|_| STORAGE)?;
         Ok(settings)
     })
 }

@@ -146,16 +146,22 @@ impl Vault {
         second: (Uuid, Secret),
         allowed: impl FnOnce() -> bool,
     ) -> Result<bool> {
-        if first.0 == second.0 {
-            return Err(Error::Invalid);
-        }
         self.set_records([first, second], allowed)
     }
-    fn set_records<const N: usize>(
+    /// Commit distinct protected records together, with a final check before commit.
+    pub fn set_records<const N: usize>(
         &mut self,
         records: [(Uuid, Secret); N],
         allowed: impl FnOnce() -> bool,
     ) -> Result<bool> {
+        if N == 0
+            || records
+                .iter()
+                .enumerate()
+                .any(|(index, (id, _))| records[..index].iter().any(|(previous, _)| previous == id))
+        {
+            return Err(Error::Invalid);
+        }
         let records = records
             .into_iter()
             .map(|(id, secret)| {
@@ -190,9 +196,28 @@ impl Vault {
         Ok(true)
     }
     pub fn get(&self, id: Uuid) -> Result<Secret> {
-        let entropy = self.entropy(id)?;
         let tx = self.connection.unchecked_transaction()?;
-        let length: Option<i64> = tx
+        let secret = self.read_record(&tx, id)?;
+        tx.commit()?;
+        Ok(secret)
+    }
+
+    /// Read two records from the same database snapshot. Missing entries are independent.
+    pub fn get_pair(&self, first: Uuid, second: Uuid) -> Result<[Option<Secret>; 2]> {
+        let tx = self.connection.unchecked_transaction()?;
+        let read = |id| match self.read_record(&tx, id) {
+            Ok(secret) => Ok(Some(secret)),
+            Err(Error::NotFound) => Ok(None),
+            Err(error) => Err(error),
+        };
+        let records = [read(first)?, read(second)?];
+        tx.commit()?;
+        Ok(records)
+    }
+
+    fn read_record(&self, connection: &Connection, id: Uuid) -> Result<Secret> {
+        let entropy = self.entropy(id)?;
+        let length: Option<i64> = connection
             .query_row(
                 "SELECT length(protected) FROM credentials WHERE id=?1",
                 [id.to_string()],
@@ -206,12 +231,11 @@ impl Vault {
                 Error::Corrupt
             });
         }
-        let blob: Vec<u8> = tx.query_row(
+        let blob: Vec<u8> = connection.query_row(
             "SELECT protected FROM credentials WHERE id=?1",
             [id.to_string()],
             |r| r.get(0),
         )?;
-        tx.commit()?;
         Ok(Secret(envelope::open(&blob, &entropy)?))
     }
     pub fn delete(&mut self, id: Uuid) -> Result<()> {

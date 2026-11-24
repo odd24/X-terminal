@@ -151,6 +151,7 @@ export function useShortcutPreview(scope:string, revision:string|null, enabled:b
     <small>{item.desktop_kind==='send'?sendLocation??'当前 SSH 或串口会话可执行':
       item.script_path?'脚本内容 · Windows 本机':'完整命令 · Windows 本机'}</small>
     {displayed.script&&<strong>{visibleControls(displayed.script.filename)}</strong>}
+    {item.description&&<p className="shortcut-description">{visibleControls(item.description)}</p>}
     {text!==undefined?<pre>{visibleControls(text.replace(/\r\n?/g,'\n'))||'（空文件）'}</pre>
       :<p role="status">{displayed.error??'正在读取脚本预览…'}</p>}
     {displayed.script&&<small>{displayed.script.encoding}{displayed.script.truncated?' · 仅显示前 32 KiB':''}</small>}

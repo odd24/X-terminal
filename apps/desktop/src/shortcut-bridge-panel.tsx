@@ -2,7 +2,10 @@ import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { uuid } from './agent-management';
 
-const scopes = {view:'查看',manage:'管理',extended_view:'扩展查看',extended_manage:'扩展管理'} as const;
+const scopes = {
+  view:'查看',manage:'管理',extended_view:'扩展查看',extended_manage:'扩展管理',
+  description_view:'描述查看',description_manage:'描述管理',
+} as const;
 type Scope = keyof typeof scopes;
 type Remaining = `${Scope}_remaining_ms`;
 type Peer = {pending_id:string;pid:number} & Record<Remaining,number>;
@@ -14,6 +17,8 @@ const scopeDetail: Record<Scope,string> = {
   manage:'修改旧式 ADB 指令与 BAT/CMD 脚本引用，查询原写入回执。',
   extended_view:'读取四类配置，包括多步 Windows 本地命令原文、会话发送文本和执行选项。',
   extended_manage:'修改四类配置，包括多步 Windows 本地命令、会话发送文本和执行选项，并查询原写入回执。',
+  description_view:'使用 v3 读取四类快捷指令配置及其描述。',
+  description_manage:'使用 v3 修改四类快捷指令配置及其描述，并查询原写入回执。',
 };
 const inlineObject = (value:unknown):value is Record<string,unknown> => !!value && typeof value==='object';
 const validPeer = (value:unknown):value is Peer => inlineObject(value) && uuid(value.pending_id)
@@ -65,7 +70,7 @@ export function ShortcutBridgePanel({serviceId}:{serviceId:string}) {
   }
   return <fieldset>
     <legend>MCP 快捷指令授权</legend>
-    <p>分别批准查看和管理。普通授权覆盖旧式 ADB 和 BAT/CMD 引用。扩展授权还覆盖本地命令和会话发送文本。执行或发送仍须在桌面触发。</p>
+    <p>分别批准查看和管理。普通授权覆盖旧式 ADB 和 BAT/CMD 引用。扩展授权还覆盖本地命令和会话发送文本。v3 描述授权包含四类配置及描述。执行或发送仍须在桌面触发。</p>
     <div className="config-actions">
       <button disabled={busy} onClick={()=>void run(async()=>{
         updateStatus(await invokeManagement({op:'status'}));

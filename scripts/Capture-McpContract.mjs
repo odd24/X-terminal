@@ -4,9 +4,9 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {launchDesktop} from './lib/DesktopHarness.mjs';
 import {processRpc} from './jsonrpc-client.mjs';
-import {assertShortcutV2Catalog,legacyTerminalReadMetadata} from './lib/McpCatalog.mjs';
+import {assertShortcutV2Catalog,assertShortcutV3Catalog,legacyTerminalReadMetadata} from './lib/McpCatalog.mjs';
 const executable=process.argv[2]&&path.resolve(process.argv[2]);
-const version=process.argv.includes('--v12')?12:13;
+const version=process.argv.includes('--v12')?12:process.argv.includes('--v13')?13:14;
 const root=await mkdtemp(path.join(tmpdir(),'shared-terminal-mcp-contract-中文-'));let ui,rpc;
 try{
  ui=await launchDesktop(root,{executable});const info=await ui.invoke('bridge_management_request',{request:{op:'info'}});
@@ -18,7 +18,7 @@ try{
  assert.deepEqual(tools.slice(0,29),original.tools);
  assert.deepEqual(tools.slice(29).map(tool=>tool.name),['shortcuts_list','shortcuts_create','shortcuts_update','shortcuts_remove']);
  assert.deepEqual(tools.slice(0,3).map(t=>t.name),['logs_export','logs_export_status','logs_export_cancel']);
- assert.ok(tools.slice(0, version===13?29:33).every(t=>t.inputSchema.additionalProperties===false));
+ assert.ok(tools.slice(0, version===12?33:29).every(t=>t.inputSchema.additionalProperties===false));
  const read=tools.find(tool=>tool.name==='terminal_read');
  assert.match(read.description,/max_bytes 16384\.\.65536/);
  const text=read.inputSchema.$defs.View.oneOf.find(view=>view.properties.kind.const==='text');
@@ -34,6 +34,10 @@ try{
  if(version===13){
    const legacy=JSON.parse(await readFile('contracts/mcp/v12-tools.json','utf8'));
    assertShortcutV2Catalog(tools,legacy.tools);
+ }
+ if(version===14){
+   const previous=JSON.parse(await readFile('contracts/mcp/v13-tools.json','utf8'));
+   assertShortcutV3Catalog(tools,previous.tools);
  }
  await writeFile(`contracts/mcp/v${version}-tools.json`,JSON.stringify({version,tools},null,2)+'\n');
  console.log(`PASS captured v${version} and confirmed backward-compatible shortcut and session contracts.`);

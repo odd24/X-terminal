@@ -4,9 +4,10 @@ import {ContextMenu, ControlIcon, Dialog, Field, IconButton, Panel} from './ui';
 import {insertShortcuts,moveShortcutToEdge,setShortcutPins,stepShortcuts} from './local-shortcut-order';
 import {useShortcutDrag} from './local-shortcut-drag';
 import {useShortcutPreview} from './shortcut-preview';
+import {visibleControls} from './log-search';
 
 export type AdbShortcut = {id:string; name:string; command?:string; script_path?:string; pinned?:boolean;
-  desktop_kind?:'local'|'send'; append_enter?:boolean; close_on_success?:boolean};
+  desktop_kind?:'local'|'send'; append_enter?:boolean; close_on_success?:boolean; description?:string};
 type ShortcutLayout = {columns:1|2; expanded:boolean};
 export type AdbSettings = {revision:string|null; executable:string|null; shortcuts:AdbShortcut[]; layout?:ShortcutLayout};
 export type AdbIntent = {button:string; revision:string; request:string};
@@ -22,7 +23,20 @@ type Editor = {kind:'shortcut'; item:AdbShortcut; revision:string|null} | {kind:
 const DEFAULT_LAYOUT:ShortcutLayout={columns:1,expanded:false};
 const noShortcuts:AdbShortcut[]=[];
 type Removal={snapshot:AdbSettings; ids:ReadonlySet<string>};
-type ScriptImport={snapshot:AdbSettings; files:{id:string;name:string;path:string;alias:string}[]};
+type ScriptImport={snapshot:AdbSettings; files:{id:string;name:string;path:string;alias:string;description:string}[]};
+const descriptionLength=(value?:string)=>Array.from((value??'').replace(/\r\n?/g,'\n')).length;
+
+function DescriptionField({label='指令描述',value,disabled,onChange}:{
+  label?:string;value?:string;disabled?:boolean;onChange(value:string):void;
+}) {
+  const length=descriptionLength(value);
+  return <Field label="描述（选填）">
+    <textarea aria-label={label} rows={3} value={value??''} disabled={disabled}
+      aria-invalid={length>500||undefined} placeholder="最多 500 字，可换行"
+      onChange={event=>onChange(event.currentTarget.value)}/>
+    {length>500&&<small role="alert">描述已超出 500 字</small>}
+  </Field>;
+}
 const filename=(path:string)=>path.split('\\').at(-1)??path;
 function scriptName(path:string,alias:string){
   const original=filename(path);
@@ -132,7 +146,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
           const key=file.path.toLowerCase();
           if(paths.has(key))return false;
           paths.add(key);return true;
-        }).map(file=>({...file,id:crypto.randomUUID(),alias:''}));
+        }).map(file=>({...file,id:crypto.randomUUID(),alias:'',description:''}));
         if(!added.length){setFailure('所选脚本已在列表中');return;}
         setImports({snapshot:settings,files:added});
       }
@@ -141,9 +155,10 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
     if(next)await save(next);
   }
   async function importNamedScripts(){
-    if(!imports||settings?.revision!==imports.snapshot.revision||imports.snapshot.shortcuts.length+imports.files.length>32)return;
+    if(!imports||settings?.revision!==imports.snapshot.revision||imports.snapshot.shortcuts.length+imports.files.length>32
+      ||imports.files.some(file=>descriptionLength(file.description)>500))return;
     const {snapshot,files}=imports;
-    const added=files.map(file=>({id:file.id,name:scriptName(file.path,file.alias),script_path:file.path}));
+    const added=files.map(file=>({id:file.id,name:scriptName(file.path,file.alias),script_path:file.path,description:file.description}));
     if(await save({...snapshot,shortcuts:[...snapshot.shortcuts,...added]},'已添加本地脚本'))setImports(undefined);
   }
   async function save(next:AdbSettings, message='已保存', focus?:string) {
@@ -169,6 +184,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
   }
   function submit() {
     if (!settings || !editor) return;
+    if(editor.kind==='shortcut'&&descriptionLength(editor.item.description)>500)return;
     const next = {...settings, revision:editor.revision};
     if (editor.kind==='settings') {
       void save({...next, executable:editor.path.trim()||null});
@@ -220,7 +236,10 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
     const unavailable=sending&&!sendLocation;
     const detail=item.script_path?'本地脚本 · '+item.script_path:
       (sending?(sendLocation??'当前 SSH 或串口')+' · ':item.desktop_kind==='local'?'Windows 本机 · ':'ADB · ')+item.command;
-    const content=<><span>{item.name}</span>{layout.expanded&&<code>{detail}</code>}</>;
+    const content=<><span>{item.name}</span>{layout.expanded&&<>
+      {item.description&&<span className="shortcut-description">{visibleControls(item.description)}</span>}
+      <code>{detail}</code>
+    </>}</>;
     return <li key={item.id} data-shortcut-id={item.id} data-pinned={isPinned}
       data-drag-source={drag.preview?.source===item.id||undefined}
       data-drop={target?(target.after?'after':'before'):undefined} data-drop-horizontal={target?.horizontal||undefined}>
@@ -325,6 +344,8 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
               <Field label={editor.item.script_path?'显示名称':'名称'}><input autoFocus aria-label="指令名称" value={editor.item.name} maxLength={64}
                 placeholder={editor.item.script_path?filename(editor.item.script_path):undefined}
                 onChange={event=>setEditor({...editor,item:{...editor.item,name:event.target.value}})}/></Field>
+              <DescriptionField value={editor.item.description}
+                onChange={description=>setEditor({...editor,item:{...editor.item,description}})}/>
               {editor.item.script_path?<Field label="脚本路径"><input value={editor.item.script_path} readOnly/></Field>
                 :editor.item.desktop_kind==='send'?<Field label="发送文本"><input aria-label="发送文本" maxLength={8192}
                   value={editor.item.command??''} onChange={event=>setEditor({...editor,item:{...editor.item,command:event.target.value}})}/></Field>
@@ -342,7 +363,9 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
             </>}
           <div className="config-actions">
             <button type="button" onClick={()=>{setEditor(undefined);setFailure('');}}>取消编辑</button>
-            <button type="submit">{editor.kind==='settings'?'保存 ADB 设置':'保存指令'}</button>
+            <button type="submit" disabled={editor.kind==='shortcut'&&descriptionLength(editor.item.description)>500}>
+              {editor.kind==='settings'?'保存 ADB 设置':'保存指令'}
+            </button>
           </div>
         </fieldset>
       </form> : !settings ? <button type="button" onClick={reload}>读取 ADB 快捷指令</button>
@@ -391,7 +414,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
         <form className="script-import-form" onSubmit={event=>{event.preventDefault();void importNamedScripts();}}>
           <p>留空使用原文件名。</p>
           <div className="script-import-items">
-            {imports.files.map((file,index)=><Field key={file.id} label={file.name}>
+            {imports.files.map((file,index)=><div className="script-import-item" key={file.id}><Field label={file.name}>
               {imports.files.some(other=>other.id!==file.id&&other.name===file.name)&&<small className="script-import-path" title={file.path}>{file.path}</small>}
               <input aria-label={'显示名称 '+file.name} value={file.alias} placeholder={file.name} maxLength={64}
                 disabled={busy} data-dialog-autofocus={index===0?'':undefined}
@@ -399,7 +422,9 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
                   const alias=event.currentTarget.value;
                   setImports(draft=>draft&&({...draft,files:draft.files.map(item=>item.id===file.id?{...item,alias}:item)}));
                 }}/>
-            </Field>)}
+            </Field><DescriptionField label={'描述 '+file.name} value={file.description} disabled={busy}
+              onChange={description=>setImports(draft=>draft&&({...draft,files:draft.files.map(item=>item.id===file.id?{...item,description}:item)}))}/>
+            </div>)}
           </div>
           {imports.snapshot.shortcuts.length+imports.files.length>32&&<p role="alert">最多保存 32 条快捷指令，请减少本次选择。</p>}
           {settings?.revision!==imports.snapshot.revision&&<p role="alert">快捷指令已更新，请取消后重新导入。</p>}
@@ -407,6 +432,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
           <div className="config-actions">
             <button type="button" disabled={busy} onClick={()=>{setImports(undefined);setFailure('');}}>取消导入</button>
             <button type="submit" disabled={busy||settings?.revision!==imports.snapshot.revision
+              ||imports.files.some(file=>descriptionLength(file.description)>500)
               ||imports.snapshot.shortcuts.length+imports.files.length>32}>确定导入</button>
           </div>
         </form>

@@ -703,6 +703,7 @@ pub enum RequestMessage {
     Call { request: Operation },
     Shortcuts { request: shortcuts::Request },
     ShortcutsV2 { request: shortcuts::v2::Request },
+    ShortcutsV3 { request: shortcuts::v3::Request },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -755,6 +756,7 @@ pub enum ResultMessage {
     Error(session_core::session::ErrorCode),
     ShortcutSnapshot(shortcuts::Snapshot),
     ShortcutSnapshotV2(shortcuts::v2::Snapshot),
+    ShortcutSnapshotV3(shortcuts::v3::Snapshot),
     ShortcutReceipt(shortcuts::Receipt),
     ShortcutError(shortcuts::Error),
 }

@@ -65,6 +65,46 @@ fn protected_pair_rolls_back_on_second_write_failure_or_expired_authority() {
     assert_eq!(vault.get(second).unwrap().expose(), b"replacement");
 }
 #[test]
+fn three_protected_records_commit_together_and_pair_reads_distinguish_missing() {
+    let temp = Temp::new();
+    let mut vault = Vault::open(&temp.db()).unwrap();
+    let [base, description, receipt] = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    let secret = |value: &[u8]| Secret::new(value.to_vec()).unwrap();
+    vault.set(base, secret(b"old settings")).unwrap();
+    let [prior, absent] = vault.get_pair(base, description).unwrap();
+    assert_eq!(prior.unwrap().expose(), b"old settings");
+    assert!(absent.is_none());
+    let replacement = || {
+        [
+            (base, secret(b"new settings")),
+            (description, secret(b"new description")),
+            (receipt, secret(b"new receipt")),
+        ]
+    };
+    assert!(!vault.set_records(replacement(), || false).unwrap());
+    let [prior, absent] = vault.get_pair(base, description).unwrap();
+    assert_eq!(prior.unwrap().expose(), b"old settings");
+    assert!(absent.is_none());
+    assert!(matches!(vault.get(receipt), Err(Error::NotFound)));
+    assert!(vault.set_records(replacement(), || true).unwrap());
+    let [committed, text] = vault.get_pair(base, description).unwrap();
+    assert_eq!(committed.unwrap().expose(), b"new settings");
+    assert_eq!(text.unwrap().expose(), b"new description");
+    assert_eq!(vault.get(receipt).unwrap().expose(), b"new receipt");
+    assert!(matches!(
+        vault.set_records(
+            [
+                (base, secret(b"a")),
+                (description, secret(b"b")),
+                (base, secret(b"c"))
+            ],
+            || true
+        ),
+        Err(Error::Invalid)
+    ));
+}
+
+#[test]
 fn native_dpapi_roundtrip_reopen_update_delete_and_missing_are_explicit() {
     let temp = Temp::new();
     let id = Uuid::new_v4();

@@ -13,7 +13,7 @@ import {readMcpCatalog} from './lib/McpCatalog.mjs';
 const executable=path.resolve(process.argv[2]);
 const previous=process.argv[3]&&path.resolve(process.argv[3]);
 let desktop=previous??executable;
-let catalogVersion=previous?12:13;
+let catalogVersion=previous?12:14;
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-mcp-shortcuts-中文-'));
 const evidence={result:'IN_PROGRESS',executable,observations:[],checks:[],modelTurns:0};
 const nil='00000000-0000-0000-0000-000000000000';
@@ -163,6 +163,92 @@ async function loopback() {
   }};
 }
 
+async function descriptionChecks(received, priorRequest, priorReceipt) {
+  const v2={version:'v2'}, v3={version:'v3'};
+  const descriptions=()=>list(v3);
+  const put=(revision,changes)=>({...v3,...mut(revision,{changes})});
+  const before=await setting();
+  const marker='描述里的专用哨兵';
+  const sentText='P26_DESCRIBED_BODY';
+  const create={...v3,...mut(before.revision,{items:[
+    {...adbItem('描述 ADB','adb version'),description:'设备版本\r\n第二行'},
+    {name:'描述脚本',target:{type:'script',path:script},description:'脚本描述'},
+    {name:'描述本地命令',target:{type:'local',command:'echo LOCAL'},description:'🙂'.repeat(500)},
+    {name:'描述会话发送',target:{type:'send',text:sentText},description:marker,append_enter:true},
+  ]})};
+  await denied('shortcuts_list',v3);
+  await denied('shortcuts_create',create);
+  await approve('扩展查看',300);
+  await approve('扩展管理',300);
+  await denied('shortcuts_create',create);
+  await approve('描述查看',300);
+  assert.deepEqual((await descriptions()).items.filter(item=>item.description),[]);
+  await denied('shortcuts_create',create);
+  await approve('描述管理',300);
+  assert.deepEqual(await list({...v3,receipt_request_id:priorRequest.request_id}),priorReceipt);
+
+  const originalReceived=Buffer.from((await received()).flat());
+  const created=await success('shortcuts_create',create);
+  const [adbId,scriptId,localId,sendId]=created.ids;
+  const find=(snapshot,id)=>snapshot.items.find(item=>item.id===id);
+  const initial=await descriptions();
+  assert.equal(initial.version,'v3');
+  assert.equal(find(initial,adbId).description,'设备版本\n第二行');
+  assert.equal(find(initial,scriptId).description,'脚本描述');
+  assert.equal(find(initial,localId).description,'🙂'.repeat(500));
+  assert.equal(find(initial,sendId).description,marker);
+  assert.ok((await list(v2)).items.every(item=>!('description' in item)));
+  await denied('shortcuts_list',{...v2,receipt_request_id:create.request_id},'NOT_FOUND');
+  await denied('shortcuts_create',{...create,...v2,items:[adbItem('跨版本重复编号','adb version')]},'REQUEST_CONFLICT');
+  await denied('shortcuts_update',put(created.revision,[{id:adbId,description:'首项也不能保存'},
+    {id:localId,description:'🙂'.repeat(501)}]),'INVALID_ARGUMENT');
+  await denied('shortcuts_update',put(created.revision,[{id:localId,description:'\u0000'}]),'INVALID_ARGUMENT');
+  assert.deepEqual(await descriptions(),initial);
+  const oldUpdate={...v2,...mut(initial.revision,{changes:[{id:adbId,name:'v2 保留描述'}]})};
+  await denied('shortcuts_update',{...oldUpdate,changes:[{id:adbId,description:'旧契约越界'}]},'INVALID_ARGUMENT');
+  const oldChanged=await success('shortcuts_update',oldUpdate);
+  assert.equal(find(await descriptions(),adbId).description,'设备版本\n第二行');
+  assert.deepEqual(await list({...v3,receipt_request_id:oldUpdate.request_id}),oldChanged);
+  await denied('shortcuts_update',put(initial.revision,[{id:adbId,description:'过期修订'}]),'REVISION_CONFLICT');
+
+  const update=put(oldChanged.revision,[{id:adbId,name:'v3 省略描述'},
+    {id:scriptId,description:''},{id:localId,description:null}]);
+  const pending=client.begin('tools/call',{name:'shortcuts_update',arguments:update},4000);
+  client.discardResponse(pending.id);
+  await assert.rejects(pending.promise,/RPC timeout/);
+  const saved=await list({...v3,receipt_request_id:update.request_id});
+  assert.deepEqual(await success('shortcuts_update',update),saved);
+  await denied('shortcuts_update',{...update,changes:[{id:adbId,description:'替换旧编号'}]},'REQUEST_CONFLICT');
+  const final=await descriptions();
+  assert.equal(find(final,adbId).description,'设备版本\n第二行');
+  assert.equal(find(final,scriptId).description,undefined);
+  assert.equal(find(final,localId).description,undefined);
+  const fileHash=await hash(script);
+  const removal={...v3,...mut(final.revision,{ids:[scriptId]})};
+  const removed=await success('shortcuts_remove',removal);
+  assert.deepEqual(removed.ids,[scriptId]);
+  assert.deepEqual(await list({...v3,receipt_request_id:removal.request_id}),removed);
+  assert.equal(await hash(script),fileHash);
+  assert.deepEqual(Buffer.from((await received()).flat()),originalReceived);
+  await absent(path.join(root,'adb-calls.txt'));
+  await absent(path.join(root,'script-executed.txt'));
+  await sidebarIds(project((await descriptions()).items));
+  await ui.click('描述会话发送');
+  const expected=Buffer.concat([originalReceived,Buffer.from(sentText+'\r')]);
+  let actual=originalReceived;
+  for(let attempt=0;attempt<120&&actual.length<expected.length;attempt++){
+    actual=Buffer.from((await received()).flat());
+    if(actual.length<expected.length)await delay(40);
+  }
+  assert.deepEqual(actual,expected,'only the command and requested Enter reach loopback SSH');
+  await revoke('描述查看');
+  await denied('shortcuts_list',v3);
+  await revoke('描述管理');
+  await denied('shortcuts_list',{...v3,receipt_request_id:update.request_id});
+  evidence.checks.push('v3 independent view/manage, four descriptions, 500 Unicode boundaries, lost receipt, exact input, v2 projection and preservation, cross-version conflicts and revocation');
+  return {v3,requestId:update.request_id,receipt:saved,adbId,sendId,marker};
+}
+
 async function expandedChecks({legacyIds, desktopOnly, priorRequest, priorReceipt, scriptHash}) {
   const compatibility=path.join(root,'legacy-bridge-install');
   await mkdir(compatibility);
@@ -183,7 +269,7 @@ async function expandedChecks({legacyIds, desktopOnly, priorRequest, priorReceip
   evidence.checks.push('actual v12 bridge against updated Desktop, including persisted pre-upgrade receipt and identical legacy replay');
 
   desktop=executable;
-  catalogVersion=13;
+  catalogVersion=14;
   await boot();
   const legacyArgs={};
   const v2={version:'v2'};
@@ -200,7 +286,8 @@ async function expandedChecks({legacyIds, desktopOnly, priorRequest, priorReceip
   await denied('shortcuts_list',{...v2,receipt_request_id:priorRequest.request_id});
   await denied('shortcuts_update',mut((await list()).revision,{changes:[{id:desktopOnly[0].id,name:'旧授权不可改'}]}),'NOT_FOUND');
   await denied('shortcuts_remove',mut((await list()).revision,{ids:[desktopOnly[1].id]}),'NOT_FOUND');
-  await denied('shortcuts_list',{version:'v3'},'INVALID_ARGUMENT');
+  await denied('shortcuts_list',{version:'v3'},'PERMISSION_DENIED');
+  await denied('shortcuts_list',{version:'v4'},'INVALID_ARGUMENT');
 
   const {ref,received}=await loopback();
   const initialReceived=await received();
@@ -318,6 +405,7 @@ async function expandedChecks({legacyIds, desktopOnly, priorRequest, priorReceip
   await revoke('扩展管理');
   await denied('shortcuts_list',{...v2,receipt_request_id:remove.request_id});
   assert.deepEqual(await receipt(priorRequest.request_id),priorReceipt);
+  const descriptions=await descriptionChecks(received,priorRequest,priorReceipt);
   await shutdown(true);
   await boot();
   await denied('shortcuts_list',v2);
@@ -325,7 +413,39 @@ async function expandedChecks({legacyIds, desktopOnly, priorRequest, priorReceip
   await approve('扩展管理');
   assert.deepEqual(await expanded({receipt_request_id:remove.request_id}),removed);
   assert.deepEqual(await expanded({receipt_request_id:priorRequest.request_id}),priorReceipt);
+  await denied('shortcuts_list',descriptions.v3);
+  await approve('描述查看');
+  await approve('描述管理');
+  const reloaded=await list(descriptions.v3);
+  assert.equal(reloaded.items.find(item=>item.id===descriptions.sendId).description,descriptions.marker);
+  assert.deepEqual(await list({...descriptions.v3,receipt_request_id:descriptions.requestId}),descriptions.receipt);
   await shutdown(false);
+  const priorV13=path.resolve('artifacts/SharedTerminal-0.1.37-windows-x64/terminal-mcp.exe');
+  const compatibleV13=path.join(root,'v13-bridge-install');
+  await mkdir(compatibleV13);
+  for(const file of ['shared-terminal-desktop.exe','session-service.exe','terminal-mcp.exe']){
+    await copyFile(file==='terminal-mcp.exe'?priorV13:path.join(path.dirname(executable),file),path.join(compatibleV13,file));
+  }
+  desktop=path.join(compatibleV13,'shared-terminal-desktop.exe');
+  catalogVersion=13;
+  await boot();
+  await approve('扩展查看');
+  await approve('扩展管理');
+  const v13=await expanded();
+  assert.ok(v13.items.some(item=>item.id===descriptions.sendId));
+  assert.ok(v13.items.every(item=>!('description' in item)));
+  assert.deepEqual(await expanded({receipt_request_id:priorRequest.request_id}),priorReceipt);
+  await denied('shortcuts_list',descriptions.v3,'INVALID_ARGUMENT');
+  await success('shortcuts_update',versioned(v13.revision,{changes:[{id:descriptions.adbId,name:'真实 v13 桥改名'}]}));
+  await shutdown(false);
+  desktop=executable;
+  catalogVersion=14;
+  await boot();
+  await approve('描述查看');
+  const afterLegacy=await list(descriptions.v3);
+  assert.equal(afterLegacy.items.find(item=>item.id===descriptions.adbId).description,'设备版本\n第二行');
+  await shutdown(false);
+  evidence.checks.push('v3 descriptions and receipt survive restart and a v2 edit from the actual 0.1.37 v13 bridge');
   evidence.checks.push('v13 metadata-only four-type CRUD, exact CR/LF and quoted pipelines, alias fallback at 64, explicit false, legacy field preservation, full-section stable moves, receipts before and after upgrades, zero execution or SSH input');
 }
 

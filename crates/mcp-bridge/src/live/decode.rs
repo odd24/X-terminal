@@ -261,32 +261,43 @@ pub(super) fn request(name: &str, args: Value) -> Option<RequestMessage> {
 
 fn decode_shortcuts(name: &str, args: Value) -> Option<RequestMessage> {
     Some(match name {
-        names::SHORTCUTS_LIST => {
-            shortcut_request(args, shortcuts::Request::List, shortcuts::v2::Request::List)?
-        }
+        names::SHORTCUTS_LIST => shortcut_request(
+            args,
+            shortcuts::Request::List,
+            shortcuts::v2::Request::List,
+            shortcuts::v3::Request::List,
+        )?,
         names::SHORTCUTS_CREATE => shortcut_request(
             args,
             shortcuts::Request::Create,
             shortcuts::v2::Request::Create,
+            shortcuts::v3::Request::Create,
         )?,
         names::SHORTCUTS_UPDATE => shortcut_request(
             args,
             shortcuts::Request::Update,
             shortcuts::v2::Request::Update,
+            shortcuts::v3::Request::Update,
         )?,
         names::SHORTCUTS_REMOVE => shortcut_request(
             args,
             shortcuts::Request::Remove,
             shortcuts::v2::Request::Remove,
+            shortcuts::v3::Request::Remove,
         )?,
         _ => return None,
     })
 }
 
-fn shortcut_request<T: serde::de::DeserializeOwned, U: serde::de::DeserializeOwned>(
+fn shortcut_request<
+    T: serde::de::DeserializeOwned,
+    U: serde::de::DeserializeOwned,
+    V: serde::de::DeserializeOwned,
+>(
     args: Value,
     legacy: fn(T) -> shortcuts::Request,
     extended: fn(U) -> shortcuts::v2::Request,
+    described: fn(V) -> shortcuts::v3::Request,
 ) -> Option<RequestMessage> {
     Some(match serde_json::from_value(args).ok()? {
         shortcuts::Compatible::Legacy(args) => RequestMessage::Shortcuts {
@@ -294,6 +305,9 @@ fn shortcut_request<T: serde::de::DeserializeOwned, U: serde::de::DeserializeOwn
         },
         shortcuts::Compatible::Extended(args) => RequestMessage::ShortcutsV2 {
             request: extended(args),
+        },
+        shortcuts::Compatible::Described(args) => RequestMessage::ShortcutsV3 {
+            request: described(args),
         },
     })
 }
@@ -334,7 +348,13 @@ mod tests {
                 request: shortcuts::v2::Request::List(_)
             })
         ));
-        assert!(request(names::SHORTCUTS_LIST, json!({ "version": "v3" })).is_none());
+        assert!(matches!(
+            request(names::SHORTCUTS_LIST, json!({ "version": "v3" })),
+            Some(RequestMessage::ShortcutsV3 {
+                request: shortcuts::v3::Request::List(_)
+            })
+        ));
+        assert!(request(names::SHORTCUTS_LIST, json!({ "version": "v4" })).is_none());
         assert!(
             request(
                 names::SHORTCUTS_LIST,

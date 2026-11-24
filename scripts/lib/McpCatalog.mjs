@@ -55,12 +55,40 @@ export function assertShortcutV2Catalog(current, legacy) {
   }
 }
 
-export async function readMcpCatalog(version=13) {
+export function assertShortcutV3Catalog(current, previous) {
+  assert.equal(current.length, 33);
+  assert.deepEqual(current.slice(0, 29), previous.slice(0, 29));
+  for (let index = 29; index < 33; index++) {
+    const now = current[index], old = previous[index];
+    const schema = now.inputSchema;
+    assert.equal(now.name, old.name);
+    assert.deepEqual(now.annotations, old.annotations);
+    assert.equal(schema.type, 'object');
+    assert.equal(schema.anyOf.length, 3);
+    for (const branch of [0, 1]) {
+      assert.deepEqual(dereference(schema.anyOf[branch], schema),
+        dereference(old.inputSchema.anyOf[branch], old.inputSchema));
+    }
+    const described= dereference(schema.anyOf[2], schema);
+    assert.equal(described.additionalProperties, false);
+    assert.ok(described.required.includes('version'));
+    assert.deepEqual(described.properties.version.const ? [described.properties.version.const] :
+      described.properties.version.enum, ['v3']);
+    for (const field of ['items','changes']) {
+      const entry=described.properties[field]?.items;
+      if (!entry) continue;
+      assert.equal(entry.properties.description.maxLength,500);
+      assert.ok(!entry.required.includes('description'));
+    }
+  }
+}
+
+export async function readMcpCatalog(version=14) {
   const previous=JSON.parse(await readFile(new URL('../../contracts/mcp/initial-tools.json',import.meta.url),'utf8'));
   assert.equal(previous.version,11);
   assert.equal(previous.tools.length,29);
   if(version===11)return previous;
-  assert.ok(version===12||version===13);
+  assert.ok([12,13,14].includes(version));
   const current=JSON.parse(await readFile(new URL('../../contracts/mcp/v12-tools.json',import.meta.url),'utf8'));
   assert.equal(current.version,12);
   assert.deepEqual(current.tools.slice(0,previous.tools.length),previous.tools);
@@ -70,5 +98,9 @@ export async function readMcpCatalog(version=13) {
   const expanded=JSON.parse(await readFile(new URL('../../contracts/mcp/v13-tools.json',import.meta.url),'utf8'));
   assert.equal(expanded.version,13);
   assertShortcutV2Catalog(expanded.tools,current.tools);
-  return expanded;
+  if(version===13)return expanded;
+  const described=JSON.parse(await readFile(new URL('../../contracts/mcp/v14-tools.json',import.meta.url),'utf8'));
+  assert.equal(described.version,14);
+  assertShortcutV3Catalog(described.tools,expanded.tools);
+  return described;
 }

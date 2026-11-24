@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub mod v2;
+pub mod v3;
 
 pub const MAX_ITEMS: usize = 32;
 
@@ -14,13 +15,16 @@ pub enum Scope {
     Manage,
     ExtendedView,
     ExtendedManage,
+    DescriptionView,
+    DescriptionManage,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(untagged)]
-pub enum Compatible<Legacy, Extended> {
+pub enum Compatible<Legacy, Extended, Described> {
     Legacy(Legacy),
     Extended(Extended),
+    Described(Described),
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -143,13 +147,14 @@ impl Request {
     }
 }
 
-pub type Call = Compatible<Request, v2::Request>;
+pub type Call = Compatible<Request, v2::Request, v3::Request>;
 
 impl Call {
     pub fn scope(&self) -> Scope {
         match self {
             Self::Legacy(request) => request.scope(),
             Self::Extended(request) => request.scope(),
+            Self::Described(request) => request.scope(),
         }
     }
 
@@ -157,6 +162,7 @@ impl Call {
         match self {
             Self::Legacy(request) => request.write_key(),
             Self::Extended(request) => request.write_key(),
+            Self::Described(request) => request.write_key(),
         }
     }
 }

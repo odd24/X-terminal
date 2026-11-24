@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.55 完成右栏快捷指令描述与 MCP v14，验证桌面、旧版回读及实际 stdio。[执行记录](records/P26.55.md)
+
 P26.54 按 CR-050 登记右栏描述及 v14 契约和验收范围。[执行记录](records/P26.54.md)
 
 P26.53 清理项目构建输出，核对 E 盘实收、发行散列及一次清理范围偏差的恢复。[执行记录](records/P26.53.md)
@@ -544,6 +546,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.52 | Windows x64 0.1.37 当前用户部署 | DONE | [P26.52](records/P26.52.md) | Step-ID: P26.52 |
 | P26.53 | 项目构建输出清理 | DONE | [P26.53](records/P26.53.md) | Step-ID: P26.53 |
 | P26.54 | 登记右栏快捷指令描述 | DONE | [P26.54](records/P26.54.md) | Step-ID: P26.54 |
+| P26.55 | 实现右栏快捷指令描述与 MCP v14 | DONE | [P26.55](records/P26.55.md) | Step-ID: P26.55 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |

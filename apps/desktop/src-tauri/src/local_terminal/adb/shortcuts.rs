@@ -1,13 +1,14 @@
 //! A single protected collection for desktop and bridge clients.
 use super::{
-    DesktopKind, MANAGED_ENTRY, STORE, Settings, Shortcut, lock_store, read_store, validate,
+    DesktopKind, STORE, Settings, Shortcut, lock_store, normalize_descriptions, read_store,
+    settings_records, validate,
 };
 use credential_vault::{Secret, Vault};
 use serde::{Deserialize, Serialize};
 use session_protocol::{
     Sensitive,
     bridge::ResultMessage,
-    shortcuts::{self as wire, Call, Error, MAX_ITEMS, Receipt, Request, Target, v2},
+    shortcuts::{self as wire, Call, Error, MAX_ITEMS, Receipt, Request, Target, v2, v3},
 };
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, io, path::Path};
@@ -15,7 +16,25 @@ use uuid::{Uuid, Variant};
 
 const RECEIPTS: Uuid = Uuid::from_u128(0x953b775e_310f_4a1d_9d01_db7990462d39);
 const EXTENDED_RECEIPTS: Uuid = Uuid::from_u128(0x66decc8a_18cf_4aff_bfbe_0b1d984d9c88);
+const DESCRIPTION_RECEIPTS: Uuid = Uuid::from_u128(0xcb11b478_1749_45af_aa83_ab4ce8666885);
 const MAX_RECEIPTS: usize = 32;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Projection {
+    Legacy,
+    Extended,
+    Described,
+}
+
+impl Projection {
+    fn journals(self) -> &'static [Uuid] {
+        match self {
+            Self::Legacy => &[RECEIPTS],
+            Self::Extended => &[EXTENDED_RECEIPTS, RECEIPTS],
+            Self::Described => &[DESCRIPTION_RECEIPTS, EXTENDED_RECEIPTS, RECEIPTS],
+        }
+    }
+}
 
 struct RequestDigest(Sha256);
 impl io::Write for RequestDigest {
@@ -71,22 +90,22 @@ fn receipts(vault: Option<&Vault>, journal: Uuid) -> Result<Vec<SavedReceipt>, E
     }
 }
 
-fn list(root: &Path, args: wire::List, extended: bool) -> Result<Outcome, Error> {
+fn list(root: &Path, args: wire::List, projection: Projection) -> Result<Outcome, Error> {
     if let Some(id) = args.receipt_request_id {
         if args.query.is_some() || !request_id(id) {
             return Err(Error::InvalidArgument);
         }
         return crate::log_viewer::with_native_settings(root, STORE, false, |vault| {
-            let find = |journal| {
-                receipts(vault.as_deref(), journal)
-                    .map(|rows| rows.into_iter().find(|row| row.receipt.request_id == id))
-            };
             Ok((|| {
-                if extended && let Some(row) = find(EXTENDED_RECEIPTS)? {
-                    return Ok(reply(ResultMessage::ShortcutReceipt(row.receipt)));
+                for journal in projection.journals() {
+                    if let Some(row) = receipts(vault.as_deref(), *journal)?
+                        .into_iter()
+                        .find(|row| row.receipt.request_id == id)
+                    {
+                        return Ok(reply(ResultMessage::ShortcutReceipt(row.receipt)));
+                    }
                 }
-                let row = find(RECEIPTS)?.ok_or(Error::NotFound)?;
-                Ok(reply(ResultMessage::ShortcutReceipt(row.receipt)))
+                Err(Error::NotFound)
             })())
         })
         .map_err(|_| Error::StorageUnavailable)?;
@@ -101,7 +120,7 @@ fn list(root: &Path, args: wire::List, extended: bool) -> Result<Outcome, Error>
     let items = settings
         .shortcuts
         .into_iter()
-        .filter(|item| extended || item.desktop_kind.is_none())
+        .filter(|item| projection != Projection::Legacy || item.desktop_kind.is_none())
         .enumerate()
         .filter(|(_, item)| {
             query.is_empty()
@@ -113,40 +132,7 @@ fn list(root: &Path, args: wire::List, extended: bool) -> Result<Outcome, Error>
                     .to_lowercase()
                     .contains(&query)
         });
-    let snapshot = if extended {
-        ResultMessage::ShortcutSnapshotV2(v2::Snapshot {
-            version: v2::Version::V2,
-            revision,
-            items: items
-                .map(|(index, item)| {
-                    let send = item.desktop_kind == Some(DesktopKind::Send);
-                    let target = match (item.script_path, item.desktop_kind) {
-                        (Some(path), _) => v2::Target::Script {
-                            path: Sensitive::new(path),
-                        },
-                        (None, Some(DesktopKind::Local)) => v2::Target::Local {
-                            command: Sensitive::new(item.command),
-                        },
-                        (None, Some(DesktopKind::Send)) => v2::Target::Send {
-                            text: Sensitive::new(item.command),
-                        },
-                        (None, None) => v2::Target::Adb {
-                            command: Sensitive::new(item.command),
-                        },
-                    };
-                    v2::Item {
-                        id: item.id,
-                        name: Sensitive::new(item.name),
-                        target,
-                        order: index + 1,
-                        pinned: item.pinned,
-                        close_on_success: (!send).then_some(item.close_on_success),
-                        append_enter: send.then_some(item.append_enter),
-                    }
-                })
-                .collect(),
-        })
-    } else {
+    let snapshot = if projection == Projection::Legacy {
         ResultMessage::ShortcutSnapshot(wire::Snapshot {
             revision,
             items: items
@@ -166,6 +152,57 @@ fn list(root: &Path, args: wire::List, extended: bool) -> Result<Outcome, Error>
                 })
                 .collect(),
         })
+    } else {
+        let items = items.map(|(index, item)| {
+            let send = item.desktop_kind == Some(DesktopKind::Send);
+            let target = match (item.script_path, item.desktop_kind) {
+                (Some(path), _) => v2::Target::Script {
+                    path: Sensitive::new(path),
+                },
+                (None, Some(DesktopKind::Local)) => v2::Target::Local {
+                    command: Sensitive::new(item.command),
+                },
+                (None, Some(DesktopKind::Send)) => v2::Target::Send {
+                    text: Sensitive::new(item.command),
+                },
+                (None, None) => v2::Target::Adb {
+                    command: Sensitive::new(item.command),
+                },
+            };
+            v3::Item {
+                id: item.id,
+                name: Sensitive::new(item.name),
+                description: item.description.map(Sensitive::new),
+                target,
+                order: index + 1,
+                pinned: item.pinned,
+                close_on_success: (!send).then_some(item.close_on_success),
+                append_enter: send.then_some(item.append_enter),
+            }
+        });
+        if projection == Projection::Described {
+            ResultMessage::ShortcutSnapshotV3(v3::Snapshot {
+                version: v3::Version::V3,
+                revision,
+                items: items.collect(),
+            })
+        } else {
+            ResultMessage::ShortcutSnapshotV2(v2::Snapshot {
+                version: v2::Version::V2,
+                revision,
+                items: items
+                    .map(|item| v2::Item {
+                        id: item.id,
+                        name: item.name,
+                        target: item.target,
+                        order: item.order,
+                        pinned: item.pinned,
+                        close_on_success: item.close_on_success,
+                        append_enter: item.append_enter,
+                    })
+                    .collect(),
+            })
+        }
     };
     Ok(reply(snapshot))
 }
@@ -306,7 +343,7 @@ fn move_block(items: &mut Vec<Shortcut>, order: v2::MoveBlock) -> Result<(), Err
 
 fn edit(
     items: &mut Vec<Shortcut>,
-    changes: Vec<v2::Change>,
+    changes: Vec<v3::Change>,
     moves: Vec<v2::MoveBlock>,
     extended: bool,
 ) -> Result<Vec<Uuid>, Error> {
@@ -322,6 +359,7 @@ fn edit(
         if change.id.is_nil()
             || !affected.insert(change.id)
             || (change.name.is_none()
+                && change.description.is_none()
                 && change.target.is_none()
                 && change.pinned.is_none()
                 && change.close_on_success.is_none()
@@ -348,6 +386,9 @@ fn edit(
         if change.name.is_some() {
             set_name(item, change.name, extended)?;
         }
+        if let Some(description) = change.description {
+            item.description = Some(description.expose().to_owned());
+        }
         options(item, change.close_on_success, change.append_enter)?;
         if let Some(pinned) = change.pinned
             && item.pinned != pinned
@@ -372,8 +413,8 @@ fn edit(
 }
 
 enum Mutation {
-    Create(Vec<v2::CreateItem>),
-    Update(Vec<v2::Change>, Vec<v2::MoveBlock>),
+    Create(Vec<v3::CreateItem>),
+    Update(Vec<v3::Change>, Vec<v2::MoveBlock>),
     Remove(Vec<Uuid>),
 }
 
@@ -384,8 +425,9 @@ impl TryFrom<Call> for Mutation {
             Call::Legacy(Request::Create(args)) => Self::Create(
                 args.items
                     .into_iter()
-                    .map(|item| v2::CreateItem {
+                    .map(|item| v3::CreateItem {
                         name: Some(item.name),
+                        description: None,
                         target: extended_target(item.target),
                         pinned: item.pinned,
                         close_on_success: None,
@@ -396,9 +438,10 @@ impl TryFrom<Call> for Mutation {
             Call::Legacy(Request::Update(args)) => Self::Update(
                 args.changes
                     .into_iter()
-                    .map(|change| v2::Change {
+                    .map(|change| v3::Change {
                         id: change.id,
                         name: change.name,
+                        description: None,
                         target: change.target.map(extended_target),
                         pinned: change.pinned,
                         close_on_success: None,
@@ -408,9 +451,17 @@ impl TryFrom<Call> for Mutation {
                 args.moves.into_iter().map(v2::MoveBlock::Anchor).collect(),
             ),
             Call::Legacy(Request::Remove(args)) => Self::Remove(args.ids),
-            Call::Extended(v2::Request::Create(args)) => Self::Create(args.items),
-            Call::Extended(v2::Request::Update(args)) => Self::Update(args.changes, args.moves),
+            Call::Extended(v2::Request::Create(args)) => {
+                Self::Create(args.items.into_iter().map(Into::into).collect())
+            }
+            Call::Extended(v2::Request::Update(args)) => Self::Update(
+                args.changes.into_iter().map(Into::into).collect(),
+                args.moves,
+            ),
             Call::Extended(v2::Request::Remove(args)) => Self::Remove(args.ids),
+            Call::Described(v3::Request::Create(args)) => Self::Create(args.items),
+            Call::Described(v3::Request::Update(args)) => Self::Update(args.changes, args.moves),
+            Call::Described(v3::Request::Remove(args)) => Self::Remove(args.ids),
             _ => return Err(Error::InvalidArgument),
         })
     }
@@ -435,6 +486,7 @@ fn mutate(
                 let mut item = Shortcut {
                     id,
                     name: String::new(),
+                    description: entry.description.map(|value| value.expose().to_owned()),
                     command: String::new(),
                     script_path: None,
                     pinned: entry.pinned,
@@ -475,21 +527,29 @@ fn save(
     match &request {
         Call::Legacy(request) => serde_json::to_writer(&mut hash, request),
         Call::Extended(request) => serde_json::to_writer(&mut hash, request),
+        Call::Described(request) => serde_json::to_writer(&mut hash, request),
     }
     .map_err(|_| Error::InvalidArgument)?;
     let digest = hash.0.finalize().into();
-    let extended = matches!(&request, Call::Extended(_));
-    let (journal, other) = if extended {
-        (EXTENDED_RECEIPTS, RECEIPTS)
-    } else {
-        (RECEIPTS, EXTENDED_RECEIPTS)
+    let projection = match &request {
+        Call::Legacy(_) => Projection::Legacy,
+        Call::Extended(_) => Projection::Extended,
+        Call::Described(_) => Projection::Described,
     };
+    let journal = projection.journals()[0];
     let mut rows = receipts(Some(vault), journal)?;
-    if receipts(Some(vault), other)?
+    for other in Projection::Described
+        .journals()
         .iter()
-        .any(|row| row.receipt.request_id == id)
+        .copied()
+        .filter(|other| *other != journal)
     {
-        return Err(Error::RequestConflict);
+        if receipts(Some(vault), other)?
+            .iter()
+            .any(|row| row.receipt.request_id == id)
+        {
+            return Err(Error::RequestConflict);
+        }
     }
     if let Some(row) = rows.iter().find(|row| row.receipt.request_id == id) {
         return if !allowed() {
@@ -504,7 +564,7 @@ fn save(
     if revision(&settings) != expected_revision {
         return Err(Error::RevisionConflict);
     }
-    let ids = if extended {
+    let ids = if projection != Projection::Legacy {
         mutate(&mut settings.shortcuts, Mutation::try_from(request)?, true)?
     } else {
         let available = |item: &Shortcut| item.desktop_kind.is_none();
@@ -540,6 +600,7 @@ fn save(
     if settings.shortcuts.len() > MAX_ITEMS {
         return Err(Error::CapacityExceeded);
     }
+    normalize_descriptions(&mut settings).map_err(|_| Error::InvalidArgument)?;
     validate(&settings).map_err(|_| Error::InvalidArgument)?;
     let revision = Uuid::new_v4();
     settings.revision = Some(revision);
@@ -556,13 +617,18 @@ fn save(
         receipt: receipt.clone(),
     });
     let stored = |bytes| Secret::new(bytes).map_err(|_| Error::CapacityExceeded);
-    let items = stored(serde_json::to_vec(&settings).map_err(|_| Error::StorageUnavailable)?)?;
+    let [items, descriptions] = settings_records(&settings).map_err(|error| match error {
+        credential_vault::Error::Invalid | credential_vault::Error::Capacity => {
+            Error::CapacityExceeded
+        }
+        _ => Error::StorageUnavailable,
+    })?;
     let saved_rows = stored(serde_json::to_vec(&rows).map_err(|_| Error::StorageUnavailable)?)?;
     if !allowed() {
         return Err(Error::PermissionDenied);
     }
     let committed = vault
-        .set_pair_if((MANAGED_ENTRY, items), (journal, saved_rows), allowed)
+        .set_records([items, descriptions, (journal, saved_rows)], allowed)
         .map_err(|_| Error::UnknownDelivery)?;
     if !committed {
         return Err(Error::PermissionDenied);
@@ -582,14 +648,22 @@ pub(crate) fn handle(
         return Err(Error::PermissionDenied);
     }
     let result = match request {
-        Call::Legacy(Request::List(args)) => list(root, args, false),
+        Call::Legacy(Request::List(args)) => list(root, args, Projection::Legacy),
         Call::Extended(v2::Request::List(args)) => list(
             root,
             wire::List {
                 query: args.query,
                 receipt_request_id: args.receipt_request_id,
             },
-            true,
+            Projection::Extended,
+        ),
+        Call::Described(v3::Request::List(args)) => list(
+            root,
+            wire::List {
+                query: args.query,
+                receipt_request_id: args.receipt_request_id,
+            },
+            Projection::Described,
         ),
         request => return handle_mutation(root, request, allowed),
     };

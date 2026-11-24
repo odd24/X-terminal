@@ -26,6 +26,8 @@ pub(super) struct Authorization {
     manage: Option<Instant>,
     extended_view: Option<Instant>,
     extended_manage: Option<Instant>,
+    description_view: Option<Instant>,
+    description_manage: Option<Instant>,
 }
 impl Authorization {
     fn expiry(&mut self, scope: Scope) -> &mut Option<Instant> {
@@ -34,6 +36,8 @@ impl Authorization {
             Scope::Manage => &mut self.manage,
             Scope::ExtendedView => &mut self.extended_view,
             Scope::ExtendedManage => &mut self.extended_manage,
+            Scope::DescriptionView => &mut self.description_view,
+            Scope::DescriptionManage => &mut self.description_manage,
         }
     }
 
@@ -43,6 +47,8 @@ impl Authorization {
             Scope::Manage => self.manage,
             Scope::ExtendedView => self.extended_view,
             Scope::ExtendedManage => self.extended_manage,
+            Scope::DescriptionView => self.description_view,
+            Scope::DescriptionManage => self.description_manage,
         }
     }
 }
@@ -69,6 +75,8 @@ pub struct Peer {
     manage_remaining_ms: u64,
     extended_view_remaining_ms: u64,
     extended_manage_remaining_ms: u64,
+    description_view_remaining_ms: u64,
+    description_manage_remaining_ms: u64,
 }
 
 #[derive(Serialize)]
@@ -113,6 +121,8 @@ impl Manager {
                 manage_remaining_ms: remaining(entry.shortcuts.manage),
                 extended_view_remaining_ms: remaining(entry.shortcuts.extended_view),
                 extended_manage_remaining_ms: remaining(entry.shortcuts.extended_manage),
+                description_view_remaining_ms: remaining(entry.shortcuts.description_view),
+                description_manage_remaining_ms: remaining(entry.shortcuts.description_manage),
             }),
         })
     }

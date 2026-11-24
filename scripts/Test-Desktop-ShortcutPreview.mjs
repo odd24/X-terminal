@@ -9,6 +9,7 @@ import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 const executable=path.resolve(process.argv[2]);
 const version=path.basename(path.dirname(executable)).match(/^SharedTerminal-(\d+\.\d+\.\d+)-windows-x64$/)?.[1]
   ??JSON.parse(await readFile('package.json','utf8')).version;
+const reportVersion=process.argv.includes('--description-candidate')?`${version}-descriptions`:version;
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-local-scripts-中文-preview-'));
 const result={result:'IN_PROGRESS',executable,sha256:createHash('sha256').update(await readFile(executable)).digest('hex'),
   checks:[],screenshots:[]};
@@ -16,6 +17,9 @@ const q=JSON.stringify, node=selector=>`document.querySelector(${q(selector)})`;
 const panel='.pane-active .adb-shortcut-panel:not([hidden])', card='.shortcut-preview[data-positioned]';
 const dialog='dialog:modal[aria-label="命名本地脚本"]', shortcut=name=>panel+` [aria-label="${name}"]`;
 const closeOption='form[aria-label="快捷指令编辑"] .shortcut-checkbox input';
+const descriptionSelector='.shortcut-description';
+const longDescription='长脚本说明\n第二行用于核对';
+const missingDescription='原脚本说明仍可读';
 const stored=()=>ui.invoke('local_adb_settings',{settings:null});
 const area=name=>node(shortcut(name));
 const count=()=>ui.evaluate("document.querySelectorAll('[role=tab]').length");
@@ -61,8 +65,19 @@ async function manage(name,action){
   await ui.waitFor("!!document.querySelector('.adb-row-menu[data-positioned]')");
   await ui.evaluate(`[...document.querySelectorAll('.adb-row-menu button')].find(button=>button.textContent===${q(action)}).click()`);
 }
+async function addCommand(menuItem,name,label,body,description){
+  await ui.click('新建快捷指令');
+  await ui.waitFor("!!document.querySelector('[aria-label=\"新建指令类型\"][data-positioned]')");
+  await ui.click(menuItem);
+  await ui.fill('指令名称',name);
+  await ui.fill(label,body);
+  await ui.fill('指令描述',description);
+  await ui.click('保存指令');
+  await ui.waitFor(`!!${area(name)}`);
+  assert.equal((await stored()).shortcuts.find(item=>item.name===name).description,description);
+}
 async function screenshot(suffix){
-  const file=`windows-${version}-shortcuts-${suffix}.png`;
+  const file=`windows-${reportVersion}-shortcuts-${suffix}.png`;
   await ui.screenshot(file);result.screenshots.push(file);
 }
 const point=selector=>ui.evaluate(`(()=>{const r=${node(selector)}.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`);
@@ -116,19 +131,28 @@ try{
   await choose([runPath]);await ui.fill('显示名称 执行样本.cmd','取消的名称');
   await ui.click('取消导入');assert.deepEqual(await stored(),seeded);
   await choose([runPath]);await ui.fill('显示名称 执行样本.cmd','执行验证');
+  await ui.fill('描述 执行样本.cmd','执行样本的描述');
   await ui.click('确定导入');await ui.waitFor(`!!${area('执行验证')}`);
   const single=(await stored()).shortcuts.find(item=>item.name==='执行验证');
   assert.equal(single.script_path,await realpath(runPath));
+  assert.equal(single.description,'执行样本的描述');
   await choose([longPath,utf16Path]);
   const fields=await ui.evaluate(`[...${node(dialog)}.querySelectorAll('input')].map(input=>input.getAttribute('aria-label'))`);
   assert.equal(fields.length,2);
   assert.equal(await ui.evaluate("document.activeElement?.getAttribute('aria-label')"),fields[0]);
   await key('Tab',9);
+  assert.equal(await ui.evaluate("document.activeElement?.getAttribute('aria-label')"),fields[0].replace('显示名称 ','描述 '));
+  await key('Tab',9);
   assert.equal(await ui.evaluate("document.activeElement?.getAttribute('aria-label')"),fields[1]);
   await ui.fill('显示名称 长预览.bat','查看长脚本');
+  await ui.fill('描述 长预览.bat',longDescription);
+  await ui.fill('描述 UTF16.cmd','   \n');
   await screenshot('01-batch-naming');
   await ui.click('确定导入');
   await ui.waitFor(`!!${area('查看长脚本')}&&!!${area('UTF16.cmd')}`);
+  assert.equal((await stored()).shortcuts.find(item=>item.name==='查看长脚本').description,longDescription);
+  assert.equal((await stored()).shortcuts.find(item=>item.name==='UTF16.cmd').description,undefined);
+  assert.equal(await ui.evaluate(`!!${node(panel+' '+descriptionSelector)}`),false);
   assert.equal(await count(),1);assert.equal(await calls(),0);
   assert.equal(await readFile(markerPath,'utf8').catch(()=>''),'');
   await screenshot('02-names-only');
@@ -140,19 +164,25 @@ try{
   await ui.fill('指令名称','尚未保存');
   await ui.evaluate(`${node(closeOption)}.click()`);
   const beforeConflict=await stored();
-  const concurrent=await ui.invoke('local_adb_settings',{settings:{...beforeConflict,shortcuts:beforeConflict.shortcuts.map(item=>item.id===adbRow.id?{...item,name:'并发保留'}:item)}});
+  const concurrent=await ui.invoke('local_adb_settings',{settings:{...beforeConflict,shortcuts:beforeConflict.shortcuts.map(item=>
+    item.id===adbRow.id?{...item,name:'并发保留',description:'ADB 可见用途'}:
+      item.id===old.id?{...item,description:missingDescription}:item)}});
   await ui.click('保存指令');await ui.waitFor("document.querySelector('.adb-panel-error')?.textContent.includes('已更新')");
   assert.deepEqual(await stored(),concurrent);
   await ui.click('重新读取快捷指令');
   await ui.click('取消编辑');
   await ui.waitFor(`!!${area('并发保留')}`);
   await manage('执行验证','编辑');
+  await ui.fill('指令描述','🙂'.repeat(501));
+  assert.equal(await ui.evaluate('document.querySelector(\'[aria-label="快捷指令编辑"] button[type=submit]\').disabled'),true);
+  await ui.fill('指令描述','🙂'.repeat(500));
   await ui.fill('指令名称','');
   await ui.evaluate(`${node(closeOption)}.click()`);
   await ui.click('保存指令');
   await ui.waitFor(`!!${area('执行样本.cmd')}`);
   const renamed=await stored();
-  assert.deepEqual(renamed.shortcuts.find(item=>item.id===single.id),{...single,name:'执行样本.cmd',close_on_success:true});
+  assert.deepEqual(renamed.shortcuts.find(item=>item.id===single.id),{...single,name:'执行样本.cmd',
+    description:'🙂'.repeat(500),close_on_success:true});
   assert.equal(await readFile(runPath,'utf8'),runSource);
   assert.equal(await calls(),0);
   result.checks.push('Edit keeps exact id/path/file, saves alias and auto-close together without execution, rejects stale save, and restores full filename when alias is cleared');
@@ -176,8 +206,11 @@ try{
   assert.equal(await invokes(),initial);await gone();
   await hover('并发保留');await peek('adb shell');
   assert.equal(await invokes(),initial,'ADB preview uses saved command only');
+  assert.equal(await ui.evaluate(`${node(card)}.querySelector(${q(descriptionSelector)}).textContent`),'ADB 可见用途');
   await screenshot('03-adb-hover');
   await hover('查看长脚本');await peek('仅显示前 32 KiB');
+  assert.equal(await ui.evaluate(`(()=>{const card=${node(card)},text=card.querySelector(${q(descriptionSelector)});
+    return text.textContent===${q(longDescription)}&&!!(text.compareDocumentPosition(card.querySelector('pre'))&4);})()`),true);
   assert.equal(await ui.evaluate(`${node(card)}.querySelector('strong').textContent`),'长预览.bat');
   assert.equal(await ui.evaluate(`${node(card)}.querySelector('pre b')`),null);
   assert.equal(await ui.evaluate(`${node(card)}.querySelector('pre').textContent.includes('\\\\u202e')`),true);
@@ -212,13 +245,17 @@ try{
 
   await ui.evaluate('window.previewTest.hold=true');
   await hover('查看长脚本');await ui.waitFor('window.previewTest.pending.length===1');
+  await peek('正在读取脚本预览');
+  await peek('第二行用于核对');
   await hover('并发保留');await peek('adb shell');
   await ui.evaluate('window.previewTest.hold=false;window.previewTest.pending.splice(0).forEach(resolve=>resolve())');
   await delay(180);assert.equal(await ui.evaluate(`${node(card)}.textContent.includes('合成脚本头')`),false);
+  assert.equal(await ui.evaluate(`${node(card)}.textContent.includes(${q(longDescription)})`),false);
   await move({x:16,y:500});await gone();
   await rename(legacyPath,legacyPath+'.gone');
   await key('Tab',9);await ui.evaluate(`${area(old.name)}.focus()`);
   await peek('脚本不可用');
+  await peek(missingDescription);
   await key('Escape',27);await gone();
   await rename(legacyPath+'.gone',legacyPath);
   assert.equal(await calls(),0);
@@ -229,6 +266,7 @@ try{
   await ui.click('全部展开');
   await ui.waitFor(`${node(panel)}.dataset.expanded==='true'&&!!${node(panel+' .adb-shortcut-run code')}`);
   assert.ok(await ui.evaluate(`${area('并发保留')}.querySelector('code').textContent.includes('adb shell')`));
+  assert.equal(await ui.evaluate(`${area('查看长脚本')}.querySelector(${q(descriptionSelector)}).nextElementSibling.tagName`),'CODE');
   if(await ui.evaluate("document.querySelector('.sidebar-toggle').getAttribute('aria-expanded')==='true'"))
     await ui.click('会话导航');
   await hover('并发保留');await peek('adb shell');
@@ -242,7 +280,13 @@ try{
   await ui.waitFor(`${node(panel)}.dataset.expanded==='false'`);
   await ui.click('双列显示');
   await ui.waitFor(`${node(panel)}.dataset.columns==='2'`);
+  await addCommand('ADB 命令','新增 ADB 描述','完整 ADB 命令','adb version','ADB 用途');
+  await addCommand('本地命令','新增本地命令描述','Windows 本地命令','echo LOCAL','本机用途\n第二行');
+  await addCommand('发送到当前会话','新增发送描述','发送文本','UNSENT','会话用途');
   const persistent=await stored();
+  await assert.rejects(ui.invoke('local_adb_settings',{settings:{...persistent,shortcuts:persistent.shortcuts.map(item=>
+    item.id===single.id?{...item,description:'🙂'.repeat(501)}:item)}}),/500/);
+  assert.deepEqual(await stored(),persistent);
   await stop();
   ui=await launchDesktop(root,{executable});await open();await instrument();
   assert.deepEqual(await stored(),persistent);
@@ -253,6 +297,20 @@ try{
   assert.match(await readFile(markerPath,'utf8'),/EXECUTED_ONLY_ON_CLICK/);
   await ui.waitFor("document.querySelectorAll('[role=tab]').length===1");
   await stop();
+  ui=await launchDesktop(root,{executable:path.resolve('artifacts/SharedTerminal-0.1.37-windows-x64/shared-terminal-desktop.exe')});
+  const previous=await stored();
+  assert.equal(previous.shortcuts.length,persistent.shortcuts.length);
+  assert.ok(previous.shortcuts.every(item=>!('description' in item)));
+  const previousEdit=await ui.invoke('local_adb_settings',{settings:{...previous,shortcuts:previous.shortcuts.map(item=>
+    item.id===adbRow.id?{...item,name:'旧桌面改名'}:item)}});
+  await stop(false);
+  ui=await launchDesktop(root,{executable});
+  const reopened=await stored();
+  assert.equal(reopened.revision,previousEdit.revision);
+  assert.equal(reopened.shortcuts.find(item=>item.id===adbRow.id).name,'旧桌面改名');
+  assert.deepEqual(reopened.shortcuts.map(item=>[item.id,item.description]),persistent.shortcuts.map(item=>[item.id,item.description]));
+  await stop(false);
+  result.checks.push('multi-line descriptions, Unicode limit, per-script import, compact and expanded layout, async preview failure and switch, and real 0.1.37 rollback editing without losing descriptions');
   result.checks.push('expanded details and compact dual columns persist, configuration reopens, and one explicitly launched script exits successfully and auto-closes');
   result.result='PASS';
   console.log('PASS Windows shortcut aliases and bounded local previews, passive interaction, restart and explicit execution');
@@ -263,6 +321,6 @@ try{
   throw error;
 }finally{
   await ui?.close();
-  await writeFile(`artifacts/windows-${version}-shortcuts-preview-result.json`,JSON.stringify(result,null,2)+'\n');
+  await writeFile(`artifacts/windows-${reportVersion}-shortcuts-preview-result.json`,JSON.stringify(result,null,2)+'\n');
   await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }

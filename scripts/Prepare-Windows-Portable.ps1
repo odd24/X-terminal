@@ -59,7 +59,7 @@ try {
     )
     $manifest = [ordered]@{
         format=1;product='Shared Terminal';version=$version;target=$triple;buildProfile='release'
-        distribution='portable';sourceCommit=$commit;identifier=$tauri.identifier;mcpCatalogVersion=13
+        distribution='portable';sourceCommit=$commit;identifier=$tauri.identifier;mcpCatalogVersion=14
         signed=$false;files=$files
     }
     $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $candidate 'manifest.json') -Encoding utf8
