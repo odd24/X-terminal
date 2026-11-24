@@ -94,6 +94,8 @@ export async function verifyWindowCommands({ui,first,second,executable,powershel
   const status=(page,connection)=>page.invoke('ssh_request',{request:{op:'status',connection:reference(connection)}});
   const firstRef=reference(first),secondRef=reference(second);
   const denied=/SESSION_IN_OTHER_WINDOW/;
+  assert.equal((await ui.invoke('service_status')).fixture,false);
+  await assert.rejects(ui.invoke('fixture_create'),/FIXTURE_DISABLED/);
   await ui.waitFor(`document.querySelector('[role=tab][data-connection-id="${second.connection_id}"]')?.getAttribute('aria-label')==='localhost'`);
   assert.deepEqual(reference((await status(ui,first)).connection),firstRef);
   const held=await ui.interceptIpc({command:'ssh_request',op:'status',connectionId:second.connection_id,mode:'hold'});
@@ -108,7 +110,7 @@ export async function verifyWindowCommands({ui,first,second,executable,powershel
     await assert.rejects(status(child,first),denied);
     await assert.rejects(status(child,{...second,generation:second.generation+1}),denied);
     assert.deepEqual(reference((await status(child,second)).connection),secondRef);
-    // The original main-webview response remains held. New requests run after restoring it.
+    // Hold the original main-window response while checking the other routes.
     const fixed={op:'connect_status',profile_id:crypto.randomUUID(),revision:crypto.randomUUID(),request_id:crypto.randomUUID()};
     await assert.rejects(child.invoke('ssh_request',{request:fixed}),denied);
     await assert.rejects(ui.invoke('ssh_request',{request:fixed}),/PermissionDenied/);

@@ -438,6 +438,65 @@ async fn rpc_audit_bad_handshakes_frames_and_server_validation_are_real_pipe_fac
 }
 
 #[tokio::test]
+async fn rpc_audit_hello_timeout_and_early_close_have_distinct_terminal_phases() {
+    let mut fixture = Fixture::start(true).await;
+    let mut desktop = fixture.connect().await;
+    let previous = snapshot(&mut desktop).await;
+    let early = fixture.raw().await;
+    let early_pipe = timeout(Duration::from_secs(3), async {
+        loop {
+            let events = snapshot(&mut desktop).await;
+            if let Some(event) = events.iter().find(|event| {
+                event.attempt.origin.kind == OriginKind::Unauthenticated
+                    && event.attempt.request.verb == Verb::Hello
+                    && event.phase == Phase::Received {}
+                    && previous
+                        .iter()
+                        .all(|old| old.attempt.attempt_id != event.attempt.attempt_id)
+            }) {
+                return event.attempt.origin.pipe_id;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("early peer was admitted before closing");
+    drop(early);
+
+    let mut silent = fixture.raw().await;
+    assert!(matches!(
+        timeout(
+            Duration::from_secs(9),
+            read_frame::<_, Response>(&mut silent)
+        )
+        .await
+        .expect("the service closes a silent Hello peer"),
+        Ok(None) | Err(_)
+    ));
+    let events = snapshot(&mut desktop).await;
+    for (reason, is_early) in [(IoReason::Closed, true), (IoReason::Timeout, false)] {
+        let event = events
+            .iter()
+            .find(|event| {
+                event.attempt.origin.kind == OriginKind::Unauthenticated
+                    && event.attempt.request.verb == Verb::Hello
+                    && event.phase
+                        == Phase::IoFailure {
+                            stage: IoStage::HelloRead,
+                            reason,
+                        }
+                    && (event.attempt.origin.pipe_id == early_pipe) == is_early
+            })
+            .expect("the actual pipe termination was audited");
+        assert!(!events.iter().any(|other| {
+            other.attempt.attempt_id == event.attempt.attempt_id
+                && other.phase == Phase::ReplyWritten {}
+        }));
+    }
+    fixture.stop(&mut desktop).await;
+}
+
+#[tokio::test]
 async fn rpc_audit_same_wire_retries_are_distinct_and_fixed_watermarks_report_real_overwrite() {
     let mut fixture = Fixture::start(true).await;
     let mut desktop = fixture.connect().await;

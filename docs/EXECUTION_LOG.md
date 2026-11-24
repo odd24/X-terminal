@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.43 搬移服务的命名管道握手、连接审计和应答写入。[执行记录](records/P26.43.md)
+
 P26.42 搬移日志和原生另存命令，保留文件身份和原保存回执。[执行记录](records/P26.42.md)
 
 P26.41 按领域搬移 SSH 和串口原生命令，验证窗口许可及原回执。[执行记录](records/P26.41.md)
@@ -508,6 +510,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.40 | R3 回显耗时同机对照与分段测量 | DONE | [P26.40](records/P26.40.md) | Step-ID: P26.40 |
 | P26.41 | R4 SSH 和串口原生命令适配 | DONE | [P26.41](records/P26.41.md) | Step-ID: P26.41 |
 | P26.42 | R4 日志和原生另存命令 | DONE | [P26.42](records/P26.42.md) | Step-ID: P26.42 |
+| P26.43 | R5 命名管道握手与连接审计 | DONE | [P26.43](records/P26.43.md) | Step-ID: P26.43 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
