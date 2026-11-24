@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.65 卸载 13 个独立旧版本目录及无版本号的 0.1.0，保留当时仍被注册引用或占用的两版供后续切换。[执行记录](records/P26.65.md)
+
 P26.64 调整产品自有 MCP 启动脚本以兼容旧路径参数，验证 0.1.38 同目录 v14 及未授权边界。[执行记录](records/P26.64.md)
 
 P26.63 安装 0.1.38 并切换主开始菜单入口，实际运行安装目录中的桌面和同目录 v14 桥。[执行记录](records/P26.63.md)
@@ -574,6 +576,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.62 | Windows x64 0.1.38 本地正式发行 | DONE | [P26.62](records/P26.62.md) | Step-ID: P26.62 |
 | P26.63 | 部署 Windows x64 0.1.38 到当前用户 | DONE | [P26.63](records/P26.63.md) | Step-ID: P26.63 |
 | P26.64 | 适配旧安装路径的 MCP 启动入口 | DONE | [P26.64](records/P26.64.md) | Step-ID: P26.64 |
+| P26.65 | 卸载无占用和引用的历史安装 | DONE | [P26.65](records/P26.65.md) | Step-ID: P26.65 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
