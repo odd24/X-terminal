@@ -8,11 +8,13 @@ import { delay, launchDesktop } from './lib/DesktopHarness.mjs';
 import { readMcpCatalog } from './lib/McpCatalog.mjs';
 import { processRpc } from './jsonrpc-client.mjs';
 
-const [desktop, previous, launcher, shell, report] = process.argv.slice(2).map(value => path.resolve(value));
+const [desktop, previous, launcher, shell, report] = process.argv.slice(2,7).map(value => path.resolve(value));
 assert.ok(desktop && previous && launcher && shell && report);
+const preferred = process.argv[7] ? path.resolve(process.argv[7]) : desktop;
+const catalogVersion = Number(process.argv[8] ?? 13);
 const root = await mkdtemp(path.join(await realpath(tmpdir()), 'shared-terminal-installed-mcp-中文-'));
 const bridge = path.join(path.dirname(desktop), 'terminal-mcp.exe');
-const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', launcher, '-PreferredPath', desktop, '-PreviousPath', previous];
+const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', launcher, '-PreferredPath', preferred, '-PreviousPath', previous];
 const checks = [];
 let ui, rpc, evidence;
 
@@ -31,7 +33,7 @@ try {
   assert.ok(initialized.result?.capabilities.tools);
   rpc.notify('notifications/initialized',{});
   const { tools } = (await rpc.request('tools/list',{})).result;
-  const catalog = await readMcpCatalog(13);
+  const catalog = await readMcpCatalog(catalogVersion);
   assert.deepEqual(tools,catalog.tools);
 
   async function call(name, args={}) {
@@ -51,7 +53,7 @@ try {
   assert.equal(child.ParentProcessId,rpc.child.pid);
   assert.equal(path.resolve(child.ExecutablePath).toLowerCase(),bridge.toLowerCase());
   const nil='00000000-0000-0000-0000-000000000000';
-  for(const [name,body] of [
+  const unauthorizedCalls = [
     ['sessions_list',{}],
     ['shortcuts_list',{}],
     ['shortcuts_list',{version:'v2'}],
@@ -61,7 +63,12 @@ try {
     ['shortcuts_update',{version:'v2',request_id:requestId(),revision:nil,
       changes:[{id:requestId(),close_on_success:false}]}],
     ['shortcuts_remove',{version:'v2',request_id:requestId(),revision:nil,ids:[requestId()]}],
-  ]){
+  ];
+  if(catalogVersion===14){
+    unauthorizedCalls.push(['shortcuts_list',{version:'v3'}],
+      ['shortcuts_list',{version:'v3',receipt_request_id:requestId()}]);
+  }
+  for(const [name,body] of unauthorizedCalls){
     assert.deepEqual((await call(name,body)).structuredContent,{mock:false,error_code:'PERMISSION_DENIED'});
     checks.push({tool:name,version:body.version??null,outcome:'PERMISSION_DENIED'});
   }
@@ -79,7 +86,7 @@ try {
   assert.equal(receipt.exit_code,0);
   await ui.close();
   ui=undefined;
-  evidence={ result:'PASS', desktop, bridge, registration:{command:shell,args}, version:catalog.version,
+  evidence={ result:'PASS', desktop, bridge, ...(catalogVersion===13?{registration:{command:shell,args}}:{legacyPreferredAlias:preferred!==desktop}), version:catalog.version,
     tools:tools.length, checks, fixture:false, paired:false, shutdown:receipt.shutdown_ack };
 } finally {
   await rpc?.close();
@@ -89,4 +96,4 @@ try {
   await rm(root,{recursive:true,force:true,maxRetries:12,retryDelay:100});
 }
 await writeFile(report,JSON.stringify({...evidence,isolatedRootRemoved:true},null,2)+'\n');
-console.log('PASS installed launcher selected the same-directory bridge, discovered v13 and rejected unapproved calls');
+console.log(`PASS installed launcher selected the same-directory bridge, discovered v${catalogVersion} and rejected unapproved calls`);
