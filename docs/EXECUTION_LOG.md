@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.88 并存安装 0.1.39，隔离验证及开始菜单主入口回读通过。[执行记录](records/P26.88.md)
+
 P26.87 交付 0.1.39 正式本机便携包，21 项门禁和 ZIP 散列回读通过。[执行记录](records/P26.87.md)
 
 P26.86 修复原生标签门禁窗口遮挡的夹具摆放，原解压桌面定向复验通过。[执行记录](records/P26.86.md)
@@ -643,6 +645,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.85 | 修复 MCP 发布夹具的目标切换时序 | DONE | [P26.85](records/P26.85.md) | Step-ID: P26.85 |
 | P26.86 | 修复原生标签门禁测试窗口落点 | DONE | [P26.86](records/P26.86.md) | Step-ID: P26.86 |
 | P26.87 | Windows x64 0.1.39 本地正式发行 | DONE | [P26.87](records/P26.87.md) | Step-ID: P26.87 |
+| P26.88 | 部署 Windows x64 0.1.39 到当前用户 | DONE | [P26.88](records/P26.88.md) | Step-ID: P26.88 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
