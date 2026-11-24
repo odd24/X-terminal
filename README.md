@@ -2,14 +2,14 @@
 
 共享终端是用于 SSH 服务器工作、串口/UART 调试与日志采集的 Windows 桌面应用，支持通过 MCP 与 Codex 共享已批准的会话。
 
-**当前正式版本为 Windows x64 0.1.37。** 从开始菜单打开「共享终端」。本机保留「共享终端 0.1.36」和「共享终端 0.1.22」作为回退入口。使用便携目录时保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [0.1.37 部署验证](docs/records/P26.52.md)
+**Windows x64 0.1.38 提供便携包。** 保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。本机开始菜单的「共享终端」目前启动已安装的 0.1.37，并保留 0.1.36 和 0.1.22 回退入口。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [0.1.37 部署验证](docs/records/P26.52.md)
 
 ## 日常使用
 
 - **连接。** 从连接库打开已有 SSH2 或串口条目，也可用「更多工具」打开连接表单。SSH 按正常流程验证主机和身份。串口可用于交互或只接收。标签支持拖动排序、分屏和独立窗口，本地标签也可拖动。复制手势及适用会话见[桌面交互基线](docs/UI_GUIDELINES.md#现行桌面交互基线)。
 - **录制。** 用 SSH2 或串口标签上的录制按钮开始和停止。在「更多工具 → 软件设置 → 日志」设置可读日志目录。默认写入当前数据根的 `logs`，目录修改从下一次录制生效。工具栏文件夹打开当前目录，停录通知可打开该次原文件。[日志使用说明](docs/WINDOWS_PORTABLE.md) · [文件身份与测试](docs/records/P26.23.md)
 - **数据。** 默认数据根是 `%LOCALAPPDATA%\local.shared-terminal.desktop`。可用 `--data-dir` 指定独立绝对路径。同一数据根由一个运行中的服务持有，配置占用解除后可使用「重新检查配置目录」。[启动与排查](docs/WINDOWS_PORTABLE.md)
-- **Codex。** 在 Desktop 的「更多工具 → Agent 授权 → MCP 初版连接」核对当次桥进程及批准范围。已安装 0.1.37 使用 MCP v13，四个快捷指令工具以 `version: "v2"` 管理四类配置。开发候选的 v14 目录支持 `version: "v3"` 和独立描述授权。[Codex 接入](docs/CODEX_INTEGRATION.md#v14-右栏快捷指令)
+- **Codex。** 在 Desktop 的「更多工具 → Agent 授权 → MCP 初版连接」核对当次桥进程及批准范围。0.1.38 便携包的 MCP v14 支持 `version: "v3"` 和独立描述授权，0.1.37 配套 v13 桥继续以 `version: "v2"` 管理四类配置。[Codex 接入](docs/CODEX_INTEGRATION.md#v14-右栏快捷指令)
 
 ## 执行入口
 
@@ -59,7 +59,7 @@ cargo build -p session-service --example gui_ssh_fixture --locked --target-dir t
 $env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target/windows-x64-portable'
 cargo build -p session-service -p mcp-bridge --locked --release --target x86_64-pc-windows-msvc
 npm run tauri --workspace apps/desktop -- build --target x86_64-pc-windows-msvc --no-bundle --config src-tauri/tauri.release.conf.json
-pwsh -NoProfile -File scripts/Prepare-Windows-Portable.ps1 -DirectoryOnly
+pwsh -NoProfile -File scripts/Prepare-Windows-Portable.ps1
 ```
 
-[打包脚本](scripts/Prepare-Windows-Portable.ps1)生成并验证 `artifacts/SharedTerminal-<version>-windows-x64` 和清单，按候选产物运行发布专项。打包以当前 Git 提交为源码基准，并在交付路径已存在时停止。当前用户安装和 MCP 注册有单独的部署记录。MSI、Authenticode 签名及干净系统验收的状态见 [P25/T21](docs/records/P25.md#正式-t21-前置)。[0.1.37 发布记录](docs/records/P26.51.md)
+[打包脚本](scripts/Prepare-Windows-Portable.ps1)生成便携目录、清单、ZIP 与 SHA-256 校验文件，并在 ZIP 解压副本上运行发布专项。打包以当前 Git 提交为源码基准，并在交付路径已存在时停止。只需要目录时可传入 `-DirectoryOnly`。当前用户安装和 MCP 注册有单独的部署记录。MSI、Authenticode 签名及干净系统验收的状态见 [P25/T21](docs/records/P25.md#正式-t21-前置)。[0.1.38 版本记录](docs/records/P26.59.md)
