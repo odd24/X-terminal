@@ -5,10 +5,11 @@ import { ssh, SshRequestError, reference, type Connection, type ConnectionRef, t
 import { requestId } from './request-id';
 import {ConfigurationRecheck} from './configuration-recheck';
 import {chooseLoginSecret,credentialHint,waitingCredentialText,type LoginSecret} from './quick-auth';
+import {SavedHostChallenge,sshEndpoint} from './saved-ssh-challenge';
 
 export type SshSettings = Extract<Settings,{protocol:'ssh2'}>;
 type Attempt = { id:string; connection?:ConnectionRef; secret?:LoginSecret; cancelled:boolean; fixed?:FixedProfile };
-export type SavedConnectIntent = { profile_id:string; request_id:string };
+export type SavedConnectIntent = { profile_id:string; request_id:string; fixed?:FixedProfile };
 function sameTarget(a:SshSettings,b:SshSettings) {
   return a.host===b.host&&a.port===b.port&&a.username===b.username&&a.auth===b.auth&&a.encoding===b.encoding;
 }
@@ -35,20 +36,32 @@ export function QuickConnect({ connection, intent, copySettings, canStart, selec
   const passwordField=useRef<HTMLInputElement>(null),keyField=useRef<HTMLInputElement>(null),latestStatus=useRef(status);latestStatus.current=status;
   const hostField=useRef<HTMLInputElement>(null);
   const hostConfirmation=useRef<HTMLInputElement>(null);
+  const hostDecision=useRef<string|undefined>(undefined);
+  const manualPassword=useRef<string|undefined>(undefined);
   const intentStarted=useRef(false), intentBlocked=useRef(false);
   const configurationRevision=useRef('');
   const mounted=useRef(true), current=useRef(connection), attempt=useRef<Attempt | undefined>(undefined), inFlight=useRef(false), notified=useRef(''), enterAfterAuth=useRef<ConnectionRef | undefined>(undefined);current.current=connection;
   const target=connection?.protocol==='SSH2'?connection:undefined;
   const clear=()=>{setPassword('');setPassphrase('');setAnswers([]);if(attempt.current)attempt.current.secret=undefined;};
   function active(){const value=latestStatus.current;if(!value||value.connection.connection_id!==current.current?.connection_id||value.connection.generation!==current.current?.generation)throw new SshRequestError('StaleGeneration','连接已切换，请等待状态更新后再操作。');return {connection_id:value.connection.connection_id,generation:value.connection.generation};}
-  function authenticationTarget(){const ref=active(),a=attempt.current;if(a&&(a.cancelled||!a.connection||a.connection.connection_id!==ref.connection_id||a.connection.generation!==ref.generation))throw new SshRequestError('InvalidState','本次连接尚未确认，请先查询原请求。');return ref;}
+  function authenticationTarget(){const ref=active(),a=attempt.current;if(intent?.fixed&&canStart&&!canStart()||a&&(a.cancelled||!a.connection||a.connection.connection_id!==ref.connection_id||a.connection.generation!==ref.generation))throw new SshRequestError('InvalidState','本次连接尚未确认，请先查询原请求。');return ref;}
   async function loadConfiguration(){if(configFlight.current)return;configFlight.current=true;setConfigurationLoading(true);try{const c=await readConfiguration();if(mounted.current){configurationRevision.current=c.revision;setSaved(c.profiles.filter(p=>p.settings.protocol==='ssh2'));setConfigurationError('');setConfigurationCode('');if(saveUncertain||operationError.startsWith('保存凭据')){setSaveUncertain(false);setOperationError('');setMessage('配置已重新读取，请核对已保存连接再明确连接；没有自动重试保存或登录。');}}}catch(error){if(intent)intentBlocked.current=true;if(mounted.current){setConfigurationCode(error instanceof ConfigRequestError?error.code:'UNKNOWN');setConfigurationError(`读取连接配置失败：${safeError(error)}`);}}finally{configFlight.current=false;if(mounted.current)setConfigurationLoading(false);}}
-  useEffect(()=>{mounted.current=true;void loadConfiguration();return()=>{mounted.current=false;const a=attempt.current;if(a){a.cancelled=true;a.secret=undefined;const ready=a.connection?.connection_id===current.current?.connection_id&&a.connection?.generation===current.current?.generation&&current.current?.state==='CONNECTED';if(a.connection&&!ready&&notified.current!==`${a.connection.connection_id}:${a.connection.generation}`)void ssh({op:'close',connection:a.connection}).catch(()=>{});}};},[]);
+  useEffect(()=>{mounted.current=true;void loadConfiguration();return()=>{
+    mounted.current=false;
+    const a=attempt.current;
+    if(a){a.cancelled=true;a.secret=undefined;
+      if(a.connection&&notified.current!==`${a.connection.connection_id}:${a.connection.generation}`)
+        void ssh({op:'close',connection:a.connection}).catch(()=>{});
+    }
+  };},[]);
   function resetAuthentication(){submittedChallenge.current=undefined;setAuthPending(false);setAuthUnknown(false);}
   async function saveExistingCredential(secret:LoginSecret){
     const original=saved.find(p=>p.id===(savedId||status?.profile_id));if(!original||secret.saved)return;
     const method=original.settings.protocol==='ssh2'?original.settings.auth:auth;
+    const operation=attempt.current;
     setSavingCredential(true);try{const latest=(await readConfiguration()).profiles.find(p=>p.id===original.id);
+      if(!mounted.current||attempt.current!==operation||operation?.cancelled||intent?.fixed&&canStart&&!canStart())
+        throw new SshRequestError('InvalidState','连接目标已变化，未提交凭据更新。');
       if(!latest||JSON.stringify({id:latest.id,folder:latest.folder_id,name:latest.name,settings:latest.settings,ref:latest.credential_ref,missing:!!latest.credential_missing})!==JSON.stringify({id:original.id,folder:original.folder_id,name:original.name,settings:original.settings,ref:original.credential_ref,missing:!!original.credential_missing}))throw new ConfigRequestError('CONFLICT');
       const profile={id:latest.id,folder_id:latest.folder_id,name:latest.name,settings:latest.settings};
       const r=method==='public_key'?await config({op:'save_profile_key_file',profile,key_path:secret.key,passphrase:secret.passphrase||null}):await config({op:'save_profile',profile,credential:{action:'replace',value:{password:secret.password,private_key:null,passphrase:null}}});
@@ -61,7 +74,7 @@ export function QuickConnect({ connection, intent, copySettings, canStart, selec
     const ref=authenticationTarget();if(latestStatus.current?.challenge?.id!==challengeId)return;
     authFlight.current=true;submittedChallenge.current=challengeId;setAuthPending(true);setAuthUnknown(false);let dispatched=false;
     try{if(rememberNow)await saveExistingCredential(secret);
-      if(!mounted.current||current.current?.connection_id!==ref.connection_id||current.current.generation!==ref.generation||latestStatus.current?.challenge?.id!==challengeId)throw new SshRequestError('InvalidState','认证状态已变化，未重复提交；请查看当前连接状态。');
+      if(!mounted.current||attempt.current?.cancelled||intent?.fixed&&canStart&&!canStart()||current.current?.connection_id!==ref.connection_id||current.current.generation!==ref.generation||latestStatus.current?.challenge?.id!==challengeId)throw new SshRequestError('InvalidState','认证状态已变化，未重复提交；请查看当前连接状态。');
       dispatched=true;const r=await ssh(secret.saved?{op:'authenticate',connection:ref,challenge_id:challengeId,use_saved:true,password:null}:latestStatus.current.challenge?.kind==='credentials'&&latestStatus.current.challenge.auth==='public_key'?{op:'authenticate_key',connection:ref,challenge_id:challengeId,key_path:secret.key,passphrase:secret.passphrase||null}:{op:'authenticate',connection:ref,challenge_id:challengeId,use_saved:false,password:secret.password});
       if(r.result!=='accepted')throw new Error();
     }catch(error){const known=!dispatched||error instanceof SshRequestError&&['InvalidArgument','InvalidState','StaleGeneration','NotFound','PermissionDenied','CapacityExceeded','INVALID_SSH_REQUEST'].includes(error.code);
@@ -81,7 +94,16 @@ export function QuickConnect({ connection, intent, copySettings, canStart, selec
         const a=attempt.current;
         if(!a&&['CONNECTING','AUTHENTICATING'].includes(reply.connection.state))enterAfterAuth.current=ref;
         if(ended(reply.connection.state)){if(a?.connection?.connection_id===ref.connection_id)a.secret=undefined;resetAuthentication();setOperationError(message=>message.startsWith('认证提交结果不明')?'':message);}
-        if(reply.connection.state==='CONNECTED'&&notified.current!==`${ref.connection_id}:${ref.generation}`){notified.current=`${ref.connection_id}:${ref.generation}`;const owned=a?.connection?.connection_id===ref.connection_id&&a.connection.generation===ref.generation&&!a.cancelled;const entering=owned||!a&&enterAfterAuth.current?.connection_id===ref.connection_id&&enterAfterAuth.current.generation===ref.generation;if(entering){if(a)a.secret=undefined;setPassword('');setPassphrase('');setMessage('登录成功，直接在终端输入。');focus(ref,reply.profile_id);}}
+        if(reply.connection.state==='CONNECTED'&&notified.current!==`${ref.connection_id}:${ref.generation}`){
+          const owned=a?.connection?.connection_id===ref.connection_id&&a.connection.generation===ref.generation;
+          if(owned&&intent?.fixed&&canStart&&!canStart()){
+            if(!a.cancelled){a.cancelled=true;a.secret=undefined;await ssh({op:'close',connection:ref});setOperationError('已保存配置，原连接窗格已变化。');}
+          }else if(!a?.cancelled){
+            notified.current=`${ref.connection_id}:${ref.generation}`;
+            const entering=owned||!a&&enterAfterAuth.current?.connection_id===ref.connection_id&&enterAfterAuth.current.generation===ref.generation;
+            if(entering){if(a)a.secret=undefined;setPassword('');setPassphrase('');setMessage('登录成功，直接在终端输入。');focus(ref,reply.profile_id);}
+          }
+        }
         if(reply.challenge?.kind==='credentials'&&a?.connection?.connection_id===ref.connection_id&&a.connection.generation===ref.generation&&a.secret&&!a.cancelled){
           const secret=a.secret;a.secret=undefined;
           if(secret.saved&&!reply.challenge.stored_available)setOperationError('已保存凭据不可用，请补充本次登录信息。');
@@ -98,7 +120,11 @@ export function QuickConnect({ connection, intent, copySettings, canStart, selec
     if(a.fixed ? reply.result!=='connect_receipt'||reply.request_id!==a.id||reply.profile_id!==a.fixed.profile_id||reply.revision!==a.fixed.revision : reply.result!=='started')throw new Error('连接回复不匹配，请查询本次请求。');
     if(reply.result!=='started'&&reply.result!=='connect_receipt')throw new Error('连接回复不匹配，请查询本次请求。');
     const ref=reference(reply.connection);a.connection=ref;
-    if(!mounted.current||a.cancelled){await ssh({op:'close',connection:ref});return;}
+    if(!mounted.current||a.cancelled||intent?.fixed&&canStart&&!canStart()){
+      a.cancelled=true;await ssh({op:'close',connection:ref});
+      if(mounted.current)setOperationError('已保存配置，原连接窗格已变化，请从会话树重新连接。');
+      return;
+    }
     setUnknown(false);select(ref.connection_id,ref);setMessage('正在连接，请在此处完成必要的身份确认。');
   }
   async function dispatchStart(a:Attempt,profileId:string,settings?:Settings,reconnect?:ConnectionRef){
@@ -117,7 +143,7 @@ export function QuickConnect({ connection, intent, copySettings, canStart, selec
     setSavedId(p.id);setHost(p.settings.host);setPort(p.settings.port);setUsername(p.settings.username);setAuth(p.settings.auth);setEncoding(p.settings.encoding);
     if(intentBlocked.current){setMessage('配置已读回，请核对目标后点击连接；没有自动重试。');return;}
     const selectedAuth=p.settings.auth;void run(async()=>{const a:Attempt={id:intent.request_id,cancelled:false,
-      fixed:copySettings?{profile_id:p.id,revision:configurationRevision.current}:undefined};
+      fixed:intent.fixed??(copySettings?{profile_id:p.id,revision:configurationRevision.current}:undefined)};
       a.secret=chooseLoginSecret(p,selectedAuth,{password:'',key:'',passphrase:''});attempt.current=a;await dispatchStart(a,p.id);});
   },[intent,configurationLoading,configurationError,saved]);
   function validateFields(form: HTMLFormElement) {
@@ -161,6 +187,10 @@ export function QuickConnect({ connection, intent, copySettings, canStart, selec
   async function retryCurrent(){await run(async()=>{const ref=active(),p=saved.find(p=>p.id===status?.profile_id),settings=status?.temporary_settings??p?.settings,method=settings?.protocol==='ssh2'?settings.auth:auth,values={password,key,passphrase},store=remember;clear();resetAuthentication();setRemember(false);const a:Attempt={id:requestId(),cancelled:false,secret:chooseLoginSecret(p,method,values)};attempt.current=a;if(store&&p){await saveExistingCredential(values);if(!mounted.current||a.cancelled)return;a.secret={password:'',key:'',passphrase:'',saved:true};}await dispatchStart(a,p?.id??'',undefined,ref);});}
   async function cancel(){setRemember(false);resetAuthentication();const a=attempt.current;if(a){a.cancelled=true;a.secret=undefined;}clear();const ref=a?a.connection:target&&!ended(target.state)?reference(target):undefined;if(ref)await ssh({op:'close',connection:ref});setMessage('已取消连接，已发生的服务器动作不会撤回。');}
   const challenge=status?.challenge;
+  const owned=attempt.current?.connection;
+  const savedChallenge=!!intent&&!copySettings&&!!owned&&status?.connection.connection_id===owned.connection_id
+    &&status.connection.generation===owned.generation&&target?.connection_id===owned.connection_id
+    &&target.generation===owned.generation;
   const hostChallengeId = challenge?.kind === 'host_key' &&
     status?.connection.connection_id === target?.connection_id &&
     status?.connection.generation === target?.generation ? challenge.id : undefined;
@@ -184,7 +214,54 @@ export function QuickConnect({ connection, intent, copySettings, canStart, selec
   const blocked=busy||unknown||configurationLoading||!!configurationError||saveUncertain||!!target&&!ended(target.state)&&target.state!=='CONNECTED';
   const label=(status as (SshStatus&{temporary_settings?:Settings|null})|undefined)?.temporary_settings??saved.find(p=>p.id===status?.profile_id)?.settings;
   const failure=configurationError||operationError||(challenge?.kind==='host_key'&&challenge.review.status==='changed'?'服务器指纹已变化。请通过可信渠道核对新指纹，未确认前不会继续连接。':status?.failure&&!authPending&&status.failure!=='CANCELLED'?failures[status.failure]??'SSH连接未成功，请核对服务器和登录信息后重试。':status?.connection.state==='FAILED'?'SSH连接未成功，请核对服务器地址、端口和登录信息后重试。':'');
+  function stopSaved(){
+    const a=attempt.current;
+    if(a){a.cancelled=true;a.secret=undefined;}
+    clear();
+    close();
+  }
+  async function answerSavedHost(id:string){
+    if(hostDecision.current===id||latestStatus.current?.challenge?.id!==id)return;
+    const ref=authenticationTarget();
+    hostDecision.current=id;
+    const result=await ssh({op:'answer_host',connection:ref,challenge_id:id,approve:true});
+    if(result.result!=='accepted')throw new Error();
+  }
+  if(savedChallenge&&challenge?.kind==='host_key'){
+    return <SavedHostChallenge key={challenge.id} challenge={challenge} busy={busy}
+      submitted={hostDecision.current===challenge.id} error={operationError}
+      approve={()=>void run(()=>answerSavedHost(challenge.id))} stop={stopSaved}/>;
+  }
+  const source=status?.source_settings;
+  if(savedChallenge&&challenge?.kind==='credentials'&&challenge.auth==='password'&&source?.protocol==='ssh2'
+    &&(waiting||manualPassword.current===challenge.id)){
+    return <Panel compact title="输入 SSH 密码" label="SSH密码补录" close={stopSaved} closeLabel="收起连接窗口">
+      <p>配置已保存 · <strong aria-label="SSH密码目标">{source.username}@{sshEndpoint(source.host,source.port)}</strong></p>
+      {failure&&<ErrorNotice>{failure}</ErrorNotice>}
+      {(configurationError||saveUncertain||operationError.startsWith('保存凭据'))&&
+        <button disabled={configurationLoading||busy} onClick={()=>void loadConfiguration()}>重新读取配置</button>}
+      <form onKeyDown={keepCompositionInField} onSubmit={event=>{
+        event.preventDefault();
+        if(!waiting||busy||saveUncertain||configurationLoading||configurationError)return;
+        manualPassword.current=challenge.id;
+        void run(submitManual);
+      }}>
+        <Field label="密码"><input ref={passwordField} aria-label="SSH登录密码" type="password" autoComplete="off"
+          disabled={busy||authPending||authUnknown} value={password} onChange={event=>setPassword(event.target.value)} maxLength={65536}/></Field>
+        <label className="check"><input aria-label="记住SSH凭据" type="checkbox"
+          disabled={busy||authPending||authUnknown||saveUncertain} checked={remember}
+          onChange={event=>setRemember(event.target.checked)}/>记住密码（Windows 安全存储）</label>
+        <small aria-label="SSH凭据状态">{credentialHint(credentialProfile)}</small>
+        <p role="status" aria-label="SSH快速状态">{phase}</p>
+        <div className="config-actions">
+          <button className="primary-action" type="submit" disabled={!waiting||busy||saveUncertain||configurationLoading||!!configurationError}>登录</button>
+          <button type="button" onClick={stopSaved}>取消</button>
+        </div>
+      </form>
+    </Panel>;
+  }
   return <Panel title="连接服务器" label="SSH快速连接" close={()=>{clear();close();}} closeLabel="收起连接窗口">
+    {intent?.fixed&&<p role="status">配置已保存。</p>}
     {failure&&<ErrorNotice>{failure}</ErrorNotice>}
     {configurationLoading&&<p role="status">正在读取连接配置…</p>}
     {configurationCode==='LOCKED'&&<ConfigurationRecheck disabled={configurationLoading||busy} ready={loadConfiguration}/>}

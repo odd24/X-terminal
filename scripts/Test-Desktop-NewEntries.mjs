@@ -10,7 +10,7 @@ import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 const executable=path.resolve(process.argv[2]);
 const hash=async file=>createHash('sha256').update(await readFile(file)).digest('hex');
 const testService=path.join(path.dirname(executable),'session-service.exe');
-const fixtureService=path.resolve('target/x86_64-pc-windows-msvc/debug/session-service.exe');
+const fixtureService=path.resolve(process.argv[3]??'target/x86_64-pc-windows-msvc/debug/session-service.exe');
 const fixtureHash=await hash(testService);
 assert.equal(fixtureHash,await hash(fixtureService),'use the separately built memory UART test service');
 const temp=path.resolve(tmpdir());
@@ -50,7 +50,10 @@ async function openForm(label){
 async function sshFields(name,port){
   await ui.fill('配置名称',name);await ui.fill('主机','127.0.0.1');await ui.fill('用户名','synthetic');await ui.fill('端口',String(port));
 }
-async function serialFields(name){await ui.fill('配置名称',name);await ui.fill('串口标识','COM7');}
+async function serialFields(name){
+  await ui.fill('配置名称',name);
+  await ui.waitFor(control('串口端口')+'?.selectedOptions[0].textContent.includes("COM7")');
+}
 async function localReady(count,pane){
   await ui.waitFor(`document.querySelectorAll('.local-terminal').length===${count}&&document.activeElement?.matches('.pane-active .local-terminal:not([hidden]) .xterm-helper-textarea')`);
   if(pane)assert.equal(await ui.evaluate("document.querySelector('.pane-active').dataset.pane"),pane);
@@ -157,7 +160,7 @@ try{
   await ui.evaluate(`${query('[data-folder-id="'+folder.id+'"] button')}.click()`);
   await openForm('新建 SSH 配置');
   assert.equal(await ui.evaluate(`${control('所属目录')}.value`),folder.id);
-  await sshFields('只保存 SSH',server.port);await ui.click('保存');
+  await sshFields('只保存 SSH',server.port);await ui.click('仅保存');
   await ui.waitFor(`!${form}`);
   assert.equal((await profiles()).find(p=>p.name==='只保存 SSH').folder_id,folder.id);
   assert.equal((await metric()).accepted_connections,0);
@@ -198,19 +201,16 @@ try{
   assert.equal((await metric()).accepted_connections,0);
 
   await openForm('新建 SSH 配置');await sshFields('拒绝主机仍保留',server.port);await ui.click('保存并连接');
-  await ui.waitFor(`!!${control('快速连接核对指纹')}`);
-  await ui.click('拒绝连接');
-  await ui.waitFor("document.body.innerText.includes('未信任此服务器')");
-  assert.ok((await profiles()).some(p=>p.name==='拒绝主机仍保留'));
-  await ui.click('收起连接窗口');
+  await ui.waitFor('document.activeElement?.textContent==="暂不连接"');
+  await ui.click('暂不连接');
   await ui.waitFor("!document.querySelector('dialog:modal')");
+  assert.ok((await profiles()).some(p=>p.name==='拒绝主机仍保留'));
   await openForm('新建 SSH 配置');await sshFields('成功 SSH',server.port);await ui.click('保存并连接');
-  await ui.waitFor(`!!${control('快速连接核对指纹')}`);
+  await ui.waitFor('document.activeElement?.textContent==="暂不连接"');
   assert.equal(await ui.evaluate("document.querySelector('dialog .fingerprint').textContent"),server.pin);
-  await ui.evaluate(`${control('快速连接核对指纹')}.click()`);
-  await ui.click('信任并继续登录');
-  await ui.waitFor("document.querySelector('dialog .primary-action')?.textContent==='提交本次登录信息'");
-  await ui.fill('SSH登录密码',server.password);await ui.click('提交本次登录信息');
+  await ui.click('指纹一致，信任并继续');
+  await ui.waitFor("document.querySelector('dialog .primary-action')?.textContent==='登录'");
+  await ui.fill('SSH登录密码',server.password);await ui.click('登录');
   for(let n=0;n<140&&!(await sessions()).some(s=>s.protocol==='SSH2'&&s.state==='CONNECTED');n++)await delay(60);
   assert.ok((await sessions()).some(s=>s.protocol==='SSH2'&&s.state==='CONNECTED'));
   await ui.waitFor("!document.querySelector('dialog:modal')");
@@ -223,7 +223,7 @@ try{
   assert.ok(!(await sessions()).some(s=>s.protocol==='SERIAL'));
   await openForm('新建串口配置');await serialFields('取消串口连接仍保留');await ui.click('保存并连接');
   await ui.waitFor(`${control('UART端口')}?.options.length===2&&!${control('UART端口')}.disabled`);
-  await ui.evaluate("document.querySelector('dialog .primary-action').click()");
+  assert.ok(await ui.evaluate(control('UART端口')+'.value'));
   assert.ok(!(await sessions()).some(s=>s.protocol==='SERIAL'));
   await ui.click('取消连接窗口');
   await ui.waitFor("!document.querySelector('dialog:modal')");

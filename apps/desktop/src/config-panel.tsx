@@ -26,7 +26,7 @@ function settings(draft: Draft, serialPort: string): Settings {
   const common = { host: draft.host.trim(), port: draft.port, username: draft.username, encoding: draft.encoding };
   return draft.protocol === 'ssh2' ? { ...common, protocol: 'ssh2', auth: draft.auth } : { ...common, protocol: 'ssh1', explicitly_enabled: draft.ssh1 };
 }
-export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ssh1Preview, creation, onConnect }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; onChanged?():void; ssh1Preview: boolean; creation?:{protocol:'ssh2'|'serial';folder:string}; onConnect?(profile:Profile,device?:Device):void }) {
+export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ssh1Preview, creation, onCreated }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; onChanged?():void; ssh1Preview: boolean; creation?:{protocol:'ssh2'|'serial';folder:string}; onCreated?(profile:Profile, revision:string, connect:boolean, device?:Device):void }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [filter, setFilter] = useState('*');
@@ -141,7 +141,7 @@ export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ss
         ||value.protocol==='serial'&&reply.profile.settings.protocol==='serial'&&reply.profile.settings.port!==value.port)
         throw new ConfigRequestError('INVALID_CONFIGURATION_REPLY',true);
       if(!active.current)return;
-      if(connect)onConnect?.(reply.profile,selectedDevice);
+      onCreated?.(reply.profile,reply.revision,connect,selectedDevice);
       close();
     } catch(error) {
       if(!active.current)return;
@@ -223,7 +223,7 @@ export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ss
             {credential === 'replace' && (draft.protocol === 'ssh2' && draft.auth === 'public_key' ? <><label>本地私钥文件<input aria-label="本地私钥文件" required autoComplete="off" placeholder="C:\keys\id_ed25519" value={keyPath} onChange={event => setKeyPath(event.target.value)} /><small>仅本地盘的普通文件，服务读取并加密保存；文件内容不进入页面。</small></label><label>私钥口令<input aria-label="私钥口令" type="password" autoComplete="new-password" value={passphrase} onChange={event => setPassphrase(event.target.value)} /></label></> : <label>新密码<input aria-label="新密码" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /><small>允许显式保存空密码。</small></label>)}
             <small>移除引用不删除其他配置或备份可能使用的密文。保存、切换或关闭后清空新输入。</small>
           </fieldset>}
-          <div className="config-actions">{creation?<><button type="submit" disabled={portUnavailable}>保存</button><button type="submit" value="connect" disabled={portUnavailable}>保存并连接</button></>:<><button type="submit" disabled={portUnavailable}>保存配置</button><button type="button" disabled={!current} onClick={() => { clearSecrets(); setDraft({ ...draft, id: crypto.randomUUID(), name: `${draft.name} 副本` }); setMessage('已准备副本，不携带凭据；按需重新输入后保存。'); }}>复制配置</button><button ref={deleteButton} type="button" disabled={!current||!configurationRevision} onClick={() => {if(current){clearSecrets();deletion.start(current,configurationRevision);}}}>删除配置</button></>}</div>
+          <div className="config-actions">{creation?<><button type="submit" disabled={portUnavailable}>{creation.protocol==='ssh2'?'仅保存':'保存'}</button><button type="submit" value="connect" disabled={portUnavailable}>保存并连接</button></>:<><button type="submit" disabled={portUnavailable}>保存配置</button><button type="button" disabled={!current} onClick={() => { clearSecrets(); setDraft({ ...draft, id: crypto.randomUUID(), name: `${draft.name} 副本` }); setMessage('已准备副本，不携带凭据；按需重新输入后保存。'); }}>复制配置</button><button ref={deleteButton} type="button" disabled={!current||!configurationRevision} onClick={() => {if(current){clearSecrets();deletion.start(current,configurationRevision);}}}>删除配置</button></>}</div>
         </fieldset>
       </form>
     </div>

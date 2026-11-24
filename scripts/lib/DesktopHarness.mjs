@@ -14,12 +14,12 @@ export async function createSshFixtureScope(prefix, {maxRetries=15,
   const parent=path.resolve(tmpdir());
   const root=await mkdtemp(path.join(parent,prefix));
   const fixtures=[];
-  async function start(name) {
+  async function start(name, port) {
     assert.equal(path.basename(name),name);
     const directory=path.join(root,name);
     assert.equal(path.dirname(directory),root);
     await mkdir(directory);
-    const child=spawn(executable,[directory],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+    const child=spawn(executable,[directory,...(port===undefined?[]:[String(port)])],{windowsHide:true,stdio:['pipe','pipe','pipe']});
     let processError;
     child.on('error',error=>{processError=error;});
     child.stdin.on('error',error=>{processError=error;});

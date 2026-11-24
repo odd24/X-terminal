@@ -160,9 +160,8 @@ try {
   await press(ui,'F10');
   await ui.waitFor(`!!${node('[role="menu"][aria-label="会话配置菜单"]')}`);
   await ui.click('连接');
-  await ui.waitFor("!!document.querySelector('[aria-label=快速连接核对指纹]')");
-  await ui.evaluate("document.querySelector('[aria-label=快速连接核对指纹]').click()");
-  await ui.click('信任并继续登录');
+  await ui.waitFor('document.activeElement?.textContent==="暂不连接"');
+  await ui.click('指纹一致，信任并继续');
   let connection;
   for(let attempt=0;attempt<150;attempt++){
     connection=(await ui.invoke('service_list')).find(item=>item.state==='CONNECTED');

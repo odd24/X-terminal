@@ -255,6 +255,8 @@ function App() {
   const [configurationTarget,setConfigurationTarget]=useState<string>();
   const [configurationCreation,setConfigurationCreation]=useState<{protocol:'ssh2'|'serial';folder:string;key:PaneKey;owner:string}>();
   const creationRoute=useRef<typeof configurationCreation>(undefined);
+  const [createdProfileReveal,setCreatedProfileReveal]=useState<string>();
+  const createdSshLaunch=useRef<typeof paneLaunch.current>(undefined);
   function closeConfiguration(){
     creationRoute.current=undefined;
     setConfigurationCreation(undefined);
@@ -269,7 +271,16 @@ function App() {
   const ssh1Flight=useRef(false);
   const firstSsh1Fit = useRef<{ owner: string; connection: Ref; pane: PaneKey; epoch: number; size: ReturnType<typeof dimensions> } | undefined>(undefined);
   function closeSsh1(){ssh1Flight.current=false;setSsh1Intent(undefined);}
-  function closeQuick(connected=false){if(!finishCopyDialog(connected))return;if(workspaceLaunch.current?.protocol==='SSH2')workspaceLaunch.current=undefined;savedIntentFlight.current=undefined;setSavedIntent(undefined);setQuickOpen(false);setCopySource(undefined);setCopyTarget(undefined);setTabMessage(previous=>previous.startsWith('正在连接 ')?'':previous);}
+  function closeQuick(connected=false){
+    if(!finishCopyDialog(connected))return;
+    if(workspaceLaunch.current?.protocol==='SSH2')workspaceLaunch.current=undefined;
+    if(connected&&savedIntent?.fixed)setCreatedProfileReveal(undefined);
+    if(createdSshLaunch.current&&paneLaunch.current===createdSshLaunch.current)paneLaunch.current=undefined;
+    createdSshLaunch.current=undefined;
+    savedIntentFlight.current=undefined;
+    setSavedIntent(undefined);setQuickOpen(false);setCopySource(undefined);setCopyTarget(undefined);
+    setTabMessage(previous=>previous.startsWith('正在连接 ')?'':previous);
+  }
   const [execOpen, setExecOpen] = useState(false);
   const [serialOpen, setSerialOpen] = useState(false);
   const [serialDialog,setSerialDialog]=useState(false);
@@ -1063,7 +1074,7 @@ function App() {
     } catch (error) { tabClosures.current.finish(target,'unknown');finishFeedback((error instanceof Error?error.message:'关闭未获确认。') + ' 结果可能未知，未自动重试；请在连接面板核对实际状态。'); }
     finally { setTabEpoch(value=>value+1); }
   }
-  function connectProfile(profile: Profile,slot?:string,configRevision?:string,device?:Device) {
+  function connectProfile(profile: Profile,slot?:string,configRevision?:string,device?:Device,fixedRevision?:string) {
     if (savedIntentFlight.current||ssh1Flight.current) return;
     if(!slot)cancelWorkspaceSplit();
     if(slot&&workspaceSession.current.layout?.tabs.find(t=>t.id===slot)?.profile_id!==profile.id){setTabMessage('布局配置引用已变化，请重新打开布局。');return;}
@@ -1081,7 +1092,9 @@ function App() {
       setSsh1Intent({profile:{...profile,settings:{...profile.settings}},revision:configRevision,request_id:requestId(),owner:owner.service_id});
       return;
     }
-    const intent={profile_id:profile.id,request_id:requestId()};savedIntentFlight.current=intent;setSavedIntent(intent);setSshOpen(false);setQuickOpen(true);setTabMessage(`正在连接 ${profile.name}…`);
+    const intent:SavedConnectIntent={profile_id:profile.id,request_id:requestId(),
+      fixed:fixedRevision?{profile_id:profile.id,revision:fixedRevision}:undefined};
+    savedIntentFlight.current=intent;setSavedIntent(intent);setSshOpen(false);setQuickOpen(true);setTabMessage(`正在连接 ${profile.name}…`);
     if(slot)workspaceLaunch.current={slot,nonce:intent.request_id,owner:service?.service_id??'',protocol:'SSH2'};
   }
   async function prepareSsh1Reconnect() {
@@ -1145,10 +1158,15 @@ function App() {
     const owner=serviceRef.current?.service_id;
     if(owner)paneLaunch.current={key,owner};
   }
-  function connectNewProfile(profile:Profile,device?:Device){
+  function completeNewProfile(profile:Profile,revision:string,connect:boolean,device?:Device){
     const route=configurationCreation;
     if(!route||creationRoute.current!==route)return;
     creationRoute.current=undefined;
+    if(profile.settings.protocol==='ssh2'){
+      setCreatedProfileReveal(profile.id);
+      if(!connect)setTabMessage(`已保存 ${profile.name}。`);
+    }
+    if(!connect)return;
     if(!route.owner||route.owner!==serviceRef.current?.service_id||serviceStopped.current
       ||quickOpen||serialDialog||savedIntentFlight.current||ssh1Flight.current
       ||!panes.current.slots.some(slot=>slot.key===route.key)){
@@ -1157,7 +1175,14 @@ function App() {
     }
     focusPane(route.key);
     paneLaunch.current={key:route.key,owner:route.owner};
-    connectProfile(profile,undefined,undefined,device);
+    if(profile.settings.protocol==='ssh2')createdSshLaunch.current=paneLaunch.current;
+    connectProfile(profile,undefined,undefined,device,profile.settings.protocol==='ssh2'?revision:undefined);
+  }
+  function canStartCreatedSsh(){
+    const launch=createdSshLaunch.current;
+    return !!launch&&paneLaunch.current===launch&&savedIntentFlight.current===savedIntent
+      &&!serviceStopped.current&&serviceRef.current?.service_id===launch.owner
+      &&panes.current.slots.some(slot=>slot.key===launch.key);
   }
   function copyDialogBusy(){
     return quickOpen||serialDialog||savedIntentFlight.current||ssh1Flight.current||!!document.querySelector('dialog:modal');
@@ -1344,6 +1369,7 @@ function App() {
     </WindowChrome>
     <div className={`desktop-body${sidebarOpen&&!detached ? '' : ' sidebar-hidden'}`}>
     {!detached&&<aside id="connection-library" className="session-sidebar" aria-label="会话导航"><SessionTree connecting={!!savedIntent||!!ssh1Intent} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} revision={treeRevision} loaded={setProfiles} connect={(profile,revision) => connectProfile(profile,undefined,revision)} configure={id => {setConfigurationTarget(id);setConfigurationOpen(true);}}
+      reveal={createdProfileReveal} focusRevealed={!quickOpen&&!configurationOpen} onRevealed={()=>setCreatedProfileReveal(undefined)}
       create={(protocol,folder)=>{const route={protocol,folder,key:panes.current.active,owner:serviceRef.current?.service_id??''}; creationRoute.current=route;setConfigurationTarget(undefined);setConfigurationCreation(route);setConfigurationOpen(true);}} />
       <div className="sidebar-divider" role="separator" aria-label="导航宽度" aria-orientation="vertical" aria-valuemin={210} aria-valuemax={360} aria-valuenow={navigationWidth} tabIndex={0}
         onPointerDown={event=>{if(event.button===0)event.currentTarget.setPointerCapture(event.pointerId);}}
@@ -1429,12 +1455,13 @@ function App() {
       dismiss={()=>setTabMessage(previous=>previous===tabMessage?'':previous)}><span aria-label="标签操作状态">{tabMessage}</span></CornerNotice>}
     </section>
     {quickOpen && <Dialog label="连接服务器" close={()=>closeQuick()} fallbackFocus={()=>restoreConnectEntry(copySource?.route)}><QuickConnect key={savedIntent?.request_id??'manual'} intent={savedIntent}
-      copySettings={copySource?.settings.protocol==='ssh2'?copySource.settings:undefined} canStart={copySource?canStartCopy:undefined}
+      copySettings={copySource?.settings.protocol==='ssh2'?copySource.settings:undefined} canStart={copySource?canStartCopy:savedIntent?.fixed?canStartCreatedSsh:undefined}
       connection={copySource?connections.find(c=>copyTarget&&sameRef(c,copyTarget)&&c.protocol==='SSH2'):active}
       select={(id,ref)=>selectNewConnection(id,ref,copySource?.route)}
       size={()=>{const term=(paneLaunch.current&&controllers.current.get(paneLaunch.current.key)?.runtime.term)||runtime.current?.term;return dimensions(term?.cols??80,term?.rows??24);}}
       focus={(ref,profile)=>{
         if(copySource&&(!sessionCopy.current.ownsResult(copySource.route,ref)||!copyStillCurrent(copySource.route)))return;
+        if(savedIntent?.fixed&&!canStartCreatedSsh())return;
         finishWorkspace(ref,profile,'SSH2',savedIntent?.request_id??'');focusRenderedTerminal(ref);closeQuick(true);
       }} close={()=>closeQuick()} /></Dialog>}
     {ssh1Intent&&<Dialog label={ssh1Intent.previous?'显式重连 SSH1':'连接 SSH1 保存配置'} close={closeSsh1} focusRestored={revealProfileConnectionFocus}><Ssh1Connect
@@ -1475,7 +1502,7 @@ function App() {
     {quickCommandsOpen&&<Dialog label="管理和准备常用命令" close={()=>setQuickCommandsOpen(false)}><QuickCommandsPanel owner={serviceStopped.current?'':service?.service_id??''} prepareMany={seed=>{if(serviceStopped.current||seed.owner!==serviceRef.current?.service_id||broadcastRun.current.snapshot().running)return false;drafts.current.invalidate();clipboard.current?.invalidate();setComposeEpoch(v=>v+1);setBroadcastSeed({...seed});setQuickCommandsOpen(false);setBroadcastOpen(true);return true;}} context={commandContext} label={active?tabName(active):''} hasDraft={!!commandContext&&!!drafts.current.get(commandContext.target)} prepare={prepareQuickDraft} close={()=>setQuickCommandsOpen(false)}/></Dialog>}
     {composeOpen && <Dialog label="撰写终端输入" modal={false} close={()=>{drafts.current.invalidate();setComposeOpen(false);}}><ComposePanel history={composeHistory.current} owner={serviceStopped.current?'':service?.service_id??''} initialEnding={composeEnding} origin={composeOrigin} key={`${selected}:${active?.generation}:${active?.state}:${composeEpoch}`} drafts={drafts.current} target={active} ready={!!active && active.state === 'CONNECTED' && renderedTarget?.connection_id === active.connection_id && renderedTarget.generation === active.generation && !failure && !inputFailure} send={(target, text, pacing) => composeSend.current?.(target, text, pacing) ?? false} close={() => setComposeOpen(false)} /></Dialog>}
     {softwareSettingsOpen && <Dialog label="软件设置" close={()=>setSoftwareSettingsOpen(false)}><SoftwareSettings preferences={preferences} localRightClick={<LocalRightClickSetting {...localRightClick}/>} fontSizeControl={<TerminalFontSizeControl label="终端字号" value={fontSize} state={fontSizing.state} change={setFontSize}/>} busy={preferencesBusy} canSave={!!preferenceRevision.current} message={preferenceMessage} update={updatePreferences} save={() => void preferenceOperation(true)} read={() => void preferenceOperation(false)} close={() => setSoftwareSettingsOpen(false)} /></Dialog>}
-    {configurationOpen && <ConfigPanel key={configurationTarget??configurationCreation?.protocol??'new'} creation={configurationCreation} onConnect={connectNewProfile} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={closeConfiguration} />}
+    {configurationOpen && <ConfigPanel key={configurationTarget??configurationCreation?.protocol??'new'} creation={configurationCreation} onCreated={completeNewProfile} ssh1Preview={!!service?.ssh1_preview&&!serviceStopped.current&&!serviceFailure} initialProfileId={configurationTarget} onChanged={()=>setTreeRevision(value=>value+1)} onRestored={async () => { preferenceEpoch.current++; preferenceFlight.current = false; await preferenceOperation(false); setTreeRevision(value => value + 1); }} close={closeConfiguration} />}
     <Dialog label="SSH2 连接工具" modal={false} open={sshOpen} close={()=>setSshOpen(false)}><SshPanel key={service?.service_id} open={sshOpen} connection={active} requested={selected} select={selectConnection} closePanel={()=>setSshOpen(false)} size={() => dimensions(runtime.current?.term.cols ?? 80, runtime.current?.term.rows ?? 24)} /></Dialog>
     <Dialog label="独立 exec 任务" modal={false} open={execOpen} close={()=>setExecOpen(false)}><ExecPanel open={execOpen} connection={active} close={()=>setExecOpen(false)} /></Dialog>
     {serialOpen && <Dialog label="串口高级工具" modal={false} close={()=>setSerialOpen(false)}><SerialPanel requestedProfile={requestedProfile?.settings.protocol === 'serial' ? requestedProfile.id : undefined} connection={active} select={selectConnection} closePanel={()=>setSerialOpen(false)} /></Dialog>}

@@ -51,7 +51,7 @@ try{
  const chooseContext=()=>ui.evaluate(`document.querySelector('[role="menuitem"]').click()`);
  const current=async()=>{const id=await ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);return (await list()).find(c=>c.connection_id===id);};
  const connected=async()=>{await wait(async()=>{const c=await current();return c?.state==='CONNECTED'&&!(await ui.evaluate(`!!document.querySelector('dialog:modal')`));},'saved login reaches terminal');await ui.waitFor(`document.activeElement?.classList.contains('xterm-helper-textarea')`);return current();};
- const trust=async()=>{await ui.waitFor(`!!document.querySelector('[aria-label="快速连接核对指纹"]')`);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="快速连接核对指纹"]').checked`),false);await ui.evaluate(`document.querySelector('[aria-label="快速连接核对指纹"]').click()`);await ui.click('信任并继续登录');};
+ const trust=async()=>{await ui.waitFor('document.activeElement?.textContent==="暂不连接"');await ui.click('指纹一致，信任并继续');};
  const closeButton=c=>`Array.from(document.querySelectorAll('button')).find(b=>b.getAttribute('aria-label')===${JSON.stringify('关闭标签 '+c.connection_id)})`;
  const tab=c=>`document.querySelector('[role="tab"][data-connection-id="${c.connection_id}"]')`;
  await ui.waitFor(`!!(${tree(a)})`);await ui.evaluate(`(${tree(a)}).click()`);assert.equal((await list()).length,0,'single click only selects');

@@ -19,7 +19,7 @@ export function revealProfileConnectionFocus(target: HTMLElement) {
   });
 }
 
-export function SessionTree({ revision, connect, configure, create, loaded, connecting=false, ssh1Preview }: { revision: number; connect(profile: Profile, configRevision: string): void; configure(id?:string): void; create(protocol:'ssh2'|'serial',folder:string):void; loaded(profiles: Profile[]): void; connecting?:boolean; ssh1Preview:boolean }) {
+export function SessionTree({ revision, connect, configure, create, loaded, connecting=false, ssh1Preview, reveal, focusRevealed, onRevealed }: { revision: number; connect(profile: Profile, configRevision: string): void; configure(id?:string): void; create(protocol:'ssh2'|'serial',folder:string):void; loaded(profiles: Profile[]): void; connecting?:boolean; ssh1Preview:boolean; reveal?:string; focusRevealed:boolean; onRevealed():void }) {
   const [configRevision, setConfigRevision] = useState('');
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -35,6 +35,7 @@ export function SessionTree({ revision, connect, configure, create, loaded, conn
   const loading = useRef(false);
   const refreshQueued = useRef(false);
   const list=useRef<HTMLDivElement>(null);
+  const revealed=useRef<string|undefined>(undefined);
   const neighbors=useRef<string[]>([]);
   const returnFocus=useRef<string[]>(undefined);
   const deletion=useProfileDeletion(result=>{
@@ -93,6 +94,35 @@ export function SessionTree({ revision, connect, configure, create, loaded, conn
     }
   }
   useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; }; }, [revision]);
+  useLayoutEffect(()=>{
+    if(!reveal){revealed.current=undefined;return;}
+    const saved=profiles.find(item=>item.id===reveal);
+    if(!saved)return;
+    if(revealed.current!==reveal){
+      revealed.current=reveal;
+      const parents:Record<string,boolean>={};
+      let folder=saved.folder_id;
+      while(folder&&!parents[folder]){
+        parents[folder]=true;
+        folder=folders.find(item=>item.id===folder)?.parent_id??null;
+      }
+      setExpanded(previous=>({...previous,...parents}));
+      setQuery('');
+      setSelected(saved.id);
+      setSelectedFolder(saved.folder_id??'');
+    }
+    if(!focusRevealed)return;
+    const frame=requestAnimationFrame(()=>{
+      if(document.querySelector('dialog:modal'))return;
+      const button=Array.from(list.current?.querySelectorAll<HTMLButtonElement>('[data-profile-id]')??[])
+        .find(row=>row.dataset.profileId===reveal);
+      if(!button)return;
+      button.scrollIntoView({block:'nearest'});
+      button.focus({preventScroll:true});
+      onRevealed();
+    });
+    return ()=>cancelAnimationFrame(frame);
+  },[reveal,profiles,folders,focusRevealed,onRevealed]);
   const profile = profiles.find(item => item.id === selected);
   const menuProfile=menu&&profiles.find(p=>p.id===menu.id);
   const needle = query.trim().toLocaleLowerCase();

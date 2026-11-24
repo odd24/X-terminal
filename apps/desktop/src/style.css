@@ -47,7 +47,7 @@ h2 { font-size: var(--text-heading); margin: 0; }
 .ssh-profile-row > :is(select, button), .field-refresh-row select, .aligned-actions > button, .ssh-session-actions button {
   box-sizing: border-box; min-block-size: var(--control-height); padding-block: 0;
 }
-.app-dialog:has(> .ssh-panel) { --dialog-width: 460px; }
+.app-dialog:has(> .ssh-panel, > [aria-label="SSH服务器身份核验"], > [aria-label="SSH密码补录"]) { --dialog-width: 460px; }
 .app-dialog:has(> .profile-deletion) { --dialog-width: 440px; }
 .profile-deletion { padding: var(--space-5); overflow-wrap: anywhere; }
 .profile-deletion h2 { margin-bottom: var(--space-3); }
@@ -79,6 +79,9 @@ h2 { font-size: var(--text-heading); margin: 0; }
 .data-location { overflow-wrap: anywhere; }
 @media (max-width: 850px) { .config-layout { grid-template-columns: 1fr; } .form-grid { grid-template-columns: 1fr; } }
 .fingerprint { display: block; overflow-wrap: anywhere; color: var(--accent-text); padding-top: var(--space-2); }
+.ssh-fingerprint-review { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; margin-block: var(--space-3); }
+.ssh-fingerprint-review > small { grid-column: 1 / -1; }
+.ssh-fingerprint-review > .fingerprint { padding-top: 0; }
 .host-keys [role="status"] { color: var(--accent); font-size: var(--text-sm); margin: var(--space-2) 0; }
 
 .exec-stderr { color: var(--danger); }
