@@ -3,7 +3,7 @@ import {execFileSync, spawn} from 'node:child_process';
 import {readFile, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {requestId} from '../apps/desktop/src/request-id.ts';
-import {connectDesktopPage, createSshFixtureScope, delay, desktopEvidence, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
+import {connectDesktopPage, createSshFixtureScope, delay, desktopEvidence, detachOwnedSession, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
 import {closeSoakDesktop} from './lib/LoadSoak.mjs';
 import {checkMainToolbar,checkNewConnectionMenu,checkLogToolbar} from './lib/ToolbarMenuChecks.mjs';
 import {checkNoticeActions,checkToolbarDirectory,observeLogDirectory,waitForStopNotice} from './lib/RecordingNoticeChecks.mjs';
@@ -75,6 +75,11 @@ const write=async(page,peer,value)=>{
   await wait(async()=>Buffer.from((await peer.control({op:'metrics'})).received.flat()).includes(Buffer.from(value)),value);
 };
 async function outsideDrag(c, fromPane=false) {
+  if(webviewDrags){
+    const {service_id:serviceId}=await main.invoke('service_status');
+    await detachOwnedSession(main,{executable:desktop,serviceId,connection:ref(c)});
+    return connectDesktopPage(await wait(async()=>(await main.otherPages())[0],'native detached WebView'));
+  }
   const source=fromPane?`[data-rendered-id="${c.connection_id}"] .pane-focus`:`[role="tab"][data-connection-id="${c.connection_id}"]`;
   await main.command('Page.bringToFront');
   await main.evaluate(`${query(source)}.scrollIntoView({block:'nearest',inline:'nearest'})`);
@@ -93,6 +98,13 @@ async function outsideDrag(c, fromPane=false) {
   return connectDesktopPage(target);
 }
 async function dockDrag(connection) {
+  if(webviewDrags){
+    assert.equal(await child.evaluate(`(()=>{const button=[...document.querySelectorAll('.app-bar button')]
+      .find(button=>button.textContent.trim()==='移回主窗口');if(!button)return false;button.click();return true;})()`),true);
+    await wait(async()=>!(await main.otherPages()).length,'native return button closed the detached window');
+    await main.waitFor('!!'+tab(connection));
+    return;
+  }
   const mainBounds=await main.evaluate('({width:innerWidth,height:innerHeight})');
   const landings=[{x:mainBounds.width-65,y:100},{x:40,y:100},{x:mainBounds.width/2,y:45},
     {x:mainBounds.width/2,y:mainBounds.height-45},{x:mainBounds.width-35,y:mainBounds.height-35}];
@@ -365,12 +377,17 @@ try{
   assert.ok(Math.abs(rightBounds.top-upper.top)<1&&Math.abs(rightBounds.bottom-below.bottom)<1);
   const separator=query('.split-divider[aria-orientation=horizontal]');
   const move=center(await geometry(separator));
-  dragNativeWindow(main.app,[move,{x:move.x,y:move.y+40}],{executable:desktop,raise:true});
+  const end={x:move.x,y:move.y+40};
+  if(webviewDrags){
+    await main.command('Input.dispatchMouseEvent',{type:'mousePressed',...move,button:'left',buttons:1,clickCount:1});
+    try{await main.command('Input.dispatchMouseEvent',{type:'mouseMoved',...end,button:'left',buttons:1});}
+    finally{await main.command('Input.dispatchMouseEvent',{type:'mouseReleased',...end,button:'left',buttons:0,clickCount:1});}
+  }else dragNativeWindow(main.app,[move,end],{executable:desktop,raise:true});
   await main.waitFor('Number('+separator+'.getAttribute("aria-valuenow"))>53');
 
   const addMenu=pane(a)+'.querySelector(".new-menu")';
   if(toolbarChecks)toolbar.push(...await checkNewConnectionMenu(main,'[data-rendered-id="'+b.connection_id+'"]'));
-  await main.evaluate(addMenu+'.open=true; '+addMenu+'.querySelector("button").click()');
+  await main.evaluate(addMenu+'.open=true; '+addMenu+'.querySelector(\'[aria-label="连接服务器"]\').click()');
   await main.waitFor('!!document.querySelector(\'dialog:modal[aria-label="连接服务器"]\')');
   await main.waitFor('document.querySelector(\'dialog:modal button[type=submit]:not([disabled])\')?.textContent==="连接"');
   await main.fill('SSH服务器','127.0.0.1');await main.fill('SSH端口',added.port);
@@ -446,6 +463,7 @@ try{
   await main.close();main=undefined;
   report={result:'PASS',drops,layout:'left vertical split beside right pane',f6:true,exactInput:true,
     paneDragSource:webviewDrags?'WebView input events':'native mouse',
+    windowTransfer:webviewDrags?'native detach command and return button':'native mouse',
     recording:records.map(entry=>entry.marker),centerAndRailMerge:true,groupPlus:true,lastTabCollapse:true,detachedAndDocked:true,
     ...(toolbarChecks?{toolbar}:{}),close};
   }

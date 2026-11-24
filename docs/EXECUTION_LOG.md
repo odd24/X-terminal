@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.49 整体验收 Windows x64 普通候选，复核旧断言、组合流程和静态门禁基线。[执行记录](records/P26.49.md)
+
 P26.48 两个桌面专项共用回环夹具生命周期，复验原成功链路和既有窗格菜单断言。[执行记录](records/P26.48.md)
 
 P26.47 完成 R8 启动条件复核。历史回显差异未复现，跳过条件优化。[执行记录](records/P26.47.md)
@@ -526,6 +528,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.46 | R7 MCP 工具目录和调用解码 | DONE | [P26.46](records/P26.46.md) | Step-ID: P26.46 |
 | P26.47 | R8 性能优化启动判定 | DONE | [P26.47](records/P26.47.md) | Step-ID: P26.47 |
 | P26.48 | R9 桌面夹具生命周期 | DONE | [P26.48](records/P26.48.md) | Step-ID: P26.48 |
+| P26.49 | R9 Windows 候选整体验收 | DONE | [P26.49](records/P26.49.md) | Step-ID: P26.49 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |

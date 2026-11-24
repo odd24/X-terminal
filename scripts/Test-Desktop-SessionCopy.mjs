@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import {execFileSync, spawn} from 'node:child_process';
-import {readFile, stat, writeFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import {mkdtemp, readFile, realpath, rm, stat, writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createInterface} from 'node:readline';
 import {requestId} from '../apps/desktop/src/request-id.ts';
-import {connectDesktopPage, createSshFixtureScope, delay, desktopEvidence, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
+import {connectDesktopPage, createSshFixtureScope, delay, desktopEvidence, detachOwnedSession, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
 import {checkLogToolbar,checkMainToolbar,measureCompactToolbar,measurePopup} from './lib/ToolbarMenuChecks.mjs';
 import {checkConnectionPanels} from './lib/ConnectionPanelChecks.mjs';
 import {checkCornerNotices} from './lib/CornerNoticeChecks.mjs';
@@ -16,10 +17,12 @@ const notices=process.argv.includes('--corner-notices');
 const refresh=notices||panels||process.argv.includes('--toolbar-refresh');
 const tabInteractions=process.argv.includes('--tab-interactions');
 const copyRaces=process.argv.includes('--copy-races');
-const webviewPointer=refresh||copyRaces||process.argv.includes('--webview-pointer');
+const combined=process.argv.includes('--combined');
+assert.ok(!combined||!(refresh||uartMode||tabInteractions||copyRaces),'combined requires the full SSH copy case');
+const webviewPointer=refresh||copyRaces||combined||process.argv.includes('--webview-pointer');
 const tabVersion=path.basename(path.dirname(desktop)).match(/^SharedTerminal-(\d+\.\d+\.\d+)-windows-x64$/)?.[1]??'unpacked';
 const version=tabInteractions?tabVersion:notices?'0.1.12':panels?'0.1.11':refresh?'0.1.10':'0.1.9';
-const artifact=notices?'corner-notices':panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':copyRaces?'session-copy-races':'session-copy-ssh';
+const artifact=combined?'copy-transfer-save':notices?'corner-notices':panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':copyRaces?'session-copy-races':'session-copy-ssh';
 const rootPrefix=notices?'shared-terminal-log-viewer-ui-中文-':'shared-terminal-session-copy-ui-中文-';
 const {root,start:source,close:closeFixtures}=await createSshFixtureScope(rootPrefix);
 const title='共享终端';
@@ -72,20 +75,22 @@ async function connect(peer,saved){
   return connection;
 }
 async function click(page,expression,kind='Left',caption=title){
+  if(webviewPointer)return webviewClick(page,expression,kind);
   await page.command('Page.bringToFront');
   const point=await page.evaluate(`(()=>{const r=(${expression}).getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
   native('scripts/lib/Drag-TestWindow.ps1',['-TargetProcessId',String(ui.app.pid),'-ExpectedExecutable',desktop,'-Title',caption,
     '-Points',JSON.stringify([point]),'-Click',kind,'-Raise']);
 }
-async function webviewClick(page,expression){
+async function webviewClick(page,expression,kind='Left'){
   const point=await page.evaluate(`(()=>{
     const target=(${expression}),b=target.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;
     return {x,y,visible:target.contains(document.elementFromPoint(x,y))};
   })()`);
   const {x,y,visible}=point;
-  assert.equal(visible,true,'toolbar control is visible at its click point');
-  await page.command('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',buttons:1,clickCount:1});
-  await page.command('Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',buttons:0,clickCount:1});
+  assert.equal(visible,true,'target is visible at its click point');
+  const button=kind.toLowerCase();
+  await page.command('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button,buttons:button==='right'?2:1,clickCount:1});
+  await page.command('Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button,buttons:0,clickCount:1});
 }
 async function pointerGesture(from,to,count=1){
   await ui.command('Input.dispatchMouseEvent',{type:'mousePressed',...from,button:'left',buttons:1,clickCount:count});
@@ -175,6 +180,8 @@ async function toolbar(page,{detachedWindow=false}={}){
   const result=await page.evaluate(`(()=>{
     const header=document.querySelector('.window-chrome'),nav=header.querySelector('.app-bar');
     const limits=nav.getBoundingClientRect();
+    const sidebar=header.querySelector('.sidebar-toggle');
+    const leading=sidebar?.parentElement===header;
     const selectors=['.sidebar-toggle','.toolbar-log','.toolbar-log-directory','.tools-menu'];
     const controls=[...nav.children].map(node=>{
       const r=node.getBoundingClientRect(), style=getComputedStyle(node);
@@ -183,9 +190,16 @@ async function toolbar(page,{detachedWindow=false}={}){
     });
     return {controls,grouped:getComputedStyle(header).backgroundColor!==getComputedStyle(nav).backgroundColor,
       toolbarBottom:limits.bottom,tabTops:[...document.querySelectorAll('.terminal-pane .pane-tab-bar')].map(rail=>rail.getBoundingClientRect().top),
-      tabsInHeader:!!header.querySelector('.pane-tab-bar')};
+      tabsInHeader:!!header.querySelector('.pane-tab-bar'),leading,
+      leadingFits:leading&&header.firstElementChild===sidebar&&sidebar.getBoundingClientRect().right<=nav.getBoundingClientRect().left&&
+        sidebar.getBoundingClientRect().width>0&&sidebar.getBoundingClientRect().height>0};
   })()`);
-  const expected=detachedWindow?['.toolbar-log','.toolbar-log-directory','移回主窗口']:['.sidebar-toggle','.toolbar-log','.toolbar-log-directory','.tools-menu'];
+  const expected=detachedWindow?['.toolbar-log','.toolbar-log-directory','移回主窗口']:['.toolbar-log','.toolbar-log-directory','.tools-menu'];
+  if(!detachedWindow){
+    if(combined)assert.equal(result.leading,true);
+    if(result.leading)assert.equal(result.leadingFits,true);
+    else expected.unshift('.sidebar-toggle');
+  }else assert.equal(result.leading,false);
   assert.deepEqual(result.controls,expected.map(kind=>({kind,fits:true})));
   assert.equal(result.grouped,true);
   assert.equal(result.tabsInHeader,false);
@@ -206,45 +220,23 @@ function fit(width,height){
     '-Width',String(width),'-Height',String(height)]);
 }
 const windowQuery=(page,operation,label='main')=>page.invoke(`plugin:window|${operation}`,{label});
-async function detachOwnedSession(connection){
-  const pointer=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1',
-    '-TargetProcessId',String(ui.app.pid),'-ExpectedExecutable',desktop,'-Title',title,
-    '-Points',JSON.stringify([{x:-35,y:150,outside:true}]),'-PlaceAtWorkAreaStart','-HoldOutside'],
-    {windowsHide:true,stdio:['ignore','pipe','pipe']});
-  let error='';
-  pointer.stderr.setEncoding('utf8').on('data',chunk=>{error+=chunk;});
-  const closed=new Promise(resolve=>pointer.once('close',resolve));
-  const lines=createInterface({input:pointer.stdout});
-  try{
-    const first=await Promise.race([
-      new Promise((resolve,reject)=>{
-        lines.once('line',resolve);
-        pointer.once('error',reject);
-      }),
-      closed.then(()=>error),
-    ]);
-    assert.equal(first,'OWNED_POINTER_OUTSIDE');
-    await ui.invoke('detach_session',{serviceId:service.service_id,connection:ref(connection)});
-  }finally{
-    lines.close();
-    const code=await closed;
-    assert.equal(code,0,error);
-  }
-}
+const detach=connection=>detachOwnedSession(ui,{executable:desktop,serviceId:service.service_id,connection:ref(connection),title});
 async function verifyWindow(page,caption,label='main'){
-  const chrome=q('.window-title');
-  const start=await page.evaluate(`(()=>{const b=${chrome}.getBoundingClientRect();return{x:b.left+Math.min(116,b.width/2),y:b.top+b.height/2};})()`);
-  const points=[start,{x:start.x+32,y:start.y+24},{x:start.x+62,y:start.y+40}];
-  const movement=JSON.parse(native('scripts/lib/Drag-TestWindow.ps1',['-TargetProcessId',String(ui.app.pid),'-ExpectedExecutable',desktop,
-    '-Title',caption,'-Points',JSON.stringify(points),'-Raise','-PlaceAtWorkAreaStart','-MeasureMovement']));
-  assert.ok(Math.abs(movement.dx)>20||Math.abs(movement.dy)>20,JSON.stringify(movement));
-  const control=expression=>refresh?webviewClick(page,expression):click(page,expression,'Left',caption);
+  let movement;
+  if(!combined){
+    const start=await page.evaluate(`(()=>{const b=${q('.window-title')}.getBoundingClientRect();return{x:b.left+Math.min(116,b.width/2),y:b.top+b.height/2};})()`);
+    const points=[start,{x:start.x+32,y:start.y+24},{x:start.x+62,y:start.y+40}];
+    movement=JSON.parse(native('scripts/lib/Drag-TestWindow.ps1',['-TargetProcessId',String(ui.app.pid),'-ExpectedExecutable',desktop,
+      '-Title',caption,'-Points',JSON.stringify(points),'-Raise','-PlaceAtWorkAreaStart','-MeasureMovement']));
+    assert.ok(Math.abs(movement.dx)>20||Math.abs(movement.dy)>20,JSON.stringify(movement));
+  }
+  const control=expression=>click(page,expression,'Left',caption);
   await control(q('button[aria-label="最大化窗口"]'));
   await wait(()=>windowQuery(page,'is_maximized',label),'native maximize button maximized');
   await page.waitFor(`!!${q('button[aria-label="还原窗口"]')}`);
   await control(q('button[aria-label="还原窗口"]'));
   await wait(async()=>!(await windowQuery(page,'is_maximized',label)),'native window restored');
-  return {moved:true,maximized:true,restored:true,...movement};
+  return {moved:!!movement,maximized:true,restored:true,...movement};
 }
 async function close(){
   if(notices){
@@ -269,6 +261,48 @@ async function close(){
   assert.equal(receipt.exited,true);
   await ui.close();
   ui=undefined;
+  return {shutdownAck:receipt.shutdown_ack,exited:receipt.exited};
+}
+
+async function saveDetachedRecording(connection,logId,marker){
+  const target={service_id:service.service_id,connection:ref(connection),protocol:'SSH2'};
+  const prepareId=requestId();
+  const menu=request=>detached.invoke('terminal_log_request',{request:{target,request_id:prepareId,...request}});
+  await menu({op:'prepare',source:{kind:'recorded',log_ids:[logId]}});
+  const prepared=await wait(async()=>{
+    const value=await menu({op:'status'});
+    assert.notEqual(value.phase,'FAILED',value.failure??'');
+    return value.phase==='COMPLETED'&&value;
+  },'detached original recording prepared');
+  const saveId=requestId();
+  const scope={mode:'MENU',connection:ref(connection),log_id:prepareId,request_id:prepareId};
+  const save=op=>detached.invoke('export_save_request',{request:{op,scope,save_id:saveId}});
+  const savePrefix='shared-terminal-save-ui-中文-';
+  const parent=path.resolve(tmpdir());
+  const saveRoot=await mkdtemp(path.join(parent,savePrefix));
+  try{
+    const destination=path.join(saveRoot,'已移交的原会话.log');
+    await save('start');
+    const chooser=native('scripts/lib/NativeSaveDialog.ps1',['-TargetProcessId',String(ui.app.pid),'-Action','select','-TargetPath',destination]);
+    assert.match(chooser,/PASS native save picker select/);
+    const receipt=await wait(async()=>{
+      const value=await save('status');
+      assert.notEqual(value.phase,'FAILED',value.failure??'');
+      return value.phase==='COMPLETED'&&value;
+    },'detached native export saved');
+    assert.equal(await realpath(receipt.path),await realpath(destination));
+    const bytes=await readFile(destination);
+    const sha256=createHash('sha256').update(bytes).digest('hex');
+    assert.equal(sha256,prepared.sha256);
+    assert.equal(bytes.length,prepared.bytes);
+    assert.ok(bytes.includes(marker));
+    assert.ok(!bytes.includes('COPY_A_EXACT')&&!bytes.includes('COPY_B_EXACT')&&!bytes.includes('DETACHED_COPY_EXACT'));
+    return {owner:'detached window',receiptConfirmed:true,bytes:bytes.length,sha256};
+  }finally{
+    assert.equal(path.dirname(saveRoot),parent);
+    assert.ok(path.basename(saveRoot).startsWith(savePrefix));
+    await rm(saveRoot,{recursive:true,force:true,maxRetries:15,retryDelay:100});
+  }
 }
 
 async function setTheme(theme){
@@ -362,7 +396,7 @@ async function toolbarRefresh(){
   await ui.screenshot(`desktop-${version}-toolbar-split.png`);
   await webviewClick(ui,q('.sidebar-toggle'));
   await ui.waitFor("document.querySelector('.desktop-body').classList.contains('sidebar-hidden')");
-  await detachOwnedSession(a);
+  await detach(a);
   detached=await connectDesktopPage(await wait(async()=> (await ui.otherPages())[0],'native detached toolbar window'));
   await detached.waitFor(`${tab(a)}?.getAttribute('aria-selected')==='true'&&document.documentElement.dataset.theme==='dark'`);
   geometry.detached=await measureCompactToolbar(detached,true);
@@ -487,6 +521,11 @@ try{
     await wait(async()=> (await readOutput(a)).includes('ORIGINAL_OUTPUT_REMAINS'),'original output marker arrived');
     const rates={segment_bytes:131072,segments:2};
     const oldLog=await logs(a,{op:'start',request_id:requestId(),limits:rates});
+    const recordedMarker='ORIGINAL_RECORDED_P26_49';
+    if(combined){
+      await first.control({op:'push',text:recordedMarker+'\r\n'});
+      await wait(async()=> (await readOutput(a)).includes(recordedMarker),'recording marker arrived on the original');
+    }
     let aAction=await openCopy(ui,a);
     assert.equal(await ui.evaluate(`${tab(b)}.getAttribute('aria-selected')`),'true');
     const menuImage=await ui.command('Page.captureScreenshot',{format:'png'});
@@ -537,7 +576,7 @@ try{
     const narrowToolbar=await toolbar(ui);
     await ui.screenshot('desktop-0.1.9-integrated-title-narrow.png');
     const window=await verifyWindow(ui,title);
-    console.log('PASS native window movement, maximize/restore and wide/narrow title seams');
+    console.log('PASS native maximize/restore and wide/narrow title seams'+(combined?'':' with title drag'));
     await logs(a,{op:'stop',log_id:oldLog.log_id});
     await wait(async()=> (await logs(a,{op:'status',log_id:oldLog.log_id})).durable,'original completes separately');
 
@@ -545,9 +584,12 @@ try{
     await ui.waitFor('innerWidth>=1080');
     await activate(a);
     await ui.waitFor(`(()=>{const r=${tab(a)}.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})()`);
-    const origin=await ui.evaluate(`(()=>{const b=${tab(a)}.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2};})()`);
-    dragNativeWindow(ui.app,[origin,{x:origin.x-25,y:origin.y+35},{x:45,y:120},{x:-35,y:150,outside:true}],
-      {executable:desktop,title,raise:true,placeAtWorkAreaStart:true});
+    if(combined)await detach(a);
+    else{
+      const origin=await point(tab(a));
+      dragNativeWindow(ui.app,[origin,{x:origin.x-25,y:origin.y+35},{x:45,y:120},{x:-35,y:150,outside:true}],
+        {executable:desktop,title,raise:true,placeAtWorkAreaStart:true});
+    }
     const target=await wait(async()=> (await ui.otherPages())[0],'native detached WebView created');
     detached=await connectDesktopPage(target);
     await detached.waitFor(`${tab(a)}?.getAttribute('aria-selected')==='true'`);
@@ -570,18 +612,23 @@ try{
     await ui.waitFor("!document.querySelector('dialog:modal')");
     assert.equal((await metric(first)).accepted_connections,3);
     assert.deepEqual((await detached.invoke('service_list')).map(ref),[ref(a)]);
+    assert.ok(!(await sessions()).some(item=>item.connection_id===a.connection_id),'the detached generation is out of the main list');
     await keyGoesTo(routedCopy,'DETACHED_COPY_EXACT',[b,aCopy,bCopy]);
+    const saved=combined?await saveDetachedRecording(a,oldLog.log_id,recordedMarker):undefined;
     await click(detached,q('.window-close'),'Left',childTitle);
     await wait(async()=> !(await ui.otherPages()).length,'detached close returned its original scope');
     detached.close();detached=undefined;
     await ui.waitFor(`!!${tab(a)}`);
     evidence={result:'PASS',sameAddress:true,savedCopy:true,temporaryCopy:true,isolatedInput:true,isolatedRecording:true,copyPane,
       wide,narrow,window,splitToolbar,wideToolbar,narrowToolbar,detachedSeam,detachedWindow,detachedToolbar,
-      detachedCopyRouting:true,lostReplyRecoveredWithoutReplay:true};
+      detachedCopyRouting:true,lostReplyRecoveredWithoutReplay:true,
+      ...(combined?{drag:'WebView pointer',transfer:'native detach command',saved}:{}),
+    };
   }
-  await close();
+  const closeReceipt=await close();
+  if(combined)evidence.close=closeReceipt;
   await writeFile(`artifacts/windows-${version}-${artifact}.json`,JSON.stringify({...evidence,...await desktopEvidence(desktop)},null,2)+'\n');
-  console.log(copyRaces?'PASS delayed copy status, duplicate gesture and closed source focus':tabInteractions?'PASS mixed local and SSH tabs, SSH double-click and exact copy input':notices?'PASS Windows corner notices, immediate dismissal and exact native actions':panels?'PASS Windows connection panels, exact lifecycle receipts, pane controls and unchanged toolbar':refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
+  console.log(combined?'PASS combined split, exact SSH copy/input, native transfer, original recording save and close':copyRaces?'PASS delayed copy status, duplicate gesture and closed source focus':tabInteractions?'PASS mixed local and SSH tabs, SSH double-click and exact copy input':notices?'PASS Windows corner notices, immediate dismissal and exact native actions':panels?'PASS Windows connection panels, exact lifecycle receipts, pane controls and unchanged toolbar':refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
 }catch(error){
   if(ui)await ui.screenshot(`desktop-${version}-${artifact}-failure.png`).catch(()=>{});
   throw error;

@@ -489,33 +489,6 @@ impl ServerHandler for Bridge {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ordinary_capacity_precedes_decoding_and_invalid_requests_return_the_permit() {
-        let permits = tokio::sync::Semaphore::new(4);
-        let occupied: Vec<_> = (0..4)
-            .map(|_| {
-                admit_request(&permits, CallToolRequestParams::new(names::AGENT_STATUS)).unwrap()
-            })
-            .collect();
-        let invalid = || CallToolRequestParams::new(names::TERMINAL_SEND);
-        assert_eq!(admit_request(&permits, invalid()).err(), Some("INPUT_BUSY"));
-        assert_eq!(
-            admit_request(&permits, CallToolRequestParams::new("unknown")).err(),
-            Some("INPUT_BUSY")
-        );
-        drop(occupied);
-        assert_eq!(
-            admit_request(&permits, invalid()).err(),
-            Some("INVALID_ARGUMENT")
-        );
-        assert_eq!(permits.available_permits(), 4);
-    }
-}
-
 pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let [mode, flag, instance, pid_flag, pid] = args else {
         anyhow::bail!("use --stdio --broker INSTANCE --desktop-pid PID (no token arguments)");
@@ -556,4 +529,31 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     .waiting()
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_capacity_precedes_decoding_and_invalid_requests_return_the_permit() {
+        let permits = tokio::sync::Semaphore::new(4);
+        let occupied: Vec<_> = (0..4)
+            .map(|_| {
+                admit_request(&permits, CallToolRequestParams::new(names::AGENT_STATUS)).unwrap()
+            })
+            .collect();
+        let invalid = || CallToolRequestParams::new(names::TERMINAL_SEND);
+        assert_eq!(admit_request(&permits, invalid()).err(), Some("INPUT_BUSY"));
+        assert_eq!(
+            admit_request(&permits, CallToolRequestParams::new("unknown")).err(),
+            Some("INPUT_BUSY")
+        );
+        drop(occupied);
+        assert_eq!(
+            admit_request(&permits, invalid()).err(),
+            Some("INVALID_ARGUMENT")
+        );
+        assert_eq!(permits.available_permits(), 4);
+    }
 }

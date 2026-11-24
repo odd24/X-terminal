@@ -66,6 +66,32 @@ export function dragNativeWindow(app, points, {executable=path.resolve('target/d
   {windowsHide:true,timeout:12000,stdio:'pipe',encoding:'utf8'});
 }
 
+export async function detachOwnedSession(ui,{executable,serviceId,connection,title='共享终端'}) {
+  const pointer=spawn('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1',
+    '-TargetProcessId',String(ui.app.pid),'-ExpectedExecutable',executable,'-Title',title,
+    '-Points',JSON.stringify([{x:-35,y:150,outside:true}]),'-PlaceAtWorkAreaStart','-HoldOutside'],
+    {windowsHide:true,stdio:['ignore','pipe','pipe']});
+  let error='';
+  pointer.stderr.setEncoding('utf8').on('data',chunk=>{error+=chunk;});
+  const closed=new Promise(resolve=>pointer.once('close',resolve));
+  const lines=createInterface({input:pointer.stdout});
+  try{
+    const first=await Promise.race([
+      new Promise((resolve,reject)=>{
+        lines.once('line',resolve);
+        pointer.once('error',reject);
+      }),
+      closed.then(()=>error),
+    ]);
+    assert.equal(first,'OWNED_POINTER_OUTSIDE');
+    await ui.invoke('detach_session',{serviceId,connection});
+  }finally{
+    lines.close();
+    const code=await closed;
+    assert.equal(code,0,error);
+  }
+}
+
 export async function connectDesktopPage(target) {
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });

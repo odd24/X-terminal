@@ -46,12 +46,14 @@ const serial=process.argv.includes('--serial')||serialControl||serialConnect;
 const countedSerial=serialConnect||serialControl||((disconnect||forget||protectedExport)&&serial);
 const security=process.argv.includes('--security');
 const exec=process.argv.includes('--exec');
+const candidatePairing=candidateDesktop&&!protectedExport;
 const suite=silentLink?'P24-ssh-silent-link':serviceInterruption?'P24-service-interruption':interruption?'P24-ssh-interruption':protectedExport?'P15-protected-export-v11':wait?'P15-terminal-wait-v11':sshResize?'P15-wait-impact-resize-v11':serialConnect?'P15-wait-impact-serial-connect-v11':connect?'P15-wait-impact-connect-v11':reconnect?'P15-wait-impact-reconnect-v11':forget?'P15-wait-impact-forget-v11':disconnect?'P15-wait-impact-disconnect-v11':serialControl?'P15-wait-impact-serial-v11':security?'P22-security-v11':exec?'P15-wait-impact-exec-v11':'P15-mcp-v11';
-const evidence=readPackage?'windows-x64-release-terminal-read':readBoundaries?'P16-terminal-read-metadata':official?'P16-official-'+suite:suite;
+const evidence=candidatePairing?'windows-x64-release-mcp-pairing':readPackage?'windows-x64-release-terminal-read':readBoundaries?'P16-terminal-read-metadata':official?'P16-official-'+suite:suite;
 const observations=[];
 assert.ok(!silentLink||process.argv.length===3,'P24 silent link is an independent case');
 assert.ok(!readBoundaries||official&&!serial&&process.argv.length<6,'read boundaries require the standalone official SSH case');
-assert.ok(!candidateDesktop||protectedExport&&!serial&&!readBoundaries,'candidate Desktop requires the standalone SSH protected export case');
+assert.ok(!candidateDesktop||!(serial||readBoundaries||interruption||silentLink||serviceInterruption||security||exec||wait||sshResize||connect||reconnect||forget||disconnect),
+  'candidate Desktop requires standalone SSH pairing or protected export');
 assert.ok(!(exec||reconnect||connect||sshResize||wait||interruption||serviceInterruption)||!serial,'SSH2 fixture required');
 assert.ok(!(interruption||serviceInterruption)||!(interruption&&serviceInterruption||exec||reconnect||connect||sshResize||wait||protectedExport||disconnect||forget||security),'P24 interruption is an independent case');
 const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
@@ -94,9 +96,10 @@ try {
       assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);
     }
   }
-  ui=await launchDesktop(directory,preview?{executable:path.join(preview.directory,'shared-terminal-desktop.exe')}:{fixture:true,executable:candidateDesktop,
+  ui=await launchDesktop(directory,preview?{executable:path.join(preview.directory,'shared-terminal-desktop.exe')}:{fixture:!candidateDesktop,executable:candidateDesktop,
     ...(countedSerial?{executable:path.resolve('target/serial-mcp-fixture/shared-terminal-desktop.exe'),extraArgs:['--serial-mcp-fixture']}: {})});
-  if(preview)assert.equal((await ui.invoke('service_status')).fixture,false);
+  if(preview||candidateDesktop)assert.equal((await ui.invoke('service_status')).fixture,false);
+  if(candidateDesktop)await assert.rejects(ui.invoke('fixture_create'),/FIXTURE_DISABLED/);
   let connection,metrics,control,profileId,sshPin,sshPort;
   if (serial) {
     const profile={id:randomUUID(),folder_id:null,name:'MCP合成串口',settings:{protocol:'serial',port:'COM7',baud_rate:115200,data_bits:8,stop_bits:1,parity:'none',flow:'none',dtr_on_open:false,rts_on_open:false,encoding:'utf8'}};
@@ -124,7 +127,33 @@ try {
     connection=(await ui.invoke('service_list')).find(c=>c.protocol==='SSH2');
   }
   const ref={connection_id:connection.connection_id,generation:connection.generation},transport=serial?'SERIAL':'SSH2';
-  const other=preview?undefined:await ui.invoke('fixture_create');
+  let other;
+  if(candidateDesktop){
+    const ssh=request=>ui.invoke('ssh_request',{request});
+    other=(await ssh({op:'start',profile_id:profileId,request_id:randomUUID(),cols:80,rows:24})).connection;
+    const target={connection_id:other.connection_id,generation:other.generation};
+    const answered=new Set();
+    let state;
+    for(let attempt=0;attempt<150;attempt++){
+      const status=await ssh({op:'status',connection:target});
+      state=status.connection.state;
+      if(state==='CONNECTED')break;
+      assert.notEqual(state,'FAILED');
+      const challenge=status.challenge;
+      if(challenge&&!answered.has(challenge.id)){
+        answered.add(challenge.id);
+        if(challenge.kind==='host_key'){
+          assert.equal(challenge.review.candidate.fingerprint,sshPin);
+          await ssh({op:'answer_host',connection:target,challenge_id:challenge.id,approve:true});
+        }else{
+          assert.equal(challenge.kind,'credentials');
+          await ssh({op:'authenticate',connection:target,challenge_id:challenge.id,use_saved:true,password:null});
+        }
+      }
+      await delay(50);
+    }
+    assert.equal(state,'CONNECTED','the unrelated synthetic SSH session is live');
+  }else if(!preview&&!candidateDesktop)other=await ui.invoke('fixture_create');
   const otherRef=other&&{connection_id:other.connection_id,generation:other.generation};
   const sentinels=security?await prepareSecuritySentinels({directory,ui,other:otherRef,ref,serial}):null;
   const management=request=>ui.invoke('agent_management_request',{request});
@@ -268,6 +297,10 @@ try {
     await serialChecks?.afterServiceLoss();
     assert.ok(!rpc.stderr.includes('P15_PRIVATE'));assert.equal((await rpc.close()).code,0);rpc=undefined;
     if(security)await writeFile(`artifacts/${evidence}-${serial?'serial':'ssh'}.json`,JSON.stringify({...securityReport,service_loss:'UNKNOWN_DELIVERY',stdio_exit:0},null,2)+'\n');
+    if(candidatePairing)await writeFile(`artifacts/${evidence}-ssh.json`,JSON.stringify({
+      result:'PASS',ordinaryService:true,fixtureRejected:true,unrelatedLiveSessionDenied:true,originalReceipt:true,
+      approvedBridgePid:true,takeoverRejected:true,revokedReadRejected:true,serviceLoss:'UNKNOWN_DELIVERY',stdioExit:0,
+    },null,2)+'\n');
     console.log(`PASS real MCP ${transport}: native fixed-process/original-grant GUI approval, default-none, no unpaired access/bearer, same shared connection exact send/receipt/protected read/screen, lease and dedup, unrelated session denied, takeover/revoke rejected, Agent source audit and stdio EOF cleanup; synthetic only`);
   }
 } catch(error) {
