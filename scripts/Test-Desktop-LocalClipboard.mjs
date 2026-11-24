@@ -7,6 +7,7 @@ import path from 'node:path';
 import {delay,launchDesktop} from './lib/DesktopHarness.mjs';
 
 const executable=path.resolve(process.argv[2]);
+const reportPrefix=process.argv[3]??'windows-0.1.25';
 const previous=path.resolve('artifacts/SharedTerminal-0.1.24-windows-x64/shared-terminal-desktop.exe');
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-local-clipboard-中文-'));
 const evidence={result:'IN_PROGRESS',executable,sha256:createHash('sha256').update(await readFile(executable)).digest('hex'),checks:[]};
@@ -106,7 +107,7 @@ async function mode(before,next){
   await ui.fill('终端右键行为',next);
   await ui.waitFor(`${byLabel('终端右键行为')}.value===${q(next)}&&!${byLabel('终端右键行为')}.disabled
      &&${query('[aria-label="本地终端右键"] [role=status]')}?.textContent==='已保存'`);
-  await ui.screenshot('windows-0.1.25-local-right-click-settings.png');
+  await ui.screenshot(`${reportPrefix}-local-right-click-settings.png`);
   await ui.click('关闭软件设置');
 }
 async function exit(activeTabs){
@@ -182,7 +183,7 @@ try{
   await setClipboard('MENU_TEXT');const readerBefore=await readCount();
   await rightClick();await ui.waitFor(`!!${query(menu)}`);
   assert.equal(await readCount(),readerBefore);
-  await ui.screenshot('windows-0.1.25-local-right-click-menu.png');
+  await ui.screenshot(`${reportPrefix}-local-right-click-menu.png`);
   await ui.evaluate(`[...${query(menu)}.querySelectorAll('button')].find(b=>b.textContent==='粘贴').click()`);
   await look('MENU_TEXT');
   await selectVisible('MENU_TEXT');
@@ -211,7 +212,7 @@ try{
   await setClipboard(multiline);await rightClick();await pastePreview();
   assert.equal(await actionCount('input'),before);
   assert.match(await ui.evaluate(`${byLabel('本地粘贴内容预览')}.textContent`),/\\r\\n.*文\\n/);
-  await ui.screenshot('windows-0.1.25-local-paste-confirmation.png');
+  await ui.screenshot(`${reportPrefix}-local-paste-confirmation.png`);
   await ui.click('取消粘贴');assert.equal(await actionCount('input'),before);
   await rightClick();await pastePreview();await ui.click('确认粘贴');
   const task=await waitInput(ps,multiline,before);
@@ -266,11 +267,11 @@ try{
   console.log('PASS Windows local right-click modes, exact data, approval, routing and persistence');
 }catch(error){
   evidence.result='FAIL';evidence.error=String(error.stack);
-  await ui?.screenshot('windows-0.1.25-local-clipboard-failure.png').catch(()=>{});
+  await ui?.screenshot(`${reportPrefix}-local-clipboard-failure.png`).catch(()=>{});
   throw error;
 }finally{
   await ui?.close();
-  await writeFile('artifacts/windows-0.1.25-local-clipboard-result.json',JSON.stringify(evidence,null,2)+'\n');
+  await writeFile(`artifacts/${reportPrefix}-local-clipboard-result.json`,JSON.stringify(evidence,null,2)+'\n');
   assert.equal(path.dirname(root),await realpath(tmpdir()));
   assert.ok(path.basename(root).startsWith('shared-terminal-local-clipboard-中文-'));
   await rm(root,{recursive:true,force:true,maxRetries:15,retryDelay:100});

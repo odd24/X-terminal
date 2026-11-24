@@ -14,6 +14,7 @@
 - **两处新建入口。** 连接库标题旁的「＋」在所选目录或根新建保存的 SSH/串口配置，「保存」与「保存并连接」各有明确结果。窗格标签尾部的「＋」点击直接开 PowerShell，悬停约 350 毫秒或按向下键显示本地、SSH、串口入口。右侧快捷指令栏也有自己的添加按钮，作用域为该栏配置。[会话树](../apps/desktop/src/session-tree.tsx) · [标签](../apps/desktop/src/session-tabs.tsx) · [新建入口测试](../scripts/Test-Desktop-NewEntries.mjs)
 - **删除会话配置。** 会话树右键仅打开紧凑确认，显示原名称、端点和配置编号。默认焦点在「取消删除」，取消后回到原条目，删除后回到邻项或根目录。在连接配置窗口内操作时，返回管理界面。应答不明提供对原编号的只读核对。现有连接、日志及共享凭据保留。[CR-052](changes/CR-052.md) · [确认组件](../apps/desktop/src/profile-deletion.tsx) · [桌面专项](../scripts/Test-Desktop-TreeActions.mjs)
 - **聚焦和通知。** 图标有可访问名称和提示。工具弹层贴近触发按钮。应用模态弹窗可拖动标题，背景点击及从内容内拖到外面释放时保留正在编辑的内容，使用明确按钮或 Esc 退出并按原上下文恢复焦点。程序退出有独立确认。右下角使用同款通知，约五秒收起，悬停或聚焦时暂停。操作按钮立即收起原卡片，失败另报。[共享控件](../apps/desktop/src/ui.tsx) · [通知](../apps/desktop/src/corner-notice.tsx) · [通知验证](records/P25.md#windows-x64-0112-右下角通知2026-11-21)
+- **右键范围。** 主窗口、独立窗口和应用弹窗屏蔽 WebView 的网页命令。可编辑文本框显示适用的文本编辑动作。会话树、标签和终端使用现有业务菜单。右键快捷指令或侧栏空白无动作，管理通过可见「⋯」。[CR-053](changes/CR-053.md) · [WebView2 过滤](../apps/desktop/src-tauri/src/context_menu.rs) · [Windows 专项](../scripts/Test-Desktop-ContextMenuPolicy.mjs)
 
 ### 标签、分屏与复制
 

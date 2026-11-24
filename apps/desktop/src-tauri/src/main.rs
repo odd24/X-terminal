@@ -8,6 +8,8 @@ mod bridge_manager;
 mod close_fixture;
 mod close_receipt;
 mod config_import;
+#[cfg(windows)]
+mod context_menu;
 mod export_save;
 #[cfg(feature = "load-observer-test")]
 mod load_observer_test;
@@ -520,7 +522,10 @@ fn main() {
         )
         .expect("SERIAL_MCP_ROOT_REJECTED");
     }
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder.plugin(context_menu::plugin());
+    let app = builder
         .setup(move |app| {
             app.manage(session_windows::SessionWindows::default());
             let directory = match &directory {

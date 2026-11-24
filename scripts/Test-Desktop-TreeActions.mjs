@@ -7,6 +7,7 @@ import path from 'node:path';
 import {launchDesktop,delay,desktopEvidence} from './lib/DesktopHarness.mjs';
 const executable=process.argv[2]?path.resolve(process.argv[2]):path.resolve('target/debug/shared-terminal-desktop.exe');
 const output=process.argv[3]??'artifacts/P26.69-tree-actions-result.json';
+const reportPrefix=process.argv[4]??'P26.69';
 const deletionOp='delete_profile_if_revision';
 let directory,ui,fixture;
 const wait=async fn=>{for(let n=0;n<300;n++){if(await fn())return;await delay(50);}throw new Error('fixture state timeout');};
@@ -37,7 +38,7 @@ try{
  await ui.fill('搜索会话配置','同名');await ui.waitFor(`!!(${leaf(b)})`);await ui.evaluate(`${branch(folder)}.click()`);await ui.waitFor(`${leaf(b)}===null`);await ui.evaluate(`${leaf(a)}.click()`);assert.equal(await ui.evaluate(`${branch(folder)}.getAttribute('aria-expanded')`),'false');await ui.fill('搜索会话配置','');
  await ui.evaluate(`${leaf(a)}.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);await ui.waitFor(`!!document.querySelector('[aria-label="快速连接核对指纹"]')`);await ui.evaluate(`document.querySelector('[aria-label="快速连接核对指纹"]').click()`);await ui.click('信任并继续登录');await wait(async()=>(await list()).some(c=>c.state==='CONNECTED'));await ui.waitFor(`!document.querySelector('dialog:modal')`);const active=(await list())[0];
  const context=async p=>{await ui.evaluate(`${leaf(p)}.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:60,clientY:300}))`);await ui.waitFor(`document.querySelector('[role="menu"]')?.textContent.includes('编辑')`);assert.equal(await ui.evaluate(`${leaf(p)}.getAttribute('aria-pressed')`),'true');};
- await ui.evaluate(`${branch(folder)}.click()`);await ui.waitFor(`!!(${leaf(b)})`);await context(b);await ui.screenshot('P26.69-tree-actions-context.png');await ui.evaluate(`Array.from(document.querySelectorAll('[role="menuitem"]')).find(b=>b.textContent==='编辑').click()`);await ui.waitFor(`document.querySelector('[aria-label="配置名称"]')?.value==='同名配置'`);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="所属目录"]').value`),folder.id);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="凭据操作"]').value`),'keep');assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="新密码"]')`),false);
+ await ui.evaluate(`${branch(folder)}.click()`);await ui.waitFor(`!!(${leaf(b)})`);await context(b);await ui.screenshot(`${reportPrefix}-tree-actions-context.png`);await ui.evaluate(`Array.from(document.querySelectorAll('[role="menuitem"]')).find(b=>b.textContent==='编辑').click()`);await ui.waitFor(`document.querySelector('[aria-label="配置名称"]')?.value==='同名配置'`);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="所属目录"]').value`),folder.id);assert.equal(await ui.evaluate(`document.querySelector('[aria-label="凭据操作"]').value`),'keep');assert.equal(await ui.evaluate(`!!document.querySelector('[aria-label="新密码"]')`),false);
  await ui.fill('配置名称','修改后的子配置');await ui.fill('所属目录',nested.id);await ui.fill('主机','localhost');await ui.click('保存配置');await ui.waitFor(`document.querySelector('[aria-label="配置状态"]').textContent.includes('配置已保存')`);const edited=(await page()).profiles;assert.deepEqual(edited.find(p=>p.id===a.id),originals.find(p=>p.id===a.id));assert.equal(edited.find(p=>p.id===b.id).folder_id,nested.id);assert.equal(edited.find(p=>p.id===b.id).credential_ref,originals.find(p=>p.id===b.id).credential_ref);await ui.click('关闭配置');
  const treeDialog='document.querySelector(\'dialog:modal[aria-label="删除会话配置"]\')';
  const manager='document.querySelector(\'dialog:modal[aria-label="连接配置"]\')';
@@ -59,7 +60,7 @@ try{
  await ui.waitFor(`!!(${branch(nested)})`);await ui.evaluate(`${branch(nested)}.click()`);await ui.waitFor(`!!(${leaf(b)})`);
  await beginDelete(b);
  assert.ok(await ui.evaluate(`${treeDialog}.getBoundingClientRect().width<=450`));
- await ui.screenshot('P26.69-tree-actions-delete.png');
+ await ui.screenshot(`${reportPrefix}-tree-actions-delete.png`);
  await escape();await treeStatus('已取消删除');await ui.waitFor(`!${treeDialog}&&document.activeElement===${leaf(b)}`);
  assert.ok((await page()).profiles.some(p=>p.id===b.id));
 
@@ -134,12 +135,12 @@ try{
  await ui.click('确认删除此配置');await treeStatus('所选保存配置已删除');
  await ui.waitFor(`document.activeElement?.matches('.tree-root-label')`);
  assert.equal((await page()).profiles.length,0);
- await ui.screenshot('P26.69-tree-actions.png');
+ await ui.screenshot(`${reportPrefix}-tree-actions.png`);
  await writeFile(output,JSON.stringify({result:'PASS',...await desktopEvidence(executable),
    cases:['tree nesting, search and same-name exact edits','independent compact delete confirmation, Escape and original focus',
      'held and lost applied result, single dispatch and read-only resolution','native revision conflict and lost rejection with original still present',
      'active connection generation, recording and credential IDs preserved','manager cancel, lost-success check and focus; last tree row returns to root',
      'legacy ID-only deletion and stale target edit fail closed'],scope:'owned Windows desktop and synthetic loopback SSH'},null,2));
  console.log('PASS native tree and manager deletion, revision guards, focus, delayed and unknown results');
-}catch(error){if(ui){await ui.screenshot('P26.69-tree-actions-failure.png').catch(()=>{});await writeFile('artifacts/P26.69-tree-actions-failure.txt',await ui.evaluate('document.body.innerText').catch(String));}throw error;
+}catch(error){if(ui){await ui.screenshot(`${reportPrefix}-tree-actions-failure.png`).catch(()=>{});await writeFile(`artifacts/${reportPrefix}-tree-actions-failure.txt`,await ui.evaluate('document.body.innerText').catch(String));}throw error;
 }finally{await ui?.close();fixture?.kill();if(fixture&&fixture.exitCode===null&&fixture.signalCode===null)await new Promise(resolve=>fixture.once('exit',resolve));if(directory){const target=path.resolve(directory);assert.equal(path.dirname(target),path.resolve(tmpdir()));assert.ok(path.basename(target).startsWith('shared-terminal-tree-actions-ui-中文-'));await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});}}

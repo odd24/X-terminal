@@ -366,7 +366,11 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
       </ContextMenu>}</>}
     </li>;
   }
-  return <aside id={id} ref={panel} className="adb-shortcut-panel" aria-label="快捷指令" data-expanded={layout.expanded} data-columns={layout.columns} hidden={!open}>
+  return <aside id={id} ref={panel} className="adb-shortcut-panel" aria-label="快捷指令" data-expanded={layout.expanded} data-columns={layout.columns} hidden={!open}
+    onMouseDown={event=>{
+      if(event.button===2&&event.target instanceof Element&&!event.target.closest('input,textarea,[contenteditable="true"]'))
+        event.preventDefault();
+    }}>
     <div className="adb-panel-heading">
       <h2>{shortcutEditor?(shortcutEditor.adding?'新增快捷指令':'编辑快捷指令'):'快捷指令'}</h2>
       {shortcutEditor

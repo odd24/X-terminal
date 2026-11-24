@@ -4110,6 +4110,7 @@ dependencies = [
  "terminal-log",
  "tokio",
  "uuid",
+ "webview2-com",
  "windows",
  "windows-sys 0.61.2",
 ]
