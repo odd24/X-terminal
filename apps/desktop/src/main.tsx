@@ -1,6 +1,8 @@
 import {ImportConfigPanel} from './import-config-panel';
 import {CloseReceiptPanel} from './close-receipt-panel';
-import type {PreviousClose} from './close-receipt';
+import {sameConnectionList, sameService, snapshotCursor, subscribeSessionSnapshots,
+  type ServiceStatus as Status, type SessionSnapshot} from './session-snapshot';
+import type {Connection} from './ssh-api';
 import {SaveRecoveryPanel, saveRecoveryAttention, type SaveRecoverySnapshot} from './save-recovery-panel';
 import {BatchConfigPanel} from './batch-config-panel';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
@@ -73,19 +75,10 @@ import { Ssh1Connect, type Ssh1Intent } from './ssh1-connect';
 import '@xterm/xterm/css/xterm.css';
 import './style.css';
 
-type Connection = { connection_id: string; generation: number; protocol: string; state: string };
 type Ref = Pick<Connection, 'connection_id' | 'generation'>;
 type CopySource = {owner:string;connection:Connection;settings:Settings;saved_profile:string|null};
 const sameRef=(a:Ref,b:Ref)=>a.connection_id===b.connection_id&&a.generation===b.generation;
 type ServiceScreen = { connection: Ref; encoding: string; parser: string; resize_reflow: boolean; rows: number; cols: number; contents: string; contents_truncated: boolean; cursor_row: number; cursor_col: number; alternate: boolean; source_cursor: number; completed: boolean; gap_bytes: number; decode_error_events: number };
-type Status = { service_id: string; pid: number; fixture: boolean; ssh1_preview: boolean; exit_policy: string; previous_close?:PreviousClose };
-function sameConnectionList(previous: Connection[], next: Connection[]) {
-  return previous.length === next.length && previous.every((connection, index) => {
-    const current = next[index];
-    return connection.connection_id === current.connection_id && connection.generation === current.generation
-      && connection.protocol === current.protocol && connection.state === current.state;
-  });
-}
 const demo = '共享终端 · 服务合成 UTF-8/ANSI 回放\r\n\x1b[32m中文宽字 ✓\x1b[0m\r\n输入通过统一服务追加到合成输出，不发送到设备。\r\n\x1b[?1049h\x1b[2J\x1b[H替代屏幕\x1b[?1049l';
 const appWindow = getCurrentWindow();
 const detached = appWindow.label !== 'main';
@@ -152,7 +145,7 @@ function App() {
   const pendingExitCheck = useRef(false);
   const transferring = useRef<string>(undefined);
   const liveConnections = useRef<Connection[]>([]);
-  const outputCursors = useRef<number[]>([]);
+  const latestSnapshot = useRef<SessionSnapshot | undefined>(undefined);
   const [softwareSettingsOpen, setSoftwareSettingsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [closeInfoOpen,setCloseInfoOpen]=useState(false);
@@ -713,7 +706,7 @@ function App() {
         return true;
       } } : undefined;
     const local=localSelected.current.has(key);
-    return {owner,outputCursor:outputCursors.current[index],connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:!local&&panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:local||!!binding&&(!!slot?.retired||!!slot?.pending||binding.connection_id===transferring.current),initialSsh1Fit};
+    return {owner,outputCursor:snapshotCursor(latestSnapshot.current,owner,live),connection:binding&&{...binding,state:!slot?.pending&&!slot?.retired&&live?live.state:'DISCONNECTED'},active:!local&&panes.current.active===key&&!slot?.pending&&!slot?.retired,epoch:panes.current.epoch,fixture:serviceRef.current?.fixture??false,suspended:local||!!binding&&(!!slot?.retired||!!slot?.pending||binding.connection_id===transferring.current),initialSsh1Fit};
   }
   function registerPane(key:PaneKey,c?:TerminalController){if(c)controllers.current.set(key,c);else controllers.current.delete(key);if(panes.current.active===key&&!localSelected.current.has(key)){runtime.current=c?.runtime??null;clipboard.current=c?.clipboard;composeSend.current=c?.compose;}}
   useLayoutEffect(()=>{
@@ -721,18 +714,17 @@ function App() {
     detachedInputFocused.current=true;
     runtime.current?.term.focus();
   },[renderedTarget]);
-  useEffect(()=>{let disposed=false,timer=0;
-    async function poll(){try{const epoch=panes.current.epoch;const {service:native,sessions,next_cursors}=await invoke<{service:Status;sessions:Connection[];next_cursors:number[]}>('desktop_session_snapshot');if(disposed)return;
+  useEffect(()=>subscribeSessionSnapshots({
+    read: () => invoke<SessionSnapshot>('desktop_session_snapshot'),
+    epoch: () => panes.current.epoch,
+    apply(snapshot, epoch) {
+      const {service:native,sessions}=snapshot;
       composeHistory.current.retain(native.service_id);
-      const previous = serviceRef.current;
-      // The native service captures previous_close once when this owner starts.
-      if (!previous || previous.service_id !== native.service_id || previous.pid !== native.pid
-        || previous.fixture !== native.fixture || previous.ssh1_preview !== native.ssh1_preview
-        || previous.exit_policy !== native.exit_policy) {
+      if (!sameService(serviceRef.current, native)) {
         serviceRef.current = native;
         setService(native);
       }
-      outputCursors.current=next_cursors;
+      latestSnapshot.current=snapshot;
       if (!sameConnectionList(liveConnections.current, sessions)) {
         liveConnections.current = sessions;
         setConnections(sessions);
@@ -742,12 +734,29 @@ function App() {
         if(!route.suspended&&route.owner)controller.notifyOutput(route.outputCursor);
       }
       triggers.current.validate(native.service_id,sessions);
-      const beforeRetain=panes.current.epoch;if(panes.current.retain(native.service_id,sessions,epoch===panes.current.epoch)){if(panes.current.epoch!==beforeRetain)routeChanged();else syncRoute();}
-      if(panes.current.direction==='single'&&!panes.current.current.requested){const first=sessions.find(c=>!tabClosures.current.isHidden(c));if(first){panes.current.select(first.connection_id);panes.current.retain(native.service_id,sessions);syncRoute();}}
-      timer=window.setTimeout(()=>void poll(),100);
-    }catch{if(!disposed){serviceStopped.current=true;triggers.current.stop('服务不可用，已停用触发器');composeHistory.current.retain('');panes.current.epoch++;routeChanged();setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}}}
-    void poll();return()=>{disposed=true;clearTimeout(timer);};
-  },[]);
+      const beforeRetain=panes.current.epoch;
+      if(panes.current.retain(native.service_id,sessions,epoch===beforeRetain)){
+        if(panes.current.epoch!==beforeRetain)routeChanged();
+        else syncRoute();
+      }
+      if(panes.current.direction==='single'&&!panes.current.current.requested){
+        const first=sessions.find(c=>!tabClosures.current.isHidden(c));
+        if(first){
+          panes.current.select(first.connection_id);
+          panes.current.retain(native.service_id,sessions);
+          syncRoute();
+        }
+      }
+    },
+    failed() {
+      serviceStopped.current=true;
+      triggers.current.stop('服务不可用，已停用触发器');
+      composeHistory.current.retain('');
+      panes.current.epoch++;
+      routeChanged();
+      setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');
+    },
+  }),[]);
   useEffect(()=>{const key=(event:KeyboardEvent)=>{if(!detached&&event.ctrlKey&&event.shiftKey&&!event.altKey&&!event.metaKey&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog:modal')){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)openQuickCommands();return;}if(event.key!=='F6'||document.querySelector('dialog:modal')||panes.current.slots.length<2)return;event.preventDefault();event.stopImmediatePropagation();const slots=panes.current.slots,index=slots.findIndex(p=>p.key===panes.current.active);focusPane(slots[(index+(event.shiftKey?slots.length-1:1))%slots.length].key,true);};window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[]);
   const handleDesktopShortcut=useRef<(event:KeyboardEvent)=>void>(()=>{});
   handleDesktopShortcut.current=event=>{
