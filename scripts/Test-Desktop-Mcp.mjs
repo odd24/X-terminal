@@ -37,6 +37,8 @@ const serialConnect=process.argv.includes('--serial-connect');
 const sshResize=process.argv.includes('--ssh-resize');
 const wait=process.argv.includes('--wait');
 const protectedExport=process.argv.includes('--protected-export');
+const executableIndex=process.argv.indexOf('--desktop-exe');
+const candidateDesktop=executableIndex<0?undefined:path.resolve(process.argv[executableIndex+1]);
 const interruption=process.argv.includes('--ssh-interruption');
 const silentLink=process.argv.includes('--ssh-silent-link');
 const serviceInterruption=process.argv.includes('--service-interruption');
@@ -49,6 +51,7 @@ const evidence=readPackage?'windows-x64-release-terminal-read':readBoundaries?'P
 const observations=[];
 assert.ok(!silentLink||process.argv.length===3,'P24 silent link is an independent case');
 assert.ok(!readBoundaries||official&&!serial&&process.argv.length<6,'read boundaries require the standalone official SSH case');
+assert.ok(!candidateDesktop||protectedExport&&!serial&&!readBoundaries,'candidate Desktop requires the standalone SSH protected export case');
 assert.ok(!(exec||reconnect||connect||sshResize||wait||interruption||serviceInterruption)||!serial,'SSH2 fixture required');
 assert.ok(!(interruption||serviceInterruption)||!(interruption&&serviceInterruption||exec||reconnect||connect||sshResize||wait||protectedExport||disconnect||forget||security),'P24 interruption is an independent case');
 const rootPrefix=countedSerial?'shared-terminal-mcp-serial-control-中文-':security?'shared-terminal-security-ui-中文-':'shared-terminal-mcp-ui-中文-';
@@ -91,7 +94,8 @@ try {
       assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);
     }
   }
-  ui=await launchDesktop(directory,preview?{executable:path.join(preview.directory,'shared-terminal-desktop.exe')}:{fixture:true,...(countedSerial?{executable:path.resolve('target/serial-mcp-fixture/shared-terminal-desktop.exe'),extraArgs:['--serial-mcp-fixture']}: {})});
+  ui=await launchDesktop(directory,preview?{executable:path.join(preview.directory,'shared-terminal-desktop.exe')}:{fixture:true,executable:candidateDesktop,
+    ...(countedSerial?{executable:path.resolve('target/serial-mcp-fixture/shared-terminal-desktop.exe'),extraArgs:['--serial-mcp-fixture']}: {})});
   if(preview)assert.equal((await ui.invoke('service_status')).fixture,false);
   let connection,metrics,control,profileId,sshPin,sshPort;
   if (serial) {

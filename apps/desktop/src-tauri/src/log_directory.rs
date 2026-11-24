@@ -1,4 +1,6 @@
-use crate::{Desktop, forward_logging, local_terminal, session_windows, terminal_logs};
+use crate::{
+    Desktop, local_terminal, log_commands::forward_logging, session_windows, terminal_logs,
+};
 use serde::{Deserialize, Serialize};
 use session_core::session::{ConnectionRef, Protocol};
 use session_protocol::logging::{Reply, Request};
