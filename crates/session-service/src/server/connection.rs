@@ -1,8 +1,8 @@
 use super::Runtime;
 use session_core::{PROTOCOL_VERSION, pairing::SecretToken, session::ErrorCode};
-use session_protocol::{
-    ClientKind, Hello, Reply, Request, RequestEnvelope, Response, Welcome, read_frame,
-};
+#[cfg(feature = "audit-diagnostics-fixture")]
+use session_protocol::Request;
+use session_protocol::{ClientKind, Hello, Reply, RequestEnvelope, Response, Welcome, read_frame};
 use std::{io, sync::Arc, time::Duration};
 use tokio::{net::windows::named_pipe::NamedPipeServer, time::timeout};
 use uuid::Uuid;
@@ -124,23 +124,7 @@ pub(super) async fn serve(mut pipe: NamedPipeServer, runtime: Arc<Runtime>) -> i
         let drop_shutdown = matches!(request.request, Request::Shutdown {})
             && matches!(kind, ClientKind::Desktop)
             && terminal_log::audit::diagnostic_drop_shutdown_reply();
-        let result = match request.request {
-            #[cfg(feature = "t19-timeline-fixture")]
-            ref request
-                if runtime.timeline.is_some() && !crate::t19_timeline_fixture::allows(request) =>
-            {
-                Err(ErrorCode::Unsupported)
-            }
-            Request::Agent { request } => runtime.handle_agent(&identity, request).await,
-            Request::Logging { request } => runtime.handle_logging(&identity, request).await,
-            Request::ProtectedExport { request } => {
-                runtime.handle_protected_export(&identity, request).await
-            }
-            Request::Serial { request } => runtime.handle_serial(&identity, request).await,
-            Request::Ssh { request } => runtime.handle_ssh(&identity, request).await,
-            Request::Config { request } => runtime.handle_config(&identity, request).await,
-            request => runtime.handle(&identity, request),
-        };
+        let result = runtime.dispatch(&identity, request.request).await;
         guard.returned(result.as_ref().map(|_| ()).map_err(|code| *code))?;
         #[cfg(feature = "audit-diagnostics-fixture")]
         if drop_shutdown && matches!(result, Ok(Reply::Ok)) {

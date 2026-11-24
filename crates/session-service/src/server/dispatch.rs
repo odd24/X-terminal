@@ -1,0 +1,691 @@
+use super::Runtime;
+use session_core::{pairing::Identity, session::*};
+use session_protocol::*;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+impl Runtime {
+    pub(super) async fn dispatch(
+        &self,
+        identity: &Identity,
+        request: Request,
+    ) -> Result<Reply, ErrorCode> {
+        match request {
+            #[cfg(feature = "t19-timeline-fixture")]
+            ref request
+                if self.timeline.is_some() && !crate::t19_timeline_fixture::allows(request) =>
+            {
+                Err(ErrorCode::Unsupported)
+            }
+            Request::Agent { request } => self.handle_agent(identity, request).await,
+            Request::Logging { request } => self.handle_logging(identity, request).await,
+            Request::ProtectedExport { request } => {
+                self.handle_protected_export(identity, request).await
+            }
+            Request::Serial { request } => self.handle_serial(identity, request).await,
+            Request::Ssh { request } => self.handle_ssh(identity, request).await,
+            Request::Config { request } => self.handle_config(identity, request).await,
+            request => self.handle(identity, request),
+        }
+    }
+
+    async fn handle_protected_export(
+        &self,
+        identity: &Identity,
+        request: export::Request,
+    ) -> Result<Reply, ErrorCode> {
+        use export::{Reply as R, Request as E};
+        if !request.validate() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let reply = match request {
+            E::Prepare { connection } => {
+                let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                store.pairing.require_desktop(identity, store.now())?;
+                R::Prepared {
+                    service_id: self.service_id,
+                    source: store.sessions.ended_output(connection)?,
+                }
+            }
+            E::Start { target } => {
+                if target.service_id != self.service_id {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                {
+                    let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                    store.pairing.require_agent(identity, store.now())?;
+                }
+                let crate::config::Value::LoggingDirectory(directory) = self
+                    .config
+                    .access()
+                    .request(crate::config::Internal::LoggingDirectory)
+                    .await
+                    .map_err(|_| ErrorCode::InvalidState)?
+                else {
+                    return Err(ErrorCode::InvalidState);
+                };
+                R::Receipt(self.protected_export.start(identity, target, directory)?)
+            }
+            E::Status { query } => {
+                R::Receipt(self.protected_export.status(identity, query, false)?)
+            }
+            E::Cancel { query } => R::Receipt(self.protected_export.status(identity, query, true)?),
+            E::InspectSave { scope } => {
+                if scope.service_id != self.service_id {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                self.protected_export.save(identity, scope, None)?
+            }
+            E::CommitSave { scope, save_id } => {
+                if scope.service_id != self.service_id {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                self.protected_export.save(identity, scope, Some(save_id))?
+            }
+        };
+        Ok(Reply::ProtectedExport(reply))
+    }
+    async fn handle_agent(
+        &self,
+        identity: &Identity,
+        request: agent::Request,
+    ) -> Result<Reply, ErrorCode> {
+        if !request.validate() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if let Some(spec) = request.grant_spec()? {
+            let request_id = spec.request_id;
+            let lifetime_ms = spec.lifetime_ms;
+            let definition = spec.definition()?;
+            let scopes = &definition.scopes;
+            {
+                let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                if let Some(result) = store.pairing.grant_replay_definition(
+                    identity,
+                    request_id,
+                    &definition,
+                    lifetime_ms,
+                    self.now(),
+                )? {
+                    return Ok(Reply::Agent(Self::grant_reply(result)));
+                }
+            }
+            // Only the existing configuration worker resolves Profile IDs. No paths or secrets.
+            for scope in scopes {
+                use session_core::access::Target;
+                let query = match scope.target {
+                    Target::Profile { profile_id } => {
+                        Some(crate::config::Internal::Profile(profile_id))
+                    }
+                    Target::ProfileRevision {
+                        profile_id,
+                        revision,
+                    } => Some(crate::config::Internal::ProfileRevision {
+                        id: profile_id,
+                        revision,
+                    }),
+                    _ => None,
+                };
+                if let Some(query) = query {
+                    let lookup = self.config.access().request(query).await;
+                    // Another in-flight copy may have completed while this
+                    // configuration request waited, including before a deletion.
+                    {
+                        let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                        if let Some(result) = store.pairing.grant_replay_definition(
+                            identity,
+                            request_id,
+                            &definition,
+                            lifetime_ms,
+                            self.now(),
+                        )? {
+                            return Ok(Reply::Agent(Self::grant_reply(result)));
+                        }
+                    }
+                    let profile = lookup.map_err(|e| {
+                        if matches!(e, config::ConfigError::NotFound) {
+                            ErrorCode::NotFound
+                        } else {
+                            ErrorCode::InvalidState
+                        }
+                    })?;
+                    let crate::config::Value::Profile(profile) = profile else {
+                        return Err(ErrorCode::InvalidState);
+                    };
+                    if matches!(profile.settings, config_store::Settings::Ssh1 { .. }) {
+                        return Err(ErrorCode::Unsupported);
+                    }
+                    if let Some(operation) = request.operation() {
+                        let descriptor =
+                            operation.descriptor().ok_or(ErrorCode::InvalidArgument)?;
+                        let protocol = match profile.settings {
+                            config_store::Settings::Ssh2 { .. } => Protocol::Ssh2,
+                            config_store::Settings::Serial { .. } => Protocol::Serial,
+                            _ => return Err(ErrorCode::Unsupported),
+                        };
+                        if protocol != descriptor.protocol {
+                            return Err(ErrorCode::InvalidArgument);
+                        }
+                    }
+                }
+            }
+            if let Some(operation) = request.operation() {
+                let descriptor = operation.descriptor().ok_or(ErrorCode::InvalidArgument)?;
+                if descriptor.action == session_core::access::Action::Reconnect {
+                    let validation = self.ssh.grant_profile(descriptor.connection.ok_or(ErrorCode::InvalidArgument)?)
+                        .and_then(|profile_id| {
+                            scopes.iter().any(|scope| matches!(scope.target,
+                                session_core::access::Target::ProfileRevision { profile_id: id, .. } if id == profile_id))
+                                .then_some(()).ok_or(ErrorCode::InvalidArgument)
+                        });
+                    if let Err(error) = validation {
+                        // An identical concurrent issuer may already have finished
+                        // before the live entry retired. Restore that receipt first.
+                        let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+                        if let Some(result) = store.pairing.grant_replay_definition(
+                            identity,
+                            request_id,
+                            &definition,
+                            lifetime_ms,
+                            self.now(),
+                        )? {
+                            return Ok(Reply::Agent(Self::grant_reply(result)));
+                        }
+                        return Err(error);
+                    }
+                }
+            }
+        }
+        // Revalidate identity and all current connection generations after asynchronous work.
+        self.handle(identity, Request::Agent { request })
+    }
+    fn grant_reply(result: session_core::pairing::grants::ResultView) -> agent::Reply {
+        agent::Reply::Grant {
+            receipt: result.view,
+            token: result
+                .token
+                .map(|token| Sensitive::new(token.expose().to_string())),
+        }
+    }
+    async fn handle_logging(
+        &self,
+        identity: &Identity,
+        request: logging::Request,
+    ) -> Result<Reply, ErrorCode> {
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            store.pairing.require_active(identity, self.now())?;
+            store.pairing.require_desktop(identity, self.now())?;
+        }
+        let name = if let logging::Request::Start { connection, .. } = &request {
+            let protocol = self
+                .store
+                .lock()
+                .map_err(|_| ErrorCode::InvalidState)?
+                .sessions
+                .info(*connection)
+                .ok()
+                .map(|c| c.protocol);
+            match protocol {
+                Some(Protocol::Ssh1 | Protocol::Ssh2) => match self
+                    .ssh
+                    .handle(ssh::Request::Status {
+                        connection: *connection,
+                    })
+                    .await
+                {
+                    Ok(ssh::Reply::Status(s)) => Some(s.server_host),
+                    _ => None,
+                },
+                Some(Protocol::Serial) => match self
+                    .serial
+                    .handle_authenticated(
+                        identity,
+                        serial::Request::Status {
+                            connection: *connection,
+                        },
+                    )
+                    .await
+                {
+                    Ok(serial::Reply::Status(s)) => Some(s.port),
+                    _ => None,
+                },
+                _ => None,
+            }
+        } else {
+            None
+        };
+        self.logging
+            .handle_named(request, name)
+            .await
+            .map(Reply::Logging)
+    }
+    async fn handle_serial(
+        &self,
+        identity: &Identity,
+        request: serial::Request,
+    ) -> Result<Reply, ErrorCode> {
+        let identity = self.operation_identity(identity, || operation::serial_key(&request))?;
+        self.serial
+            .handle_authenticated(&identity, request)
+            .await
+            .map(Reply::Serial)
+    }
+    async fn handle_ssh(
+        &self,
+        identity: &Identity,
+        request: ssh::Request,
+    ) -> Result<Reply, ErrorCode> {
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            store.pairing.require_active(identity, self.now())?;
+            if !store.pairing.is_agent(identity, self.now())?
+                || !matches!(
+                    request,
+                    ssh::Request::Start { .. }
+                        | ssh::Request::StartFixed { .. }
+                        | ssh::Request::ConnectStatus { .. }
+                        | ssh::Request::Reconnect { .. }
+                        | ssh::Request::ReconnectStatus { .. }
+                        | ssh::Request::ForgetStart { .. }
+                        | ssh::Request::ForgetStatus { .. }
+                        | ssh::Request::Disconnect { .. }
+                        | ssh::Request::DisconnectStatus { .. }
+                        | ssh::Request::Resize { .. }
+                        | ssh::Request::Write { .. }
+                        | ssh::Request::WriteText { .. }
+                        | ssh::Request::InputStatus { .. }
+                        | ssh::Request::Exec { .. }
+                        | ssh::Request::ExecStatus { .. }
+                        | ssh::Request::ExecCancel { .. }
+                        | ssh::Request::ExecRead { .. }
+                        | ssh::Request::ExecReadProtected { .. }
+                )
+            {
+                store.pairing.require_desktop(identity, self.now())?;
+            }
+            use ssh::Request as S;
+            match &request {
+                S::Reconnect { connection, .. }
+                | S::ReconnectStatus { connection, .. }
+                | S::ForgetStart { connection, .. }
+                | S::ForgetStatus { connection, .. }
+                | S::Disconnect { connection, .. }
+                | S::DisconnectStatus { connection, .. }
+                | S::Resize { connection, .. }
+                | S::Write { connection, .. }
+                | S::WriteText { connection, .. }
+                | S::InputStatus { connection, .. }
+                | S::Exec { connection, .. }
+                | S::ExecStatus { connection, .. }
+                | S::ExecCancel { connection, .. }
+                | S::ExecRead { connection, .. }
+                | S::ExecReadProtected { connection, .. } => {
+                    store.require_ssh1_desktop(identity, *connection)?
+                }
+                _ => {}
+            }
+        }
+        let identity = self.operation_identity(identity, || operation::ssh_key(&request))?;
+        self.ssh
+            .handle_authenticated(&identity, request)
+            .await
+            .map(Reply::Ssh)
+    }
+    fn operation_identity(
+        &self,
+        identity: &Identity,
+        key: impl FnOnce() -> Result<Option<session_core::authorization::OperationKey>, ErrorCode>,
+    ) -> Result<Identity, ErrorCode> {
+        let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        let now = self.now();
+        store.pairing.require_active(identity, now)?;
+        if store.pairing.is_agent(identity, now)?
+            && matches!(
+                store.pairing.authorization_form(identity, now)?,
+                session_core::authorization::Form::SingleOperation { .. }
+            )
+            && let Some(key) = key()?
+        {
+            return store.pairing.bind_operation(identity, key, now);
+        }
+        // Original-owner status/read/cancel queries do not initiate another operation.
+        Ok(identity.clone())
+    }
+    async fn handle_config(
+        &self,
+        identity: &Identity,
+        request: config::ConfigRequest,
+    ) -> Result<Reply, ErrorCode> {
+        if !request.validate() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        {
+            let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+            store.pairing.require_active(identity, self.now())?;
+            store.pairing.require_desktop(identity, self.now())?;
+        }
+        if matches!(&request, config::ConfigRequest::Recheck { service_id } if *service_id != self.service_id)
+        {
+            return Ok(Reply::Config(config::ConfigReply::Error {
+                code: config::ConfigError::Conflict,
+            }));
+        }
+        self.config
+            .request_owned(identity.ticket_id(), request)
+            .await
+            .map(Reply::Config)
+    }
+    pub(super) fn now(&self) -> u64 {
+        self.started.elapsed().as_millis().min(u64::MAX as u128) as u64
+    }
+    fn handle(&self, identity: &Identity, request: Request) -> Result<Reply, ErrorCode> {
+        request.validate()?;
+        let now = self.now();
+        let mut store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
+        store.pairing.require_active(identity, now)?;
+        match request {
+            Request::RpcAudit { view } => {
+                store.pairing.require_desktop(identity, now)?;
+                match view {
+                    rpc_audit::View::JournalInfo {} | rpc_audit::View::JournalPage { .. } => {
+                        self.audit_journal.query(view)
+                    }
+                    _ => self.request_audit.query(view),
+                }
+                .map(Reply::RpcAudit)
+            }
+            Request::Agent { request } => {
+                use agent::{Reply as R, Request as A};
+                let reply = match request {
+                    request @ (A::Grant { .. }
+                    | A::GrantTask { .. }
+                    | A::GrantOperation { .. }
+                    | A::GrantProtected { .. }) => {
+                        let spec = request.grant_spec()?.ok_or(ErrorCode::InvalidArgument)?;
+                        let request_id = spec.request_id;
+                        let lifetime_ms = spec.lifetime_ms;
+                        let definition = spec.definition()?;
+                        let scopes = &definition.scopes;
+                        store.pairing.require_desktop(identity, now)?;
+                        if let Some(result) = store.pairing.grant_replay_definition(
+                            identity,
+                            request_id,
+                            &definition,
+                            lifetime_ms,
+                            now,
+                        )? {
+                            return Ok(Reply::Agent(Self::grant_reply(result)));
+                        }
+                        for scope in scopes {
+                            if let Some(connection) = scope.target.connection() {
+                                let info = store.sessions.info(connection)?;
+                                if info.protocol == Protocol::Ssh1 {
+                                    return Err(ErrorCode::Unsupported);
+                                }
+                                if let Some(operation) = request.operation()
+                                    && operation
+                                        .descriptor()
+                                        .is_none_or(|d| d.protocol != info.protocol)
+                                {
+                                    return Err(ErrorCode::InvalidArgument);
+                                }
+                            }
+                        }
+                        if let Some(operation::Operation::Export(start)) = request.operation() {
+                            if start.service_id != self.service_id
+                                || store
+                                    .sessions
+                                    .ended_output(start.retained_ended_output.connection)?
+                                    != start.retained_ended_output
+                            {
+                                return Err(ErrorCode::InvalidArgument);
+                            }
+                        }
+                        Self::grant_reply(store.pairing.issue_managed_agent_definition(
+                            identity,
+                            request_id,
+                            definition,
+                            lifetime_ms,
+                            now,
+                        )?)
+                    }
+                    A::GrantStatus { request_id } => {
+                        Self::grant_reply(store.pairing.grant_status(identity, request_id, now)?)
+                    }
+                    A::GrantList {} => R::GrantList(store.pairing.grant_list(identity, now)?),
+                    A::GrantRevoke { request_id } => Self::grant_reply(
+                        store
+                            .pairing
+                            .revoke_managed_agent(identity, request_id, now)?,
+                    ),
+                    A::Acquire {
+                        connection,
+                        lifetime_ms,
+                    } => {
+                        store.require_ssh1_desktop(identity, connection)?;
+                        store.pairing.can_acquire(identity, connection, now)?;
+                        store.sessions.info(connection)?;
+                        R::Lease(Some(store.pairing.acquire_lease(
+                            identity,
+                            connection,
+                            lifetime_ms,
+                            now,
+                        )?))
+                    }
+                    A::Release {
+                        connection,
+                        lease_id,
+                    } => {
+                        store.require_ssh1_desktop(identity, connection)?;
+                        store
+                            .pairing
+                            .release_lease(identity, connection, lease_id, now)?;
+                        R::Ok
+                    }
+                    A::Lease { connection } => {
+                        store.require_ssh1_desktop(identity, connection)?;
+                        R::Lease(store.pairing.lease(identity, connection, now)?)
+                    }
+                    A::Takeover { connection } => {
+                        store.pairing.require_desktop(identity, now)?;
+                        store.sessions.info(connection)?;
+                        store.pairing.takeover(identity, connection, now)?;
+                        R::Ok
+                    }
+                    A::Audit { cursor, limit } => {
+                        R::Audit(store.pairing.audit(identity, cursor, limit, now)?)
+                    }
+                };
+                Ok(Reply::Agent(reply))
+            }
+            Request::Ping {} => Ok(Reply::Pong {
+                service_id: self.service_id,
+                uptime_ms: now,
+                ssh1_preview: (store.pairing.require_desktop(identity, now).is_ok()
+                    && crate::ssh::legacy::configured())
+                .then_some(true),
+            }),
+            Request::List {} => Ok(Reply::Sessions(store.visible_sessions(identity, now))),
+            Request::DesktopSnapshot {} => {
+                store.pairing.require_desktop(identity, now)?;
+                Ok(Reply::DesktopSnapshot {
+                    service_id: self.service_id,
+                    ssh1_preview: crate::ssh::legacy::configured(),
+                    sessions: store
+                        .visible_sessions(identity, now)
+                        .into_iter()
+                        .map(|info| {
+                            store
+                                .sessions
+                                .output_cursor(info.reference())
+                                .map(|cursor| (info, cursor))
+                        })
+                        .collect::<Result<_, ErrorCode>>()?,
+                })
+            }
+            Request::Context {
+                connection,
+                window,
+                view,
+            } => {
+                store.require_ssh1_desktop(identity, connection)?;
+                store.pairing.require_unfiltered_output(identity, now)?;
+                store
+                    .pairing
+                    .can_read_context(identity, connection, window, now)?;
+                Ok(Reply::Context(
+                    store.sessions.context(connection, window, view)?,
+                ))
+            }
+            Request::Read {
+                connection,
+                cursor,
+                max_bytes,
+            } => {
+                store.require_ssh1_desktop(identity, connection)?;
+                store.pairing.require_unfiltered_output(identity, now)?;
+                store.pairing.can_read(identity, connection, now)?;
+                Ok(Reply::Output(
+                    store.sessions.read(connection, cursor, max_bytes)?,
+                ))
+            }
+            Request::ReadText {
+                connection,
+                cursor,
+                max_bytes,
+            } => {
+                store.require_ssh1_desktop(identity, connection)?;
+                store.pairing.require_unfiltered_output(identity, now)?;
+                store.pairing.can_read(identity, connection, now)?;
+                Ok(Reply::Text(
+                    store.sessions.read_text(connection, cursor, max_bytes)?,
+                ))
+            }
+            Request::Screen { connection } => {
+                store.require_ssh1_desktop(identity, connection)?;
+                store.pairing.require_unfiltered_output(identity, now)?;
+                store.pairing.can_read(identity, connection, now)?;
+                Ok(Reply::Screen(store.sessions.screen(connection)?))
+            }
+            Request::ProtectedContext {
+                connection,
+                window,
+                view,
+            } => {
+                store.require_ssh1_desktop(identity, connection)?;
+                match window {
+                    Some(window) => store
+                        .pairing
+                        .can_read_context(identity, connection, window, now)?,
+                    None => store.pairing.can_read(identity, connection, now)?,
+                }
+                let policy = store
+                    .pairing
+                    .output_protection(identity, now)?
+                    .ok_or(ErrorCode::PermissionDenied)?;
+                Ok(Reply::ProtectedContext(
+                    store
+                        .sessions
+                        .protected_context(connection, window, view, &policy)?,
+                ))
+            }
+            request => {
+                store.pairing.require_desktop(identity, now)?;
+                match request {
+                    Request::IssueRead {
+                        scopes,
+                        lifetime_ms,
+                    } => {
+                        for scope in &scopes {
+                            if store.sessions.info(*scope)?.protocol == Protocol::Ssh1 {
+                                return Err(ErrorCode::Unsupported);
+                            }
+                        }
+                        let expires = now
+                            .checked_add(lifetime_ms)
+                            .ok_or(ErrorCode::InvalidArgument)?;
+                        let (identity, token) =
+                            store.pairing.issue_read(identity, scopes, expires, now)?;
+                        Ok(Reply::ReadTicket {
+                            ticket_id: identity.ticket_id(),
+                            token: Sensitive::new(token.expose().to_string()),
+                            expires_at_ms: expires,
+                        })
+                    }
+                    Request::Revoke { ticket_id } => {
+                        store.pairing.revoke(identity, ticket_id, now)?;
+                        Ok(Reply::Ok)
+                    }
+                    Request::Shutdown {} => {
+                        let _ = self.shutdown.send(true);
+                        Ok(Reply::Ok)
+                    }
+                    request if self.fixture => match request {
+                        Request::CreateFixture {} => {
+                            let initial = store.sessions.create(Protocol::Fixture)?;
+                            let active = store.sessions.begin_connect(initial.reference())?;
+                            Ok(Reply::Connection(
+                                store
+                                    .sessions
+                                    .transition(active.reference(), State::Connected)?,
+                            ))
+                        }
+                        Request::AppendFixture { connection, bytes } => {
+                            #[cfg(feature = "t19-timeline-fixture")]
+                            if let Some(timeline) = &self.timeline {
+                                if timeline.has_fault() {
+                                    return Err(ErrorCode::CapacityExceeded);
+                                }
+                                if bytes.len() != 16 * 1024 {
+                                    return Err(ErrorCode::InvalidArgument);
+                                }
+                            }
+                            if store.sessions.info(connection)?.protocol != Protocol::Fixture {
+                                return Err(ErrorCode::Unsupported);
+                            }
+                            let time = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .map_err(|_| ErrorCode::InvalidState)?
+                                .as_millis() as u64;
+                            store.sessions.append(connection, &bytes, time)?;
+                            Ok(Reply::Ok)
+                        }
+                        Request::ReconnectFixture { connection } => {
+                            if store.sessions.info(connection)?.protocol != Protocol::Fixture {
+                                return Err(ErrorCode::Unsupported);
+                            }
+                            store.sessions.transition(connection, State::Failed)?;
+                            let active = store.sessions.begin_connect(connection)?;
+                            store.pairing.retire_connection(connection, now);
+                            Ok(Reply::Connection(
+                                store
+                                    .sessions
+                                    .transition(active.reference(), State::Connected)?,
+                            ))
+                        }
+                        Request::CloseFixture { connection } => {
+                            if store.sessions.info(connection)?.protocol != Protocol::Fixture {
+                                return Err(ErrorCode::Unsupported);
+                            }
+                            store.sessions.transition(connection, State::Closing)?;
+                            store.pairing.retire_connection(connection, now);
+                            Ok(Reply::Connection(
+                                store.sessions.transition(connection, State::Disconnected)?,
+                            ))
+                        }
+                        Request::RemoveFixture { connection } => {
+                            if store.sessions.info(connection)?.protocol != Protocol::Fixture {
+                                return Err(ErrorCode::Unsupported);
+                            }
+                            store.sessions.remove(connection)?;
+                            store.pairing.retire_connection(connection, now);
+                            Ok(Reply::Ok)
+                        }
+                        _ => Err(ErrorCode::Unsupported),
+                    },
+                    _ => Err(ErrorCode::Unsupported),
+                }
+            }
+        }
+    }
+}
