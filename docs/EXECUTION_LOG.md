@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.71 登记 WebView 网页右键菜单禁用及自有菜单验收范围。[执行记录](records/P26.71.md)
+
 P26.70 交付会话配置删除试用候选，隔离启动和同目录 v14 验证通过。[执行记录](records/P26.70.md)
 
 P26.69 实现会话树独立删除确认及管理窗口回归，验收修订保护、迟到和失答、焦点及已有连接。[执行记录](records/P26.69.md)
@@ -592,6 +594,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.68 | 登记会话配置的独立删除确认 | DONE | [P26.68](records/P26.68.md) | Step-ID: P26.68 |
 | P26.69 | 实现独立删除确认和修订约束 | DONE | [P26.69](records/P26.69.md) | Step-ID: P26.69 |
 | P26.70 | 验收会话配置删除试用候选 | DONE | [P26.70](records/P26.70.md) | Step-ID: P26.70 |
+| P26.71 | 登记嵌入网页右键菜单范围 | DONE | [P26.71](records/P26.71.md) | Step-ID: P26.71 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
