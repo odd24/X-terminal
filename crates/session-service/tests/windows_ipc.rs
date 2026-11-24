@@ -2469,6 +2469,7 @@ async fn ssh2_service_changed_host_keys_stale_approval_and_closed_challenges_nev
             status.connection.state == State::Failed
         })
         .await;
+        assert_eq!(failed.connection.protocol, Protocol::Ssh2);
         assert_eq!(
             failed.failure,
             Some(if approve {
@@ -2504,6 +2505,15 @@ async fn ssh2_service_changed_host_keys_stale_approval_and_closed_challenges_nev
         }
     ));
     assert_eq!(remote.attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+    let Reply::Sessions(sessions) = ok(client.request(Request::List {}).await.unwrap()) else {
+        panic!();
+    };
+    assert_eq!(sessions.len(), 3);
+    assert!(
+        sessions
+            .iter()
+            .all(|session| session.protocol == Protocol::Ssh2)
+    );
     let conn = rusqlite::Connection::open(temp.0.join("config.sqlite")).unwrap();
     let saved: Vec<u8> = conn
         .query_row("SELECT key FROM host_keys", [], |row| row.get(0))
