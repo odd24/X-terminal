@@ -2,7 +2,7 @@
 
 共享终端是用于 SSH 服务器工作、串口/UART 调试与日志采集的 Windows 桌面应用，支持通过 MCP 与 Codex 共享已批准的会话。
 
-**本机已安装 Windows x64 0.1.38。** 从开始菜单打开「共享终端」。直接使用便携包时，保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [0.1.38 部署验证](docs/records/P26.63.md)
+**本机已安装 Windows x64 0.1.38。** 从开始菜单打开「共享终端」。直接使用便携包时，保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [部署验证](docs/records/P26.63.md) · [旧版卸载](docs/records/P26.67.md)
 
 ## 日常使用
 

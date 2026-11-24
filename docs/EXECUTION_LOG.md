@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.67 完成 16 个当前用户旧安装及三个旧入口的卸载，安装根和开始菜单仅剩 0.1.38，最终隔离启动与注册路径复验通过。[执行记录](records/P26.67.md)
+
 P26.66 将 Codex 中 shared-terminal 的首选和回退路径切到 0.1.38，复验 v14 并断开 0.1.36 旧桥。[执行记录](records/P26.66.md)
 
 P26.65 卸载 13 个独立旧版本目录及无版本号的 0.1.0，保留当时仍被注册引用或占用的两版供后续切换。[执行记录](records/P26.65.md)
@@ -580,6 +582,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.64 | 适配旧安装路径的 MCP 启动入口 | DONE | [P26.64](records/P26.64.md) | Step-ID: P26.64 |
 | P26.65 | 卸载无占用和引用的历史安装 | DONE | [P26.65](records/P26.65.md) | Step-ID: P26.65 |
 | P26.66 | 切换全局 shared-terminal 注册并断开旧桥 | DONE | [P26.66](records/P26.66.md) | Step-ID: P26.66 |
+| P26.67 | 完成当前用户旧版卸载 | DONE | [P26.67](records/P26.67.md) | Step-ID: P26.67 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
