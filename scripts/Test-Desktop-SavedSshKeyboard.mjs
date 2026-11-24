@@ -55,6 +55,7 @@ async function startPeer(label) {
 }
 
 const pinReview = '[aria-label="当前服务器指纹"]';
+const legacyPin = '[aria-label="快速连接核对指纹"]';
 const password = '[aria-label="SSH登录密码"]';
 const find = '[aria-label="终端查找文字"]';
 const toolsClosed = 'document.querySelector(".tools-menu").open === false';
@@ -115,11 +116,18 @@ try {
     assert.deepEqual((await list()).map(connectionRef), before.map(connectionRef));
     await tabTo(activeText('连接选中配置'), `连接 ${peer.profile.name}`);
     await enter();
-    await ui.waitFor(exists(pinReview));
+    await ui.waitFor(exists(pinReview)+'||'+exists(legacyPin));
     assert.equal(await ui.evaluate(`document.querySelector('dialog:modal .fingerprint').textContent`), peer.pin);
-    await ui.waitFor(activeText('暂不连接'));
     assert.equal((await peer.metrics()).attempts, 0);
-    await tabTo(activeText('指纹一致，信任并继续'), `信任 ${peer.profile.name}`);
+    if(await ui.evaluate(exists(pinReview))){
+      await ui.waitFor(activeText('暂不连接'));
+      await tabTo(activeText('指纹一致，信任并继续'), `信任 ${peer.profile.name}`);
+    }else{
+      assert.equal(await ui.evaluate(`document.querySelector(${JSON.stringify(legacyPin)}).checked`),false);
+      await tabTo(active(legacyPin),`指纹 ${peer.profile.name}`);
+      await key(' ','Space',32,{text:' '});
+      await tabTo(activeText('信任并继续登录'), `信任 ${peer.profile.name}`);
+    }
     await enter();
     await ui.waitFor(`${active(password)} && !document.activeElement.disabled`);
     await recordFocus(`临时密码 ${peer.profile.name}`);

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
 let directory, fixture, ui, stall;const sockets=new Set();
+const executableArg=process.argv.slice(2).find(arg=>!arg.startsWith('--'));
 const wait=async(test,label,attempts=300)=>{for(let n=0;n<attempts;n++){if(await test())return;await delay(100);}throw new Error(`Timed out: ${label}`);};
 try {
  directory=await mkdtemp(path.join(tmpdir(),'shared-terminal-ssh-dialog-ui-中文-'));
@@ -14,7 +15,7 @@ try {
  const lines=createInterface({input:fixture.stdout})[Symbol.asyncIterator]();
  const next=async()=>{let timer;try{return await Promise.race([lines.next().then(x=>JSON.parse(x.value)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('fixture timeout')),10000);})]);}finally{clearTimeout(timer);}};
  const server=await next();const control=async r=>{fixture.stdin.write(JSON.stringify(r)+'\n');return next();};
- ui=await launchDesktop(directory,{fixture:true,executable:process.argv[2]?path.resolve(process.argv[2]):undefined});
+ ui=await launchDesktop(directory,{fixture:true,executable:executableArg?path.resolve(executableArg):undefined});
  await ui.evaluate(`window.__dialogFocusTrace=[];document.addEventListener('focusin',e=>{window.__dialogFocusTrace.push({tag:e.target.tagName,label:e.target.getAttribute('aria-label'),class:e.target.className});if(window.__dialogFocusTrace.length>30)window.__dialogFocusTrace.shift();});`);
  const modal=()=>ui.evaluate(`!!document.querySelector('dialog:modal')`);
  const selected=()=>ui.evaluate(`document.querySelector('[data-active="true"] [role="tab"][aria-selected="true"]')?.dataset.connectionId`);
