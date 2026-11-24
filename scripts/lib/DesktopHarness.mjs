@@ -1,10 +1,64 @@
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { createInterface } from 'node:readline';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+export async function createSshFixtureScope(prefix, {maxRetries=15,
+  executable=path.resolve('target/debug/examples/gui_ssh_fixture.exe')}={}) {
+  const parent=path.resolve(tmpdir());
+  const root=await mkdtemp(path.join(parent,prefix));
+  const fixtures=[];
+  async function start(name) {
+    assert.equal(path.basename(name),name);
+    const directory=path.join(root,name);
+    assert.equal(path.dirname(directory),root);
+    await mkdir(directory);
+    const child=spawn(executable,[directory],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+    let processError;
+    child.on('error',error=>{processError=error;});
+    child.stdin.on('error',error=>{processError=error;});
+    child.stderr.resume();
+    const closed=new Promise(resolve=>child.once('close',resolve));
+    fixtures.push({child,closed});
+    const lines=createInterface({input:child.stdout})[Symbol.asyncIterator]();
+    async function next() {
+      let timer;
+      try {
+        const line=await Promise.race([lines.next(),new Promise((_,reject)=>{
+          timer=setTimeout(()=>reject(new Error('Owned SSH fixture did not respond')),8000);
+        })]);
+        if(line.done)throw processError??new Error('Owned SSH fixture closed before replying');
+        return JSON.parse(line.value);
+      }finally{clearTimeout(timer);}
+    }
+    return {...await next(),control:async message=>{
+      child.stdin.write(JSON.stringify(message)+'\n');
+      return next();
+    }};
+  }
+  async function close() {
+    await Promise.all(fixtures.map(async ({child,closed})=>{
+      if(!child.stdin.destroyed)child.stdin.end();
+      const watchdog=setTimeout(()=>child.kill(),8000);
+      try{await closed;}finally{clearTimeout(watchdog);}
+    }));
+    assert.equal(path.dirname(root),parent);
+    assert.ok(path.basename(root).startsWith(prefix));
+    await rm(root,{recursive:true,force:true,maxRetries,retryDelay:100});
+  }
+  return {root,start,close};
+}
+
+export async function desktopEvidence(executable) {
+  return {executable,desktopSha256:createHash('sha256').update(await readFile(executable)).digest('hex')};
+}
+
 export function dragNativeWindow(app, points, {executable=path.resolve('target/debug/shared-terminal-desktop.exe'), title, raise=false, placeAtWorkAreaStart=false, click, atomicDrag=false}={}) {
   execFileSync('pwsh',['-NoProfile','-File','scripts/lib/Drag-TestWindow.ps1','-TargetProcessId',String(app.pid),'-ExpectedExecutable',executable,
     '-Points',JSON.stringify(points),...(title?['-Title',title]:[]),...(raise?['-Raise']:[]),
@@ -68,7 +122,7 @@ export async function launchDesktop(directory, {fixture = false, executable = pa
   let nativeErrors='';app.stderr.on('data',chunk=>{nativeErrors=(nativeErrors+chunk.toString()).slice(-8192);});
   let startupError; app.on('error', error => { startupError = error; });
   let page; let pid;
-  const stopped=()=>app.exitCode!==null || app.signalCode!==null;
+  const stopped=()=>app.exitCode!==null || app.signalCode!==null || (!app.pid&&!!startupError);
   const cleanup = async () => {
     page?.close(); if (!stopped()) app.kill();
     for (let attempt = 0; attempt < 100 && (!stopped() || (pid && alive(pid))); attempt++) await delay(50);

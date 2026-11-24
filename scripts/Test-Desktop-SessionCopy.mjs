@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawn} from 'node:child_process';
-import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
-import {tmpdir} from 'node:os';
+import {readFile, stat, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {createInterface} from 'node:readline';
 import {requestId} from '../apps/desktop/src/request-id.ts';
-import {connectDesktopPage, delay, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
+import {connectDesktopPage, createSshFixtureScope, delay, desktopEvidence, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
 import {checkLogToolbar,checkMainToolbar,measureCompactToolbar,measurePopup} from './lib/ToolbarMenuChecks.mjs';
 import {checkConnectionPanels} from './lib/ConnectionPanelChecks.mjs';
 import {checkCornerNotices} from './lib/CornerNoticeChecks.mjs';
@@ -23,8 +21,7 @@ const tabVersion=path.basename(path.dirname(desktop)).match(/^SharedTerminal-(\d
 const version=tabInteractions?tabVersion:notices?'0.1.12':panels?'0.1.11':refresh?'0.1.10':'0.1.9';
 const artifact=notices?'corner-notices':panels?'connection-panels':refresh?'toolbar':uartMode?'session-copy-uart':copyRaces?'session-copy-races':'session-copy-ssh';
 const rootPrefix=notices?'shared-terminal-log-viewer-ui-中文-':'shared-terminal-session-copy-ui-中文-';
-const root=await mkdtemp(path.join(tmpdir(),rootPrefix));
-const processes=[];
+const {root,start:source,close:closeFixtures}=await createSshFixtureScope(rootPrefix);
 const title='共享终端';
 const childTitle='共享终端 · 独立会话';
 let ui, detached, service, evidence;
@@ -43,21 +40,6 @@ const metric=(peer)=>peer.control({op:'metrics'});
 async function wait(read,label){
   for(let i=0;i<150;i++){const value=await read();if(value)return value;await delay(70);}
   throw new Error(`Timed out: ${label}`);
-}
-async function source(name){
-  const dir=path.join(root,name);
-  await mkdir(dir);
-  const process=spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'),[dir],{windowsHide:true,stdio:['pipe','pipe','pipe']});
-  processes.push(process);
-  const lines=createInterface({input:process.stdout})[Symbol.asyncIterator]();
-  async function read(){
-    let timer;
-    try{return JSON.parse((await Promise.race([lines.next(),new Promise((_,reject)=>{
-      timer=setTimeout(()=>reject(new Error('Owned SSH fixture did not respond')),8000);
-    })])).value);}
-    finally{clearTimeout(timer);}
-  }
-  return {...await read(),control:async message=>{process.stdin.write(JSON.stringify(message)+'\n');return read();}};
 }
 async function connect(peer,saved){
   const settings={protocol:'ssh2',host:'localhost',port:peer.port,username:'synthetic',auth:'password',encoding:'utf8'};
@@ -494,7 +476,7 @@ try{
     await ui.evaluate(`${tab(b)}.closest('[data-pane]').querySelector('.pane-collapse').click()`);
     await ui.waitFor("document.querySelectorAll('[data-pane]').length===1");
     await checkMixedTabs(a,bCopy);
-    evidence={result:'PASS',executable:desktop,desktopSha256:createHash('sha256').update(await readFile(desktop)).digest('hex'),
+    evidence={result:'PASS',
       mixedTabInteraction:true,sshDoubleClick:true,temporaryAuthentication:true,isolatedInput:true,copyPane};
   }else{
     const first=await source('saved-peer'),second=await source('temporary-peer');
@@ -598,22 +580,14 @@ try{
       detachedCopyRouting:true,lostReplyRecoveredWithoutReplay:true};
   }
   await close();
-  await writeFile(`artifacts/windows-${version}-${artifact}.json`,JSON.stringify(evidence,null,2)+'\n');
+  await writeFile(`artifacts/windows-${version}-${artifact}.json`,JSON.stringify({...evidence,...await desktopEvidence(desktop)},null,2)+'\n');
   console.log(copyRaces?'PASS delayed copy status, duplicate gesture and closed source focus':tabInteractions?'PASS mixed local and SSH tabs, SSH double-click and exact copy input':notices?'PASS Windows corner notices, immediate dismissal and exact native actions':panels?'PASS Windows connection panels, exact lifecycle receipts, pane controls and unchanged toolbar':refresh?'PASS compact Windows toolbar, both themes and sizes, split, native detached and exact recording':`PASS Windows session copy ${uartMode?'memory UART exclusivity':'saved and temporary SSH, exact input, title seam and native windows'}`);
 }catch(error){
   if(ui)await ui.screenshot(`desktop-${version}-${artifact}-failure.png`).catch(()=>{});
   throw error;
 }finally{
-  detached?.close();
-  await ui?.close();
-  for(const process of processes){
-    if(process.exitCode===null&&process.signalCode===null){
-      const exited=new Promise(resolve=>process.once('exit',resolve));
-      process.stdin.end();
-      await exited;
-    }
-  }
-  assert.equal(path.dirname(root),path.resolve(tmpdir()));
-  assert.ok(path.basename(root).startsWith(rootPrefix));
-  await rm(root,{recursive:true,force:true,maxRetries:15,retryDelay:100});
+  try{
+    detached?.close();
+    await ui?.close();
+  }finally{await closeFixtures();}
 }

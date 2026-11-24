@@ -1,17 +1,15 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawn} from 'node:child_process';
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {readFile, writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import {createInterface} from 'node:readline';
 import {requestId} from '../apps/desktop/src/request-id.ts';
-import {connectDesktopPage, delay, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
+import {connectDesktopPage, createSshFixtureScope, delay, desktopEvidence, dragNativeWindow, launchDesktop} from './lib/DesktopHarness.mjs';
 import {closeSoakDesktop} from './lib/LoadSoak.mjs';
 import {checkMainToolbar,checkNewConnectionMenu,checkLogToolbar} from './lib/ToolbarMenuChecks.mjs';
 import {checkNoticeActions,checkToolbarDirectory,observeLogDirectory,waitForStopNotice} from './lib/RecordingNoticeChecks.mjs';
 
-const root = await mkdtemp(path.join(tmpdir(), 'shared-terminal-pane-groups-ui-中文-'));
 const desktop = path.resolve(process.argv[2]);
+const {root,start:synthetic,close:closeFixtures}=await createSshFixtureScope('shared-terminal-pane-groups-ui-中文-',{maxRetries:20});
 const toolbarChecks=process.argv.includes('--toolbar');
 const dockProbe=process.argv.includes('--dock-toolbar');
 const notices=process.argv.includes('--recording-notices');
@@ -21,7 +19,6 @@ const version=requestedVersion??'0.1.5';
 const tabRecording=notices||process.argv.includes('--tab-recording');
 const evidence=requestedVersion??(notices?version:toolbarChecks||dockProbe||tabRecording?'0.1.4':'0.1.2');
 const toolbar=[];
-const processes = [];
 let main, child;
 const wait = async (check, label) => {
   for (let attempt=0; attempt<120; attempt++) {
@@ -46,19 +43,6 @@ const fit = async width => {
   await main.waitFor(`Math.abs(innerWidth-${measurement.clientWidth*96/measurement.dpi})<=1`);
 };
 const center = rect => ({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
-async function synthetic(name) {
-  const directory=path.join(root,name);
-  await mkdir(directory);
-  const proc=spawn(path.resolve('target/debug/examples/gui_ssh_fixture.exe'),[directory],{windowsHide:true,stdio:['pipe','pipe','pipe']});
-  processes.push(proc);
-  const lines=createInterface({input:proc.stdout})[Symbol.asyncIterator]();
-  async function next() {
-    let timer;
-    try { return await Promise.race([lines.next().then(line=>JSON.parse(line.value)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('SSH fixture timed out')),8000);})]); }
-    finally { clearTimeout(timer); }
-  }
-  return {...await next(), control:async message=>{proc.stdin.write(JSON.stringify(message)+'\n');return next();}};
-}
 async function connect(peer,host) {
   const request = value => main.invoke('ssh_request',{request:value});
   const c = (await request({op:'quick_start',settings:{protocol:'ssh2',host,port:peer.port,username:'synthetic',auth:'password',encoding:'utf8'},
@@ -473,16 +457,11 @@ try{
   }
   throw error;
 }finally{
-  child?.close();
-  await main?.close();
-  for(const process of processes){
-    if(process.exitCode!==null||process.signalCode!==null)continue;
-    const exited=new Promise(resolve=>process.once('exit',resolve));process.stdin.end();await exited;
-  }
-  assert.equal(path.dirname(root),path.resolve(tmpdir()));
-  assert.ok(path.basename(root).startsWith('shared-terminal-pane-groups-ui-中文-'));
-  await rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100});
+  try{
+    child?.close();
+    await main?.close();
+  }finally{await closeFixtures();}
 }
-await writeFile(notices?`artifacts/windows-${evidence}-recording-notices.json`:tabRecording?`artifacts/windows-${evidence}-tab-recording-ssh.json`:dockProbe?`artifacts/windows-${evidence}-dock-toolbar.json`:`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify(report,null,2)+'\n');
+await writeFile(notices?`artifacts/windows-${evidence}-recording-notices.json`:tabRecording?`artifacts/windows-${evidence}-tab-recording-ssh.json`:dockProbe?`artifacts/windows-${evidence}-dock-toolbar.json`:`artifacts/windows-${evidence}-pane-groups.json`,JSON.stringify({...report,...await desktopEvidence(desktop)},null,2)+'\n');
 console.log(notices?'PASS fixed log directory, verified stop notices, timeouts and exact original file':tabRecording?'PASS SSH tab recording, exact unknown recovery, synced file, split and detached window':dockProbe?'PASS detached toolbar popup and native dock return':
   `PASS pane tabs, nested geometry, input, recording and docking (${webviewDrags?'WebView in-window drags':'native in-window drags'})`);
