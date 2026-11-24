@@ -1,0 +1,35 @@
+//! Published wire names shared by discovery and dispatch.
+
+pub(super) const TERMINAL_READ: &str = "terminal_read";
+pub(super) const LOGS_EXPORT: &str = "logs_export";
+pub(super) const LOGS_EXPORT_STATUS: &str = "logs_export_status";
+pub(super) const LOGS_EXPORT_CANCEL: &str = "logs_export_cancel";
+pub(super) const TERMINAL_WAIT: &str = "terminal_wait";
+pub(super) const SSH_RESIZE: &str = "ssh_resize";
+pub(super) const SERIAL_CONNECT: &str = "serial_connect";
+pub(super) const SERIAL_CONNECT_STATUS: &str = "serial_connect_status";
+pub(super) const SSH_CONNECT: &str = "ssh_connect";
+pub(super) const SSH_CONNECT_STATUS: &str = "ssh_connect_status";
+pub(super) const SSH_RECONNECT: &str = "ssh_reconnect";
+pub(super) const SSH_RECONNECT_STATUS: &str = "ssh_reconnect_status";
+pub(super) const SESSIONS_FORGET: &str = "sessions_forget";
+pub(super) const SESSIONS_FORGET_STATUS: &str = "sessions_forget_status";
+pub(super) const SESSIONS_DISCONNECT: &str = "sessions_disconnect";
+pub(super) const SESSIONS_DISCONNECT_STATUS: &str = "sessions_disconnect_status";
+pub(super) const SERIAL_WRITE: &str = "serial_write";
+pub(super) const SERIAL_CONTROL: &str = "serial_control";
+pub(super) const SSH_EXEC: &str = "ssh_exec";
+pub(super) const TASKS_GET: &str = "tasks_get";
+pub(super) const TASKS_CANCEL: &str = "tasks_cancel";
+pub(super) const AGENT_STATUS: &str = "agent_status";
+pub(super) const SESSIONS_LIST: &str = "sessions_list";
+pub(super) const TERMINAL_SCREEN: &str = "terminal_screen";
+pub(super) const TERMINAL_SEND: &str = "terminal_send";
+pub(super) const TERMINAL_INPUT_STATUS: &str = "terminal_input_status";
+pub(super) const INPUT_LEASE: &str = "input_lease";
+pub(super) const INPUT_ACQUIRE: &str = "input_acquire";
+pub(super) const INPUT_RELEASE: &str = "input_release";
+pub(super) const SHORTCUTS_LIST: &str = "shortcuts_list";
+pub(super) const SHORTCUTS_CREATE: &str = "shortcuts_create";
+pub(super) const SHORTCUTS_UPDATE: &str = "shortcuts_update";
+pub(super) const SHORTCUTS_REMOVE: &str = "shortcuts_remove";

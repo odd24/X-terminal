@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.46 统一 MCP 工具名并提取调用解码，复验 v13 目录、旧桥、等待及并发拒绝顺序。[执行记录](records/P26.46.md)
+
 P26.45 移出 SSH 输入接纳，复验有界派发、原编号及传输边界。[执行记录](records/P26.45.md)
 
 P26.44 移出会话服务领域分派，保留身份核对及审计回复顺序。[执行记录](records/P26.44.md)
@@ -517,6 +519,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.43 | R5 命名管道握手与连接审计 | DONE | [P26.43](records/P26.43.md) | Step-ID: P26.43 |
 | P26.44 | R5 会话服务领域分派 | DONE | [P26.44](records/P26.44.md) | Step-ID: P26.44 |
 | P26.45 | R6 SSH 输入接纳和传输边界 | DONE | [P26.45](records/P26.45.md) | Step-ID: P26.45 |
+| P26.46 | R7 MCP 工具目录和调用解码 | DONE | [P26.46](records/P26.46.md) | Step-ID: P26.46 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |

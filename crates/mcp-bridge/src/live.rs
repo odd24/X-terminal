@@ -16,6 +16,8 @@ use std::sync::Arc;
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 use uuid::Uuid;
 
+mod decode;
+mod names;
 mod wait;
 
 type Pipe = tokio::sync::Mutex<Option<NamedPipeClient>>;
@@ -162,6 +164,17 @@ struct SerialControlArgs {
 fn fail(code: &str) -> CallToolResponse {
     CallToolResult::structured_error(json!({"mock":false,"error_code":code})).into()
 }
+
+fn admit_request(
+    permits: &tokio::sync::Semaphore,
+    request: CallToolRequestParams,
+) -> Result<(tokio::sync::SemaphorePermit<'_>, RequestMessage), &'static str> {
+    let permit = permits.try_acquire().map_err(|_| "INPUT_BUSY")?;
+    let args = Value::Object(request.arguments.unwrap_or_default());
+    let message = decode::request(request.name.as_ref(), args).ok_or("INVALID_ARGUMENT")?;
+    Ok((permit, message))
+}
+
 fn live_tool<T: schemars::JsonSchema>(
     name: &'static str,
     description: &'static str,
@@ -193,21 +206,6 @@ fn shortcut_tool<T: schemars::JsonSchema, U: schemars::JsonSchema>(
             .open_world(false),
     )
 }
-fn shortcut_request<T: serde::de::DeserializeOwned, U: serde::de::DeserializeOwned>(
-    args: Value,
-    legacy: fn(T) -> shortcuts::Request,
-    extended: fn(U) -> shortcuts::v2::Request,
-) -> Option<RequestMessage> {
-    Some(match serde_json::from_value(args).ok()? {
-        shortcuts::Compatible::Legacy(args) => RequestMessage::Shortcuts {
-            request: legacy(args),
-        },
-        shortcuts::Compatible::Extended(args) => RequestMessage::ShortcutsV2 {
-            request: extended(args),
-        },
-    })
-}
-
 impl Bridge {
     async fn request(&self, request: RequestMessage) -> std::io::Result<ResultMessage> {
         let mut slot = self.pipe.lock().await;
@@ -237,7 +235,7 @@ impl Bridge {
 }
 fn terminal_read_tool() -> Tool {
     let mut tool = live_tool::<OutputArgs>(
-        "terminal_read",
+        names::TERMINAL_READ,
         "Read approved retained output. Use view info first to get through_cursor. For view text, use that fixed through_cursor, cursor>=1, and max_bytes 16384..65536 (16–64 KiB) with either ordinary or protected Read. View screen uses through_cursor and no max_bytes. Raw output is unavailable through this tool. Window grants require the approved time window.",
         true,
     );
@@ -267,166 +265,166 @@ impl ServerHandler for Bridge {
     ) -> Result<ListToolsResult, ErrorData> {
         Ok(ListToolsResult::with_all_items(vec![
             live_tool::<session_protocol::export::Start>(
-                "logs_export",
+                names::LOGS_EXPORT,
                 "Prepare protected UTF-8 text from the exact ended SSH2 or SERIAL retained output approved in Desktop. Copy the fixed Desktop arguments. Returns safe status and an opaque artifact ID. On unknown delivery only query logs_export_status using the original request ID and connection.",
                 false,
             ),
             live_tool::<session_protocol::export::Query>(
-                "logs_export_status",
+                names::LOGS_EXPORT_STATUS,
                 "Query only the original protected export receipt using the same valid ticket, connection and request ID. A missing receipt leaves the outcome unknown.",
                 true,
             ),
             live_tool::<session_protocol::export::Query>(
-                "logs_export_cancel",
+                names::LOGS_EXPORT_CANCEL,
                 "Cancel an unpublished protected export with the original valid ticket, connection and request ID. A completed receipt remains completed.",
                 false,
             ),
             live_tool::<wait::Args>(
-                "terminal_wait",
+                names::TERMINAL_WAIT,
                 "Wait up to 30 seconds for a case-sensitive literal in the exact connection's continuous authorized text. Requires full Read. Protected grants match only protected text. Reports match, timeout, disconnection or gap with source cursors. No regex or time-window fallback.",
                 true,
             ),
             live_tool::<SshResizeArgs>(
-                "ssh_resize",
+                names::SSH_RESIZE,
                 "Request explicit SSH2 terminal dimensions (2–500 columns, 1–200 rows) for an exact generation and caller-fixed request ID. Requires independent Control approval and current input lease. PIPELINE_QUEUED means pipeline acceptance. On unknown delivery query terminal_input_status with SSH2 and the original connection and request ID.",
                 false,
             ),
             live_tool::<session_protocol::serial::ConnectTarget>(
-                "serial_connect",
+                names::SERIAL_CONNECT,
                 "Create one SERIAL connection using the exact profile revision, inventory revision, device ID and request ID provided after Desktop Single approval. Opening applies the approved profile's initial line states. The creation snapshot does not prove the port opened. If delivery is unknown only query serial_connect_status.",
                 false,
             ),
             live_tool::<session_protocol::serial::ConnectTarget>(
-                "serial_connect_status",
+                names::SERIAL_CONNECT_STATUS,
                 "Read only the original SERIAL Connect creation snapshot using the same valid ticket and exact approved arguments. A missing receipt leaves the outcome unknown. Do not replay Connect.",
                 true,
             ),
             live_tool::<ConnectArgs>(
-                "ssh_connect",
+                names::SSH_CONNECT,
                 "Create an SSH2 connection from a saved profile with its exact approved revision. Fix the request_id and dimensions first. Requires ProfileRevision Connect approval. Desktop handles host trust and authentication. Creation does not confirm online status or grant session access. If delivery is unknown only query ssh_connect_status.",
                 false,
             ),
             live_tool::<ConnectStatusArgs>(
-                "ssh_connect_status",
+                names::SSH_CONNECT_STATUS,
                 "Read only the original fixed-profile SSH2 Connect creation snapshot with the same valid ticket, profile_id, revision and request_id. A missing receipt leaves the outcome unknown. Do not replay Connect.",
                 true,
             ),
             live_tool::<ReconnectArgs>(
-                "ssh_reconnect",
+                names::SSH_RECONNECT,
                 "Start SSH2 on the next generation of an ended saved-profile connection. Fix request_id and dimensions first. Requires independent Reconnect approval and current lease for the old generation, plus fixed Profile/revision Connect in the same ticket. Desktop retains host trust and authentication. The creation snapshot does not confirm online status. On unknown delivery only query ssh_reconnect_status.",
                 false,
             ),
             live_tool::<ReconnectStatusArgs>(
-                "ssh_reconnect_status",
+                names::SSH_RECONNECT_STATUS,
                 "Read the retained SSH2 creation snapshot with the original valid ticket, previous connection generation and request_id. This only looks up the original Reconnect receipt, including after old scope retirement. A missing receipt leaves the outcome unknown; do not replay Reconnect.",
                 true,
             ),
             live_tool::<StatusArgs>(
-                "sessions_forget",
+                names::SESSIONS_FORGET,
                 "Remove the record for an ended SSH2 or SERIAL connection after verified local cleanup. Requires independent Forget approval and current lease for the exact connection generation and caller-fixed request_id. REMOVED covers only the session record; saved profiles, logs and files are retained. After a known INVALID_STATE, the caller may explicitly retry the same number once cleanup and authority are confirmed. On unknown delivery only query sessions_forget_status.",
                 false,
             ),
             live_tool::<StatusArgs>(
-                "sessions_forget_status",
+                names::SESSIONS_FORGET_STATUS,
                 "Query only the original Forget receipt using the same valid ticket, transport, connection generation and request_id, including after retirement. A missing reply or receipt leaves the outcome unknown; do not replay Start.",
                 true,
             ),
             live_tool::<StatusArgs>(
-                "sessions_disconnect",
+                names::SESSIONS_DISCONNECT,
                 "Request cancellation of an existing SSH2 or SERIAL connection by exact generation and caller-fixed request_id. Requires independent Disconnect approval and input lease. REQUESTED means cancellation was dispatched; TRANSPORT_ENDED means the service observed local transport cleanup. On unknown delivery query sessions_disconnect_status with the original ticket and arguments.",
                 false,
             ),
             live_tool::<StatusArgs>(
-                "sessions_disconnect_status",
+                names::SESSIONS_DISCONNECT_STATUS,
                 "Query the original Disconnect receipt with the same valid ticket, transport, connection generation and request_id. Can recover after scope and lease retirement. A missing reply or receipt leaves the outcome unknown; do not replay Start.",
                 true,
             ),
             live_tool::<SerialWriteArgs>(
-                "serial_write",
+                names::SERIAL_WRITE,
                 "Send 1..16384 exact integer bytes (0..255) on an existing approved SERIAL connection; no encoding or newline. Requires independent Write and input lease. Native-request-bound connection plus checked request_id receipt; not proof of device execution. Unknown delivery: query terminal_input_status(SERIAL) with the original connection/generation/request_id, never replay or change action under that ID.",
                 false,
             ),
             live_tool::<SerialControlArgs>(
-                "serial_control",
+                names::SERIAL_CONTROL,
                 "Apply one explicit DTR/RTS/BREAK asserted boolean on an existing approved SERIAL connection; no default or pulse. Independent Control and input lease; Write is not Control. Native-request-bound connection plus checked request_id receipt. Unknown delivery only queries terminal_input_status(SERIAL), never replays a control pulse. No inventory, configuration, open/close or physical completion claim.",
                 false,
             ),
             live_tool::<ExecArgs>(
-                "ssh_exec",
+                names::SSH_EXEC,
                 "Start one SSH2 exec with independent Exec scope and lease; command <=16KiB, timeout 1..120000ms, output budget 1..1048576 bytes. Fix a caller RFC9562 UUIDv7 request_id first: task_id is the same ID. Unknown delivery never means not executed: only query that task on the same owner/connection/generation, never automatically retry Start or create a new grant to inherit it.",
                 false,
             ),
             live_tool::<TaskGetArgs>(
-                "tasks_get",
+                names::TASKS_GET,
                 "Inspect only this ticket's task with explicit connection/generation/task_id. view status or bounded output (cursor>=1,max_bytes 16384..65536). Unprotected output requires through_cursor=null. Protected output with null first returns protected metadata, then pass its fixed through_cursor for text. No raw fallback. NotFound/REQUEST_EXPIRED/restart is not proof of non-execution; a failed bridge must be explicitly recovered with the original valid ticket before querying.",
                 true,
             ),
             live_tool::<TaskArgs>(
-                "tasks_cancel",
+                names::TASKS_CANCEL,
                 "Request cancellation of only this ticket's existing task. Already executed actions cannot be undone; cancelling is not proof of remote termination. Keep the exact task/connection/generation. Never retry Start.",
                 false,
             ),
             live_tool::<ListArgs>(
-                "agent_status",
+                names::AGENT_STATUS,
                 "Native pairing status. No token; approval snapshot is not current permission.",
                 true,
             ),
             live_tool::<ListArgs>(
-                "sessions_list",
+                names::SESSIONS_LIST,
                 "List only sessions visible to this Agent. No implicit current tab.",
                 true,
             ),
             terminal_read_tool(),
             live_tool::<ScreenArgs>(
-                "terminal_screen",
+                names::TERMINAL_SCREEN,
                 "Reconstruct an approved screen at the fixed output watermark. Not a promise of complete VT compatibility.",
                 true,
             ),
             live_tool::<SendArgs>(
-                "terminal_send",
+                names::TERMINAL_SEND,
                 "Send exact text to the explicit SSH2/SERIAL connection, no implicit newline (max 16KiB UTF-8). Requires independent Write and an existing input lease. Keep the original request_id after uncertain delivery.",
                 false,
             ),
             live_tool::<StatusArgs>(
-                "terminal_input_status",
+                names::TERMINAL_INPUT_STATUS,
                 "Query this Agent's original send receipt, without retransmission. Not a remote command exit code.",
                 true,
             ),
             live_tool::<ConnectionArgs>(
-                "input_lease",
+                names::INPUT_LEASE,
                 "Inspect only this Agent's current input lease.",
                 true,
             ),
             live_tool::<AcquireArgs>(
-                "input_acquire",
+                names::INPUT_ACQUIRE,
                 "Acquire a bounded input lease within the separately approved scope and expiry. Never renew implicitly.",
                 false,
             ),
             live_tool::<ReleaseArgs>(
-                "input_release",
+                names::INPUT_RELEASE,
                 "Release only this Agent's exact lease; cannot undo already sent remote actions.",
                 false,
             ),
             shortcut_tool::<shortcuts::List, shortcuts::v2::List>(
-                "shortcuts_list",
+                names::SHORTCUTS_LIST,
                 "List shortcut metadata with View, or pass version v2 with Extended View for all four types and execution options. For a write receipt use the original receipt_request_id without query, with Manage for legacy or Extended Manage for v2.",
                 true,
                 false,
             ),
             shortcut_tool::<shortcuts::Create, shortcuts::v2::Create>(
-                "shortcuts_create",
+                names::SHORTCUTS_CREATE,
                 "Register a batch of shortcuts with expected revision and fixed UUIDv7 request_id. Legacy Manage covers ADB and BAT/CMD references. Version v2 and Extended Manage also support exact Windows local commands and session text. Script names use the filename when omitted or empty in v2. Configuration only.",
                 false,
                 false,
             ),
             shortcut_tool::<shortcuts::Update, shortcuts::v2::Update>(
-                "shortcuts_update",
+                names::SHORTCUTS_UPDATE,
                 "Atomically patch shortcut configuration at the expected revision with a fixed UUIDv7 request_id. With version v2 and Extended Manage, set applicable close_on_success or append_enter and move a block to its current section edge. Omitted patch fields are preserved. Legacy anchor moves remain supported.",
                 false,
                 false,
             ),
             shortcut_tool::<shortcuts::Remove, shortcuts::v2::Remove>(
-                "shortcuts_remove",
+                names::SHORTCUTS_REMOVE,
                 "Remove shortcut references at the expected revision with a fixed UUIDv7 request_id. Manage covers legacy entries. Pass version v2 and obtain Extended Manage for all four types. Referenced files are preserved.",
                 false,
                 true,
@@ -438,294 +436,13 @@ impl ServerHandler for Bridge {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        if request.name == "terminal_wait" {
+        if request.name == names::TERMINAL_WAIT {
             let args = Value::Object(request.arguments.unwrap_or_default());
             return Ok(self.wait_for_text(args, context).await);
         }
-        let Ok(_permit) = self.permits.try_acquire() else {
-            return Ok(fail("INPUT_BUSY"));
-        };
-        let args = Value::Object(request.arguments.unwrap_or_default());
-        let message = (|| -> Option<RequestMessage> {
-            Some(match request.name.as_ref() {
-                "shortcuts_list" => {
-                    shortcut_request(args, shortcuts::Request::List, shortcuts::v2::Request::List)?
-                }
-                "shortcuts_create" => shortcut_request(
-                    args,
-                    shortcuts::Request::Create,
-                    shortcuts::v2::Request::Create,
-                )?,
-                "shortcuts_update" => shortcut_request(
-                    args,
-                    shortcuts::Request::Update,
-                    shortcuts::v2::Request::Update,
-                )?,
-                "shortcuts_remove" => shortcut_request(
-                    args,
-                    shortcuts::Request::Remove,
-                    shortcuts::v2::Request::Remove,
-                )?,
-                "logs_export" => RequestMessage::Call {
-                    request: Operation::LogsExport {
-                        target: serde_json::from_value(args).ok()?,
-                    },
-                },
-                "logs_export_status" => RequestMessage::Call {
-                    request: Operation::LogsExportStatus {
-                        query: serde_json::from_value(args).ok()?,
-                    },
-                },
-                "logs_export_cancel" => RequestMessage::Call {
-                    request: Operation::LogsExportCancel {
-                        query: serde_json::from_value(args).ok()?,
-                    },
-                },
-                "ssh_resize" => {
-                    let a = serde_json::from_value::<SshResizeArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::SshResize {
-                            connection: a.connection,
-                            request_id: a.request_id,
-                            cols: a.cols,
-                            rows: a.rows,
-                        },
-                    }
-                }
-                "serial_connect" => {
-                    let target =
-                        serde_json::from_value::<session_protocol::serial::ConnectTarget>(args)
-                            .ok()?;
-                    RequestMessage::Call {
-                        request: Operation::SerialConnect { target },
-                    }
-                }
-                "serial_connect_status" => {
-                    let target =
-                        serde_json::from_value::<session_protocol::serial::ConnectTarget>(args)
-                            .ok()?;
-                    RequestMessage::Call {
-                        request: Operation::SerialConnectStatus { target },
-                    }
-                }
-                "ssh_connect" => {
-                    let a = serde_json::from_value::<ConnectArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Connect {
-                            profile_id: a.profile_id,
-                            revision: a.revision,
-                            request_id: a.request_id,
-                            cols: a.cols,
-                            rows: a.rows,
-                        },
-                    }
-                }
-                "ssh_connect_status" => {
-                    let a = serde_json::from_value::<ConnectStatusArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::ConnectStatus {
-                            profile_id: a.profile_id,
-                            revision: a.revision,
-                            request_id: a.request_id,
-                        },
-                    }
-                }
-                "ssh_reconnect" => {
-                    let a = serde_json::from_value::<ReconnectArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Reconnect {
-                            connection: a.connection,
-                            request_id: a.request_id,
-                            cols: a.cols,
-                            rows: a.rows,
-                        },
-                    }
-                }
-                "ssh_reconnect_status" => {
-                    let a = serde_json::from_value::<ReconnectStatusArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::ReconnectStatus {
-                            connection: a.connection,
-                            request_id: a.request_id,
-                        },
-                    }
-                }
-                "sessions_forget" => {
-                    let a = serde_json::from_value::<StatusArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Forget {
-                            transport: a.transport,
-                            connection: a.connection,
-                            request_id: a.request_id,
-                        },
-                    }
-                }
-                "sessions_forget_status" => {
-                    let a = serde_json::from_value::<StatusArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::ForgetStatus {
-                            transport: a.transport,
-                            connection: a.connection,
-                            request_id: a.request_id,
-                        },
-                    }
-                }
-                "sessions_disconnect" => {
-                    let a = serde_json::from_value::<StatusArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Disconnect {
-                            transport: a.transport,
-                            connection: a.connection,
-                            request_id: a.request_id,
-                        },
-                    }
-                }
-                "sessions_disconnect_status" => {
-                    let a = serde_json::from_value::<StatusArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::DisconnectStatus {
-                            transport: a.transport,
-                            connection: a.connection,
-                            request_id: a.request_id,
-                        },
-                    }
-                }
-                "serial_write" => {
-                    let a = serde_json::from_value::<SerialWriteArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::SerialWrite {
-                            connection: a.connection,
-                            request_id: a.request_id,
-                            bytes: session_protocol::SensitiveBytes::new(a.bytes),
-                        },
-                    }
-                }
-                "serial_control" => {
-                    let a = serde_json::from_value::<SerialControlArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::SerialControl {
-                            connection: a.connection,
-                            request_id: a.request_id,
-                            line: a.line,
-                            asserted: a.asserted,
-                        },
-                    }
-                }
-                "ssh_exec" => {
-                    let a = serde_json::from_value::<ExecArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Exec {
-                            connection: a.connection,
-                            request_id: a.request_id,
-                            command: a.command,
-                            timeout_ms: a.timeout_ms,
-                            max_output_bytes: a.max_output_bytes,
-                        },
-                    }
-                }
-                "tasks_get" => {
-                    let a = serde_json::from_value::<TaskGetArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::TaskGet {
-                            connection: a.connection,
-                            task_id: a.task_id,
-                            view: a.view,
-                        },
-                    }
-                }
-                "tasks_cancel" => {
-                    let a = serde_json::from_value::<TaskArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::TaskCancel {
-                            connection: a.connection,
-                            task_id: a.task_id,
-                        },
-                    }
-                }
-                "agent_status" => {
-                    serde_json::from_value::<ListArgs>(args).ok()?;
-                    RequestMessage::Status {}
-                }
-                "sessions_list" => {
-                    serde_json::from_value::<ListArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::List {},
-                    }
-                }
-                "terminal_read" => {
-                    let a = serde_json::from_value::<OutputArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Output {
-                            connection: a.connection,
-                            window: a.window,
-                            view: a.view,
-                        },
-                    }
-                }
-                "terminal_screen" => {
-                    let a = serde_json::from_value::<ScreenArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Output {
-                            connection: a.connection,
-                            window: a.window,
-                            view: View::Screen {
-                                through_cursor: a.through_cursor,
-                            },
-                        },
-                    }
-                }
-                "terminal_send" => {
-                    let a = serde_json::from_value::<SendArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Send {
-                            transport: a.transport,
-                            connection: a.connection,
-                            request_id: a.request_id,
-                            text: a.text,
-                        },
-                    }
-                }
-                "terminal_input_status" => {
-                    let a = serde_json::from_value::<StatusArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::InputStatus {
-                            transport: a.transport,
-                            connection: a.connection,
-                            request_id: a.request_id,
-                        },
-                    }
-                }
-                "input_lease" => {
-                    let a = serde_json::from_value::<ConnectionArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Lease {
-                            connection: a.connection,
-                        },
-                    }
-                }
-                "input_acquire" => {
-                    let a = serde_json::from_value::<AcquireArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Acquire {
-                            connection: a.connection,
-                            lifetime_ms: a.lifetime_ms,
-                        },
-                    }
-                }
-                "input_release" => {
-                    let a = serde_json::from_value::<ReleaseArgs>(args).ok()?;
-                    RequestMessage::Call {
-                        request: Operation::Release {
-                            connection: a.connection,
-                            lease_id: a.lease_id,
-                        },
-                    }
-                }
-                _ => return None,
-            })
-        })();
-        let Some(message) = message else {
-            return Ok(fail("INVALID_ARGUMENT"));
+        let (_permit, message) = match admit_request(&self.permits, request) {
+            Ok(admitted) => admitted,
+            Err(code) => return Ok(fail(code)),
         };
         let shortcut_receipt = match &message {
             RequestMessage::Shortcuts { request } => Some((
@@ -771,6 +488,34 @@ impl ServerHandler for Bridge {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_capacity_precedes_decoding_and_invalid_requests_return_the_permit() {
+        let permits = tokio::sync::Semaphore::new(4);
+        let occupied: Vec<_> = (0..4)
+            .map(|_| {
+                admit_request(&permits, CallToolRequestParams::new(names::AGENT_STATUS)).unwrap()
+            })
+            .collect();
+        let invalid = || CallToolRequestParams::new(names::TERMINAL_SEND);
+        assert_eq!(admit_request(&permits, invalid()).err(), Some("INPUT_BUSY"));
+        assert_eq!(
+            admit_request(&permits, CallToolRequestParams::new("unknown")).err(),
+            Some("INPUT_BUSY")
+        );
+        drop(occupied);
+        assert_eq!(
+            admit_request(&permits, invalid()).err(),
+            Some("INVALID_ARGUMENT")
+        );
+        assert_eq!(permits.available_permits(), 4);
+    }
+}
+
 pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let [mode, flag, instance, pid_flag, pid] = args else {
         anyhow::bail!("use --stdio --broker INSTANCE --desktop-pid PID (no token arguments)");
