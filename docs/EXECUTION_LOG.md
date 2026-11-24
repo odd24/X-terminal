@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.57 登记右栏编辑导航范围及 Windows x64 0.1.38 本地正式交付。[执行记录](records/P26.57.md)
+
 P26.56 交付 Windows x64 右栏描述便携候选，核对三个程序、同目录 v14 桥及旧数据锁。[执行记录](records/P26.56.md)
 
 P26.55 完成右栏快捷指令描述与 MCP v14，验证桌面、旧版回读及实际 stdio。[执行记录](records/P26.55.md)
@@ -550,6 +552,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.54 | 登记右栏快捷指令描述 | DONE | [P26.54](records/P26.54.md) | Step-ID: P26.54 |
 | P26.55 | 实现右栏快捷指令描述与 MCP v14 | DONE | [P26.55](records/P26.55.md) | Step-ID: P26.55 |
 | P26.56 | 验收右栏描述便携候选 | DONE | [P26.56](records/P26.56.md) | Step-ID: P26.56 |
+| P26.57 | 登记右栏编辑导航及 0.1.38 交付 | DONE | [P26.57](records/P26.57.md) | Step-ID: P26.57 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
