@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.83 同步 0.1.39 版本与正式便携使用说明。[执行记录](records/P26.83.md)
+
 P26.82 完成新建 SSH2、文件拖入和串口设备选择的 Windows 合并候选验收。[执行记录](records/P26.82.md)
 
 P26.81 实现新建 SSH2 配置与受管首次登录，隔离回环 SSH 专项通过。[执行记录](records/P26.81.md)
@@ -628,6 +630,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.80 | 登记新建 SSH2 配置与首次登录 | DONE | [P26.80](records/P26.80.md) | Step-ID: P26.80 |
 | P26.81 | 实现新建 SSH2 配置与首次登录 | DONE | [P26.81](records/P26.81.md) | Step-ID: P26.81 |
 | P26.82 | 验收新建 SSH2 合并候选 | DONE | [P26.82](records/P26.82.md) | Step-ID: P26.82 |
+| P26.83 | 同步 Windows x64 0.1.39 正式版本 | DONE | [P26.83](records/P26.83.md) | Step-ID: P26.83 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
