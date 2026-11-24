@@ -179,6 +179,42 @@ try {
     if ($Click -and ($steps.Count -ne 1 -or $steps[0].outside -or $steps[0].landings)) { throw 'A click requires one owned client point' }
     if ($AtomicDrag -and ($Click -or $HoldOutside -or $MeasureMovement -or $LandingTitle -or $steps.Count -lt 2 -or
         ($steps | Where-Object { $_.outside -or $_.landings -or $_.holdMs }))) { throw 'Atomic drag requires only points in one owned window' }
+    if ($PlaceAtWorkAreaStart -and $Raise -and ($AtomicDrag -or $Click -eq 'DoubleLeft')) {
+        function Test-OwnedClientPoints {
+            foreach ($step in $steps) {
+                $probe = New-Object TerminalTestMouse+Point
+                $probe.X = [int][Math]::Round($step.x * $scale)
+                $probe.Y = [int][Math]::Round($step.y * $scale)
+                if (![TerminalTestMouse]::ClientToScreen($window,[ref]$probe) -or
+                    [TerminalTestMouse]::GetAncestor([TerminalTestMouse]::WindowFromPoint($probe),2) -ne $window) {
+                    return $false
+                }
+            }
+            return $true
+        }
+        $ownedPoints = Test-OwnedClientPoints
+        if (!$ownedPoints) {
+            $width = $rect.Right - $rect.Left
+            $height = $rect.Bottom - $rect.Top
+            $positions = @(
+                @{left=$area.Work.Right - $width - 32;top=$area.Work.Top + 32},
+                @{left=$area.Work.Left + 32;top=$area.Work.Bottom - $height - 32},
+                @{left=$area.Work.Right - $width - 32;top=$area.Work.Bottom - $height - 32}
+            )
+            foreach ($position in $positions) {
+                $left = $position.left
+                $top = $position.top
+                if ($left -lt $area.Work.Left -or $top -lt $area.Work.Top -or
+                    $left+$width -gt $area.Work.Right -or $top+$height -gt $area.Work.Bottom) { continue }
+                if (![TerminalTestMouse]::SetWindowPos($window,[IntPtr](-1),$left,$top,0,0,65)) {
+                    throw 'Unable to reposition the owned test window'
+                }
+                Start-Sleep -Milliseconds 120
+                if (Test-OwnedClientPoints) { $ownedPoints=$true; break }
+            }
+        }
+        if (!$ownedPoints) { throw 'No unobstructed placement for the owned mouse gesture' }
+    }
     $atomicPoints=[Collections.Generic.List[TerminalTestMouse+Point]]::new()
     if ($MeasureMovement) {
         if ($Click) { throw 'Movement measurements require a drag.' }
