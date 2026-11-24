@@ -37,6 +37,7 @@ export type ConfigRequest = {op:'apply_import'|'import_status'|'cancel_import';i
   | { op: 'host_keys_page'; revision: string | null; offset: number }
   | { op: 'forget_host_key'; endpoint: HostEndpoint; algorithm: string; expected_fingerprint: string }
   | { op: 'save_folder'; folder: Folder } | { op: 'delete_folder' | 'delete_profile'; id: string }
+  | { op: 'delete_profile_if_revision'; id: string; revision: string }
   | { op: 'save_profile'; profile: PortableProfile; credential: CredentialEdit }
   | { op: 'save_profile_key_file'; profile: PortableProfile; key_path: string; passphrase: string | null };
 // File import is Desktop-only; file bytes are read inside the service.

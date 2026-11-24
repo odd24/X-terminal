@@ -3,16 +3,19 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { launchDesktop, delay } from './lib/DesktopHarness.mjs';
+import { launchDesktop, delay, desktopEvidence } from './lib/DesktopHarness.mjs';
 
 const directory = await mkdtemp(path.join(tmpdir(), 'shared-terminal-config-ui-中文-'));
+const executable = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
+const reportPrefix = process.argv[3] ?? 'P08.3';
 const secret = 'synthetic-password-P08.3-only';
 const syntheticKey='-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic-key-import-only\n-----END OPENSSH PRIVATE KEY-----\n';
 let ui;
 const page = () => ui.invoke('config_request', { request: { op: 'page', revision: null, offset: 0, folders: false } });
 const message = text => ui.waitFor(`document.querySelector('[aria-label="配置状态"]').textContent.includes(${JSON.stringify(text)})`);
 const pick = name => ui.evaluate(`Array.from(document.querySelectorAll('.profile-list button')).find(button => button.firstChild?.textContent === ${JSON.stringify(name)}).click()`);
-async function open() { ui = await launchDesktop(directory); await ui.click('连接配置'); await message('配置已加载'); }
+async function launch() { ui = await launchDesktop(directory,{executable}); await ui.click('连接配置'); }
+async function open() { await launch(); await message('配置已加载'); }
 async function close() {
   await ui.click('退出桌面');
   for (let attempt = 0; attempt < 100 && ui.app.exitCode === null; attempt++) await delay(50);
@@ -84,21 +87,21 @@ try {
   const portableKey={id:keyProfile.id,folder_id:keyProfile.folder_id,name:keyProfile.name,settings:keyProfile.settings};
   assert.equal(await ui.invoke('config_request',{request:{op:'save_profile',profile:portableKey,credential:{action:'replace',value:{password:null,private_key:syntheticKey,passphrase:null}}}}).then(()=>false,()=>true),true,'native renderer entry must reject raw private-key material');
   assert.equal(await ui.evaluate(`window.__TAURI_INTERNALS__.invoke('config_request',{request:{op:'read_credential',id:${JSON.stringify(original.credential_ref)}}}).then(() => false, () => true)`), true, 'secret reading must not be registered');
-  await ui.screenshot('P08.3-profile-editor.png');
+  await ui.screenshot(`${reportPrefix}-profile-editor.png`);
   await close();
   for (const name of ['config.sqlite', 'credentials.sqlite']) assert.equal((await readFile(path.join(directory, name))).includes(Buffer.from(secret)), false, `${name} must not contain plaintext marker`);
 
   const configPath = path.join(directory, 'config.sqlite');
   const db = new DatabaseSync(configPath); db.exec('PRAGMA user_version=99'); db.close();
   const newer = await readFile(configPath);
-  ui = await launchDesktop(directory); await ui.click('连接配置'); await message('数据库版本不受支持');
+  await launch(); await message('数据库版本不受支持');
   assert.equal(await ui.evaluate(`document.querySelector('.profile-form fieldset').disabled`), true);
   assert.equal(await ui.evaluate(`document.querySelector('.data-location').textContent.includes(${JSON.stringify(directory)})`), true);
   await close(); assert.deepEqual(await readFile(configPath), newer);
   await writeFile(configPath, 'synthetic corrupt config only'); const corrupt = await readFile(configPath);
-  ui = await launchDesktop(directory); await ui.click('连接配置'); await message('库损坏');
+  await launch(); await message('库损坏');
   await close(); assert.deepEqual(await readFile(configPath), corrupt);
-  await writeFile('artifacts/P08.3-config-ui-result.json', JSON.stringify({ result: 'PASS', scenarios: ['native folder/profile CRUD and move/copy', 'SSH2 credential keep without secret readback', 'serial RTS driver ownership; explicit SSH1', 'desktop restart persistence; plaintext marker absent', 'unknown/corrupt database diagnostic without overwrite'], note: 'synthetic configuration only; no endpoint/device opened' }, null, 2));
+  await writeFile(`artifacts/${reportPrefix}-config-ui-result.json`, JSON.stringify({ result: 'PASS', ...(executable?await desktopEvidence(executable):{}), scenarios: ['native folder/profile CRUD and move/copy', 'SSH2 credential keep without secret readback', 'serial RTS driver ownership; explicit SSH1', 'desktop restart persistence; plaintext marker absent', 'unknown/corrupt database diagnostic without overwrite'], note: 'synthetic configuration only; no endpoint/device opened' }, null, 2));
   console.log('PASS: native configuration editor, credentials, restart and corrupt/unknown schema diagnostics');
 } finally {
   await ui?.close();

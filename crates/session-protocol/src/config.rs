@@ -139,6 +139,10 @@ pub enum ConfigRequest {
     DeleteProfile {
         id: Uuid,
     },
+    DeleteProfileIfRevision {
+        id: Uuid,
+        revision: Uuid,
+    },
 }
 impl ConfigRequest {
     pub fn validate(&self) -> bool {
@@ -260,6 +264,7 @@ impl ConfigRequest {
                     }
             }
             Self::DeleteFolder { id } | Self::DeleteProfile { id } => !id.is_nil(),
+            Self::DeleteProfileIfRevision { id, revision } => !id.is_nil() && !revision.is_nil(),
         }
     }
 }

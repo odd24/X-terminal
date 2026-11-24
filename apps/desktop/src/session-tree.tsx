@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { readConfiguration, type Folder, type Profile } from './config-api';
-import { ContextMenu, ControlIcon, IconButton, ToolbarMenu } from './ui';
+import { ProfileDeletionConfirmation, useProfileDeletion } from './profile-deletion';
+import { ContextMenu, ControlIcon, Dialog, IconButton, ToolbarMenu } from './ui';
 
 export function revealProfileConnectionFocus(target: HTMLElement) {
   if (!(target instanceof HTMLButtonElement)) return;
@@ -18,7 +19,7 @@ export function revealProfileConnectionFocus(target: HTMLElement) {
   });
 }
 
-export function SessionTree({ revision, connect, configure, create, loaded, connecting=false, ssh1Preview }: { revision: number; connect(profile: Profile, configRevision: string): void; configure(id?:string,action?:'edit'|'delete'): void; create(protocol:'ssh2'|'serial',folder:string):void; loaded(profiles: Profile[]): void; connecting?:boolean; ssh1Preview:boolean }) {
+export function SessionTree({ revision, connect, configure, create, loaded, connecting=false, ssh1Preview }: { revision: number; connect(profile: Profile, configRevision: string): void; configure(id?:string): void; create(protocol:'ssh2'|'serial',folder:string):void; loaded(profiles: Profile[]): void; connecting?:boolean; ssh1Preview:boolean }) {
   const [configRevision, setConfigRevision] = useState('');
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -27,11 +28,53 @@ export function SessionTree({ revision, connect, configure, create, loaded, conn
   const [query, setQuery] = useState('');
   const [expanded,setExpanded]=useState<Record<string,boolean>>({});
   const [message, setMessage] = useState('');
+  const [deletionMessage,setDeletionMessage]=useState('');
   const [busy, setBusy] = useState(false);
   const [menu,setMenu]=useState<{id:string;x:number;y:number;anchor:HTMLElement}>();
   const mounted = useRef(false);
   const loading = useRef(false);
   const refreshQueued = useRef(false);
+  const list=useRef<HTMLDivElement>(null);
+  const neighbors=useRef<string[]>([]);
+  const returnFocus=useRef<string[]>(undefined);
+  const deletion=useProfileDeletion(result=>{
+    if(result.snapshot) {
+      setFolders(result.snapshot.folders);
+      setProfiles(result.snapshot.profiles);
+      loaded(result.snapshot.profiles);
+    } else {
+      setProfiles(previous=>previous.filter(profile=>profile.id!==result.id));
+    }
+    setConfigRevision(result.revision);
+    setDeletionMessage(result.message);
+    returnFocus.current=result.exists?[result.id,...neighbors.current]:neighbors.current;
+    void refresh();
+  });
+  useLayoutEffect(()=>{
+    if(deletion.state||!returnFocus.current)return;
+    const ids=returnFocus.current;
+    returnFocus.current=undefined;
+    const leaves=Array.from(list.current?.querySelectorAll<HTMLButtonElement>('[data-profile-id]')??[]);
+    const button=ids.map(id=>leaves.find(leaf=>leaf.dataset.profileId===id)).find(leaf=>leaf);
+    setSelected(button?.dataset.profileId??'');
+    if(!button)setSelectedFolder('');
+    (button??list.current?.querySelector<HTMLButtonElement>('.tree-root-label'))?.focus();
+  },[deletion.state]);
+  function beginDelete(profile:Profile) {
+    const rows=Array.from(list.current?.querySelectorAll<HTMLButtonElement>('[data-profile-id]')??[]);
+    const index=rows.findIndex(row=>row.dataset.profileId===profile.id);
+    neighbors.current=[...rows.slice(index+1),...rows.slice(0,Math.max(0,index)).reverse()].map(row=>row.dataset.profileId!);
+    setDeletionMessage('');
+    setMenu(undefined);
+    deletion.start(profile,configRevision);
+  }
+  function cancelDelete() {
+    const state=deletion.state;
+    if(!state||!deletion.cancel())return;
+    returnFocus.current=[state.target.profile.id,...neighbors.current];
+    setDeletionMessage(state.notice??'已取消删除。');
+    if(state.mode==='failed')void refresh();
+  }
   async function refresh() {
     if (loading.current) {refreshQueued.current=true;return;}
     loading.current = true; setBusy(true);
@@ -67,9 +110,12 @@ export function SessionTree({ revision, connect, configure, create, loaded, conn
   return <>
     <div className="config-heading"><h2>会话配置</h2><div className="tree-heading-actions"><ToolbarMenu className="tree-new-menu" summaryClassName="icon-button" label="新建会话配置" text={<ControlIcon icon="plus" />}>{(['ssh2','serial'] as const).map(protocol=><button key={protocol} onClick={()=>{const folder=profile?profile.folder_id??'':selectedFolder;create(protocol,folders.some(item=>item.id===folder)?folder:'');}}>{protocol==='ssh2'?'新建 SSH 配置':'新建串口配置'}</button>)}</ToolbarMenu><IconButton icon="refresh" label="刷新会话树" disabled={busy} onClick={() => void refresh()} /></div></div>
     <label className="tree-search"><input aria-label="搜索会话配置" value={query} onChange={event => {setQuery(event.target.value);setExpanded({});}} placeholder="名称、协议或主机" /></label>
-    <div className="tree-scroll" aria-label="会话配置树"><button type="button" className="tree-root-label" onClick={()=>{setSelected('');setSelectedFolder('');}}>根目录</button>{branch(null)}{!profiles.length && <p>尚无配置。<button onClick={()=>configure()}>新建连接配置</button></p>}</div>
+    <div ref={list} className="tree-scroll" aria-label="会话配置树"><button type="button" className="tree-root-label" onClick={()=>{setSelected('');setSelectedFolder('');}}>根目录</button>{branch(null)}{!profiles.length && <p>尚无配置。<button onClick={()=>configure()}>新建连接配置</button></p>}</div>
     {message && <p role="status">{message}</p>}
+    <p className="tree-deletion-status" role="status" aria-label="会话树配置状态">{deletionMessage}</p>
     <section className="profile-summary" aria-label="配置详情"><h2>配置详情</h2>{profile ? <><strong>{profile.name}</strong><p>{profile.settings.protocol.toUpperCase()} · {'host' in profile.settings ? `${profile.settings.host}:${profile.settings.port}` : profile.settings.port}</p>{profile.settings.protocol === 'ssh1' ? <small>{ssh1Preview ? 'SSH1 是可能不安全的旧协议，每次连接均需明确选择。' : '当前构建未启用 SSH1 本机预览。'}</small> : <small>单击只选中；双击或右键“连接”会新建独立会话，快速重复操作只发起一次。</small>}<button disabled={!canConnect(profile)} onClick={() => openProfile(profile)}>连接选中配置</button></> : <p>单击配置查看详情；双击或右键连接。</p>}</section>
-    {menu&&menuProfile&&<ContextMenu x={menu.x} y={menu.y} anchor={menu.anchor} close={()=>setMenu(undefined)}><small>{menuProfile.name}</small><button role="menuitem" disabled={!canConnect(menuProfile)} onClick={()=>{setMenu(undefined);openProfile(menuProfile);}}>连接</button><button role="menuitem" onClick={()=>{setMenu(undefined);configure(menuProfile.id,'edit');}}>编辑</button><button role="menuitem" onClick={()=>{setMenu(undefined);configure(menuProfile.id,'delete');}}>删除</button></ContextMenu>}
+    {menu&&menuProfile&&<ContextMenu x={menu.x} y={menu.y} anchor={menu.anchor} close={()=>setMenu(undefined)}><small>{menuProfile.name}</small><button role="menuitem" disabled={!canConnect(menuProfile)} onClick={()=>{setMenu(undefined);openProfile(menuProfile);}}>连接</button><button role="menuitem" onClick={()=>{setMenu(undefined);configure(menuProfile.id);}}>编辑</button><button role="menuitem" disabled={busy||!configRevision} onClick={()=>beginDelete(menuProfile)}>删除</button></ContextMenu>}
+    {deletion.state&&<Dialog label="删除会话配置" close={cancelDelete} handleEscape><ProfileDeletionConfirmation
+      deletion={deletion.state} onCancel={cancelDelete} onConfirm={()=>void deletion.confirm()} onCheck={()=>void deletion.check()}/></Dialog>}
   </>;
 }

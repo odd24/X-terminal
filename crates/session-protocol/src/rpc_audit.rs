@@ -709,7 +709,7 @@ fn config_descriptor(r: &config::ConfigRequest) -> Descriptor {
             profile.id,
             None,
         ),
-        C::DeleteProfile { id } => resource(
+        C::DeleteProfile { id } | C::DeleteProfileIfRevision { id, .. } => resource(
             Area::Configuration,
             Verb::Forget,
             ResourceKind::Profile,

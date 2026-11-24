@@ -77,9 +77,9 @@ function raiseDialog(dialog: HTMLDialogElement) {
   dialog.dataset.raised = '';
 }
 
-export function Dialog({ label, close, focusRestored, fallbackFocus, wide = false, modal = true, passive = false, open = true, children }: {
+export function Dialog({ label, close, focusRestored, fallbackFocus, wide = false, modal = true, passive = false, open = true, handleEscape = false, children }: {
   label: string; close(): void; fallbackFocus?():void; focusRestored?(target: HTMLElement): void;
-  wide?: boolean; modal?: boolean; passive?: boolean; open?: boolean; children: ReactNode;
+  wide?: boolean; modal?: boolean; passive?: boolean; open?: boolean; handleEscape?:boolean; children: ReactNode;
 }) {
   const element=useRef<HTMLDialogElement>(null), onClose=useRef(close);onClose.current=close;
   const drag = useRef<{pointer:number; dx:number; dy:number}>(undefined);
@@ -153,7 +153,7 @@ export function Dialog({ label, close, focusRestored, fallbackFocus, wide = fals
     onLostPointerCapture={event=>{if(drag.current?.pointer===event.pointerId)drag.current=undefined;}}
     onKeyDown={event=>{
       if(event.defaultPrevented || event.nativeEvent.isComposing) return;
-      if(!modal && event.key==='Escape') { event.preventDefault(); event.stopPropagation(); onClose.current(); }
+      if((!modal||handleEscape)&&event.key==='Escape') { event.preventDefault(); event.stopPropagation(); onClose.current(); return; }
       if(!modal || event.key!=='Tab') return;
       const controls=dialogControls(event.currentTarget);
       const destination=event.shiftKey?controls.at(-1):controls[0];

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { HostKeysPanel } from './host-keys-panel';
 import { ArchivesPanel } from './archives-panel';
 import { CredentialsPanel } from './credentials-panel';
-import { IconButton, PanelHeading, keepCompositionInField } from './ui';
+import { Dialog, IconButton, PanelHeading, keepCompositionInField } from './ui';
 import { config, ConfigRequestError, readConfiguration, type Auth, type CredentialEdit, type Encoding, type Folder, type Profile, type Settings } from './config-api';
+import { ProfileDeletionConfirmation, useProfileDeletion } from './profile-deletion';
 
 type Draft = {
   id: string; name: string; folder: string; protocol: Settings['protocol']; encoding: Encoding;
@@ -23,7 +24,7 @@ function settings(draft: Draft): Settings {
   const common = { host: draft.host.trim(), port: draft.port, username: draft.username, encoding: draft.encoding };
   return draft.protocol === 'ssh2' ? { ...common, protocol: 'ssh2', auth: draft.auth } : { ...common, protocol: 'ssh1', explicitly_enabled: draft.ssh1 };
 }
-export function ConfigPanel({ close, onRestored, initialProfileId, initialAction, onChanged, ssh1Preview, creation, onConnect }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; initialAction?:'edit'|'delete'; onChanged?():void; ssh1Preview: boolean; creation?:{protocol:'ssh2'|'serial';folder:string}; onConnect?(profile:Profile):void }) {
+export function ConfigPanel({ close, onRestored, initialProfileId, onChanged, ssh1Preview, creation, onConnect }: { close(): void; onRestored(): Promise<void>; initialProfileId?:string; onChanged?():void; ssh1Preview: boolean; creation?:{protocol:'ssh2'|'serial';folder:string}; onConnect?(profile:Profile):void }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [filter, setFilter] = useState('*');
@@ -39,15 +40,32 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
   const [location, setLocation] = useState('');
   const [ready, setReady] = useState(false);
   const [managementEpoch,setManagementEpoch]=useState(0);
-  const [deletion,setDeletion]=useState<{profile:Profile;uncertain:boolean}>();
-  const deleteFlight=useRef(false),deleteControl=useRef<HTMLButtonElement>(null);
+  const [configurationRevision,setConfigurationRevision]=useState('');
+  const deleteButton=useRef<HTMLButtonElement>(null),profileSearch=useRef<HTMLInputElement>(null);
+  const deletionFocus=useRef<'delete'|'search'>(undefined);
   const saveInFlight=useRef(false);
   const active=useRef(false);
   const [saveUncertain,setSaveUncertain]=useState(false);
   useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
-  useEffect(()=>{if(deletion&&!busy)deleteControl.current?.focus();},[deletion,busy]);
   const current = profiles.find(profile => profile.id === draft.id);
   const clearSecrets = () => { setPassword(''); setKeyPath(''); setPassphrase(''); setCredential('keep'); };
+  const deletion=useProfileDeletion(result=>{
+    if(result.snapshot)applyConfiguration(result.snapshot);
+    else {
+      setConfigurationRevision(result.revision);
+      setProfiles(previous=>previous.filter(profile=>profile.id!==result.id));
+    }
+    if(!result.exists)setDraft(blank());
+    deletionFocus.current=result.exists?'delete':'search';
+    setMessage(result.message);
+    onChanged?.();
+  });
+  useLayoutEffect(()=>{
+    if(deletion.state||!deletionFocus.current||busy)return;
+    const target=deletionFocus.current==='delete'&&!deleteButton.current?.disabled?deleteButton.current:profileSearch.current;
+    deletionFocus.current=undefined;
+    target?.focus();
+  },[deletion.state,busy]);
   const change = <K extends keyof Draft>(field: K, value: Draft[K]) => setDraft(previous => ({ ...previous, [field]: value }));
   const folderName = (folder: Folder): string => {
     const path = [folder.name]; let parent = folder.parent_id; const seen = new Set([folder.id]);
@@ -55,8 +73,13 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
     return path.join(' / ');
   };
   const options = <><option value="">根目录</option>{folders.map(folder => <option key={folder.id} value={folder.id}>{folderName(folder)}</option>)}</>;
+  function applyConfiguration(data:Awaited<ReturnType<typeof readConfiguration>>) {
+    setFolders(data.folders);setProfiles(data.profiles);setConfigurationRevision(data.revision);
+    setFilter(previous => previous !== '*' && previous !== '' && !data.folders.some(folder => folder.id === previous) ? '*' : previous);
+    setReady(true);
+  }
   async function reload() {
-    const data = await readConfiguration(); setFolders(data.folders); setProfiles(data.profiles); setFilter(previous => previous !== '*' && previous !== '' && !data.folders.some(folder => folder.id === previous) ? '*' : previous); setReady(true);
+    applyConfiguration(await readConfiguration());
   }
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true); setMessage('正在处理配置…');
@@ -68,7 +91,15 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
     let disposed = false;
     void invoke<string>('config_directory').then(directory => { if (!disposed) setLocation(directory); }).catch(() => {});
     void readConfiguration().then(data => {
-      if (!disposed) { setFolders(data.folders); setProfiles(data.profiles); setFilter(previous => previous !== '*' && previous !== '' && !data.folders.some(folder => folder.id === previous) ? '*' : previous); setReady(true); setMessage('配置已加载');if(creation&&!data.folders.some(folder=>folder.id===creation.folder))setDraft(previous=>({...previous,folder:''}));if(initialProfileId){const target=data.profiles.find(p=>p.id===initialProfileId);if(target){setDraft(edit(target));if(initialAction==='delete')setDeletion({profile:target,uncertain:false});}else{setReady(false);setMessage('所选配置已不存在，请关闭后刷新会话树。');}} }
+      if (!disposed) {
+        applyConfiguration(data);setMessage('配置已加载');
+        if(creation&&!data.folders.some(folder=>folder.id===creation.folder))setDraft(previous=>({...previous,folder:''}));
+        if(initialProfileId){
+          const target=data.profiles.find(profile=>profile.id===initialProfileId);
+          if(target)setDraft(edit(target));
+          else{setReady(false);setMessage('所选配置已不存在，请关闭后刷新会话树。');}
+        }
+      }
     }).catch(error => { if (!disposed) setMessage(error instanceof Error ? error.message : '读取配置失败。'); })
       .finally(() => { if (!disposed) setBusy(false); });
     return () => { disposed = true; };
@@ -114,25 +145,28 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
       if(active.current){setBusy(false);clearSecrets();}
     }
   }
-  async function deleteSelected(){
-    if(!deletion||deletion.uncertain||deleteFlight.current)return;
-    const target=deletion.profile;deleteFlight.current=true;setBusy(true);let dispatched=false;
-    try{const latest=(await readConfiguration()).profiles.find(p=>p.id===target.id);if(!latest||JSON.stringify(latest)!==JSON.stringify(target))throw new ConfigRequestError('CONFLICT');
-      dispatched=true;await config({op:'delete_profile',id:target.id});setDeletion(undefined);setDraft(blank());clearSecrets();await reload();onChanged?.();setMessage('所选保存配置已删除；现有连接和日志保持。');
-    }catch(error){const uncertain=dispatched&&(!(error instanceof ConfigRequestError)||error.uncertain);setDeletion({profile:target,uncertain});setMessage(uncertain?'删除结果不明，请只读核对；未自动重试。':error instanceof Error?error.message:'删除未完成，请刷新后核对。');}
-    finally{deleteFlight.current=false;setBusy(false);}
+  function cancelDelete() {
+    const state=deletion.state;
+    if(!deletion.cancel())return;
+    deletionFocus.current='delete';
+    setMessage(state?.notice??'已取消删除。');
+    if(state?.mode==='failed')void run(async()=>{},state.notice??'配置已刷新。');
   }
-  async function checkDeletion(){if(!deletion||deleteFlight.current)return;deleteFlight.current=true;setBusy(true);try{const data=await readConfiguration();const exists=data.profiles.some(p=>p.id===deletion.profile.id);setFolders(data.folders);setProfiles(data.profiles);setDeletion(undefined);if(!exists)setDraft(blank());onChanged?.();setMessage(exists?'原配置仍存在；未重放删除。请核对后重新选择操作。':'原配置已不存在；未重放删除。');}catch{setMessage('读取配置失败，请稍后只读核对；未重试删除。');}finally{deleteFlight.current=false;setBusy(false);}}
+  function requestClose() {
+    if(deletion.state){cancelDelete();return;}
+    active.current=false;clearSecrets();close();
+  }
   const filtered = profiles.filter(profile => (filter === '*' || (profile.folder_id ?? '') === filter) && profile.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  return <section className="config-panel" aria-label="连接配置">
-    <PanelHeading title={creation?(creation.protocol==='ssh2'?'新建 SSH 配置':'新建串口配置'):'连接配置'} close={() => { active.current=false;clearSecrets(); close(); }} closeLabel="关闭配置" />
+  const title=creation?(creation.protocol==='ssh2'?'新建 SSH 配置':'新建串口配置'):'连接配置';
+  return <Dialog label={title} wide={!creation} close={requestClose} handleEscape={!!deletion.state}><section className="config-panel" aria-label="连接配置">
+    <PanelHeading title={title} close={requestClose} closeLabel="关闭配置" />
     {!creation&&<p className="config-notice">保存配置不会建立连接。可在会话树选择保存项，再明确连接。SSH1 需要启用旧协议的本机预览。</p>}
     <div className="config-message" role="status" aria-label="配置状态">{message}</div>
-    {deletion&&<section className="notice-error" aria-label="删除保存配置确认"><strong>删除保存配置“{deletion.profile.name}”？</strong><p>{deletion.profile.settings.protocol.toUpperCase()} · {'host' in deletion.profile.settings?`${deletion.profile.settings.host}:${deletion.profile.settings.port}`:deletion.profile.settings.port}</p><small>仅删除此配置（ID：{deletion.profile.id}）。不关闭现有连接，不删除日志或共享凭据记录。</small><div className="config-actions">{deletion.uncertain?<button ref={deleteControl} disabled={busy} onClick={()=>void checkDeletion()}>只读核对删除结果</button>:<button ref={deleteControl} disabled={busy} onClick={()=>void deleteSelected()}>确认删除此配置</button>}<button disabled={busy} onClick={()=>setDeletion(undefined)}>取消删除</button></div></section>}
-    <div hidden={!!deletion}><div className={creation?undefined:'config-layout'}>
+    {deletion.state&&<ProfileDeletionConfirmation deletion={deletion.state} onCancel={cancelDelete} onConfirm={()=>void deletion.confirm()} onCheck={()=>void deletion.check()}/>}
+    <div hidden={!!deletion.state}><div className={creation?undefined:'config-layout'}>
       {!creation&&<aside>
         <label>目录筛选<select aria-label="目录筛选" value={filter} onChange={event => setFilter(event.target.value)}><option value="*">全部目录</option>{options}</select></label>
-        <label>搜索配置<input aria-label="搜索配置" value={search} onChange={event => setSearch(event.target.value)} /></label>
+        <label>搜索配置<input ref={profileSearch} aria-label="搜索配置" value={search} onChange={event => setSearch(event.target.value)} /></label>
         <ul className="profile-list">{filtered.map(profile => <li key={profile.id}><button className={draft.id === profile.id ? 'selected' : ''} onClick={() => { clearSecrets(); setDraft(edit(profile)); }}>{profile.name}<small>{profile.settings.protocol.toUpperCase()} · {profile.credential_missing ? '凭据引用缺失' : profile.credential_ref ? '有凭据引用' : '无凭据引用'}</small></button></li>)}</ul>
         <div className="config-actions aligned-actions"><button disabled={busy || !ready} onClick={() => { clearSecrets(); setDraft({ ...blank(), folder: filter === '*' ? '' : filter }); }}>新建配置</button><IconButton icon="refresh" label="刷新配置" disabled={busy} onClick={() => void run(async () => {}, '配置已刷新')} /></div>
         <form aria-label="目录编辑" onSubmit={event => { event.preventDefault(); void run(async () => { await config({ op: 'save_folder', folder: folderDraft }); }, '目录已保存'); }}>
@@ -174,7 +208,7 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
             {credential === 'replace' && (draft.protocol === 'ssh2' && draft.auth === 'public_key' ? <><label>本地私钥文件<input aria-label="本地私钥文件" required autoComplete="off" placeholder="C:\keys\id_ed25519" value={keyPath} onChange={event => setKeyPath(event.target.value)} /><small>仅本地盘的普通文件，服务读取并加密保存；文件内容不进入页面。</small></label><label>私钥口令<input aria-label="私钥口令" type="password" autoComplete="new-password" value={passphrase} onChange={event => setPassphrase(event.target.value)} /></label></> : <label>新密码<input aria-label="新密码" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /><small>允许显式保存空密码。</small></label>)}
             <small>移除引用不删除其他配置或备份可能使用的密文。保存、切换或关闭后清空新输入。</small>
           </fieldset>}
-          <div className="config-actions">{creation?<><button type="submit">保存</button><button type="submit" value="connect">保存并连接</button></>:<><button type="submit">保存配置</button><button type="button" disabled={!current} onClick={() => { clearSecrets(); setDraft({ ...draft, id: crypto.randomUUID(), name: `${draft.name} 副本` }); setMessage('已准备副本，不携带凭据；按需重新输入后保存。'); }}>复制配置</button><button type="button" disabled={!current} onClick={() => {if(current){clearSecrets();setDeletion({profile:current,uncertain:false});}}}>删除配置</button></>}</div>
+          <div className="config-actions">{creation?<><button type="submit">保存</button><button type="submit" value="connect">保存并连接</button></>:<><button type="submit">保存配置</button><button type="button" disabled={!current} onClick={() => { clearSecrets(); setDraft({ ...draft, id: crypto.randomUUID(), name: `${draft.name} 副本` }); setMessage('已准备副本，不携带凭据；按需重新输入后保存。'); }}>复制配置</button><button ref={deleteButton} type="button" disabled={!current||!configurationRevision} onClick={() => {if(current){clearSecrets();deletion.start(current,configurationRevision);}}}>删除配置</button></>}</div>
         </fieldset>
       </form>
     </div>
@@ -182,5 +216,5 @@ export function ConfigPanel({ close, onRestored, initialProfileId, initialAction
     <CredentialsPanel key={`credentials-${managementEpoch}`} />
     <ArchivesPanel directory={location} usable={ready} restored={async () => { clearSecrets();setDraft(blank());setFolderDraft({id:crypto.randomUUID(),parent_id:null,name:''});await reload();setManagementEpoch(value=>value+1);setMessage('配置已从备份恢复；没有连接或重放输入。');await onRestored(); }} />
     <p className="data-location">数据目录：{location || '读取失败时请重新启动检查启动目录'}</p></>}</div>
-  </section>;
+  </section></Dialog>;
 }

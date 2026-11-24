@@ -550,7 +550,13 @@ impl State {
                     revision: self.changed(),
                 })
             }
-            ConfigRequest::DeleteProfile { id } => {
+            ConfigRequest::DeleteProfile { id }
+            | ConfigRequest::DeleteProfileIfRevision { id, .. } => {
+                if let ConfigRequest::DeleteProfileIfRevision { revision, .. } = request
+                    && revision != self.revision
+                {
+                    return Err(ConfigError::Conflict);
+                }
                 // Keep encrypted records: config backups/other profiles may still reference them.
                 self.store.delete_profile(id).map_err(config_error)?;
                 Ok(ConfigReply::Updated {
