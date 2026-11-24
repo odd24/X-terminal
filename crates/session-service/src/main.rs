@@ -2,6 +2,10 @@
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["--version"] {
+        println!("session-service {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let directory = if args.len() >= 2 && args[args.len() - 2] == "--data-dir" {
         let path = std::path::PathBuf::from(args.pop().unwrap());
         args.pop();

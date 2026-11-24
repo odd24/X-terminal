@@ -39,6 +39,17 @@ try {
             }
             $file = [ordered]@{name=$name;version=$version;bytes=(Get-Item -LiteralPath $destination).Length;sha256=$hash}
             if ($binary) {
+                if ($name -eq 'shared-terminal-desktop.exe') {
+                    $versionInfo = (Get-Item -LiteralPath $destination).VersionInfo
+                    if ($versionInfo.FileVersion -ne $version -or $versionInfo.ProductVersion -ne $version) {
+                        throw "Embedded desktop version mismatch for $name"
+                    }
+                } else {
+                    $reported = & $destination --version
+                    if ($LASTEXITCODE -ne 0 -or $reported -cne "$([IO.Path]::GetFileNameWithoutExtension($name)) $version") {
+                        throw "Reported executable version mismatch for $name"
+                    }
+                }
                 $signature = (Get-AuthenticodeSignature -LiteralPath $destination).Status.ToString()
                 if ($signature -ne 'NotSigned') { throw "Unexpected signing status for $name ($signature)" }
                 $file.authenticode = $signature

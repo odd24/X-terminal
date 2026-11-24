@@ -118,6 +118,10 @@ impl ServerHandler for MockBridge {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["--version"] {
+        println!("terminal-mcp {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     #[cfg(windows)]
     if args.first().is_some_and(|arg| arg == "--stdio") {
         return live::run(&args).await;
