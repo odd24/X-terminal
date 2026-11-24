@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.85 修复 MCP 快捷指令发布夹具的异步窗格选择，原解压桌面专项复验通过。[执行记录](records/P26.85.md)
+
 P26.84 将 SSH2、原生文件拖入、串口选择、删除和右键行为纳入正式便携门禁。[执行记录](records/P26.84.md)
 
 P26.83 同步 0.1.39 版本与正式便携使用说明。[执行记录](records/P26.83.md)
@@ -634,6 +636,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.82 | 验收新建 SSH2 合并候选 | DONE | [P26.82](records/P26.82.md) | Step-ID: P26.82 |
 | P26.83 | 同步 Windows x64 0.1.39 正式版本 | DONE | [P26.83](records/P26.83.md) | Step-ID: P26.83 |
 | P26.84 | 补充 0.1.39 发布门禁 | DONE | [P26.84](records/P26.84.md) | Step-ID: P26.84 |
+| P26.85 | 修复 MCP 发布夹具的目标切换时序 | DONE | [P26.85](records/P26.85.md) | Step-ID: P26.85 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |

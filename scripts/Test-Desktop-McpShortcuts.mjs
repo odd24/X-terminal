@@ -121,8 +121,13 @@ const receipt=id=>list({receipt_request_id:id});
 const sidebarIds=ids=>ui.waitFor(`JSON.stringify([...document.querySelectorAll(${q(sidebar+' [data-shortcut-id]')})].map(row=>row.dataset.shortcutId))===${q(JSON.stringify(ids))}`);
 async function openSidebar() {
   await tool('轻量命令行');
-  await ui.waitFor("!!document.querySelector('.pane-active .adb-panel-toggle')");
+  await ui.waitFor("!!document.querySelector('.pane-active .local-terminal[data-mode=lightweight]:not([hidden]) .xterm-helper-textarea')");
   if(!await ui.evaluate(`!!${query(sidebar)}`))await ui.click('快捷指令');
+}
+async function awaitSshPane(ref) {
+  const pane='.pane-active[data-rendered-id="'+ref.connection_id+'"][data-rendered-generation="'+ref.generation+'"]';
+  const tab='[role=tab][data-connection-id="'+ref.connection_id+'"][aria-selected=true]';
+  await ui.waitFor('!!'+query(pane+' '+tab)+'&&!'+query(pane+' .local-terminal:not([hidden])'));
 }
 async function absent(file) {
   await assert.rejects(access(file),{code:'ENOENT'});
@@ -171,7 +176,7 @@ async function loopback() {
   }};
 }
 
-async function descriptionChecks(received, priorRequest, priorReceipt) {
+async function descriptionChecks(ref, received, priorRequest, priorReceipt) {
   const v2={version:'v2'}, v3={version:'v3'};
   const descriptions=()=>list(v3);
   const put=(revision,changes)=>({...v3,...mut(revision,{changes})});
@@ -241,6 +246,8 @@ async function descriptionChecks(received, priorRequest, priorReceipt) {
   await absent(path.join(root,'adb-calls.txt'));
   await absent(path.join(root,'script-executed.txt'));
   await sidebarIds(project((await descriptions()).items));
+  await ui.click('关闭Agent授权');
+  await awaitSshPane(ref);
   await ui.click('描述会话发送');
   const expected=Buffer.concat([originalReceived,Buffer.from(sentText+'\r')]);
   let actual=originalReceived;
@@ -249,6 +256,9 @@ async function descriptionChecks(received, priorRequest, priorReceipt) {
     if(actual.length<expected.length)await delay(40);
   }
   assert.deepEqual(actual,expected,'only the command and requested Enter reach loopback SSH');
+  await openApprovalPanel();
+  await ui.click('刷新快捷指令授权');
+  await waitStatus('已刷新');
   await revoke('描述查看');
   await denied('shortcuts_list',v3);
   await revoke('描述管理');
@@ -301,6 +311,7 @@ async function expandedChecks({legacyIds, desktopOnly, priorRequest, priorReceip
   const initialReceived=await received();
   await openSidebar();
   await ui.selectTab(ref.connection_id);
+  await awaitSshPane(ref);
   await sidebarIds(project((await setting()).shortcuts));
   await approve('扩展查看',300);
   const initial=await expanded();
@@ -413,7 +424,7 @@ async function expandedChecks({legacyIds, desktopOnly, priorRequest, priorReceip
   await revoke('扩展管理');
   await denied('shortcuts_list',{...v2,receipt_request_id:remove.request_id});
   assert.deepEqual(await receipt(priorRequest.request_id),priorReceipt);
-  const descriptions=await descriptionChecks(received,priorRequest,priorReceipt);
+  const descriptions=await descriptionChecks(ref,received,priorRequest,priorReceipt);
   await shutdown(true);
   await boot();
   await denied('shortcuts_list',v2);
