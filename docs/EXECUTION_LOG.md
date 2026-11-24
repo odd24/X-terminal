@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.76 验收 Windows 本地文件拖入试用候选，原生 OLE 和便携隔离运行通过。[执行记录](records/P26.76.md)
+
 P26.75 实现 Windows 本地终端文件拖入和行编辑目标核对。[执行记录](records/P26.75.md)
 
 P26.74 登记 Windows 原生文件拖入及本地行编辑验收范围。[执行记录](records/P26.74.md)
@@ -607,6 +609,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.73 | 验收右键菜单试用候选 | DONE | [P26.73](records/P26.73.md) | Step-ID: P26.73 |
 | P26.74 | 登记本地终端文件拖入 | DONE | [P26.74](records/P26.74.md) | Step-ID: P26.74 |
 | P26.75 | 实现本地终端文件拖入 | DONE | [P26.75](records/P26.75.md) | Step-ID: P26.75 |
+| P26.76 | 验收文件拖入试用候选 | DONE | [P26.76](records/P26.76.md) | Step-ID: P26.76 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
