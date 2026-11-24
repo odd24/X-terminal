@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.74 登记 Windows 原生文件拖入及本地行编辑验收范围。[执行记录](records/P26.74.md)
+
 P26.73 交付右键菜单试用候选，便携隔离启动、同目录 v14 和已安装正式程序散列均已核对。[执行记录](records/P26.73.md)
 
 P26.72 实现 WebView2 网页命令过滤，使用 Windows 原生菜单正对照验收，复验本地剪贴板和会话配置删除。[执行记录](records/P26.72.md)
@@ -601,6 +603,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.71 | 登记嵌入网页右键菜单范围 | DONE | [P26.71](records/P26.71.md) | Step-ID: P26.71 |
 | P26.72 | 实现并验证 WebView 原生菜单过滤 | DONE | [P26.72](records/P26.72.md) | Step-ID: P26.72 |
 | P26.73 | 验收右键菜单试用候选 | DONE | [P26.73](records/P26.73.md) | Step-ID: P26.73 |
+| P26.74 | 登记本地终端文件拖入 | DONE | [P26.74](records/P26.74.md) | Step-ID: P26.74 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
