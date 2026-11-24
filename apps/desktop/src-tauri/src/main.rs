@@ -16,10 +16,12 @@ mod log_directory;
 mod log_viewer;
 #[cfg(feature = "save-recovery-fixture")]
 mod save_recovery_fixture;
+mod serial_commands;
 #[cfg(feature = "serial-mcp-fixture")]
 mod serial_fixture;
 mod service;
 mod session_windows;
+mod ssh_commands;
 mod terminal_clipboard;
 mod terminal_logs;
 mod trigger_match;
@@ -507,61 +509,6 @@ fn config_directory(state: State<'_, Desktop>) -> String {
 }
 
 #[tauri::command]
-async fn ssh_request(
-    window: tauri::WebviewWindow,
-    windows: State<'_, session_windows::SessionWindows>,
-    state: State<'_, Desktop>,
-    request: session_protocol::ssh::Request,
-) -> Result<session_protocol::ssh::Reply, String> {
-    if !request.validate() {
-        return Err("INVALID_SSH_REQUEST".into());
-    }
-    use session_protocol::ssh::Request as S;
-    let target = match &request {
-        S::AuthenticateKey { connection, .. }
-        | S::ExecReadProtected { connection, .. }
-        | S::ForgetStart { connection, .. }
-        | S::ForgetStatus { connection, .. }
-        | S::Disconnect { connection, .. }
-        | S::DisconnectStatus { connection, .. }
-        | S::Reconnect { connection, .. }
-        | S::ReconnectStatus { connection, .. }
-        | S::ReconnectFixed { connection, .. }
-        | S::ReconnectFixedStatus { connection, .. }
-        | S::Exec { connection, .. }
-        | S::ExecStatus { connection, .. }
-        | S::ExecRead { connection, .. }
-        | S::ExecCancel { connection, .. }
-        | S::WriteText { connection, .. }
-        | S::Write { connection, .. }
-        | S::Resize { connection, .. }
-        | S::InputStatus { connection, .. }
-        | S::Status { connection }
-        | S::AnswerHost { connection, .. }
-        | S::Authenticate { connection, .. }
-        | S::AnswerInteractive { connection, .. }
-        | S::Close { connection }
-        | S::Forget { connection } => Some(connection),
-        S::Start { .. }
-        | S::StartFixed { .. }
-        | S::QuickStart { .. }
-        | S::StartStatus { .. }
-        | S::ConnectStatus { .. } => None,
-    };
-    let mut shared = state.0.lock().await;
-    windows.permits(window.label(), target)?;
-    match shared
-        .as_mut()
-        .map_err(|error| error.clone())?
-        .request(Request::Ssh { request })
-        .await?
-    {
-        Reply::Ssh(reply) => Ok(reply),
-        _ => Err("INVALID_REPLY".into()),
-    }
-}
-
-#[tauri::command]
 async fn logging_request(
     window: tauri::WebviewWindow,
     windows: State<'_, session_windows::SessionWindows>,
@@ -726,49 +673,6 @@ async fn shortcut_bridge_management(
         }
     }
     .map_err(|_| "INVALID_BRIDGE_REPLY".into())
-}
-
-#[tauri::command]
-async fn serial_request(
-    window: tauri::WebviewWindow,
-    windows: State<'_, session_windows::SessionWindows>,
-    state: State<'_, Desktop>,
-    request: session_protocol::serial::Request,
-) -> Result<session_protocol::serial::Reply, String> {
-    if !request.validate() {
-        return Err("INVALID_SERIAL_REQUEST".into());
-    }
-    use session_protocol::serial::Request as S;
-    let target = match &request {
-        S::ForgetStart { connection, .. }
-        | S::ForgetStatus { connection, .. }
-        | S::Send { connection, .. }
-        | S::Status { connection }
-        | S::Write { connection, .. }
-        | S::Control { connection, .. }
-        | S::InputStatus { connection, .. }
-        | S::Close { connection }
-        | S::Disconnect { connection, .. }
-        | S::DisconnectStatus { connection, .. }
-        | S::Forget { connection } => Some(connection),
-        S::Start { .. }
-        | S::StartFixed { .. }
-        | S::QuickStart { .. }
-        | S::StartStatus { .. }
-        | S::ConnectStatus { .. }
-        | S::Inventory {} => None,
-    };
-    let mut shared = state.0.lock().await;
-    windows.permits(window.label(), target)?;
-    match shared
-        .as_mut()
-        .map_err(|error| error.clone())?
-        .request(Request::Serial { request })
-        .await?
-    {
-        Reply::Serial(reply) => Ok(reply),
-        _ => Err("INVALID_REPLY".into()),
-    }
 }
 
 #[tauri::command]
@@ -1116,8 +1020,8 @@ fn main() {
             service_read,
             service_read_text,
             service_screen,
-            ssh_request,
-            serial_request,
+            ssh_commands::ssh_request,
+            serial_commands::serial_request,
             fixture_create,
             fixture_append,
             fixture_lifecycle,

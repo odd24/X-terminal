@@ -12,9 +12,11 @@ const executable=path.resolve(process.argv[2]);
 const perfIndex=process.argv.indexOf('--measure');
 const performanceReport=perfIndex<0?undefined:path.resolve(process.argv[perfIndex+1]);
 const echoStages=process.argv.includes('--echo-stages');
+const windowCommands=process.argv.includes('--window-commands');
 const powershell=performanceReport?execFileSync('where.exe',['pwsh.exe'],{encoding:'utf8'}).trim().split(/\r?\n/)[0]:undefined;
 const uart=process.argv.includes('--uart');
 assert.ok(!echoStages||performanceReport&&!uart,'echo stages require --measure on the loopback SSH path');
+assert.ok(!windowCommands||performanceReport&&!uart&&!echoStages,'window command checks require a dedicated SSH report');
 const ttyBaseline=process.argv.includes('--expect-piped-shell');
 const variant=uart?'uart':ttyBaseline?'adb-shell-baseline':'ssh';
 const version=JSON.parse(await readFile('package.json','utf8')).version;
@@ -155,6 +157,12 @@ async function run(){
   await ui.command('Page.reload');
   const first=uart?await connectUart():await connectSsh('first');
   const second=uart?undefined:await connectSsh('second');
+  if(windowCommands){
+    const {verifyWindowCommands}=await import('./lib/MeasureRoutes.mjs');
+    await verifyWindowCommands({ui,first,second,executable,powershell});
+    result.checks.push('main and detached transport scopes, targetless and fixed status, original late reply');
+    return;
+  }
   if(echoStages){
     const {measureEchoStages}=await import('./lib/MeasureRoutes.mjs');
     result.performance={echoStages:await measureEchoStages({ui,first,second,activate,key,pushOutput,fixtureControl})};
@@ -450,7 +458,7 @@ try{
   await run();
   await stop();
   result.result='PASS';
-  console.log(echoStages?'PASS isolated echo stages':`PASS shortcut routes ${uart?'memory UART':'SSH and Windows batch'}`);
+  console.log(windowCommands?'PASS isolated window transport commands':echoStages?'PASS isolated echo stages':`PASS shortcut routes ${uart?'memory UART':'SSH and Windows batch'}`);
 }catch(error){
   result.result='FAIL';result.error=String(error.stack);
   if(ui)await ui.screenshot(`windows-${version}-shortcut-routes-${variant}-failure.png`).catch(()=>{});

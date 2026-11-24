@@ -88,6 +88,47 @@ async function detach(ui,executable,connection,ps){
   assert.ok(target);
   return connectDesktopPage(target);
 }
+
+export async function verifyWindowCommands({ui,first,second,executable,powershell}){
+  const reference=({connection_id,generation})=>({connection_id,generation});
+  const status=(page,connection)=>page.invoke('ssh_request',{request:{op:'status',connection:reference(connection)}});
+  const firstRef=reference(first),secondRef=reference(second);
+  const denied=/SESSION_IN_OTHER_WINDOW/;
+  await ui.waitFor(`document.querySelector('[role=tab][data-connection-id="${second.connection_id}"]')?.getAttribute('aria-label')==='localhost'`);
+  assert.deepEqual(reference((await status(ui,first)).connection),firstRef);
+  const held=await ui.interceptIpc({command:'ssh_request',op:'status',connectionId:second.connection_id,mode:'hold'});
+  const old=status(ui,second);
+  let child;
+  try{
+    for(let wait=0;wait<100&&await held.count()===0;wait++)await delay(20);
+    assert.equal(await held.count(),1);
+    child=await detach(ui,executable,second,powershell);
+    assert.deepEqual((await ui.invoke('service_list')).map(reference),[firstRef]);
+    assert.deepEqual((await child.invoke('service_list')).map(reference),[secondRef]);
+    await assert.rejects(status(child,first),denied);
+    await assert.rejects(status(child,{...second,generation:second.generation+1}),denied);
+    assert.deepEqual(reference((await status(child,second)).connection),secondRef);
+    // The original main-webview response remains held. New requests run after restoring it.
+    const fixed={op:'connect_status',profile_id:crypto.randomUUID(),revision:crypto.randomUUID(),request_id:crypto.randomUUID()};
+    await assert.rejects(child.invoke('ssh_request',{request:fixed}),denied);
+    await assert.rejects(ui.invoke('ssh_request',{request:fixed}),/PermissionDenied/);
+    await assert.rejects(child.invoke('serial_request',{request:{op:'inventory'}}),denied);
+    await assert.rejects(child.invoke('serial_request',{request:{op:'status',connection:firstRef}}),denied);
+  }finally{
+    await held.restore();
+    try{
+      assert.deepEqual(reference((await old).connection),secondRef);
+      if(child)await assert.rejects(status(ui,second),denied);
+    }finally{
+      if(child){
+        const label=await child.evaluate('window.__TAURI_INTERNALS__.metadata.currentWindow.label');
+        try{await child.evaluate(`setTimeout(()=>window.__TAURI_INTERNALS__.invoke('plugin:window|close',{label:${JSON.stringify(label)}}),0);true`);}
+        finally{child.close();}
+      }
+    }
+  }
+}
+
 async function echo(ui,n,prefix){
   const times=[];
   for(let i=0;i<n;i++){

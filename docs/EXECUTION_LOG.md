@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.41 按领域搬移 SSH 和串口原生命令，验证窗口许可及原回执。[执行记录](records/P26.41.md)
+
 P26.40 复测历史回显差异并分段采样。[测量记录](records/P26.40.md)
 
 P26.39 协调一次复制的读取、对话框与原结果回执。[执行记录](records/P26.39.md)
@@ -502,6 +504,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.38 | R1 标签拖放和窗格状态 | DONE | [P26.38](records/P26.38.md) | Step-ID: P26.38 |
 | P26.39 | R2 复制会话和结果归属 | DONE | [P26.39](records/P26.39.md) | Step-ID: P26.39 |
 | P26.40 | R3 回显耗时同机对照与分段测量 | DONE | [P26.40](records/P26.40.md) | Step-ID: P26.40 |
+| P26.41 | R4 SSH 和串口原生命令适配 | DONE | [P26.41](records/P26.41.md) | Step-ID: P26.41 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
