@@ -15,9 +15,9 @@ function without(tree:PaneTree,key:PaneKey):PaneTree|undefined{
  const first=without(tree.first,key),second=without(tree.second,key);
  return first&&second?{...tree,first,second}:first??second;
 }
-export type PaneSlot={key:PaneKey;requested:string;binding?:PaneIdentity;pending:boolean;retired:boolean;expectedGeneration?:number};
+export type PaneSlot={key:PaneKey;instance:symbol;requested:string;binding?:PaneIdentity;pending:boolean;retired:boolean;expectedGeneration?:number};
 const equal=(a:PaneIdentity|undefined,b:PaneIdentity|undefined)=>!!a&&!!b&&a.connection_id===b.connection_id&&a.generation===b.generation&&a.protocol===b.protocol;
-const empty=(key:PaneKey):PaneSlot=>({key,requested:'',pending:false,retired:false});
+const empty=(key:PaneKey,instance=Symbol()):PaneSlot=>({key,instance,requested:'',pending:false,retired:false});
 const canSplit=(tab:PaneLive)=>tab.state==='CONNECTED'&&(tab.protocol==='SSH2'||tab.protocol==='SERIAL');
 const axisFor=(edge:TabEdge):SplitAxis=>edge==='left'||edge==='right'?'horizontal':'vertical';
 const leadingEdge=(edge:TabEdge)=>edge==='left'||edge==='top';
@@ -31,9 +31,11 @@ export class PaneLayout{
  get direction(){return typeof this.tree==='string'?'single':this.tree.direction;}
  get slots(){return leaves(this.tree).map(key=>{const s=this.value.find(slot=>slot.key===key)!;return {...s,binding:s.binding&&{...s.binding}};});}
  hasPane(key:PaneKey){return this.value.some(slot=>slot.key===key);}
+  paneInstance(key:PaneKey){return this.value.find(slot=>slot.key===key)?.instance;}
  paneOf(id:string){return this.membership.get(id)??leaves(this.tree)[0];}
  get current(){return this.slots.find(s=>s.key===this.active)!;}
  placeLocal(id:string,key:PaneKey){this.membership.set(id,key);}
+  placeConnection(id:string,key:PaneKey){this.membership.set(id,key);}
  forgetLocal(id:string){this.membership.delete(id);}
  addPane(target:PaneKey,direction:SplitAxis,leading:boolean,relocate?:PaneKey){
   const key=relocate??paneKeys.find(key=>!this.value.some(slot=>slot.key===key));
@@ -124,7 +126,7 @@ export class PaneLayout{
  }
  restore(owner:string,first:PaneLive,second:PaneLive,direction:'horizontal'|'vertical',active:PaneIdentity,preserveSlots=false){
   if(!owner||owner!==this.owner||first.connection_id===second.connection_id||first.state!=='CONNECTED'||second.state!=='CONNECTED'||![first,second].every(c=>['SSH2','SERIAL'].includes(c.protocol))||!['horizontal','vertical'].includes(direction)||!equal(active,first)&&!equal(active,second))throw new Error('布局连接已变化，未恢复分屏。');
-  const make=(key:PaneKey,c:PaneLive):PaneSlot=>({key,requested:c.connection_id,binding:{connection_id:c.connection_id,generation:c.generation,protocol:c.protocol},pending:false,retired:false});
+  const make=(key:PaneKey,c:PaneLive):PaneSlot=>({...empty(key),requested:c.connection_id,binding:{connection_id:c.connection_id,generation:c.generation,protocol:c.protocol}});
   const existing=(connection:PaneLive)=>preserveSlots?this.value.find(slot=>!slot.pending&&!slot.retired&&equal(slot.binding,connection))?.key:undefined;
   const firstKey=existing(first)??(existing(second)==='first'?'second':'first');
   const secondKey=firstKey==='first'?'second':'first';
@@ -152,7 +154,7 @@ export class PaneLayout{
   const replacement=visible.find(next=>next.connection_id!==tab.connection_id&&this.paneOf(next.connection_id)===origin);
   if(selected&&replacement){this.focus(origin);this.select(replacement.connection_id,replacement);this.focus(previous);}
   if(selected&&!replacement&&local.some(id=>this.paneOf(id)===origin))
-   this.value=this.value.map(slot=>slot.key===origin?empty(origin):slot);
+   this.value=this.value.map(slot=>slot.key===origin?empty(origin,slot.instance):slot);
   if(!replacement&&this.value.length>1&&!local.some(id=>this.paneOf(id)===origin))this.closePane(origin,destination);
   this.epoch++;return true;
  }
@@ -164,8 +166,8 @@ export class PaneLayout{
   if(!equal(s.binding,target))return false;
   const replacement=visible.find(next=>next.connection_id!==target.connection_id&&this.paneOf(next.connection_id)===key);
   if(replacement){const previous=this.active;this.focus(key);this.select(replacement.connection_id,replacement);this.focus(previous);}
-  else if(local.some(id=>this.paneOf(id)===key))this.value=this.value.map(slot=>slot.key===key?empty(key):slot);
-  else if(!this.closePane(key))this.value=[empty(key)];
+  else if(local.some(id=>this.paneOf(id)===key))this.value=this.value.map(slot=>slot.key===key?empty(key,slot.instance):slot);
+  else if(!this.closePane(key))this.value=[empty(key,s.instance)];
   this.epoch++;return true;
  }
 }

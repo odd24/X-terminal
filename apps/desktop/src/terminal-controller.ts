@@ -22,8 +22,8 @@ type Ref=Pick<PaneConnection,'connection_id'|'generation'>;
 type Page={connection:Ref;events:{seq:number;bytes:number[];gap_bytes?:number}[];next_cursor:number;available_from:number;truncated:boolean;disconnected:boolean};
 export type PaneSelection={owner:string;connection?:PaneConnection;active:boolean;epoch:number;fixture:boolean;suspended?:boolean;outputCursor?:number;
   initialSsh1Fit?: { size: ReturnType<typeof dimensions>; take(): boolean }};
-export type TerminalView={status:string;inputFailure:string;failure:string;lastInput:string;decodeWarning:string;viewport:{cols:number;rows:number};renderedTarget?:ComposeTarget};
-export const initialTerminalView=():TerminalView=>({status:'正在连接会话服务',inputFailure:'',failure:'',lastInput:'尚无输入',decodeWarning:'',viewport:{cols:80,rows:24}});
+export type TerminalView={status:string;inputFailure:string;failure:string;lastInput:string;decodeWarning:string;writable:boolean;viewport:{cols:number;rows:number};renderedTarget?:ComposeTarget};
+export const initialTerminalView=():TerminalView=>({status:'正在连接会话服务',inputFailure:'',failure:'',lastInput:'尚无输入',decodeWarning:'',writable:false,viewport:{cols:80,rows:24}});
 type Deps={activate():void;context(value:TerminalMenuCapture):void;selection():PaneSelection;preferences():DesktopPreferences;state(view:TerminalView):void;invalidateDrafts():void;input():void;search():void;proposal(p?:PasteProposal):void;message(text:string):void;reset():void};
 export function createTerminalController(element:HTMLDivElement,deps:Deps){
     let view=initialTerminalView(),owner='';
@@ -46,6 +46,11 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
     fit.fit();
     setViewport({ cols: term.cols, rows: term.rows });
     const current = { term, fit, writer: new TerminalWriter(term), connection: undefined as Ref | undefined, fixture: false, inputs: 0, protocol: '', writable: false };
+    function setWritable(writable:boolean){
+      if(current.writable===writable)return;
+      current.writable=writable;
+      update({writable});
+    }
     let disposed = false;
     let timer=0,polling=false,lastPollAt=0,interactiveUntil=0;
     function wakeOutput(){interactiveUntil=Date.now()+500;if(!polling){clearTimeout(timer);timer=window.setTimeout(()=>void poll(),Math.max(0,16-(Date.now()-lastPollAt)));}}
@@ -271,11 +276,11 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
       try{
         const selection=deps.selection(),connection=selection.connection;
         current.fixture=selection.fixture;
-        if(!selection.owner){current.writable=false;timer=window.setTimeout(()=>void poll(),100);return;}
-        if(selection.suspended){current.writable=false;clip.invalidate();update({renderedTarget:undefined,status:'会话已变化或正在绑定，请明确选择当前会话。'});timer=window.setTimeout(()=>void poll(),100);return;}
+        if(!selection.owner){setWritable(false);timer=window.setTimeout(()=>void poll(),100);return;}
+        if(selection.suspended){setWritable(false);clip.invalidate();update({renderedTarget:undefined,status:'会话已变化或正在绑定，请明确选择当前会话。'});timer=window.setTimeout(()=>void poll(),100);return;}
         const changed=owner!==selection.owner||connection?.connection_id!==current.connection?.connection_id||connection?.generation!==current.connection?.generation||connection?.protocol!==current.protocol;
         if(changed){
-          current.writable=false;pacedCompose?.cancel();queue.close();queue=newQueue();lastSize='';clearTimeout(resizeTimer);
+          setWritable(false);pacedCompose?.cancel();queue.close();queue=newQueue();lastSize='';clearTimeout(resizeTimer);
           deps.invalidateDrafts();clip.invalidate();update({renderedTarget:undefined});current.writer.close();
           let encoding='utf8';
           if(connection&&['SSH1','SSH2','SERIAL'].includes(connection.protocol)){
@@ -291,7 +296,7 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
           cursor=1;gap=false;deps.reset();update({decodeWarning:'',lastInput:'尚无输入',inputFailure:'',failure:'',renderedTarget:undefined});
         }
         if(!same(selection)){timer=window.setTimeout(()=>void poll(),0);return;}
-        current.writable=connection?.state==='CONNECTED';
+        setWritable(connection?.state==='CONNECTED');
         if(!current.writable)clip.invalidate();
         if(current.protocol==='SSH2'&&current.writable&&!lastSize){const size=dimensions(term.cols,term.rows);if(submit(size))lastSize=`${size.cols}:${size.rows}`;}
         if (current.protocol === 'SSH1' && current.writable && !lastSize) {
@@ -324,8 +329,8 @@ export function createTerminalController(element:HTMLDivElement,deps:Deps){
         }else setStatus('服务就绪 · 尚无活动连接');
         if(!disposed)timer=window.setTimeout(()=>void poll(),Date.now()<interactiveUntil?16:100);
       }catch(error){
-        if(!disposed&&['StaleGeneration','NotFound','SESSION_IN_OTHER_WINDOW'].includes(String(error))){current.writable=false;timer=window.setTimeout(()=>void poll(),100);return;}
-        if(!disposed){current.fixture=false;current.writable=false;setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}
+        if(!disposed&&['StaleGeneration','NotFound','SESSION_IN_OTHER_WINDOW'].includes(String(error))){setWritable(false);timer=window.setTimeout(()=>void poll(),100);return;}
+        if(!disposed){current.fixture=false;setWritable(false);setFailure('会话服务不可用；未重连或重放输入。请退出后重新启动。');}
       }finally{polling=false;}
     }
     void poll();

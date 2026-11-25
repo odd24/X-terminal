@@ -23,9 +23,12 @@ const failures: Record<string, string> = {
   TRANSPORT_TIMEOUT: 'SSH1 连接超时。',
 };
 
-export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
+export function Ssh1Connect({ intent, ownerMatches, acceptTree, discardTree, focusAllowed, size, connected, close }: {
   intent: Ssh1Intent;
   ownerMatches(): boolean;
+  acceptTree?(ref:ConnectionRef):boolean;
+  discardTree?(ref:ConnectionRef):void;
+  focusAllowed?():boolean;
   size(): ReturnType<typeof dimensions>;
   connected(connection: ConnectionRef, initialSize: ReturnType<typeof dimensions>): void;
   close(): void;
@@ -74,10 +77,11 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
       || reply.connection.generation < 1 || !ownerMatches()) throw new Error('invalid SSH1 receipt');
     const ref = reference(reply.connection);
     accepted.current = ref;
-    if (live.current) {
+    if (live.current && (!acceptTree || acceptTree(ref))) {
       setTarget(ref);
       setUnknown(false);
     } else {
+      discardTree?.(ref);
       retire(ref);
     }
   }
@@ -159,14 +163,15 @@ export function Ssh1Connect({ intent, ownerMatches, size, connected, close }: {
   useLayoutEffect(() => {
     if (!target || !hostChallengeId || !ownerMatches()) return;
     const checkbox = hostConfirmation.current;
-    const modal = checkbox?.closest('dialog:modal');
+    const modal = checkbox?.closest(focusAllowed?'dialog[open]':'dialog:modal');
+    if(focusAllowed&&!focusAllowed())return;
     if (!checkbox || !modal || checkbox.checked || checkbox.matches(':disabled')) return;
     const active = document.activeElement;
     if (active && active !== document.body && active !== modal && active.getClientRects().length) return;
     checkbox.focus();
   }, [target, hostChallengeId]);
   const waitingPassword = challenge?.kind === 'credentials' && challenge.auth === 'password';
-  useEffect(() => { if (waitingPassword) password.current?.focus(); }, [waitingPassword, challenge?.id]);
+  useEffect(() => { if (waitingPassword && (!focusAllowed||focusAllowed())) password.current?.focus(); }, [waitingPassword, challenge?.id]);
 
   async function replyTo(challenge: Challenge, answer: { approve: boolean } | { use_saved: true; password: null } | { use_saved: false; password: string }) {
     if (!target || !ownerMatches() || flight.current || submitted === challenge.id || latest.current?.challenge?.id !== challenge.id) return;

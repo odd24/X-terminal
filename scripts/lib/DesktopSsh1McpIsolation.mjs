@@ -51,15 +51,15 @@ export async function verifyDesktopSsh1McpIsolation({ ui, keyboard, directory, p
     await ui.click('连接');
     const hostApproval = '[aria-label="快速连接核对指纹"]';
     await ui.waitFor(`!!${query(hostApproval)}`);
-    assert.equal(await ui.evaluate(`${query('dialog:modal .fingerprint')}.textContent`) === fixture.pin, true);
+    assert.equal(await ui.evaluate(`${query('dialog[open][aria-label="连接 SSH1 保存配置"] .fingerprint')}.textContent`) === fixture.pin, true);
     assert.equal(await ui.evaluate(`${query(hostApproval)}.checked`), false);
     await ui.evaluate(`${query(hostApproval)}.click()`);
     await ui.click('信任并继续登录');
     await ui.waitFor(`${active('[aria-label="SSH登录密码"]')} && !document.activeElement.disabled
-      && [...document.querySelectorAll('dialog:modal button')].some(button=>button.textContent==='提交本次登录信息'&&!button.disabled)`);
+      && [...document.querySelectorAll('dialog[open][aria-label="连接 SSH1 保存配置"] button')].some(button=>button.textContent==='提交本次登录信息'&&!button.disabled)`);
     await ui.command('Input.insertText', { text: fixture.password });
     await keyboard.enter();
-    await ui.waitFor("!document.querySelector('dialog:modal')");
+    await ui.waitFor('!'+query('dialog[open][aria-label="连接 SSH1 保存配置"]'));
 
     const sessions = await ui.invoke('service_list');
     assert.equal(sessions.length, 2);

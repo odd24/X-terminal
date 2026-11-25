@@ -10,7 +10,7 @@ const executable=path.resolve(process.argv[2]);
 const report=path.resolve(process.argv[3]);
 const root=await mkdtemp(path.join(await realpath(tmpdir()),'shared-terminal-saved-ssh-ui-'));
 const result={...await desktopEvidence(executable),scope:'Windows WebView2 with owned SSH loopback and CDP keyboard',checks:[]};
-const dialog='document.querySelector("dialog:modal")';
+const dialog='document.querySelector(\'dialog[open]:is(:modal,[aria-label="连接服务器"])\')';
 const named=label=>'document.querySelector('+JSON.stringify('[aria-label="'+label+'"]')+')';
 const leaf=id=>'document.querySelector('+JSON.stringify('[data-profile-id="'+id+'"]')+')';
 let ui,originalScope,replacementScope;

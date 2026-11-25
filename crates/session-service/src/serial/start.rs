@@ -27,12 +27,13 @@ impl Manager {
     ) -> Result<Reply, ErrorCode> {
         let inner = self.inner.lock().map_err(|_| ErrorCode::InvalidState)?;
         let store = self.store.lock().map_err(|_| ErrorCode::InvalidState)?;
-        let owner = Self::owner(&store, identity)?.ok_or(ErrorCode::PermissionDenied)?;
+        let identity = identity.ok_or(ErrorCode::PermissionDenied)?;
+        let owner = Self::owner(&store, Some(identity))?;
         let Some((start, connection)) = inner.starts.get(&target.request_id) else {
             inner.window.check(target.request_id)?;
             return Err(ErrorCode::PermissionDenied);
         };
-        if start.owner != Some(owner) || start.profile_revision.is_none() {
+        if start.owner != owner || start.profile_revision.is_none() {
             return Err(ErrorCode::PermissionDenied);
         }
         if start.target(target.request_id) != Some(target) {
@@ -73,13 +74,14 @@ impl Manager {
                 return Err(ErrorCode::PermissionDenied);
             }
             if profile_revision.is_some() {
-                let agent = identity
-                    .filter(|_| owner.is_some())
-                    .ok_or(ErrorCode::PermissionDenied)?;
-                if !matches!(
-                    store.pairing.authorization_form(agent, store.now())?,
-                    session_core::authorization::Form::SingleOperation { .. }
-                ) {
+                let actor = identity.ok_or(ErrorCode::PermissionDenied)?;
+                // Desktop uses its own pairing. A bridge still needs a single-operation grant.
+                if owner.is_some()
+                    && !matches!(
+                        store.pairing.authorization_form(actor, store.now())?,
+                        session_core::authorization::Form::SingleOperation { .. }
+                    )
+                {
                     return Err(ErrorCode::PermissionDenied);
                 }
             }

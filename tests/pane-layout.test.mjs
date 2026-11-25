@@ -10,6 +10,18 @@ test('collapse keeps focused identity; exact close removes only its pane without
 
 test('authoritative same-target selection keeps authentication stable; expected new generation cannot bind old list',()=>{const m=ready();m.select(a.connection_id,a,1);assert.equal(m.current.pending,false);assert.deepEqual(m.current.binding,{connection_id:a.connection_id,generation:1,protocol:'SSH2'});m.select(a.connection_id,a,2);assert.equal(m.current.pending,true);m.retain('service',[a,b]);assert.equal(m.current.pending,true);m.retain('service',[{...a,generation:2},b]);assert.equal(m.current.pending,false);assert.equal(m.current.binding.generation,2);});
 
+test('background placement keeps the active binding and a closed pane key cannot inherit a launch',()=>{
+ const m=ready();m.split('service',a,b,'horizontal');const origin=m.paneInstance('second');
+ m.placeConnection(serial.connection_id,'second');assert.equal(m.paneOf(serial.connection_id),'second');
+ assert.equal(m.current.binding.connection_id,a.connection_id);
+ m.closePane('second','first');
+ assert.equal(m.addPane('first','horizontal',false),'second');
+ assert.notEqual(m.paneInstance('second'),origin);
+ const initial=m.paneInstance('first');
+ m.retain('successor',[a,b,serial]);
+ assert.notEqual(m.paneInstance('first'),initial);
+});
+
 test('restoring a validated plan uses ordered exact identities and the saved active member without accepting foreign owner or fallback',()=>{const m=ready();assert.throws(()=>m.restore('wrong',a,b,'horizontal',b));assert.throws(()=>m.restore('service',a,a,'horizontal',a));assert.throws(()=>m.restore('service',a,b,'vertical',serial));assert.throws(()=>m.restore('service',a,{...b,state:'DISCONNECTED'},'horizontal',a));const before=m.epoch;m.restore('service',a,b,'vertical',b);assert.deepEqual(m.slots.map(s=>s.binding.connection_id),[a.connection_id,b.connection_id]);assert.equal(m.active,'second');assert.equal(m.direction,'vertical');assert.ok(m.epoch>before);});
 
 test('nested positioning keeps existing pane keys, moves a tab once and removes an empty group',()=>{

@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.90 实现会话树标签落位和输入交接。隔离 Windows 原生桌面、回环 SSH 与内存 UART 定向验证通过。[执行记录](records/P26.90.md)
+
 P26.89 登记 [CR-057](changes/CR-057.md) 的原窗格末尾追加、认证及键盘焦点验收。[执行记录](records/P26.89.md)
 
 P26.88 并存安装 0.1.39，隔离验证及开始菜单主入口回读通过。[执行记录](records/P26.88.md)
@@ -649,7 +651,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.87 | Windows x64 0.1.39 本地正式发行 | DONE | [P26.87](records/P26.87.md) | Step-ID: P26.87 |
 | P26.88 | 部署 Windows x64 0.1.39 到当前用户 | DONE | [P26.88](records/P26.88.md) | Step-ID: P26.88 |
 | P26.89 | 登记会话树连接的标签落位与焦点 | DONE | [P26.89](records/P26.89.md) | Step-ID: P26.89 |
-| P26.90 | 实现并验证会话树标签落位与焦点 | IN_PROGRESS | CR-057 | 待实测 |
+| P26.90 | 实现并验证会话树标签落位与焦点 | DONE | [P26.90](records/P26.90.md) | Step-ID: P26.90 |
 | P26.91 | 验收会话树标签修复候选 | TODO | CR-057 | 待便携包 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |

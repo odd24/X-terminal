@@ -6,8 +6,10 @@ export type Device = { device_id: string; port: string; instance_id: string; fri
 export type Inventory = { result: 'inventory'; revision: string; devices: Device[]; unidentified_ports: string[]; metadata_failures: number };
 export type SerialStatus = { result: 'status'; connection: Connection; profile_id: string; port: string; source_settings?: Settings; encoding: string; hardware_rts: boolean; cleanup_pending: boolean; failure: string | null; read_bytes: number; dropped_bytes: number; break_cleanup_failure: string | null };
 export type SerialReceipt = { result: 'input'; request_id: string; state: 'PENDING' | 'DRIVER_ACCEPTED' | 'CONTROL_APPLIED' | 'CANCELLED_BEFORE_DISPATCH' | 'UNKNOWN'; driver_accepted: number | null; failure: string | null };
+export type SerialConnectTarget = { profile_id:string; profile_revision:string; inventory_revision:string; device_id:string; request_id:string };
 type Request =
   | { op: 'inventory' }
+  | { op: 'start_fixed' | 'connect_status'; target: SerialConnectTarget }
   | { op: 'quick_start'; settings: Settings; request_id: string; revision: string; device_id: string }
   | { op: 'start_status'; request_id: string }
   | { op: 'start'; profile_id: string; request_id: string; revision: string; device_id: string }
@@ -15,7 +17,7 @@ type Request =
   | { op: 'control'; connection: ConnectionRef; request_id: string; line: 'DTR' | 'RTS' | 'BREAK'; asserted: boolean }
   | { op: 'send'; connection: ConnectionRef; request_id: string; content: string; format: 'text' | 'hex'; ending: 'none' | 'cr' | 'lf' | 'cr_lf'; pace: { chunk_bytes: number; interval_ms: number } }
   | { op: 'input_status'; connection: ConnectionRef; request_id: string };
-export type SerialReply = Inventory | SerialStatus | SerialReceipt | { result: 'started'; connection: Connection } | { result: 'accepted' };
+export type SerialReply = Inventory | SerialStatus | SerialReceipt | { result: 'started'; connection: Connection } | { result: 'connect_receipt'; target:SerialConnectTarget; connection:Connection } | { result: 'accepted' };
 export class SerialRequestError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
 }

@@ -26,7 +26,7 @@ export async function observeDesktopSsh1Sizes(ui) {
       return {cols,rows,width:innerWidth,height:innerHeight,dpr:devicePixelRatio,
         terminalHeight:document.querySelector('.terminal')?.getBoundingClientRect().height??0,
         emptyHeight:document.querySelector('.terminal-empty')?.getBoundingClientRect().height??0,
-        modal:!!document.querySelector('dialog:modal')};
+        connecting:!!document.querySelector('dialog[open]:is([aria-label="连接 SSH1 保存配置"],[aria-label="显式重连 SSH1"])')};
     };
     const hook={original, requests:[], beforeDialog:measure(), measure};
     window.__p13ResizeObservation=hook;
@@ -90,9 +90,9 @@ export async function verifyDesktopSsh1Resize({ ui, keyboard, ref, executable, p
   const [start, initialResize] = starts;
   const initial = await view();
   const layouts = await observation.layouts();
-  assert.equal(layouts.beforeDialog.modal, false);
-  assert.equal(layouts.launch.modal, true);
-  assert.equal(initial.modal, false);
+  assert.equal(layouts.beforeDialog.connecting, false);
+  assert.equal(layouts.launch.connecting, true);
+  assert.equal(initial.connecting, false);
   assert.deepEqual([layouts.beforeDialog.terminalHeight, layouts.beforeDialog.emptyHeight],
     [layouts.launch.terminalHeight, layouts.launch.emptyHeight]);
   assert.ok(layouts.launch.emptyHeight > 0 && initial.terminalHeight > layouts.launch.terminalHeight);

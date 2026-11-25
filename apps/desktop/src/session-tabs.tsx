@@ -11,7 +11,7 @@ export function TabCloseButton({label,disabled,close}:{label:string;disabled?:bo
     <ControlIcon icon="close" />
   </button>;
 }
-export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,localTabs=[],order=[],endControls,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;localTabs?:LocalTabItem[];order?:string[];endControls?:ReactNode;children?:ReactNode}){
+export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,recording,toggleRecording,select,close,pending,assign,drag,detached,copy,localTabs=[],order=[],trailing,endControls,children}:{singlePane:boolean;tabs:Connection[];groups:TabGroup[];groupOf(id:string):string;owner:string;selected:string;name(c:Connection):string;recording(c:Connection):TabRecording|undefined;toggleRecording(c:Connection):void;select(id:string):void;close?(c:Connection):void;pending(c:Connection):boolean;assign(target:GroupConnection,group:string):void;drag:SessionDrag;detached:boolean;copy(c:Connection,owner:string):void;localTabs?:LocalTabItem[];order?:string[];trailing?:ReadonlySet<string>;endControls?:ReactNode;children?:ReactNode}){
   const list=useRef<HTMLDivElement>(null);
   const [menu,setMenu]=useState<{connection:Connection;owner:string;x:number;y:number;anchor:HTMLElement}>();
   const source=menu?.owner===owner?tabs.find(c=>c.connection_id===menu.connection.connection_id&&c.generation===menu.connection.generation&&c.protocol===menu.connection.protocol):undefined;
@@ -34,6 +34,8 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
     observer.observe(rail);return()=>observer.disconnect();
   },[selected,orderKey]);
   const sections=groups.length?[{id:'',name:'未分组'},...groups]:[{id:'',name:''}];
+  const isTrailing=(c:Connection)=>groups.length>0&&groupOf(c.connection_id)===''&&trailing?.has(c.connection_id);
+  const tail=tabs.filter(isTrailing);
   function drop(event:DragEvent,group:string){event.preventDefault();const raw=event.dataTransfer.getData('application/x-shared-terminal-tab');if(raw.length>512)return;try{const t=JSON.parse(raw);if(t.owner!==owner)return;const live=tabs.find(c=>c.connection_id===t.connection_id&&c.generation===t.generation&&c.protocol===t.protocol);if(live)assign(live,group);}catch{/* unrelated/corrupt drag data never becomes an action */}}
   const {preview, bindings, cancelOnKey, allowedClick, allowedDoubleClick}=drag;
   const destination=preview?.destination;
@@ -105,6 +107,9 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
       </div>;
   }
   const renderLocals=(anchor:string)=>localBefore.get(anchor)?.map(local=>renderTab(localDragSource(local.id),local));
+  const renderConnections=(items:Connection[])=>items.flatMap(connection=>[
+    ...(renderLocals(connection.connection_id)??[]),renderTab(connection),
+  ]);
   return <div className="tab-tools pane-tab-bar"><div role="tablist" aria-label="连接标签" ref={list} data-tab-drag={preview?'true':undefined} onWheel={event=>{
     const rail=event.currentTarget;
     if(event.deltaX||event.shiftKey||rail.scrollWidth<=rail.clientWidth)return;
@@ -112,10 +117,8 @@ export function SessionTabs({singlePane,tabs,groups,groupOf,owner,selected,name,
     rail.scrollLeft+=event.deltaY*scale;
   }}>{sections.map(group=><Fragment key={group.id}>
     {groups.length>0&&<span className="tab-group-marker" data-group-id={group.id} data-drop-group={destination?.kind==='group'&&destination.group===group.id?true:undefined} title="可将标签拖到这里；只移动显示分组" onDragOver={e=>{if(e.dataTransfer.types.includes('application/x-shared-terminal-tab'))e.preventDefault();}} onDrop={e=>drop(e,group.id)}>{group.name}</span>}
-    {tabs.filter(c=>groupOf(c.connection_id)===group.id).flatMap(connection=>[
-      ...(renderLocals(connection.connection_id)??[]),renderTab(connection),
-    ])}
-    </Fragment>)}{renderLocals('')}</div>{children}
+    {renderConnections(tabs.filter(c=>groupOf(c.connection_id)===group.id&&!isTrailing(c)))}
+    </Fragment>)}{tail.length>0&&<span className="tab-group-marker">未分组</span>}{renderConnections(tail)}{renderLocals('')}</div>{children}
     {singlePane&&<div className="tab-lane-drag" aria-hidden="true" data-tauri-drag-region="" />}
     {endControls}
     {menu&&(source||localSource?.copy)&&<ContextMenu className="session-tab-menu" label="会话标签菜单"

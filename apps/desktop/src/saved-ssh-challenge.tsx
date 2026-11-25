@@ -8,14 +8,14 @@ export function sshEndpoint(host:string,port:number){
   return (host.includes(':')&&!host.startsWith('[')?'['+host+']':host)+':'+port;
 }
 
-export function SavedHostChallenge({challenge,busy,submitted,error,approve,stop}:{
-  challenge:HostChallenge;busy:boolean;submitted:boolean;error:string;approve():void;stop():void;
+export function SavedHostChallenge({challenge,busy,submitted,error,approve,stop,focusAllowed}:{
+  challenge:HostChallenge;busy:boolean;submitted:boolean;error:string;approve():void;stop():void;focusAllowed?():boolean;
 }){
   const stopButton=useRef<HTMLButtonElement>(null);
   const [copyStatus,setCopyStatus]=useState('');
   const {candidate,known,status}=challenge.review;
   const changed=status==='changed';
-  useLayoutEffect(()=>{stopButton.current?.focus();},[challenge.id]);
+  useLayoutEffect(()=>{if(!focusAllowed||focusAllowed())stopButton.current?.focus();},[challenge.id]);
   async function copy(value:string){
     try{await navigator.clipboard.writeText(value);setCopyStatus('指纹已复制。');}
     catch{setCopyStatus('无法访问剪贴板，可选中指纹文本复制。');}
