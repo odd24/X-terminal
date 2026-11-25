@@ -4,6 +4,7 @@ import {mkdtemp,mkdir,readFile,realpath,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {delay,desktopEvidence,launchDesktop} from './lib/DesktopHarness.mjs';
+import {verifyWrappedDrop} from './lib/DesktopWrappedFileDrop.mjs';
 
 const executable=path.resolve(process.argv[2]);
 const report=path.resolve(process.argv[3]);
@@ -94,14 +95,19 @@ try{
   const second=path.join(root,'second ‘ quoted $.txt');
   await mkdir(special);
   await writeFile(second,'owned fixture');
-  ui=await launchDesktop(root,{executable,windowsHide:false});
+  ui=await launchDesktop(root,{executable,windowsHide:false,isolatedPowerShell:true});
   if(!eventFixture)await ui.command('Page.bringToFront');
   await ui.evaluate(String(()=>{
     const original=window.fetch;
     window.fileDropReceipt=[];
     window.fetch=async function(request,init){
-      const reply=await original.call(this,request,init);
       const body=typeof init?.body==='string'?JSON.parse(init.body):null;
+      const gate=window.fileDropPreflight;
+      if(body?.action?.kind==='file_drop'&&gate?.hold){
+        gate.action=body.action;
+        await new Promise(resolve=>{gate.release=resolve;});
+      }
+      const reply=await original.call(this,request,init);
       if(body?.action?.kind==='file_drop')window.fileDropReceipt.push([reply.status,await reply.clone().text()]);
       return reply;
     };
@@ -127,6 +133,7 @@ try{
   await ui.click('本地终端');
   const shell=current('powershell');
   await ui.waitFor('document.activeElement?.matches('+q(shell+' textarea')+')');
+  await screen(shell,'SHARED_TERMINAL_ISOLATED_POWERSHELL_READY');
   await screen(shell,'PS ');
   const proof=path.join(root,'powershell-output.txt');
   const roundtrip='function SharedDropProbe { $args | Set-Content -LiteralPath '+literal(proof)+' -Encoding UTF8 }';
@@ -141,6 +148,8 @@ try{
   const observed=await waitRead(proof,value=>value.includes('TAIL'));
   assert.deepEqual(observed.trimEnd().split(/\r?\n/),[special,second,'TAIL']);
   record('Multiple drop reached PSReadLine at the cursor and round-tripped ordered paths with preserved suffix',{native:reply});
+
+  if(!eventFixture)await verifyWrappedDrop({ui,root,shell,key,type,enter,nativeDrop,record,evidence:path.dirname(report)});
 
   const blocked=path.join(root,'foreground.txt');
   await type('Set-Content -LiteralPath '+literal(blocked)+" -Value (Read-Host 'FOREGROUND_DROP_PROBE')");await enter();
@@ -185,6 +194,7 @@ try{
   result.result='FAIL';
   result.error=error.stack;
   result.acknowledgements=await ui?.evaluate('window.fileDropReceipt').catch(()=>undefined);
+  result.ownedScreen=await ui?.evaluate('Array.from(document.querySelectorAll(".local-terminal-output .xterm-rows"), node=>node.innerText).join("\\n")').catch(()=>undefined);
   throw error;
 }finally{
   await ui?.close();

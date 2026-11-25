@@ -51,6 +51,9 @@ try {
             } else {
                 $readme = git show "${commit}:docs/WINDOWS_PORTABLE.md"
                 if ($LASTEXITCODE -ne 0 -or !$readme) { throw 'Cannot read the release README at the source commit' }
+                $psReadLineNotice = git show "${commit}:vendor/psreadline/LICENSE.txt"
+                if ($LASTEXITCODE -ne 0 -or !$psReadLineNotice) { throw 'Cannot read the PSReadLine notice at the source commit' }
+                $readme += @('', '## PSReadLine 2.0 license', '') + $psReadLineNotice
                 [IO.File]::WriteAllText($destination, ($readme -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
             }
             $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()

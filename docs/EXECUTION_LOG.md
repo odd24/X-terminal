@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.93 修复 PSReadLine 2.0 长路径重绘，隔离 Windows 原生和会话树回归通过。[执行记录](records/P26.93.md)
+
 P26.92 登记 PowerShell 长路径拖入重复重绘及 Windows 原生验收。[执行记录](records/P26.92.md)
 
 P26.91 交付会话树标签修复的 Windows x64 便携候选，普通服务、配置目录保护及同目录 MCP 核对通过。[执行记录](records/P26.91.md)
@@ -658,7 +660,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.90 | 实现并验证会话树标签落位与焦点 | DONE | [P26.90](records/P26.90.md) | Step-ID: P26.90 |
 | P26.91 | 验收会话树标签修复候选 | DONE | [P26.91](records/P26.91.md) | Step-ID: P26.91 |
 | P26.92 | 登记 PowerShell 长路径拖入重绘修复 | DONE | [P26.92](records/P26.92.md) | Step-ID: P26.92 |
-| P26.93 | 实现并验证 PowerShell 长路径拖入修复 | IN_PROGRESS | CR-058 | 待实测 |
+| P26.93 | 实现并验证 PowerShell 长路径拖入修复 | DONE | [P26.93](records/P26.93.md) | Step-ID: P26.93 |
 | P26.94 | 交付 PowerShell 拖入修复 Windows 候选 | TODO | CR-058 | 待便携包 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |

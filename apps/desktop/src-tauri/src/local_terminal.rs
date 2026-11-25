@@ -3,6 +3,7 @@ mod batch;
 mod conpty;
 pub(crate) mod directory;
 mod file_drop;
+mod psreadline;
 pub(crate) mod scripts;
 
 use conpty::{Output, Process};
@@ -483,6 +484,24 @@ pub async fn local_terminal(
     } else {
         None
     };
+    let prepared_shell = if matches!(
+        &action,
+        Action::Open {
+            powershell: true,
+            script: None,
+            ..
+        }
+    ) {
+        let request = Uuid::new_v4();
+        let image = env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .ok_or("找不到 Windows 系统目录")?
+            .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+        let module = psreadline::CompatibilityModule::prepare(&image, &desktop.2, request).await;
+        Some((request, image, module))
+    } else {
+        None
+    };
     let mut sessions = state.0.lock().unwrap();
     let view = match action {
         Action::Open {
@@ -555,11 +574,8 @@ pub async fn local_terminal(
                 session.last_request = Some(Uuid::new_v4());
                 session.message = None;
             } else if powershell {
-                let request = Uuid::new_v4();
-                let image = env::var_os("SystemRoot")
-                    .map(PathBuf::from)
-                    .ok_or("找不到 Windows 系统目录")?
-                    .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+                let (request, image, module) =
+                    prepared_shell.ok_or("无法准备 Windows PowerShell")?;
                 session.active = Some(Foreground::Console(
                     Process::start_windows_powershell(
                         &image,
@@ -567,6 +583,7 @@ pub async fn local_terminal(
                         session.cols,
                         session.rows,
                         request,
+                        module,
                     )
                     .map_err(|error| format!("Windows PowerShell 启动失败：{error}"))?,
                 ));

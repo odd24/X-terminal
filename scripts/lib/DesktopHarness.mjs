@@ -136,14 +136,16 @@ export async function connectDesktopPage(target) {
   return {command,evaluate,invoke,waitFor,screenshot,close:()=>socket.close()};
 }
 
-export async function launchDesktop(directory, {fixture = false, executable = path.resolve('target/debug/shared-terminal-desktop.exe'), webviewDirectory = path.join(directory,'webview-ui'), windowsHide = true, extraArgs = []} = {}) {
+export async function launchDesktop(directory, {fixture = false, executable = path.resolve('target/debug/shared-terminal-desktop.exe'), webviewDirectory = path.join(directory,'webview-ui'), windowsHide = true, extraArgs = [], isolatedPowerShell = false} = {}) {
   assert.ok(path.isAbsolute(directory));
   const reservation = createServer();
   await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve));
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
   const app = spawn(executable, ['--data-dir', directory, ...(fixture ? ['--test-fixture'] : []), ...extraArgs], {
-    windowsHide, stdio: ['ignore','ignore','pipe'], env: { ...process.env, WEBVIEW2_USER_DATA_FOLDER: webviewDirectory, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1` },
+    windowsHide, stdio: ['ignore','ignore','pipe'], env: { ...process.env,
+      ...(isolatedPowerShell ? {SHARED_TERMINAL_ISOLATED_POWERSHELL:'1'} : {}),
+      WEBVIEW2_USER_DATA_FOLDER: webviewDirectory, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1` },
   });
   let nativeErrors='';app.stderr.on('data',chunk=>{nativeErrors=(nativeErrors+chunk.toString()).slice(-8192);});
   let startupError; app.on('error', error => { startupError = error; });

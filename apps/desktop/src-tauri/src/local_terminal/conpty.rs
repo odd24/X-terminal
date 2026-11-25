@@ -1,3 +1,4 @@
+use super::{file_drop, psreadline::CompatibilityModule};
 use std::{
     env,
     ffi::{OsStr, OsString, c_void},
@@ -64,6 +65,7 @@ pub struct Process {
     console: Arc<Mutex<Option<Console>>>,
     input: Option<mpsc::SyncSender<Vec<u8>>>,
     finished: Option<JoinHandle<()>>,
+    editor_module: Option<CompatibilityModule>,
     pub output: Arc<Mutex<Output>>,
     pub output_ready: Arc<tokio::sync::Notify>,
     pub output_reader: Arc<tokio::sync::Semaphore>,
@@ -185,12 +187,18 @@ fn spawn(
     Ok(unsafe { OwnedHandle::from_raw_handle(process.hProcess) })
 }
 
-fn child_environment(key: &str, value: Option<&OsStr>) -> Vec<u16> {
+fn child_environment(overrides: &[(&str, Option<&OsStr>)]) -> Vec<u16> {
     let mut values: Vec<_> = env::vars_os()
-        .filter(|(name, _)| !name.eq_ignore_ascii_case(key))
+        .filter(|(name, _)| {
+            !overrides
+                .iter()
+                .any(|(key, _)| name.eq_ignore_ascii_case(key))
+        })
         .collect();
-    if let Some(value) = value {
-        values.push((OsString::from(key), value.to_os_string()));
+    for (key, value) in overrides {
+        if let Some(value) = value {
+            values.push((OsString::from(key), value.to_os_string()));
+        }
     }
     values.sort_by_cached_key(|(name, _)| name.to_string_lossy().to_uppercase());
     let mut block = Vec::new();
@@ -220,24 +228,39 @@ impl Process {
         cols: u16,
         rows: u16,
         task: uuid::Uuid,
+        module: Option<CompatibilityModule>,
     ) -> io::Result<Self> {
         // Windows PowerShell builds its own module search path. An intermediate
         // host can otherwise pass along PowerShell 7's incompatible modules.
-        let block = child_environment("PSModulePath", None);
-        Self::start_configured(
-            executable,
-            &[
-                "-NoLogo".into(),
-                "-NoExit".into(),
-                "-EncodedCommand".into(),
-                super::file_drop::bootstrap(task),
-            ],
-            cwd,
-            cols,
-            rows,
-            Some(&block),
-            None,
-        )
+        let isolated =
+            env::var_os("SHARED_TERMINAL_ISOLATED_POWERSHELL").as_deref() == Some(OsStr::new("1"));
+        let assembly = module.as_ref().map(CompatibilityModule::assembly);
+        let block = child_environment(&[
+            (
+                "PSModulePath",
+                module.as_ref().map(|item| item.paths.as_os_str()),
+            ),
+            (
+                "SHARED_TERMINAL_PSREADLINE_ASSEMBLY",
+                assembly.as_deref().map(Path::as_os_str),
+            ),
+            (
+                "SHARED_TERMINAL_ORIGINAL_PS_MODULE_PATH",
+                module.as_ref().map(|item| OsStr::new(&item.original_paths)),
+            ),
+        ]);
+        let mut args = vec!["-NoLogo".into(), "-NoExit".into()];
+        if isolated {
+            args.push("-NoProfile".into());
+        }
+        args.extend([
+            "-EncodedCommand".into(),
+            file_drop::bootstrap(task, isolated),
+        ]);
+        let mut process =
+            Self::start_configured(executable, &args, cwd, cols, rows, Some(&block), None)?;
+        process.editor_module = module;
+        Ok(process)
     }
 
     pub fn start_script(
@@ -249,7 +272,7 @@ impl Process {
     ) -> io::Result<Self> {
         // Carry the path as data. cmd expands the fixed variable once, with
         // delayed expansion and AutoRun disabled, inside the quoted command.
-        let block = child_environment("SHARED_TERMINAL_SCRIPT", Some(path.as_os_str()));
+        let block = child_environment(&[("SHARED_TERMINAL_SCRIPT", Some(path.as_os_str()))]);
         Self::start_configured(
             executable,
             &[],
@@ -369,6 +392,7 @@ impl Process {
             console,
             input: Some(input),
             finished: Some(finished),
+            editor_module: None,
             output,
             output_ready,
             output_reader: Arc::new(tokio::sync::Semaphore::new(1)),

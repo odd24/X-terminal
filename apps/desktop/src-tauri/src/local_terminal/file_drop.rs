@@ -19,8 +19,10 @@ const MAX_BYTES: usize = 8192;
 const FRAME_LIMIT: usize = 16384;
 const TIMEOUT: Duration = Duration::from_millis(1800);
 
-pub fn bootstrap(task: Uuid) -> String {
-    let script = include_str!("file_drop.ps1").replace("__TASK__", &task.simple().to_string());
+pub fn bootstrap(task: Uuid, isolated: bool) -> String {
+    let script = include_str!("file_drop.ps1")
+        .replace("__TASK__", &task.simple().to_string())
+        .replace("__ISOLATED__", if isolated { "$true" } else { "$false" });
     STANDARD.encode(
         script
             .encode_utf16()

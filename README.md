@@ -17,7 +17,7 @@
 
 ## 本地开发
 
-使用 Node 24.14.0、npm 11.9.0、`rust-toolchain.toml` 固定的 Rust 1.99.1、MSVC、Windows SDK 和 WebView2。工具链脚本在仓库已有本地工具时切换环境，也可使用准备好的系统工具链。[环境清单](docs/evidence/P01-environment.md)
+使用 Node 24.14.0、npm 11.9.0、`rust-toolchain.toml` 固定的 Rust 1.99.1、MSVC、Windows SDK 和 WebView2。Windows 桌面构建用 PowerShell 7 和 Visual Studio Build Tools 的 MSBuild Roslyn 编译仓库锁定的 PSReadLine 2.0 兼容模块。工具链脚本在仓库已有本地工具时切换环境，也可使用准备好的系统工具链。[环境清单](docs/evidence/P01-environment.md)
 
 ```powershell
 . ./scripts/Enter-Toolchain.ps1

@@ -58,7 +58,7 @@
 | 改动 | 最小回归与可复建参考 |
 |---|---|
 | 标签、关闭、拖动、双击 | 同一候选构建运行 [LocalTabs](../scripts/Test-Desktop-LocalTabs.mjs) 与受影响的 [PaneGroups](../scripts/Test-Desktop-PaneGroups.mjs) / [SessionCopy](../scripts/Test-Desktop-SessionCopy.mjs)。同时断言普通本地实体双击只建一个，拖动和尾随双击建零个，忙碌、ADB 及脚本结果保持原会话。检查目录继承、同名精确身份和关闭后的焦点。[P26.20 发布门](records/P26.20.md) |
-| 本地文件拖入 | [FileDrop](../scripts/Test-Desktop-FileDrop.mjs) 对候选校验正文落点高亮、当前光标引用和目录、多项、非焦点、取消及前台输入隔离。附加参数依次是候选 exe、报告路径，可选 `--event-fixture` 仅验证 Tauri 事件后的路径。 |
+| 本地文件拖入 | [FileDrop](../scripts/Test-Desktop-FileDrop.mjs) 对候选校验正文落点高亮、当前光标引用和目录、多项、非焦点、取消及前台输入隔离。Windows PowerShell 原生用例还比较 65 和 96 列的软换行、编辑缓冲和 VT 输出。附加参数依次是候选 exe、报告路径，可选 `--event-fixture` 仅验证 Tauri 事件后的路径。 |
 | 串口配置端口 | [SerialConfig](../scripts/Test-Desktop-SerialConfig.mjs) 使用与内存串口测试服务同目录的 Desktop.exe 和报告路径。校验端口下拉、刷新、设备替换、已保存的离线项、草稿及原快速连接。测试服务使用完毕后复核普通服务。 |
 | 保存 SSH2 配置与登录 | [SavedSshSetup](../scripts/Test-Desktop-SavedSshSetup.mjs) 使用普通候选 Desktop.exe 与报告路径。覆盖保存后会话树选择、首次与变化的真实指纹、默认停止、密码回补及关闭后的原请求清理。 |
 | 样式、主题、焦点与尺寸 | `node scripts/Test-Desktop-TabSeparation.mjs <Desktop.exe>` 重建方案 A 浅色、白底终端、关闭焦点、深色录制、宽窄分屏与同地址对照。旧候选用 `--baseline`。另按影响使用 `npm run test:desktop:appearance`、[StandardWorkspaceDpi](../scripts/Test-Desktop-StandardWorkspaceDpi.mjs)。A 版 150% 为 CDP 模拟，宿主 100%。真实 DPI 和实际中文输入另记环境。[P26.16 对照](records/P26.16.md) |

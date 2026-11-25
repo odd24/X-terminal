@@ -1,11 +1,35 @@
 & {
     try {
-        $editor = Get-Command PSConsoleHostReadLine -CommandType Function -ErrorAction SilentlyContinue
-        if (!$editor) {
-            Import-Module PSReadLine -ErrorAction Stop
-            $editor = Get-Command PSConsoleHostReadLine -CommandType Function -ErrorAction Stop
+        $compatibility = $false
+        $expectedAssembly = $env:SHARED_TERMINAL_PSREADLINE_ASSEMBLY
+        if ($expectedAssembly) {
+            try {
+                if (!(Get-Module PSReadLine)) { Import-Module PSReadLine -ErrorAction Stop }
+                $compatibility = [Microsoft.PowerShell.PSConsoleReadLine].Assembly.Location -ieq $expectedAssembly
+            } finally {
+                $env:PSModulePath = $env:SHARED_TERMINAL_ORIGINAL_PS_MODULE_PATH
+                Remove-Item Env:SHARED_TERMINAL_PSREADLINE_ASSEMBLY, Env:SHARED_TERMINAL_ORIGINAL_PS_MODULE_PATH -ErrorAction SilentlyContinue
+            }
         }
-        if ($editor.ModuleName -ne 'PSReadLine') { return }
+        if (__ISOLATED__) {
+            if (!(Get-Module PSReadLine)) { Import-Module PSReadLine -ErrorAction Stop }
+            Set-PSReadLineOption -HistorySaveStyle SaveNothing
+            [Console]::WriteLine('SHARED_TERMINAL_ISOLATED_POWERSHELL_READY')
+        }
+        $editor = Get-Command PSConsoleHostReadLine -CommandType Function -ListImported -ErrorAction SilentlyContinue
+        if ($compatibility -and (!$editor -or $editor.ModuleName -eq 'PSReadLine')) {
+            $readLine = { [Microsoft.PowerShell.PSConsoleReadLine]::ReadLine($Host.Runspace, $ExecutionContext) }
+            # Even if the drop channel cannot start, this binary module needs
+            # its normal ConsoleHost entry point.
+            Set-Item Function:global:PSConsoleHostReadLine -Value $readLine
+        } else {
+            if (!$editor) {
+                Import-Module PSReadLine -ErrorAction Stop
+                $editor = Get-Command PSConsoleHostReadLine -CommandType Function -ErrorAction Stop
+            }
+            if ($editor.ModuleName -ne 'PSReadLine') { return }
+            $readLine = $editor.ScriptBlock
+        }
 
         $name = 'SharedTerminalDrop.__TASK__'
         $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -24,7 +48,7 @@
             stamp = $mapping.CreateViewAccessor()
             pipeSecurity = $pipeSecurity
             timer = [System.Timers.Timer]::new(120)
-            editor = $editor.ScriptBlock
+            editor = $readLine
             generation = [uint32]0
             buffer = [byte[]]::new(16384)
             used = 0
@@ -64,7 +88,7 @@
                         $suffix = if ($right.Length -and ![char]::IsWhiteSpace($right[0])) { ' ' } else { '' }
                         $insert = $prefix + ($quoted -join ' ') + $suffix
                         $tokens = $null; $parseErrors = $null
-                        $null = [System.Management.Automation.Language.Parser]::ParseInput(
+                        $syntax = [System.Management.Automation.Language.Parser]::ParseInput(
                             $left + $insert + $right, [ref]$tokens, [ref]$parseErrors)
                         # A token parsed inside a quote, comment, here-string or stop-parsing
                         # region cannot match its proposed offset and literal value here.
@@ -74,8 +98,18 @@
                             $token = $tokens.Where({ $_.Extent.StartOffset -eq $offset }, 'First')
                             $accepted = $token.Count -eq 1 -and $token[0].Kind -eq 'StringLiteral' -and
                                 $token[0].Extent.Text -ceq $quoted[$i] -and $token[0].Value -ceq $request.paths[$i]
+                            if ($accepted) {
+                                $command = $syntax.Find({
+                                    param($node)
+                                    $node -is [System.Management.Automation.Language.CommandAst] -and
+                                        $node.CommandElements[0].Extent.StartOffset -eq $offset
+                                }, $true)
+                                $accepted = $null -eq $command
+                            }
                             $offset += $quoted[$i].Length + 1
                         }
+                        $accepted = $accepted -and $request.generation -eq $drop.generation -and
+                            [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -lt $request.expiry
                         if ($accepted) { [Microsoft.PowerShell.PSConsoleReadLine]::Insert($insert) }
                     }
                     $drop.pipe.WriteByte([byte]$accepted)
