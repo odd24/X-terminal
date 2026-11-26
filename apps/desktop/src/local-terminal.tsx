@@ -23,7 +23,7 @@ const MAX_HISTORY = 100;
 const MAX_SCROLLBACK = 5000;
 const MAX_LIGHTWEIGHT_LINE=8192;
 type ClipboardTarget={route:number;task:string|null;bracketed:boolean;revision:number};
-type LocalPaste={target:ClipboardTarget;proposal:PasteProposal;unsupported?:string};
+type LocalPaste={target:ClipboardTarget;proposal:PasteProposal;editorEpoch?:number;unsupported?:string};
 const outputMetadata=new TextDecoder('utf-8',{fatal:true});
 const localText = (text:string) => text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '�').replaceAll('\n', '\r\n');
 const cells = (text:string) => Array.from(text).reduce((count, character)=>
@@ -150,12 +150,18 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     if(item.target.task){
       // Confirming closes the preview. Route and task are checked again when input reaches the head of the queue.
       const {route,task,bracketed}=item.target;
-      enqueue(payload,task,()=>latest.current.clipboardRoute()===route
-        &&!!term.current?.modes.bracketedPasteMode===bracketed);
+      const current=()=>latest.current.clipboardRoute()===route
+        &&!!term.current?.modes.bracketedPasteMode===bracketed;
+      if(item.editorEpoch!==undefined){
+        const generation=item.editorEpoch;
+        const content=generation===0?payload:text.replace(/\r\n?/g,'\n');
+        queueInput(task,()=>terminalAction({kind:'power_shell_paste',id:tab.id,request:task,generation,text:content}),current);
+      }else{
+        enqueue(payload,task,current);
+      }
     }else {
       const lineText=text.replace(/(?:\r\n|\r|\n)$/,'');
       if(lineText)edit(lineText);
-      if(lineText!==text)edit('\r');
     }
     term.current?.focus();
   }
@@ -165,15 +171,24 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     if(!target)return;
     setClipboardStatus('');
     try{
-      const value=text??await invoke<string>('terminal_clipboard_read');
+      const [value,editorEpoch]=await Promise.all([
+        text??invoke<string>('terminal_clipboard_read'),
+        tab.powershell&&target.task
+          ?terminalAction<number|null>({kind:'power_shell_paste_epoch',id:tab.id,request:target.task}).catch(()=>null)
+          :null,
+      ]);
       if(!clipboardCurrent(target))return;
       const proposal=preparePaste(value,{protocol:'LOCAL',connection_id:tab.id,generation:0},target.revision,target.bracketed);
       const draftText=value.replace(/(?:\r\n|\r|\n)$/,'');
-      const unsupported=target.task?undefined:/[\x00-\x1f\x7f]/.test(draftText)
-        ?'轻量命令行空闲时只接受一条命令。多行或控制字符请在前台进程中粘贴。'
-        :new TextEncoder().encode(line.current.text+draftText).length>MAX_LIGHTWEIGHT_LINE
-          ?'轻量命令最多接受 8192 字节。':undefined;
-      const item={target,proposal,unsupported};
+      let unsupported:string|undefined;
+      if(!target.task){
+        if(/[\x00-\x1f\x7f]/.test(draftText))unsupported='轻量命令行空闲时只接受一条命令。多行或控制字符请在前台进程中粘贴。';
+        else if(new TextEncoder().encode(line.current.text+draftText).length>MAX_LIGHTWEIGHT_LINE)unsupported='轻量命令最多接受 8192 字节。';
+      }else if(tab.powershell&&proposal.confirm){
+        if(editorEpoch===null)unsupported='当前无法核对 PowerShell 粘贴目标。请等待提示符或前台应用就绪后重试。';
+        else if(editorEpoch>0&&/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(value))unsupported='PowerShell 编辑区只接受文本、换行和制表符。';
+      }
+      const item={target,proposal,unsupported,editorEpoch:proposal.confirm?editorEpoch??undefined:undefined};
       if(proposal.confirm){pendingPaste.current=item;setPastePreview(item);}
       else if(unsupported)setClipboardStatus(unsupported);
       else sendPaste(item);
@@ -186,6 +201,13 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     pendingPaste.current=undefined;
     setPastePreview(undefined);
     sendPaste(item);
+  }
+
+  function cancelPaste(){
+    const item=pendingPaste.current;
+    const restore=item&&clipboardCurrent(item.target);
+    invalidateClipboard();
+    if(restore)term.current?.focus();
   }
 
   function publish() {
@@ -574,14 +596,22 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
         else setClipboardMenu(undefined);
       }}>粘贴</button>
     </ContextMenu>}
-    {focused&&pastePreview&&<Dialog label="本地粘贴确认" modal={false} close={()=>invalidateClipboard()}>
+    {focused&&pastePreview&&<Dialog label="本地粘贴确认" modal={false} close={cancelPaste}>
       <Panel title="确认粘贴到本地终端">
-        <p>目标：{tab.title} · {pastePreview.target.task?'当前前台进程':'轻量命令行'}</p>
-        <p>{pastePreview.unsupported??'内容可能执行命令。继续输入、切换标签或结束当前任务会取消预览。'}</p>
+        <p>目标：{tab.title} · {pastePreview.editorEpoch?'PowerShell 编辑区':pastePreview.target.task?'当前前台进程':'轻量命令行'}</p>
+        <p>{pastePreview.unsupported??(pastePreview.editorEpoch||!pastePreview.target.task
+          ?'确认后可继续编辑。按 Enter 提交命令。'
+          :'内容可能执行命令。继续输入、切换标签或结束当前任务会取消预览。')}</p>
         <pre aria-label="本地粘贴内容预览">{visibleControls(JSON.stringify(pastePreview.proposal.text.slice(0,8192)))}{pastePreview.proposal.text.length>8192?' …预览已截断':''}</pre>
-        <div className="config-actions">
-          <button disabled={!!pastePreview.unsupported} onClick={()=>confirmPaste(pastePreview)}>确认粘贴</button>
-          <button data-dialog-autofocus onClick={()=>{invalidateClipboard();if(clipboardTarget())term.current?.focus();}}>取消粘贴</button>
+        <div className="config-actions" onKeyDown={event=>{
+          if(event.key==='Enter'&&!event.nativeEvent.isComposing)event.preventDefault();
+        }} onKeyUp={event=>{
+          if(event.key!=='Enter'||event.nativeEvent.isComposing||!(event.target instanceof HTMLButtonElement))return;
+          event.preventDefault();
+          event.target.click();
+        }}>
+          <button data-dialog-autofocus={!pastePreview.unsupported||undefined} disabled={!!pastePreview.unsupported} onClick={()=>confirmPaste(pastePreview)}>确认粘贴</button>
+          <button data-dialog-autofocus={!!pastePreview.unsupported||undefined} onClick={cancelPaste}>取消粘贴</button>
         </div>
       </Panel>
     </Dialog>}

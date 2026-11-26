@@ -14,6 +14,7 @@ use std::{
     sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
 };
+use uuid::Uuid;
 use windows_sys::Win32::{
     Foundation::{HANDLE, WAIT_OBJECT_0},
     System::{
@@ -64,12 +65,21 @@ impl Drop for Attributes {
 pub struct Process {
     process: Arc<OwnedHandle>,
     console: Arc<Mutex<Option<Console>>>,
-    input: Option<mpsc::SyncSender<(Vec<u8>, bool)>>,
+    input: Option<mpsc::SyncSender<Input>>,
     finished: Option<JoinHandle<()>>,
     editor_module: Option<CompatibilityModule>,
     pub output: Arc<Mutex<Output>>,
     pub output_ready: Arc<tokio::sync::Notify>,
     pub output_reader: Arc<tokio::sync::Semaphore>,
+}
+
+enum Input {
+    Terminal(Vec<u8>, bool),
+    ForegroundPaste {
+        task: Uuid,
+        bytes: Vec<u8>,
+        receipt: tokio::sync::oneshot::Sender<Result<(), String>>,
+    },
 }
 
 fn pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
@@ -228,7 +238,7 @@ impl Process {
         cwd: &Path,
         cols: u16,
         rows: u16,
-        task: uuid::Uuid,
+        task: Uuid,
         module: Option<CompatibilityModule>,
     ) -> io::Result<Self> {
         // Windows PowerShell builds its own module search path. An intermediate
@@ -365,11 +375,32 @@ impl Process {
                 return Err(error);
             }
         };
-        let (input, receiver) = mpsc::sync_channel::<(Vec<u8>, bool)>(INPUT_QUEUE);
+        let (input, receiver) = mpsc::sync_channel::<Input>(INPUT_QUEUE);
         let writer_stop = stop.clone();
         let writer = thread::spawn(move || {
             let mut file = File::from(input_write);
-            while let Ok((bytes, keyboard)) = receiver.recv() {
+            while let Ok(input) = receiver.recv() {
+                let (bytes, keyboard) = match input {
+                    Input::Terminal(bytes, keyboard) => (bytes, keyboard),
+                    Input::ForegroundPaste {
+                        task,
+                        bytes,
+                        receipt,
+                    } => {
+                        if file_drop::status(task) != Some(0) {
+                            let _ = receipt
+                                .send(Err("PowerShell 前台输入目标已变化，请重新粘贴".into()));
+                            continue;
+                        }
+                        let result = file.write_all(&bytes);
+                        let failed = result.is_err();
+                        let _ = receipt.send(result.map_err(|error| error.to_string()));
+                        if failed {
+                            break;
+                        }
+                        continue;
+                    }
+                };
                 // The reader may see a response before WriteFile returns. Keep it
                 // draining the console and require the write receipt at exit.
                 if let Some(stop) = &writer_stop {
@@ -425,10 +456,28 @@ impl Process {
     }
 
     pub fn input_from(&self, bytes: Vec<u8>, keyboard: bool) -> Result<(), String> {
+        self.queue_input(Input::Terminal(bytes, keyboard))
+    }
+
+    pub fn paste_foreground(
+        &self,
+        task: Uuid,
+        bytes: Vec<u8>,
+    ) -> Result<tokio::sync::oneshot::Receiver<Result<(), String>>, String> {
+        let (receipt, response) = tokio::sync::oneshot::channel();
+        self.queue_input(Input::ForegroundPaste {
+            task,
+            bytes,
+            receipt,
+        })?;
+        Ok(response)
+    }
+
+    fn queue_input(&self, input: Input) -> Result<(), String> {
         self.input
             .as_ref()
             .unwrap()
-            .try_send((bytes, keyboard))
+            .try_send(input)
             .map_err(|error| match error {
                 mpsc::TrySendError::Full(_) => "前台输入队列已满，本次输入未送达".into(),
                 mpsc::TrySendError::Disconnected(_) => "前台进程已退出".into(),

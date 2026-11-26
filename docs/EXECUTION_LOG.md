@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.99 修复本地确认焦点及 PowerShell 多行倒序，实窗核对光标、窄窗折行、编辑代次与前台字节。[执行记录](records/P26.99.md)
+
 P26.98 记录本地粘贴确认焦点及 PowerShell 多行倒序的实窗基线。[执行记录](records/P26.98.md)
 
 P26.97 交付 Windows x64 快捷指令停止关闭合并试用候选，快捷指令、会话树、原生拖入、MCP 和便携门禁均通过。[执行记录](records/P26.97.md)
@@ -676,7 +678,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.96 | 实现并验证快捷指令停止后关闭 | DONE | [P26.96](records/P26.96.md) | Step-ID: P26.96 |
 | P26.97 | 验收快捷指令停止关闭合并候选 | DONE | [P26.97](records/P26.97.md) | Step-ID: P26.97 |
 | P26.98 | 登记并复现本地粘贴缺陷 | DONE | [P26.98](records/P26.98.md) | Step-ID: P26.98 |
-| P26.99 | 修复本地粘贴确认及 PowerShell 多行编辑 | IN_PROGRESS | CR-060 | 待实测 |
+| P26.99 | 修复本地粘贴确认及 PowerShell 多行编辑 | DONE | [P26.99](records/P26.99.md) | Step-ID: P26.99 |
 | P26.100 | 验收本地粘贴修复试用候选 | TODO | CR-060 | 待便携验收 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |

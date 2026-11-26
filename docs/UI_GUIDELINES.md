@@ -30,6 +30,8 @@
 
 ### 快捷键、剪贴板与快捷指令
 
+- 本地粘贴确认默认聚焦可用的确认按钮，确认不可用时聚焦取消。Enter 松开后激活当前按钮，Esc 取消并恢复终端焦点。PowerShell 提示符的多行内容作为可编辑草稿插入原光标。[CR-060](changes/CR-060.md) · [Windows 专项](../scripts/Test-Desktop-LocalPasteEditor.mjs)
+
 - 「成功或手动停止后自动关闭结果标签」沿用每条指令已有的设置。启用后，原任务成功退出或确认手动停止后退出才关闭其结果标签。BAT 的终止确认期间保留结果，选择 N 后继续运行，后续独立失败保留结果。后台结果关闭时，当前标签与焦点保持原位。[CR-059](changes/CR-059.md) · [Windows 专项](../scripts/Test-Desktop-ShortcutAutoClose.mjs)
 
 - Ctrl+Tab / Ctrl+Shift+Tab 在当前窗格循环，Alt+1 至 Alt+9、Alt+0 直达前十项，Ctrl+Shift+T 开本地 PowerShell，Ctrl+Shift+B 开合快捷指令栏，Ctrl+Shift+F 查找终端。编辑器、打开的模态、菜单和 IME 组合态保持原键盘路由。Ctrl+C 在终端的选择复制和中断语义、Ctrl+Shift+C/V 及右键用真实选区与实际字节验证。[快捷键](../apps/desktop/src/desktop-shortcuts.ts) · [远端终端控件](../apps/desktop/src/terminal-pane.tsx)

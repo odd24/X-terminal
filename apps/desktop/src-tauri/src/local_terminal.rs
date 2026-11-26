@@ -148,6 +148,16 @@ pub enum Action {
         generation: u32,
         paths: Vec<String>,
     },
+    PowerShellPasteEpoch {
+        id: Uuid,
+        request: Uuid,
+    },
+    PowerShellPaste {
+        id: Uuid,
+        request: Uuid,
+        generation: u32,
+        text: String,
+    },
     Resize {
         id: Uuid,
         cols: u16,
@@ -473,6 +483,46 @@ pub async fn local_terminal(
             file_drop::insert(request, generation, paths).await?;
             return Ok(serde_json::Value::Null);
         }
+        Action::PowerShellPasteEpoch { id, request } => {
+            return Ok(serde_json::json!(
+                live_shell(id, request)
+                    .then(|| file_drop::status(request))
+                    .flatten()
+            ));
+        }
+        Action::PowerShellPaste {
+            id,
+            request,
+            generation,
+            text,
+        } => {
+            if generation == 0 {
+                if text.is_empty() || text.len() > MAX_INPUT {
+                    return Err("粘贴超过前台输入上限".into());
+                }
+                let response = {
+                    let sessions = state.0.lock().unwrap();
+                    let session = sessions.get(&id).filter(|session| {
+                        session.powershell && session.last_request == Some(request)
+                    });
+                    let Some(Foreground::Console(process)) =
+                        session.and_then(|session| session.active.as_ref())
+                    else {
+                        return Err("PowerShell 前台输入目标已关闭或变化".into());
+                    };
+                    process.paste_foreground(request, text.into_bytes())?
+                };
+                response
+                    .await
+                    .map_err(|_| "PowerShell 前台输入回执不可用")??;
+            } else {
+                if !live_shell(id, request) {
+                    return Err("PowerShell 编辑目标已关闭或变化".into());
+                }
+                file_drop::paste(request, generation, text).await?;
+            }
+            return Ok(serde_json::Value::Null);
+        }
         other => other,
     };
     let startup = if matches!(
@@ -737,7 +787,10 @@ pub async fn local_terminal(
             }
             return Ok(serde_json::Value::Null);
         }
-        Action::FileDropEpoch { .. } | Action::FileDrop { .. } => unreachable!(),
+        Action::FileDropEpoch { .. }
+        | Action::FileDrop { .. }
+        | Action::PowerShellPasteEpoch { .. }
+        | Action::PowerShellPaste { .. } => unreachable!(),
     };
     serde_json::to_value(view).map_err(|error| error.to_string())
 }

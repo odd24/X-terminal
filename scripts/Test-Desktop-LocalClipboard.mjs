@@ -54,7 +54,7 @@ async function hook(){
       if(command==='/local_terminal'){
         try{
           const action=JSON.parse(init.body).action;
-          if(['input','run'].includes(action.kind))test.actions.push(action);
+          if(['input','run','power_shell_paste'].includes(action.kind))test.actions.push(action);
         }catch{}
       }
       return original.call(this,input,init);
@@ -171,13 +171,15 @@ try{
   await ui.click('取消粘贴');assert.equal(await actionCount('run'),0);
   await key('c','KeyC',67,2);
   await rightClick();await pastePreview();
-  await ui.click('确认粘贴');await waitCount(()=>actionCount('run'),1);
+  await ui.click('确认粘贴');await look('pwd');
+  assert.equal(await actionCount('run'),0);
+  await enter();await waitCount(()=>actionCount('run'),1);
   assert.equal(await ui.evaluate("window.clipFixture.actions.find(a=>a.kind==='run').line"),'pwd');
   await ui.waitFor(`${query(output)}.innerText.includes('> pwd')`);
   await setClipboard('pwd\ncd\n');await rightClick();await pastePreview();
   assert.equal(await ui.evaluate(`[...${query(preview)}.querySelectorAll('button')].find(b=>b.textContent==='确认粘贴').disabled`),true);
   await ui.click('取消粘贴');
-  evidence.checks.push('existing database, default smart, selected exact copy, write failure keeps selection, insertion at cursor, no implicit Enter, idle trailing line cancel and confirmed explicit submit');
+  evidence.checks.push('existing database, default smart, selected exact copy, write failure keeps selection, insertion at cursor, idle trailing line becomes a draft until explicit Enter');
 
   await mode('smart','menu');
   await setClipboard('MENU_TEXT');const readerBefore=await readCount();
@@ -199,7 +201,7 @@ try{
   assert.equal(await selected(),true);
   assert.equal(await ui.evaluate('window.clipFixture.unexpectedClipboardEvents'),0);
   await exit(true);
-  ui=await launchDesktop(root,{executable});
+  ui=await launchDesktop(root,{executable,isolatedPowerShell:true});
   await hook();await settings('menu');await ui.click('关闭软件设置');
   await mode('menu','smart');
   await ui.click('本地终端（PowerShell）');await ready('本地 1');
@@ -215,8 +217,12 @@ try{
   await ui.screenshot(`${reportPrefix}-local-paste-confirmation.png`);
   await ui.click('取消粘贴');assert.equal(await actionCount('input'),before);
   await rightClick();await pastePreview();await ui.click('确认粘贴');
-  const task=await waitInput(ps,multiline,before);
-  assert.ok(task);
+  await waitCount(()=>actionCount('power_shell_paste'),1);
+  assert.equal(await actionCount('input'),before);
+  const pasted=await ui.evaluate("window.clipFixture.actions.find(a=>a.kind==='power_shell_paste')");
+  assert.equal(pasted.id,ps);
+  assert.ok(pasted.generation>0);
+  assert.equal(pasted.text,multiline.replaceAll('\r\n','\n'));
 
   const reads=await readCount();await setClipboard('LATE_READ',true);await rightClick();
   await waitCount(readCount,reads+1);
@@ -224,17 +230,17 @@ try{
   await ui.click('本地 1');await ready('本地 1');
   await ui.evaluate('window.clipFixture.waiting.splice(0).forEach(resolve=>resolve())');
   await delay(180);
-  assert.equal(await actionCount('input'),before+1);
+  assert.equal(await actionCount('input'),before);
   await setClipboard('KEYBOARD_PASTE');await key('V','KeyV',86,10);
-  await waitInput(ps,'KEYBOARD_PASTE',before+1);
+  await waitInput(ps,'KEYBOARD_PASTE',before);
   assert.equal(await ui.evaluate('window.clipFixture.unexpectedClipboardEvents'),0,'shortcut must suppress the browser default paste event');
   const beforeClose=await readCount();
   await setClipboard('CLOSED_TAB',true);await rightClick();await waitCount(readCount,beforeClose+1);
   await ui.click('关闭 本地 1');await ready('本地 2');
   await ui.evaluate('window.clipFixture.waiting.splice(0).forEach(resolve=>resolve())');
   await delay(180);
-  assert.equal(await actionCount('input'),before+2);
-  evidence.checks.push('menu explicit copy/paste, live setting, restart, PowerShell literal CR/LF and confirmation, switch-away/back and close invalidate delayed paste, Ctrl+Shift+V');
+  assert.equal(await actionCount('input'),before+1);
+  evidence.checks.push('menu explicit copy/paste, live setting, restart, PowerShell editable LF normalization and confirmation, switch-away/back and close invalidate delayed paste, Ctrl+Shift+V');
 
   await ui.click('本地 2');await ready('本地 2');
   if(!await ui.evaluate(`!!${query('.adb-shortcut-panel:not([hidden])')}`))await ui.click('快捷指令');

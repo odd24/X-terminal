@@ -50,7 +50,7 @@
             timer = [System.Timers.Timer]::new(120)
             editor = $readLine
             generation = [uint32]0
-            buffer = [byte[]]::new(16384)
+            buffer = [byte[]]::new(34816)
             used = 0
             pipe = $null
             accept = $null
@@ -77,36 +77,43 @@
                     }
                     $request = [System.Text.Encoding]::UTF8.GetString($drop.buffer, 0, $drop.used) | ConvertFrom-Json
                     $accepted = $false
+                    $insert = $null
                     if ($request.generation -eq $drop.generation -and
                         [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -lt $request.expiry) {
-                        $draft = ''; $cursor = 0
-                        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$draft, [ref]$cursor)
-                        $left = $draft.Substring(0, $cursor)
-                        $right = $draft.Substring($cursor)
-                        $quoted = @($request.paths | ForEach-Object { "'" + ($_ -replace "['‘’‚‛]", '$0$0') + "'" })
-                        $prefix = if ($left.Length -and ![char]::IsWhiteSpace($left[$left.Length - 1])) { ' ' } else { '' }
-                        $suffix = if ($right.Length -and ![char]::IsWhiteSpace($right[0])) { ' ' } else { '' }
-                        $insert = $prefix + ($quoted -join ' ') + $suffix
-                        $tokens = $null; $parseErrors = $null
-                        $syntax = [System.Management.Automation.Language.Parser]::ParseInput(
-                            $left + $insert + $right, [ref]$tokens, [ref]$parseErrors)
-                        # A token parsed inside a quote, comment, here-string or stop-parsing
-                        # region cannot match its proposed offset and literal value here.
-                        $offset = $cursor + $prefix.Length
-                        $accepted = $quoted.Count -gt 0
-                        for ($i = 0; $accepted -and $i -lt $quoted.Count; $i++) {
-                            $token = $tokens.Where({ $_.Extent.StartOffset -eq $offset }, 'First')
-                            $accepted = $token.Count -eq 1 -and $token[0].Kind -eq 'StringLiteral' -and
-                                $token[0].Extent.Text -ceq $quoted[$i] -and $token[0].Value -ceq $request.paths[$i]
-                            if ($accepted) {
-                                $command = $syntax.Find({
-                                    param($node)
-                                    $node -is [System.Management.Automation.Language.CommandAst] -and
-                                        $node.CommandElements[0].Extent.StartOffset -eq $offset
-                                }, $true)
-                                $accepted = $null -eq $command
+                        $text = $request.PSObject.Properties['text']
+                        if ($text -and $text.Value -is [string]) {
+                            $insert = $text.Value
+                            $accepted = $insert.Length -gt 0 -and $insert -cnotmatch '[\x00-\x08\x0b-\x1f\x7f-\x9f]'
+                        } else {
+                            $draft = ''; $cursor = 0
+                            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$draft, [ref]$cursor)
+                            $left = $draft.Substring(0, $cursor)
+                            $right = $draft.Substring($cursor)
+                            $quoted = @($request.paths | ForEach-Object { "'" + ($_ -replace "['‘’‚‛]", '$0$0') + "'" })
+                            $prefix = if ($left.Length -and ![char]::IsWhiteSpace($left[$left.Length - 1])) { ' ' } else { '' }
+                            $suffix = if ($right.Length -and ![char]::IsWhiteSpace($right[0])) { ' ' } else { '' }
+                            $insert = $prefix + ($quoted -join ' ') + $suffix
+                            $tokens = $null; $parseErrors = $null
+                            $syntax = [System.Management.Automation.Language.Parser]::ParseInput(
+                                $left + $insert + $right, [ref]$tokens, [ref]$parseErrors)
+                            # A token parsed inside a quote, comment, here-string or stop-parsing
+                            # region cannot match its proposed offset and literal value here.
+                            $offset = $cursor + $prefix.Length
+                            $accepted = $quoted.Count -gt 0
+                            for ($i = 0; $accepted -and $i -lt $quoted.Count; $i++) {
+                                $token = $tokens.Where({ $_.Extent.StartOffset -eq $offset }, 'First')
+                                $accepted = $token.Count -eq 1 -and $token[0].Kind -eq 'StringLiteral' -and
+                                    $token[0].Extent.Text -ceq $quoted[$i] -and $token[0].Value -ceq $request.paths[$i]
+                                if ($accepted) {
+                                    $command = $syntax.Find({
+                                        param($node)
+                                        $node -is [System.Management.Automation.Language.CommandAst] -and
+                                            $node.CommandElements[0].Extent.StartOffset -eq $offset
+                                    }, $true)
+                                    $accepted = $null -eq $command
+                                }
+                                $offset += $quoted[$i].Length + 1
                             }
-                            $offset += $quoted[$i].Length + 1
                         }
                         $accepted = $accepted -and $request.generation -eq $drop.generation -and
                             [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -lt $request.expiry
@@ -144,7 +151,7 @@
                 $drop.read = $null
                 $drop.replied = $false
                 $drop.pipe = [System.IO.Pipes.NamedPipeServerStream]::new(
-                    $drop.name, 'InOut', 1, 'Byte', 'Asynchronous', 16384, 1, $drop.pipeSecurity)
+                    $drop.name, 'InOut', 1, 'Byte', 'Asynchronous', $drop.buffer.Length, 1, $drop.pipeSecurity)
                 $drop.accept = $drop.pipe.BeginWaitForConnection($null, $null)
                 $drop.stamp.Write(0, [uint32]$drop.generation)
                 $drop.timer.Start()
