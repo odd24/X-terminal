@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.95 登记快捷指令手动停止自动关闭规则及正式版 BAT 复现。[执行记录](records/P26.95.md)
+
 P26.94 交付 PowerShell 长路径拖入修复候选，最终目录通过原生 OLE 复验和便携门禁。[执行记录](records/P26.94.md)
 
 P26.93 修复 PSReadLine 2.0 长路径重绘，隔离 Windows 原生和会话树回归通过。[执行记录](records/P26.93.md)
@@ -664,6 +666,9 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.92 | 登记 PowerShell 长路径拖入重绘修复 | DONE | [P26.92](records/P26.92.md) | Step-ID: P26.92 |
 | P26.93 | 实现并验证 PowerShell 长路径拖入修复 | DONE | [P26.93](records/P26.93.md) | Step-ID: P26.93 |
 | P26.94 | 交付 PowerShell 拖入修复 Windows 候选 | DONE | [P26.94](records/P26.94.md) | Step-ID: P26.94 |
+| P26.95 | 登记快捷指令停止后关闭 | DONE | [P26.95](records/P26.95.md) | Step-ID: P26.95 |
+| P26.96 | 实现并验证快捷指令停止后关闭 | IN_PROGRESS | CR-059 | 待实测 |
+| P26.97 | 验收快捷指令停止关闭合并候选 | TODO | CR-059 | 待便携包 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
