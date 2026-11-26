@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.101 登记快捷指令跨电脑迁移。[执行记录](records/P26.101.md)
+
 P26.100 交付本地粘贴修复 Windows x64 试用候选，同目录实窗和便携门禁通过。[执行记录](records/P26.100.md)
 
 P26.99 修复本地确认焦点及 PowerShell 多行倒序，实窗核对光标、窄窗折行、编辑代次与前台字节。[执行记录](records/P26.99.md)
@@ -682,6 +684,9 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.98 | 登记并复现本地粘贴缺陷 | DONE | [P26.98](records/P26.98.md) | Step-ID: P26.98 |
 | P26.99 | 修复本地粘贴确认及 PowerShell 多行编辑 | DONE | [P26.99](records/P26.99.md) | Step-ID: P26.99 |
 | P26.100 | 验收本地粘贴修复试用候选 | DONE | [P26.100](records/P26.100.md) | Step-ID: P26.100 |
+| P26.101 | 登记快捷指令跨电脑迁移 | DONE | [P26.101](records/P26.101.md) | Step-ID: P26.101 |
+| P26.102 | 实现快捷指令 ZIP 导入和导出 | TODO | CR-061 | 待实施 |
+| P26.103 | 验收快捷指令迁移试用候选 | TODO | CR-061 | 待验收 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
