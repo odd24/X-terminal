@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.97 交付 Windows x64 快捷指令停止关闭合并试用候选，快捷指令、会话树、原生拖入、MCP 和便携门禁均通过。[执行记录](records/P26.97.md)
+
 P26.96 扩展快捷指令停止后关闭，Windows BAT、模拟 ADB、后台焦点和跨轮询输出缺口专项通过。[执行记录](records/P26.96.md)
 
 P26.95 登记快捷指令手动停止自动关闭规则及正式版 BAT 复现。[执行记录](records/P26.95.md)
@@ -670,7 +672,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.94 | 交付 PowerShell 拖入修复 Windows 候选 | DONE | [P26.94](records/P26.94.md) | Step-ID: P26.94 |
 | P26.95 | 登记快捷指令停止后关闭 | DONE | [P26.95](records/P26.95.md) | Step-ID: P26.95 |
 | P26.96 | 实现并验证快捷指令停止后关闭 | DONE | [P26.96](records/P26.96.md) | Step-ID: P26.96 |
-| P26.97 | 验收快捷指令停止关闭合并候选 | TODO | CR-059 | 待便携包 |
+| P26.97 | 验收快捷指令停止关闭合并候选 | DONE | [P26.97](records/P26.97.md) | Step-ID: P26.97 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
