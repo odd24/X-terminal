@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.103 交付 Windows x64 快捷指令 ZIP 迁移试用候选，原生双数据根往返和便携门禁通过。[执行记录](records/P26.103.md)
+
 P26.102 实现快捷指令 ZIP 迁移，隔离双数据根通过原生选择、冲突、幂等和回滚验证。[执行记录](records/P26.102.md)
 
 P26.101 登记快捷指令跨电脑迁移。[执行记录](records/P26.101.md)
@@ -688,7 +690,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.100 | 验收本地粘贴修复试用候选 | DONE | [P26.100](records/P26.100.md) | Step-ID: P26.100 |
 | P26.101 | 登记快捷指令跨电脑迁移 | DONE | [P26.101](records/P26.101.md) | Step-ID: P26.101 |
 | P26.102 | 实现快捷指令 ZIP 导入和导出 | DONE | [P26.102](records/P26.102.md) | Step-ID: P26.102 |
-| P26.103 | 验收快捷指令迁移试用候选 | TODO | CR-061 | 待验收 |
+| P26.103 | 验收快捷指令迁移试用候选 | DONE | [P26.103](records/P26.103.md) | Step-ID: P26.103 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
