@@ -26,7 +26,7 @@ Windows x64 0.1.39 便携包的 [v14 契约](../contracts/mcp/v14-tools.json) �
 | `target.type: "script"` 与 `path` | 登记本地 BAT/CMD 引用。创建省略 `name` 或显式设为空字符串时，用含扩展名的文件名，长名保留最长 60 个字的主文件名 |
 | `target.type: "local"` 与 `command` | Windows 本地命令组。正文逐字保存，保留 CR/LF、引号和管道 |
 | `target.type: "send"` 与 `text` | 发送到点击时当前 SSH 或串口会话的单行文本。用条目上的 `append_enter` 控制追加 Enter |
-| `close_on_success` | ADB、本地命令和脚本成功后关闭结果标签。更新省略即保留，显式 `false` 关闭此选项 |
+| `close_on_success` | ADB、本地命令和脚本成功或经用户手动停止并退出后关闭结果标签。更新省略即保留，显式 `false` 关闭此选项 |
 | `moves: [{"ids":[…],"edge":"first"}]` | 按当前顺序把同区选中项移到该区首位。可用 `"last"` 移到区尾，也可继续提供同区 `anchor` 和 `side` |
 
 `shortcuts_list` 在没有查询时返回对应授权内按顺序排列的设置和修订号。`shortcuts_create`、`shortcuts_update`、`shortcuts_remove` 须提交当前 `revision` 和固定 UUIDv7 `request_id`。更新只传需要改的字段，更新脚本路径时省略名称会保留原别名。应答不明时用 `shortcuts_list` 传原 `receipt_request_id`，v2 请求还要带 `"version":"v2"`，省略 `query`。已有 v12 回执可通过原管理授权或扩展管理授权查询。

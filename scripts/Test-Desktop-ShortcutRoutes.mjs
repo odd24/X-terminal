@@ -26,6 +26,7 @@ const q=JSON.stringify, node=selector=>`document.querySelector(${q(selector)})`;
 const pane='[data-pane].pane-active';
 const sidebar=pane+' .adb-shortcut-panel:not([hidden])';
 const output=pane+' .local-terminal:not([hidden]) .local-terminal-output';
+const localInput=pane+' .local-terminal:not([hidden]) .xterm-helper-textarea';
 const selected=()=>ui.evaluate(`${node(pane+' [role="tab"][aria-selected="true"]')}?.dataset.connectionId`);
 const row=name=>node(sidebar+` .adb-shortcut-run[aria-label="${name}"]`);
 const ref=({connection_id,generation})=>({connection_id,generation});
@@ -233,6 +234,9 @@ async function run(){
   await ui.click('管理');await ui.waitFor(`!!${node(sidebar+' [aria-label="选择 发送样本"]')}`);
   assert.deepEqual(await flags(),{reads:0,sends:0});
   await ui.click('完成管理');
+  await ui.waitFor(`${row(send.name)}?.getClientRects().length>0&&!${node(sidebar+' [aria-label="选择 发送样本"]')}`);
+  await ui.command('Page.bringToFront');
+  await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',x:5,y:5});
   const location=await ui.evaluate(`(()=>{const r=${row(send.name)}.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
   await ui.command('Input.dispatchMouseEvent',{type:'mouseMoved',...location});
   await ui.waitFor(`${node('.shortcut-preview')}?.textContent.includes(${q(uart?'当前串口':'当前 SSH')})&&${node('.shortcut-preview')}?.textContent.includes(${q(target)})`);
@@ -288,8 +292,9 @@ async function run(){
     result.performance={};
     await measureRoutes({ui,first,second,group:shellGroup.name,single:singleShell.name,activate,close,key,row,output,executable,powershell,pushOutput},result.performance);
   }
-  const paused=await run(pause.name);await seen('BAT_PAUSED');
+  const paused=await run(pause.name);await seen('BAT_PAUSED');await seen('INPUT:');
   assert.equal(await selected(),paused);
+  await ui.waitFor(`document.activeElement===${node(localInput)}`);
   await key('Enter',13);
   await wait(async()=>await selected()===first.connection_id,'successful script did not return to origin');
   assert.equal(await ui.evaluate(`!!${node('[role=tab][data-connection-id="'+paused+'"]')}`),false);
@@ -369,6 +374,12 @@ async function run(){
       await ui.waitFor(`!${node('[role=tab][data-connection-id="'+ended+'"]')}`);
       assert.equal(await selected(),first.connection_id);
       assert.equal((await recorded(stateStart)).filter(line=>line==='adb|-s|fixed|get-state').length,2);
+      const stopped=await run(stateShell.name);await seen('fixture:/ #');
+      await ui.waitFor(`document.activeElement===${node(localInput)}`);
+      await key('c',67,2);
+      await ui.waitFor(`!${node('[role=tab][data-connection-id="'+stopped+'"]')}`);
+      assert.equal(await selected(),first.connection_id);
+      result.checks.push('checked interactive ADB shortcut closes after a keyboard stop and restores SSH');
       const middle=await run(shellGroup.name);await seen('fixture:/ #');
       await key('c',67,2);await seen('已中断整组命令');
       assert.equal(await selected(),middle);await close(middle);

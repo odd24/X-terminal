@@ -44,8 +44,21 @@ enum Input {
 
 struct Control {
     stopped: AtomicBool,
+    manual_stop: AtomicBool,
+    observed_manual_stop: AtomicBool,
     input: Mutex<Option<Input>>,
     size: Mutex<(u16, u16)>,
+}
+
+impl Control {
+    fn stopping(&self) -> bool {
+        if !self.stopped.load(Ordering::Acquire) {
+            return false;
+        }
+        self.observed_manual_stop
+            .store(self.manual_stop.load(Ordering::Relaxed), Ordering::Relaxed);
+        true
+    }
 }
 
 #[derive(Default)]
@@ -97,6 +110,8 @@ impl Process {
     pub fn start(plan: Plan, cwd: &Path, cols: u16, rows: u16) -> io::Result<Self> {
         let control = Arc::new(Control {
             stopped: AtomicBool::new(false),
+            manual_stop: AtomicBool::new(false),
+            observed_manual_stop: AtomicBool::new(false),
             input: Mutex::new(None),
             size: Mutex::new((cols, rows)),
         });
@@ -113,7 +128,11 @@ impl Process {
                     1
                 }
             };
-            sink.output.lock().unwrap().exit = Some(code);
+            {
+                let mut output = sink.output.lock().unwrap();
+                output.exit = Some(code);
+                output.manually_stopped = ctl.observed_manual_stop.load(Ordering::Relaxed);
+            }
             sink.ready.notify_one();
         })?;
         Ok(Self {
@@ -125,8 +144,11 @@ impl Process {
         })
     }
 
-    pub fn input(&self, bytes: Vec<u8>) -> Result<(), String> {
+    pub fn input(&self, bytes: Vec<u8>, keyboard: bool) -> Result<(), String> {
         if bytes == [3] {
+            if keyboard && !self.control.stopped.load(Ordering::Acquire) {
+                self.control.manual_stop.store(true, Ordering::Relaxed);
+            }
             self.control.stopped.store(true, Ordering::Release);
             return Ok(());
         }
@@ -313,7 +335,7 @@ fn execute(
     let mut errors = Vec::new();
     let mut end = None;
     for (index, stage) in stages.iter().enumerate() {
-        if control.stopped.load(Ordering::Acquire) {
+        if control.stopping() {
             return Err("已中断整组命令（Ctrl+C）".into());
         }
         let (next, output) = io::pipe().map_err(|err| err.to_string())?;
@@ -369,9 +391,6 @@ fn execute(
             .map(|(_, child)| child.as_raw_handle())
             .collect();
         while !children.is_empty() {
-            if control.stopped.load(Ordering::Acquire) {
-                return Err("已中断整组命令（Ctrl+C）".into());
-            }
             if Instant::now() >= deadline {
                 return Err("本步骤超时，已停止后续步骤".into());
             }
@@ -379,6 +398,9 @@ fn execute(
             let signal =
                 unsafe { WaitForMultipleObjects(handles.len() as u32, handles.as_ptr(), 0, 15) };
             if signal == WAIT_TIMEOUT {
+                if control.stopping() {
+                    return Err("已中断整组命令（Ctrl+C）".into());
+                }
                 continue;
             }
             let index = (signal - WAIT_OBJECT_0) as usize;
@@ -429,15 +451,15 @@ fn interactive_shell(
         if output.ready() {
             sink.append(&output.bytes, output.overflow);
         }
-        if control.stopped.load(Ordering::Acquire) {
-            break Err("已中断整组命令（Ctrl+C）".into());
-        }
         if let Some(code) = output.exit {
             break if code == 0 {
                 Ok(())
             } else {
                 Err(format!("ADB 交互终端退出码 {code}"))
             };
+        }
+        if control.stopping() {
+            break Err("已中断整组命令（Ctrl+C）".into());
         }
         if Instant::now() >= deadline {
             break Err("本步骤超时，已停止交互终端".into());
@@ -461,7 +483,7 @@ fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<
         sink.line(&format!("\r\n固定 ADB 设备 {serial}"));
     }
     for (index, step) in plan.steps.into_iter().enumerate() {
-        if control.stopped.load(Ordering::Acquire) {
+        if control.stopping() {
             return Err("已中断整组命令（Ctrl+C）".into());
         }
         sink.line(&step.line);

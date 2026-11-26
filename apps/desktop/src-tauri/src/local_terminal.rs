@@ -4,6 +4,7 @@ mod conpty;
 pub(crate) mod directory;
 mod file_drop;
 mod psreadline;
+mod script_stop;
 pub(crate) mod scripts;
 
 use conpty::{Output, Process};
@@ -38,6 +39,7 @@ struct Session {
     interrupted: bool,
     pending_adb: Option<(Uuid, Option<PreparedShortcut>)>,
     close_on_success: bool,
+    output_gap: bool,
     cols: u16,
     rows: u16,
 }
@@ -60,10 +62,10 @@ impl Foreground {
             Self::Batch(p) => (&p.output_ready, &p.output_reader),
         }
     }
-    fn input(&self, bytes: Vec<u8>) -> Result<(), String> {
+    fn input(&self, bytes: Vec<u8>, keyboard: bool) -> Result<(), String> {
         match self {
-            Self::Console(p) => p.input(bytes),
-            Self::Batch(p) => p.input(bytes),
+            Self::Console(p) => p.input_from(bytes, keyboard),
+            Self::Batch(p) => p.input(bytes, keyboard),
         }
     }
 }
@@ -133,6 +135,8 @@ pub enum Action {
         id: Uuid,
         request: Uuid,
         text: String,
+        #[serde(default)]
+        keyboard: bool,
     },
     FileDropEpoch {
         id: Uuid,
@@ -316,6 +320,7 @@ impl Session {
                         .map_err(|error| format!("{program} 启动失败：{error}"))?,
                 ));
                 self.interrupted = false;
+                self.output_gap = false;
                 Ok(None)
             }
         }
@@ -331,8 +336,11 @@ impl Session {
             })
             .unwrap_or_default();
         let exit_code = output.exit.take();
-        let close_after_result =
-            exit_code == Some(0) && !self.interrupted && self.close_on_success && !output.overflow;
+        self.output_gap |= output.overflow;
+        let close_after_result = exit_code.is_some()
+            && (exit_code == Some(0) || output.manually_stopped)
+            && self.close_on_success
+            && !self.output_gap;
         if let Some(code) = exit_code {
             self.close_on_success = false;
             self.active.take();
@@ -555,6 +563,7 @@ pub async fn local_terminal(
                 interrupted: false,
                 pending_adb: None,
                 close_on_success: false,
+                output_gap: false,
                 cols: 80,
                 rows: 24,
             };
@@ -685,6 +694,7 @@ pub async fn local_terminal(
                 };
                 session.last_request = Some(request);
                 session.interrupted = false;
+                session.output_gap = false;
                 session.close_on_success = plan.close_on_success;
                 match process {
                     Ok(process) => session.active = Some(process),
@@ -698,7 +708,12 @@ pub async fn local_terminal(
                 view
             }
         }
-        Action::Input { id, request, text } => {
+        Action::Input {
+            id,
+            request,
+            text,
+            keyboard,
+        } => {
             let session = sessions.get_mut(&id).ok_or("本地标签已关闭")?;
             if session.last_request != Some(request) || text.len() > MAX_INPUT {
                 return Err("本次输入的前台任务已变化或超过输入上限".into());
@@ -707,7 +722,7 @@ pub async fn local_terminal(
                 .active
                 .as_ref()
                 .ok_or("前台进程已退出")?
-                .input(text.as_bytes().to_vec())?;
+                .input(text.as_bytes().to_vec(), keyboard)?;
             session.interrupted |= text == "\u{3}";
             return Ok(serde_json::Value::Null);
         }

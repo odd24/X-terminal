@@ -1,4 +1,4 @@
-use super::{file_drop, psreadline::CompatibilityModule};
+use super::{file_drop, psreadline::CompatibilityModule, script_stop::ScriptStop};
 use std::{
     env,
     ffi::{OsStr, OsString, c_void},
@@ -38,6 +38,7 @@ pub struct Output {
     pub bytes: Vec<u8>,
     pub overflow: bool,
     pub exit: Option<u32>,
+    pub manually_stopped: bool,
 }
 
 impl Output {
@@ -63,7 +64,7 @@ impl Drop for Attributes {
 pub struct Process {
     process: Arc<OwnedHandle>,
     console: Arc<Mutex<Option<Console>>>,
-    input: Option<mpsc::SyncSender<Vec<u8>>>,
+    input: Option<mpsc::SyncSender<(Vec<u8>, bool)>>,
     finished: Option<JoinHandle<()>>,
     editor_module: Option<CompatibilityModule>,
     pub output: Arc<Mutex<Output>>,
@@ -311,6 +312,8 @@ impl Process {
         let console = Console(console);
         let output = Arc::new(Mutex::new(Output::default()));
         let output_ready = Arc::new(tokio::sync::Notify::new());
+        let stop = raw_tail.map(|_| Arc::new(Mutex::new(ScriptStop::default())));
+        let reader_stop = stop.clone();
         let collected = output.clone();
         let reader_ready = output_ready.clone();
         let reader = thread::spawn(move || {
@@ -331,6 +334,9 @@ impl Process {
                 };
                 if bytes.is_empty() {
                     continue;
+                }
+                if let Some(stop) = &reader_stop {
+                    stop.lock().unwrap().output(bytes);
                 }
                 let mut output = collected.lock().unwrap();
                 let wake = !output.ready();
@@ -359,11 +365,21 @@ impl Process {
                 return Err(error);
             }
         };
-        let (input, receiver) = mpsc::sync_channel::<Vec<u8>>(INPUT_QUEUE);
+        let (input, receiver) = mpsc::sync_channel::<(Vec<u8>, bool)>(INPUT_QUEUE);
+        let writer_stop = stop.clone();
         let writer = thread::spawn(move || {
             let mut file = File::from(input_write);
-            while let Ok(bytes) = receiver.recv() {
-                if file.write_all(&bytes).is_err() {
+            while let Ok((bytes, keyboard)) = receiver.recv() {
+                // The reader may see a response before WriteFile returns. Keep it
+                // draining the console and require the write receipt at exit.
+                if let Some(stop) = &writer_stop {
+                    stop.lock().unwrap().begin_input(&bytes, keyboard);
+                }
+                let write = file.write_all(&bytes);
+                if let Some(stop) = &writer_stop {
+                    stop.lock().unwrap().finish_input(write.is_ok());
+                }
+                if write.is_err() {
                     break;
                 }
             }
@@ -383,7 +399,12 @@ impl Process {
             let console = waiting_console.lock().unwrap().take();
             drop(console);
             let _ = reader.join();
-            waiting_output.lock().unwrap().exit = Some(code);
+            let manually_stopped = stop.is_some_and(|stop| stop.lock().unwrap().stopped(code));
+            {
+                let mut output = waiting_output.lock().unwrap();
+                output.exit = Some(code);
+                output.manually_stopped = manually_stopped;
+            }
             finished_ready.notify_one();
             let _ = writer.join();
         });
@@ -400,10 +421,14 @@ impl Process {
     }
 
     pub fn input(&self, bytes: Vec<u8>) -> Result<(), String> {
+        self.input_from(bytes, false)
+    }
+
+    pub fn input_from(&self, bytes: Vec<u8>, keyboard: bool) -> Result<(), String> {
         self.input
             .as_ref()
             .unwrap()
-            .try_send(bytes)
+            .try_send((bytes, keyboard))
             .map_err(|error| match error {
                 mpsc::TrySendError::Full(_) => "前台输入队列已满，本次输入未送达".into(),
                 mpsc::TrySendError::Disconnected(_) => "前台进程已退出".into(),

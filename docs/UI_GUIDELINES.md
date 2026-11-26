@@ -30,6 +30,8 @@
 
 ### 快捷键、剪贴板与快捷指令
 
+- 「成功或手动停止后自动关闭结果标签」沿用每条指令已有的设置。启用后，原任务成功退出或确认手动停止后退出才关闭其结果标签。BAT 的终止确认期间保留结果，选择 N 后继续运行，后续独立失败保留结果。后台结果关闭时，当前标签与焦点保持原位。[CR-059](changes/CR-059.md) · [Windows 专项](../scripts/Test-Desktop-ShortcutAutoClose.mjs)
+
 - Ctrl+Tab / Ctrl+Shift+Tab 在当前窗格循环，Alt+1 至 Alt+9、Alt+0 直达前十项，Ctrl+Shift+T 开本地 PowerShell，Ctrl+Shift+B 开合快捷指令栏，Ctrl+Shift+F 查找终端。编辑器、打开的模态、菜单和 IME 组合态保持原键盘路由。Ctrl+C 在终端的选择复制和中断语义、Ctrl+Shift+C/V 及右键用真实选区与实际字节验证。[快捷键](../apps/desktop/src/desktop-shortcuts.ts) · [远端终端控件](../apps/desktop/src/terminal-pane.tsx)
 - 本地右键默认有选区复制，无选区粘贴，可改为显示复制与粘贴菜单。远端的共享右键菜单保留目标窗格及日志动作。带换行或可能执行命令的粘贴先预览。空闲轻量终端是单行编辑器，前台进程中可经保护流程处理多行。剪贴板读取、预览和入队都绑定打开时的来源、原焦点和完整目标，路由变化撤确认。[剪贴板](../apps/desktop/src/terminal-clipboard.ts) · [输入队列](../apps/desktop/src/input-queue.ts) · [日志菜单](../apps/desktop/src/terminal-log-menu.tsx)
 - 右侧快捷指令栏支持单/双列、当前窗格总览和管理。紧凑列表悬停或键盘聚焦后显示受控预览，脚本只读已登记引用的前 32 KiB，Esc 收起。编辑/排序/置顶/分区首尾/删除仅管理配置，移除脚本入口保留源文件。执行需显式点击行或键盘启动。目标和执行身份在点击时确定。发送模板走活动 SSH/串口的原输入及保护流程。多步本地命令回显保存原文，末步裸 ADB Shell 可以交互，失败和中断停止剩余步骤。[预览](../apps/desktop/src/shortcut-preview.tsx) · [排序](../apps/desktop/src/local-shortcut-order.ts) · [本地运行和发送](records/P26.21.md) · [脚本管理](records/P26.22.md) · [ADB 结果](records/P26.24.md) · [逐步回显](records/P26.25.md)

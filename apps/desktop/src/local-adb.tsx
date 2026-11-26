@@ -424,7 +424,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
                   onChange={event=>setEditor({...editor,item:{...editor.item,append_enter:event.target.checked}})}/>追加 Enter
               </label>:<label className="shortcut-checkbox">
                 <input type="checkbox" checked={!!editor.item.close_on_success}
-                  onChange={event=>setEditor({...editor,item:{...editor.item,close_on_success:event.target.checked}})}/>执行成功后自动关闭结果标签
+                  onChange={event=>setEditor({...editor,item:{...editor.item,close_on_success:event.target.checked}})}/>成功或手动停止后自动关闭结果标签
               </label>}
             </>}
           <div className="config-actions">

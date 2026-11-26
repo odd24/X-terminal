@@ -115,8 +115,8 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
         await send();
     }).catch(error=>{if(alive.current)setFailure(String(error));}).finally(()=>{queue.queued--;});
   }
-  function enqueue(text:string,task:string,guard?:()=>boolean){
-    queueInput(task,()=>terminalAction({kind:'input',id:tab.id,request:task,text}),guard);
+  function enqueue(text:string,task:string,guard?:()=>boolean,keyboard=false){
+    queueInput(task,()=>terminalAction({kind:'input',id:tab.id,request:task,text,keyboard}),guard);
   }
   function dropIdentity(){
     const route=latest.current.fileDropRoute();
@@ -213,7 +213,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     terminal.write('\r\x1b[2K'+localText(prompt+chars.slice(start,end).join(''))+(after?'\x1b['+after+'D':''));
   }
 
-  function update(next:LocalView) {
+  function update(next:LocalView, expectedTask=view.current.task) {
     if (!alive.current) return;
     const terminal = term.current;
     if (next.command) terminal?.writeln('\r\x1b[2K'+localText(next.cwd+' > '+next.command));
@@ -238,7 +238,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     setCwd(next.cwd);
     publish();
     if(!next.running)redraw();
-    if(next.close_after_result&&next.task&&next.exit_code===0&&!next.running)latest.current.onResultSuccess(tab.id);
+    if(next.close_after_result&&next.task&&next.task===expectedTask&&next.exit_code!==null&&!next.running)latest.current.onResultSuccess(tab.id);
   }
 
   async function run(command:string) {
@@ -269,7 +269,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     setChoice(undefined);
     if(latest.current.focused)term.current?.focus();
     try {
-      update(await terminalAction<LocalView>({kind:'run_adb',id:tab.id,request:next.request,target:target??null}));
+      update(await terminalAction<LocalView>({kind:'run_adb',id:tab.id,request:next.request,target:target??null}),next.request);
     } catch {
       if(alive.current){
         uncertain.current=next.request;
@@ -387,6 +387,13 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       const target=clipboardTarget();
       if(target)setClipboardMenu({target,x,y,anchor:terminal.textarea??node,selection:terminal.getSelection()});
     }
+    let keyboardData:string|undefined;
+    const keypress=terminal.onKey(({key,domEvent})=>{
+      if(!domEvent.isComposing){
+        keyboardData=key;
+        queueMicrotask(()=>{keyboardData=undefined;});
+      }
+    });
     terminal.attachCustomKeyEventHandler(event=>{
       if(event.type!=='keydown')return true;
       if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){
@@ -409,10 +416,12 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     });
     const data=terminal.onData(text=>{
       if(!latest.current.focused)return;
+      const keyboard=text===keyboardData;
+      keyboardData=undefined;
       invalidateClipboard();
       const task=view.current.running?view.current.task:null;
       if(!task){edit(text);return;}
-      enqueue(text,task);
+      enqueue(text,task,undefined,keyboard);
     });
     const selection=terminal.onSelectionChange(()=>{selectionRevision.current++;});
     let atScrollLimit=false;
@@ -479,7 +488,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
             if(disposed)return;
             setFailure(next.task===original?'':'原请求未出现在终端状态中，请核对后再提交。');
             uncertain.current=undefined;
-            update(next);
+            update(next,original);
           }finally{if(!disposed){flight.current=false;publish();}}
         }else if(view.current.running&&view.current.task){
           const task=view.current.task;
@@ -511,7 +520,7 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       node.removeEventListener('paste',nativePaste,true);
       node.removeEventListener('contextmenu',context,true);
       node.removeEventListener('mousedown',rightDown,true);
-      data.dispose();written.dispose();selection.dispose();terminal.dispose();term.current=undefined;
+      data.dispose();keypress.dispose();written.dispose();selection.dispose();terminal.dispose();term.current=undefined;
     };
   },[tab.id]);
   useEffect(()=>{
