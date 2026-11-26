@@ -222,6 +222,10 @@ pub(crate) fn open_local_file(
     path: &Path,
     extension: &str,
 ) -> Result<(std::fs::File, String), String> {
+    open_local_regular(path, Some(extension))
+}
+
+pub(crate) fn validate_local_path(path: &Path, extension: Option<&str>) -> Result<(), String> {
     let text = path.to_str().ok_or("IMPORT_PATH_REJECTED")?;
     let b = text.as_bytes();
     if b.len() < 4
@@ -231,9 +235,11 @@ pub(crate) fn open_local_file(
         || text[2..].contains(':')
         || text.contains('/')
         || text.chars().any(char::is_control)
-        || !path
-            .extension()
-            .is_some_and(|s| s.eq_ignore_ascii_case(extension))
+        || extension.is_some_and(|extension| {
+            !path
+                .extension()
+                .is_some_and(|s| s.eq_ignore_ascii_case(extension))
+        })
     {
         return Err("IMPORT_PATH_REJECTED".into());
     }
@@ -265,6 +271,14 @@ pub(crate) fn open_local_file(
             return Err("IMPORT_PATH_REJECTED".into());
         }
     }
+    Ok(())
+}
+
+pub(crate) fn open_local_regular(
+    path: &Path,
+    extension: Option<&str>,
+) -> Result<(std::fs::File, String), String> {
+    validate_local_path(path, extension)?;
     // Reject an ancestor reparse point before querying any descendant through it.
     for ancestor in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
         let metadata =
@@ -273,7 +287,7 @@ pub(crate) fn open_local_file(
             return Err("IMPORT_PATH_REJECTED".into());
         }
     }
-    let expected = expanded_name(text)?;
+    let expected = expanded_name(path.to_str().ok_or("IMPORT_PATH_REJECTED")?)?;
     let file = OpenOptions::new()
         .read(true)
         .share_mode(FILE_SHARE_READ)

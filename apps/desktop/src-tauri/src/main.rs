@@ -566,6 +566,7 @@ fn main() {
             app.manage(trigger_match::Manager::default());
             app.manage(local_terminal::Terminals::default());
             app.manage(log_directory::Selection::default());
+            app.manage(local_terminal::shortcut_package::Transfers::default());
             app.manage(local_terminal::scripts::Picker(Arc::new(
                 tokio::sync::Semaphore::new(1),
             )));
@@ -600,6 +601,8 @@ fn main() {
             local_terminal::local_terminal,
             local_terminal::poll_local_output,
             local_terminal::local_adb_settings,
+            local_terminal::shortcut_package::shortcut_transfer,
+            local_terminal::scripts::pick_shortcut_package,
             local_terminal::local_shortcut_text,
             local_terminal::directory::local_directory_settings,
             local_terminal::directory::local_right_click,

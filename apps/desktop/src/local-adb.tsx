@@ -5,6 +5,7 @@ import {insertShortcuts,moveShortcutToEdge,setShortcutPins,stepShortcuts} from '
 import {useShortcutDrag} from './local-shortcut-drag';
 import {useShortcutPreview} from './shortcut-preview';
 import {visibleControls} from './log-search';
+import {ShortcutTransfer} from './shortcut-transfer';
 
 export type AdbShortcut = {id:string; name:string; command?:string; script_path?:string; pinned?:boolean;
   desktop_kind?:'local'|'send'; append_enter?:boolean; close_on_success?:boolean; description?:string};
@@ -71,6 +72,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
   const [failure, setFailure] = useState('');
   const [feedback,setFeedback]=useState('');
   const [managing,setManaging]=useState(false);
+  const [transfer,setTransfer]=useState<'import'|'export'>();
   const [selection,setSelection]=useState<ReadonlySet<string>>(()=>new Set());
   const [removal,setRemoval]=useState<Removal>();
   const [imports,setImports]=useState<ScriptImport>();
@@ -103,7 +105,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
       restoredTrigger.current=undefined;
     }
   },[open]);
-  useEffect(()=>setImports(undefined),[scope]);
+  useEffect(()=>{setImports(undefined);setTransfer(undefined);},[scope,open]);
   useEffect(()=>{
     const ids=new Set(items.map(item=>item.id));
     setSelection(previous=>previous.size&&[...previous].some(id=>!ids.has(id))
@@ -387,10 +389,12 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
       })}
       <button type="button" aria-pressed={layout.expanded} disabled={busy}
         onClick={()=>void save({...settings,layout:{...layout,expanded:!layout.expanded}},layout.expanded?'已收起总览':'已展开全部指令')}>{layout.expanded?'收起总览':'全部展开'}</button>
-      <button type="button" ref={manageButton} aria-pressed={managing} disabled={busy||!items.length&&!managing}
+      <button type="button" ref={manageButton} aria-pressed={managing} disabled={busy}
         onClick={()=>{setManaging(!managing);setSelection(new Set());setMenu(undefined);setAddMenu(undefined);}}>{managing?'完成管理':'管理'}</button>
     </div>}
     {managing&&settings&&<div className="adb-bulk-controls" aria-label="批量操作">
+      <button type="button" disabled={busy||!items.length} onClick={()=>setTransfer('export')}>导出快捷指令</button>
+      <button type="button" disabled={busy} onClick={()=>setTransfer('import')}>导入快捷指令</button>
       <span role="status" aria-label="已选指令">已选 {picked.length} / {items.length}</span>
       <button type="button" disabled={busy||picked.length===items.length} onClick={()=>setSelection(new Set(items.map(item=>item.id)))}>全选</button>
       <button type="button" disabled={busy||!picked.length} onClick={()=>setSelection(new Set())}>清除</button>
@@ -512,6 +516,7 @@ export function AdbShortcutPanel({id, scope, open, settings, starting, keyboardF
         </form>
       </Panel>
     </Dialog>}
+    {open&&settings&&transfer&&<ShortcutTransfer mode={transfer} settings={settings} close={()=>setTransfer(undefined)} applied={reload}/>}
     {open&&removal&&<Dialog label="移除快捷指令" close={()=>{if(!saving.current)setRemoval(undefined);}}
       fallbackFocus={()=>manageButton.current?.focus()}>
       <Panel title="移除快捷指令">

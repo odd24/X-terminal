@@ -50,7 +50,7 @@ pub struct Layout {
     expanded: bool,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Shortcut {
     pub id: Uuid,
@@ -71,7 +71,7 @@ pub struct Shortcut {
     pub close_on_success: bool,
 }
 
-fn normalize_descriptions(settings: &mut Settings) -> Result<(), String> {
+pub(super) fn normalize_descriptions(settings: &mut Settings) -> Result<(), String> {
     for item in &mut settings.shortcuts {
         if let Some(value) = &item.description {
             let value = value.replace("\r\n", "\n").replace('\r', "\n");
@@ -120,7 +120,7 @@ pub(super) fn adb_name(name: &str) -> bool {
         })
 }
 
-fn validate(settings: &Settings) -> Result<(), String> {
+pub(super) fn validate(settings: &Settings) -> Result<(), String> {
     if settings.shortcuts.len() > MAX_SHORTCUTS {
         return Err("最多保存 32 条快捷指令".into());
     }

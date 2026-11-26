@@ -396,6 +396,8 @@ main.desktop-shell {
 .adb-panel-body textarea { font-family: var(--font-terminal); overflow-wrap: anywhere; resize: vertical; }
 .adb-panel-controls, .adb-bulk-controls, .adb-panel-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-2); border-block-end: 1px solid var(--border-subtle); }
 .adb-bulk-controls { background: var(--control-hover); }
+.shortcut-transfer-rows { max-block-size: 42vh; overflow: auto; display: grid; gap: var(--space-2); margin-block: var(--space-2); overflow-wrap: anywhere; }
+.shortcut-transfer-rows pre { white-space: pre-wrap; }
 .adb-panel-controls button, .adb-bulk-controls button, .adb-panel-error button { min-block-size: 26px; padding: 0 var(--space-1); font-size: var(--text-xs); }
 .adb-panel-controls button[aria-pressed="true"] { border-color: var(--accent); background: var(--control-hover); }
 .adb-bulk-controls [role="status"] { margin-inline-end: var(--space-1); font-size: var(--text-xs); }

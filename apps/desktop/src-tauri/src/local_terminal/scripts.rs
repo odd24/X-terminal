@@ -16,7 +16,7 @@ use windows::{
         UI::Shell::{
             Common::COMDLG_FILTERSPEC, FOS_ALLOWMULTISELECT, FOS_DONTADDTORECENT,
             FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST,
-            FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
+            FileOpenDialog, FileSaveDialog, IFileOpenDialog, IFileSaveDialog, SIGDN_FILESYSPATH,
         },
     },
     core::{HSTRING, w},
@@ -261,7 +261,19 @@ pub struct Selection {
     pub name: String,
 }
 
-fn pick(owner: usize, multiple: bool) -> Result<Vec<Selection>, String> {
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PackagePicker {
+    Import,
+    Export,
+    Attachments,
+}
+
+fn pick(
+    owner: usize,
+    multiple: bool,
+    package: Option<PackagePicker>,
+) -> Result<Vec<Selection>, String> {
     unsafe {
         let unavailable = |_| "无法打开本地脚本选择器".to_string();
         CoInitializeEx(None, COINIT_APARTMENTTHREADED)
@@ -282,11 +294,22 @@ fn pick(owner: usize, multiple: bool) -> Result<Vec<Selection>, String> {
             options &= !FOS_ALLOWMULTISELECT;
         }
         dialog.SetOptions(options).map_err(unavailable)?;
-        dialog.SetTitle(w!("选择本地脚本")).map_err(unavailable)?;
+        let (title, label, filter) = match package {
+            Some(PackagePicker::Import) => {
+                (w!("导入快捷指令包"), w!("快捷指令包 (*.zip)"), w!("*.zip"))
+            }
+            Some(PackagePicker::Attachments) => (w!("选择脚本配套文件"), w!("所有文件"), w!("*.*")),
+            _ => (
+                w!("选择本地脚本"),
+                w!("批处理脚本 (*.bat; *.cmd)"),
+                w!("*.bat;*.cmd"),
+            ),
+        };
+        dialog.SetTitle(title).map_err(unavailable)?;
         dialog
             .SetFileTypes(&[COMDLG_FILTERSPEC {
-                pszName: w!("批处理脚本 (*.bat; *.cmd)"),
-                pszSpec: w!("*.bat;*.cmd"),
+                pszName: label,
+                pszSpec: filter,
             }])
             .map_err(unavailable)?;
         if let Err(error) = dialog.Show(Some(HWND(owner as *mut _))) {
@@ -308,7 +331,17 @@ fn pick(owner: usize, multiple: bool) -> Result<Vec<Selection>, String> {
                     .map_err(unavailable)?;
                 let path = raw.to_string();
                 CoTaskMemFree(Some(raw.0.cast()));
-                let (_, path) = readable(&path.map_err(|_| "脚本路径编码无效")?)?;
+                let path = path.map_err(|_| "文件路径编码无效")?;
+                let path = if package.is_some() {
+                    crate::config_import::open_local_regular(
+                        Path::new(&path),
+                        matches!(package, Some(PackagePicker::Import)).then_some("zip"),
+                    )
+                    .map(|(_, path)| PathBuf::from(path))
+                    .map_err(|_| "所选文件不可用")?
+                } else {
+                    readable(&path)?.1
+                };
                 let name = path.file_name().unwrap().to_string_lossy().into_owned();
                 Ok(Selection {
                     path: path.to_string_lossy().into_owned(),
@@ -336,8 +369,77 @@ pub async fn pick_local_scripts(
     let owner = window.hwnd().map_err(|_| "窗口不可用")?.0 as usize;
     tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
-        pick(owner, multiple)
+        pick(owner, multiple, None)
     })
     .await
     .map_err(|_| "脚本选择器已关闭")?
+}
+
+fn pick_package_output(owner: usize) -> windows::core::Result<Vec<Selection>> {
+    unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+        let _apartment = Apartment;
+        let dialog: IFileSaveDialog =
+            CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?;
+        dialog.SetOptions(
+            dialog.GetOptions()?
+                | FOS_FORCEFILESYSTEM
+                | FOS_PATHMUSTEXIST
+                | FOS_NOCHANGEDIR
+                | FOS_DONTADDTORECENT,
+        )?;
+        dialog.SetTitle(w!("导出快捷指令包"))?;
+        dialog.SetOkButtonLabel(w!("保存"))?;
+        dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
+            pszName: w!("快捷指令包 (*.zip)"),
+            pszSpec: w!("*.zip"),
+        }])?;
+        dialog.SetDefaultExtension(w!("zip"))?;
+        dialog.SetFileName(w!("shortcuts.zip"))?;
+        if let Err(error) = dialog.Show(Some(HWND(owner as *mut _))) {
+            if error.code().0 as u32 == 0x800704c7 {
+                return Ok(Vec::new());
+            }
+            return Err(error);
+        }
+        let raw = dialog.GetResult()?.GetDisplayName(SIGDN_FILESYSPATH)?;
+        let path = raw.to_string();
+        CoTaskMemFree(Some(raw.0.cast()));
+        Ok(vec![Selection {
+            path: path?,
+            name: "shortcuts.zip".into(),
+        }])
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn pick_shortcut_package(
+    window: WebviewWindow,
+    picker: State<'_, Picker>,
+    mode: PackagePicker,
+) -> Result<Vec<Selection>, String> {
+    if window.label() != crate::session_windows::MAIN {
+        return Err("请在主窗口管理快捷指令".into());
+    }
+    let permit = picker
+        .0
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "已有文件选择器打开")?;
+    let owner = window.hwnd().map_err(|_| "窗口不可用")?.0 as usize;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        match mode {
+            PackagePicker::Export => {
+                pick_package_output(owner).map_err(|_| "无法打开 ZIP 保存窗口".into())
+            }
+            mode => pick(
+                owner,
+                matches!(mode, PackagePicker::Attachments),
+                Some(mode),
+            ),
+        }
+    })
+    .await
+    .map_err(|_| "文件选择器已关闭")?
 }

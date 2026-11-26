@@ -6,6 +6,7 @@ mod file_drop;
 mod psreadline;
 mod script_stop;
 pub(crate) mod scripts;
+pub(crate) mod shortcut_package;
 
 use conpty::{Output, Process};
 use serde::{Deserialize, Serialize};
