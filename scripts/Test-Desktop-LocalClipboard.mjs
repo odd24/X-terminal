@@ -175,7 +175,9 @@ try{
   assert.equal(await actionCount('run'),0);
   await enter();await waitCount(()=>actionCount('run'),1);
   assert.equal(await ui.evaluate("window.clipFixture.actions.find(a=>a.kind==='run').line"),'pwd');
-  await ui.waitFor(`${query(output)}.innerText.includes('> pwd')`);
+  await ui.waitFor(`(()=>{const terminal=${query(output)};
+    return terminal?.innerText.split('\\n').some(line=>line.trim()===terminal.title);
+  })()`);
   await setClipboard('pwd\ncd\n');await rightClick();await pastePreview();
   assert.equal(await ui.evaluate(`[...${query(preview)}.querySelectorAll('button')].find(b=>b.textContent==='确认粘贴').disabled`),true);
   await ui.click('取消粘贴');
