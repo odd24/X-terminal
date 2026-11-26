@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import type {AdbSettings, AdbShortcut} from './local-adb';
 import {Dialog, Panel} from './ui';
@@ -33,6 +33,7 @@ export function ShortcutTransfer({mode, settings, close, applied}:{
   const [selected,setSelected]=useState(()=>new Set(source.shortcuts.map(item=>item.id)));
   const [include,setInclude]=useState(true);
   const [attachments,setAttachments]=useState<Record<string,string[]>>({});
+  const [managing,setManaging]=useState<string>();
   const [preview,setPreview]=useState<Preview>();
   const [decisions,setDecisions]=useState<Record<string,Decision>>({});
   const [counts,setCounts]=useState<Counts>();
@@ -42,6 +43,28 @@ export function ShortcutTransfer({mode, settings, close, applied}:{
   const live=useRef(false);
   const token=useRef<string>(undefined);
   const inFlight=useRef(false);
+  const exportBody=useRef<HTMLDivElement>(null);
+  const selectAll=useRef<HTMLInputElement>(null);
+  const all=selected.size===source.shortcuts.length;
+  const partial=selected.size>0&&!all;
+  const editing=source.shortcuts.find(item=>item.id===managing);
+  const exportPage=written?'done':editing?'attachments':preview?'preview':'selection';
+  const returnTo=useRef<string>(undefined);
+  const lastPage=useRef(exportPage);
+  useLayoutEffect(()=>{
+    if(selectAll.current)selectAll.current.indeterminate=partial;
+  },[partial,exportPage]);
+  useLayoutEffect(()=>{
+    if(mode!=='export'||busy||lastPage.current===exportPage)return;
+    lastPage.current=exportPage;
+    if(exportPage==='selection'&&returnTo.current){
+      const button=exportBody.current?.querySelector<HTMLButtonElement>(`[data-attachment-for="${returnTo.current}"]`);
+      returnTo.current=undefined;
+      button?.focus();
+      return;
+    }
+    exportBody.current?.querySelector<HTMLElement>('[data-export-focus]')?.focus();
+  },[mode,busy,exportPage]);
   useEffect(()=>{
     live.current=true;
     return ()=>{live.current=false;if(token.current)void cancel(token.current);};
@@ -66,50 +89,115 @@ export function ShortcutTransfer({mode, settings, close, applied}:{
     setPreview(undefined);
     setError('');
   }
-  const title=mode==='export'?'导出快捷指令':'导入快捷指令';
+  async function addAttachments(id:string){
+    const files=await choose('attachments');
+    if(live.current&&files.length){
+      setAttachments(previous=>({...previous,[id]:[...new Set([...(previous[id]??[]),...files.map(file=>file.path)])]}));
+    }
+  }
+  function leaveAttachments(){
+    returnTo.current=managing;
+    setManaging(undefined);
+  }
+  if(mode==='export'){
+    const included=preview?.rows.filter(row=>row.script&&row.files.includes(row.script))??[];
+    const missing=include?(preview?.rows.filter(row=>row.status==='missing')??[]):[];
+    const fileCount=preview?.rows.reduce((count,row)=>count+row.files.length,0)??0;
+    return <Dialog label="导出快捷指令" close={()=>{if(!inFlight.current){if(editing)leaveAttachments();else close();}}}>
+      <Panel title={editing?'管理配套文件':preview&&!written?'导出预览':'导出快捷指令'}>
+        <div className="shortcut-export" ref={exportBody}>
+          <div className="shortcut-export-tools">
+            {editing?<strong className="shortcut-export-name" title={editing.name}>{editing.name}</strong>
+              :preview&&!written?<p role="status">指令 {preview.rows.length} · 脚本 {included.length} · 配套文件 {fileCount-included.length}</p>
+              :!written&&<>
+                <label className="check"><input type="checkbox" data-dialog-autofocus data-export-focus checked={include} disabled={busy}
+                  onChange={event=>setInclude(event.target.checked)}/>包含指令引用的脚本文件</label>
+                <div className="shortcut-export-tally">
+                  <label className="check"><input ref={selectAll} type="checkbox" checked={all} disabled={busy}
+                    onChange={()=>setSelected(all?new Set():new Set(source.shortcuts.map(item=>item.id)))}/>全选</label>
+                  <span role="status">已选 {selected.size} / {source.shortcuts.length}</span>
+                </div>
+              </>}
+          </div>
+          <div className="shortcut-export-list" aria-label={editing?'配套文件':preview?'导出清单':'待导出的快捷指令'}>
+            {editing?(attachments[editing.id]?.length?attachments[editing.id].map(file=><div className="shortcut-export-row" key={file}>
+              <span className="shortcut-export-name" title={file}>{file.split('\\').at(-1)}</span>
+              <button aria-label={'移除配套文件 '+file} disabled={busy} onClick={()=>{
+                exportBody.current?.querySelector<HTMLButtonElement>('.shortcut-export-footer .primary-action')?.focus();
+                setAttachments(previous=>({...previous,[editing.id]:previous[editing.id].filter(value=>value!==file)}));
+              }}>移除</button>
+            </div>):<p>暂无配套文件</p>):preview&&!written?<>
+              {missing.length>0&&<div className="shortcut-export-missing">
+                <strong>缺脚本</strong>
+                <ul>{missing.map(row=><li key={row.item.id}>{row.item.name}</li>)}</ul>
+              </div>}
+              <details>
+                <summary>查看完整清单</summary>
+                {preview.rows.map(row=><details key={row.item.id}>
+                  <summary>{row.item.name}{row.status==='missing'?(include?' · 缺脚本':' · 未包含脚本'):''}</summary>
+                  <Details item={row.item} script={row.script}/>
+                  {row.files.length>0&&<ul aria-label="包内文件">{row.files.map(file=><li key={file}>{file}</li>)}</ul>}
+                </details>)}
+              </details>
+            </>:written?<p role="status">ZIP 已保存</p>:source.shortcuts.map(item=>{
+              const checked=selected.has(item.id), count=attachments[item.id]?.length??0;
+              return <div className="shortcut-export-row" key={item.id}>
+                <label className="check" title={item.name}><input type="checkbox" checked={checked} disabled={busy} onChange={event=>{
+                  const add=event.currentTarget.checked;
+                  setSelected(previous=>{const next=new Set(previous);if(add)next.add(item.id);else next.delete(item.id);return next;});
+                }}/><span className="shortcut-export-name">{item.name}</span></label>
+                {item.script_path&&include&&<button data-attachment-for={item.id} disabled={busy||!checked}
+                  aria-label={(count?`配套文件（${count}）`:'添加配套文件')+' '+item.name}
+                  onClick={()=>{if(count)setManaging(item.id);else void run(()=>addAttachments(item.id));}}>
+                  {count?`配套文件（${count}）`:'添加配套文件…'}
+                </button>}
+              </div>;
+            })}
+          </div>
+          <div className="shortcut-export-footer">
+            {!!error&&<p role="alert">{error}</p>}
+            <div className="config-actions">
+              {editing?<>
+                <button data-export-focus disabled={busy} onClick={leaveAttachments}>返回选择</button>
+                <button className="primary-action" disabled={busy} onClick={()=>void run(()=>addAttachments(editing.id))}>添加配套文件…</button>
+              </>:written?<button className="primary-action" data-export-focus disabled={busy} onClick={close}>完成</button>:<>
+                {preview&&<button data-export-focus disabled={busy} onClick={reset}>返回选择</button>}
+                <button disabled={busy} onClick={close}>取消</button>
+                {preview?<button className="primary-action" disabled={busy} onClick={()=>void run(async()=>{
+                  const [file]=await choose('export');
+                  if(file&&live.current){
+                    await transfer({kind:'write_export',token:preview.token,path:file.path});
+                    token.current=undefined;
+                    setWritten(true);
+                  }
+                })}>保存 ZIP</button>:<button className="primary-action" disabled={busy||!selected.size} onClick={()=>void run(()=>show({
+                  kind:'preview_export',revision:source.revision,ids:[...selected],include_scripts:include,
+                  attachments:include?Object.fromEntries(Object.entries(attachments).filter(([id])=>selected.has(id))):{},
+                }))}>下一步：预览</button>}
+              </>}
+            </div>
+          </div>
+        </div>
+      </Panel>
+    </Dialog>;
+  }
+  const title='导入快捷指令';
   return <Dialog label={title} wide close={()=>{if(!inFlight.current)close();}}>
     <Panel title={title}>
-      {mode==='export'&&!preview&&!written&&<>
-        <label><input type="checkbox" checked={include} disabled={busy} onChange={event=>setInclude(event.target.checked)}/> 携带引用脚本和配套文件</label>
-        <div className="config-actions">
-          <button disabled={busy||selected.size===source.shortcuts.length} onClick={()=>setSelected(new Set(source.shortcuts.map(item=>item.id)))}>全选指令</button>
-          <button disabled={busy||!selected.size} onClick={()=>setSelected(new Set())}>清除选择</button>
-        </div>
-        <div className="shortcut-transfer-rows">
-          {source.shortcuts.map(item=><div key={item.id}>
-            <label><input type="checkbox" checked={selected.has(item.id)} disabled={busy} onChange={event=>{
-              const checked=event.target.checked;
-              setSelected(value=>{const next=new Set(value);if(checked)next.add(item.id);else next.delete(item.id);return next;});
-            }}/> {item.name}</label>
-            {item.script_path&&include&&selected.has(item.id)&&<>
-              <button disabled={busy} aria-label={'选择配套文件 '+item.name} onClick={()=>void run(async()=>{
-                const files=await choose('attachments');
-                if(live.current&&files.length)setAttachments(old=>({...old,[item.id]:[...new Set([...(old[item.id]??[]),...files.map(file=>file.path)])]}));
-              })}>选择配套文件</button>
-              {attachments[item.id]?.map(file=><div key={file}>{file}<button disabled={busy} aria-label={'移除配套文件 '+file} onClick={()=>
-                setAttachments(old=>({...old,[item.id]:old[item.id].filter(value=>value!==file)}))}>移除</button></div>)}
-            </>}
-          </div>)}
-        </div>
-        <button data-dialog-autofocus disabled={busy||!selected.size} onClick={()=>void run(()=>show({
-          kind:'preview_export',revision:source.revision,ids:[...selected],include_scripts:include,
-          attachments:include?Object.fromEntries(Object.entries(attachments).filter(([id])=>selected.has(id))):{},
-        }))}>预览导出</button>
-      </>}
-      {mode==='import'&&!preview&&!counts&&<button data-dialog-autofocus disabled={busy} onClick={()=>void run(async()=>{
+      {!preview&&!counts&&<button data-dialog-autofocus disabled={busy} onClick={()=>void run(async()=>{
         const [file]=await choose('import');
         if(file&&live.current)await show({kind:'preview_import',path:file.path});
       })}>选择 ZIP</button>}
-      {preview&&!counts&&!written&&<>
-        {mode==='import'&&<p>{Object.entries(labels).map(([status,label])=>label+' '+preview.rows.filter(row=>row.status===status).length).join(' · ')}</p>}
+      {preview&&!counts&&<>
+        <p>{Object.entries(labels).map(([status,label])=>label+' '+preview.rows.filter(row=>row.status===status).length).join(' · ')}</p>
         <div className="shortcut-transfer-rows">
           {preview.rows.map(row=><details key={row.item.id}>
-            <summary>{row.item.name}{mode==='import'||row.status==='missing'?' · '+labels[row.status]:''}</summary>
+            <summary>{row.item.name} · {labels[row.status]}</summary>
             <Details item={row.item} script={row.script}/>
             {row.files.length>0&&<ul aria-label="包内文件">{row.files.map(file=><li key={file}>{file}</li>)}</ul>}
             {row.existing.map(item=><div key={item.id}><strong>本机 · {item.name}</strong><Details item={item}/></div>)}
           </details>)}
-          {mode==='import'&&preview.rows.filter(row=>row.status==='conflict').map(row=><label key={row.item.id}>
+          {preview.rows.filter(row=>row.status==='conflict').map(row=><label key={row.item.id}>
             {row.item.name} <select aria-label={'冲突处理 '+row.item.name} disabled={busy} value={decisions[row.item.id]??'skip'}
               onChange={event=>setDecisions({...decisions,[row.item.id]:event.target.value as Decision})}>
               <option value="skip">跳过</option><option value="keep">保留两份</option>
@@ -118,24 +206,17 @@ export function ShortcutTransfer({mode, settings, close, applied}:{
           </label>)}
         </div>
         <div className="config-actions">
-          <button disabled={busy} onClick={reset}>{mode==='export'?'返回选择':'重新选择 ZIP'}</button>
-          {mode==='export'?<button disabled={busy} onClick={()=>void run(async()=>{
-            const [file]=await choose('export');
-            if(file&&live.current){
-              await transfer({kind:'write_export',token:preview.token,path:file.path});
-              token.current=undefined;setWritten(true);
-            }
-          })}>保存 ZIP</button>:<button disabled={busy} onClick={()=>void run(async()=>{
+          <button disabled={busy} onClick={reset}>重新选择 ZIP</button>
+          <button disabled={busy} onClick={()=>void run(async()=>{
             const result=await transfer<Counts>({kind:'apply_import',token:preview.token,decisions});
             token.current=undefined;setCounts(result);
             if(result.added+result.replaced)await applied();
-          })}>确认导入</button>}
+          })}>确认导入</button>
         </div>
       </>}
       {counts&&<p role="status">新增 {counts.added} · 替换 {counts.replaced} · 完全相同 {counts.same} · 跳过 {counts.skipped} · 缺脚本 {counts.missing}</p>}
-      {written&&<p role="status">ZIP 已保存</p>}
       {error&&<p role="alert">{error}</p>}
-      <button disabled={busy} onClick={close}>{written||counts?'完成':'取消'}</button>
+      <button disabled={busy} onClick={close}>{counts?'完成':'取消'}</button>
     </Panel>
   </Dialog>;
 }

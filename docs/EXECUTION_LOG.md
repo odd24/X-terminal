@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.105 完成快捷指令导出选择页和预览页改版，标准及窄窗口和原生迁移回归通过。[执行记录](records/P26.105.md)
+
 P26.104 登记快捷指令导出弹窗改版及真实窗口基线。[执行记录](records/P26.104.md)
 
 P26.103 交付 Windows x64 快捷指令 ZIP 迁移试用候选，原生双数据根往返和便携门禁通过。[执行记录](records/P26.103.md)
@@ -694,7 +696,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.102 | 实现快捷指令 ZIP 导入和导出 | DONE | [P26.102](records/P26.102.md) | Step-ID: P26.102 |
 | P26.103 | 验收快捷指令迁移试用候选 | DONE | [P26.103](records/P26.103.md) | Step-ID: P26.103 |
 | P26.104 | 登记及复现导出弹窗布局 | DONE | [P26.104](records/P26.104.md) | Step-ID: P26.104 |
-| P26.105 | 实现导出选择与预览改版 | IN_PROGRESS | CR-062 | 待实测 |
+| P26.105 | 实现导出选择与预览改版 | DONE | [P26.105](records/P26.105.md) | Step-ID: P26.105 |
 | P26.106 | 验收导出改版试用候选 | TODO | CR-062 | 待验收 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |

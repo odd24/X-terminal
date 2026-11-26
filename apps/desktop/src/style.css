@@ -398,6 +398,27 @@ main.desktop-shell {
 .adb-bulk-controls { background: var(--control-hover); }
 .shortcut-transfer-rows { max-block-size: 42vh; overflow: auto; display: grid; gap: var(--space-2); margin-block: var(--space-2); overflow-wrap: anywhere; }
 .shortcut-transfer-rows pre { white-space: pre-wrap; }
+.app-dialog:has(.shortcut-export) { --dialog-width: 600px; overflow: hidden; }
+.app-dialog:has(.shortcut-export) > .config-panel { display: flex; flex-direction: column; max-block-size: calc(min(var(--dialog-max-height), 100dvh - 16px) - 2 * var(--border-width)); padding: var(--space-4); }
+.app-dialog:has(.shortcut-export) .config-heading { flex: none; }
+.shortcut-export { display: flex; flex-direction: column; min-block-size: 0; }
+.shortcut-export-tools, .shortcut-export-footer { flex: none; }
+.shortcut-export-tools > p, .shortcut-export-footer > p { margin: var(--space-2) 0; }
+.shortcut-export-tally, .shortcut-export-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.shortcut-export .check { min-inline-size: 0; margin: 0; color: var(--text); cursor: pointer; }
+.shortcut-export .check input { flex: none; margin: 0; }
+.shortcut-export-tools > .check, .shortcut-export-tally { padding: var(--space-2) var(--space-1); }
+.shortcut-export-tally, .shortcut-export-footer { border-block-start: var(--border-width) solid var(--border-subtle); }
+.shortcut-export-tally [role="status"] { color: var(--text-muted); }
+.shortcut-export-list { min-block-size: 0; overflow: hidden auto; overscroll-behavior: contain; padding-inline: var(--space-1); scrollbar-gutter: stable; overflow-wrap: anywhere; }
+.shortcut-export-row { min-block-size: 36px; border-block-start: var(--border-width) solid var(--border-subtle); }
+.shortcut-export-row .check { flex: 1; align-self: stretch; }
+.shortcut-export-name { display: block; min-inline-size: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.shortcut-export-row button { flex: none; min-block-size: 28px; padding: var(--space-1) var(--space-2); font-size: var(--text-xs); }
+.shortcut-export-list pre { max-block-size: none; overflow: visible; overflow-wrap: anywhere; }
+.shortcut-export-missing { margin-block: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-raised); }
+.shortcut-export-missing ul { margin-block: var(--space-1) 0; padding-inline-start: var(--space-5); }
+.shortcut-export-footer .config-actions { justify-content: flex-end; margin-top: var(--space-2); }
 .adb-panel-controls button, .adb-bulk-controls button, .adb-panel-error button { min-block-size: 26px; padding: 0 var(--space-1); font-size: var(--text-xs); }
 .adb-panel-controls button[aria-pressed="true"] { border-color: var(--accent); background: var(--control-hover); }
 .adb-bulk-controls [role="status"] { margin-inline-end: var(--space-1); font-size: var(--text-xs); }

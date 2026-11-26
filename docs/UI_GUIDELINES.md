@@ -30,6 +30,8 @@
 
 ### 快捷键、剪贴板与快捷指令
 
+- 导出快捷指令时，复选框紧邻名称，三态全选和已选数保留在列表上方。脚本行可独立管理附件。只有列表纵向滚动，预览先给出数量及缺脚本名称，按需展开包内清单。[CR-062](changes/CR-062.md) · [Windows 专项](../scripts/Test-Desktop-ShortcutExportLayout.mjs)
+
 - 右栏「管理」提供「导出快捷指令」和「导入快捷指令」，空列表也可进入。导出默认全选并带引用脚本。预览列出包内文件和缺失脚本。导入展开后可对照内容，默认仅新增，保留两份及替换可逐条选择。[CR-061](changes/CR-061.md)
 
 - 本地粘贴确认默认聚焦可用的确认按钮，确认不可用时聚焦取消。Enter 松开后激活当前按钮，Esc 取消并恢复终端焦点。PowerShell 提示符的多行内容作为可编辑草稿插入原光标。[CR-060](changes/CR-060.md) · [Windows 专项](../scripts/Test-Desktop-LocalPasteEditor.mjs)

@@ -91,11 +91,13 @@ try{
   await setPicker({attachments:[asset],export:[archive]});
   await ui.click('导出快捷指令');
   await waitDialog('导出快捷指令');
-  assert.equal(await ui.evaluate('document.querySelectorAll("dialog[open] input[type=checkbox]:checked").length'),6);
+  assert.equal(await ui.evaluate('document.querySelectorAll("dialog[open] input[type=checkbox]:checked").length'),7);
   await ui.evaluate('Array.from(document.querySelectorAll("dialog[open] label")).find(node=>node.textContent.trim()==="排除样本").querySelector("input").click()');
-  await picker('选择配套文件 dmesg.bat','ShortcutAttachments',asset);
-  await ui.waitFor('document.querySelector("dialog[open]").textContent.includes("config.txt")');
-  await ui.click('预览导出');
+  await picker('添加配套文件 dmesg.bat','ShortcutAttachments',asset);
+  await ui.waitFor('document.querySelector("dialog[open]").textContent.includes("配套文件（1）")');
+  await ui.click('下一步：预览');
+  await ui.waitFor('document.querySelector("dialog[open]").innerText.includes("指令 4 · 脚本 1 · 配套文件 1")');
+  await ui.evaluate('document.querySelector("dialog[open] .shortcut-export-list > details > summary").click()');
   await summary('缺失脚本 · 缺脚本');
   await ui.evaluate('Array.from(document.querySelectorAll("dialog[open] summary")).find(node=>node.textContent==="dmesg.bat").click()');
   assert.match(await ui.evaluate('document.querySelector("dialog[open] [aria-label=包内文件]").innerText'),/assets\/config\.txt/);
