@@ -1,5 +1,7 @@
 # 验证与验收计划
 
+[CR-060](changes/CR-060.md) 核对本地确认焦点、单次 Enter、Esc 与 Tab 取消、LF/CRLF、软折行、原光标和前台应用字节。实窗比对 PSReadLine 缓冲和屏幕，仅执行无副作用的本地样本。
+
 [CR-059](changes/CR-059.md) 验证 BAT 确认 Y 和 N、无中断故障、未勾选、命令组手动停止、输出缺口及后台焦点。沿用旧保存值和 MCP 字段。
 
 P26.92–P26.94 按 [CR-058](changes/CR-058.md) 比对 Windows 原生 OLE 拖入、PSReadLine 缓冲区和光标、VT 输出与软换行。覆盖 65 和 96 列、行中、多路径、前台拒绝、取消及迟到目标。
