@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.108 完成 Windows x64 0.1.40 本地正式包、原生门禁和逐文件完整性验证。[执行记录](records/P26.108.md)
+
 P26.111 修正原生右键门禁的已连接窗口时序，同一解压程序复验通过。[执行记录](records/P26.111.md)
 
 P26.110 以显式隔离 PowerShell 复验发布夹具，保留原生键盘窗口所有权检查。[执行记录](records/P26.110.md)
@@ -707,7 +709,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.105 | 实现导出选择与预览改版 | DONE | [P26.105](records/P26.105.md) | Step-ID: P26.105 |
 | P26.106 | 验收导出改版试用候选 | DONE | [P26.106](records/P26.106.md) | Step-ID: P26.106 |
 | P26.107 | 同步 Windows x64 0.1.40 正式版本 | DONE | [P26.107](records/P26.107.md) | Step-ID: P26.107 |
-| P26.108 | 交付 Windows x64 0.1.40 正式包 | IN_PROGRESS | P26.107 | 待正式门禁 |
+| P26.108 | 交付 Windows x64 0.1.40 正式包 | DONE | [P26.108](records/P26.108.md) | Step-ID: P26.108 |
 | P26.109 | 部署 Windows x64 0.1.40 到当前用户 | TODO | P26.108 | 待安装 |
 | P26.110 | 隔离 0.1.40 的 PowerShell 发布夹具 | DONE | [P26.110](records/P26.110.md) | Step-ID: P26.110 |
 | P26.111 | 等待原连接显示后验证原生右键 | DONE | [P26.111](records/P26.111.md) | Step-ID: P26.111 |
