@@ -169,7 +169,9 @@ try {
     await delay(50);
   }
   assert.ok(connection,'synthetic SSH must connect');
-  await ui.waitFor("!document.querySelector('dialog:modal')");
+  await ui.waitFor(`!document.querySelector('dialog:modal, dialog[open][aria-label="连接服务器"]')&&
+    document.querySelector('.pane-active')?.dataset.renderedId===${q(connection.connection_id)}&&
+    Number(document.querySelector('.pane-active')?.dataset.renderedGeneration)===${q(connection.generation)}`);
   const activeScreen='.pane-active .terminal > .xterm .xterm-screen';
   await pointer(ui,activeScreen);
   await ui.waitFor(`!!${node('[role="menu"][aria-label="终端日志菜单"]')}`);
