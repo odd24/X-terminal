@@ -2,14 +2,14 @@
 
 共享终端是用于 SSH 服务器工作、串口/UART 调试与日志采集的 Windows 桌面应用，支持通过 MCP 与 Codex 共享已批准的会话。
 
-**本机已安装 Windows x64 0.1.39。** 从开始菜单打开「共享终端」，「共享终端 0.1.38」为回退入口。直接使用便携包时，保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [部署验证](docs/records/P26.88.md)
+**本机已安装 Windows x64 0.1.40。** 从开始菜单打开「共享终端」，「共享终端 0.1.39」为回退入口。直接使用便携包时，保留三个相邻 EXE，启动 `shared-terminal-desktop.exe`。需要 Microsoft Edge WebView2。[便携版使用说明](docs/WINDOWS_PORTABLE.md) · [部署验证](docs/records/P26.109.md)
 
 ## 日常使用
 
 - **连接。** 从连接库打开已有 SSH2 或串口条目，也可用「更多工具」打开连接表单。SSH 按正常流程验证主机和身份。串口可用于交互或只接收。标签支持拖动排序、分屏和独立窗口，本地标签也可拖动。复制手势及适用会话见[桌面交互基线](docs/UI_GUIDELINES.md#现行桌面交互基线)。
 - **录制。** 用 SSH2 或串口标签上的录制按钮开始和停止。在「更多工具 → 软件设置 → 日志」设置可读日志目录。默认写入当前数据根的 `logs`，目录修改从下一次录制生效。工具栏文件夹打开当前目录，停录通知可打开该次原文件。[日志使用说明](docs/WINDOWS_PORTABLE.md) · [文件身份与测试](docs/records/P26.23.md)
 - **数据。** 默认数据根是 `%LOCALAPPDATA%\local.shared-terminal.desktop`。可用 `--data-dir` 指定独立绝对路径。同一数据根由一个运行中的服务持有，配置占用解除后可使用「重新检查配置目录」。[启动与排查](docs/WINDOWS_PORTABLE.md)
-- **Codex。** 在 Desktop 的「更多工具 → Agent 授权 → MCP 初版连接」核对当次桥进程及批准范围。0.1.39 便携包的 MCP v14 支持 `version: "v3"` 和独立描述授权，0.1.37 配套 v13 桥继续以 `version: "v2"` 管理四类配置。[Codex 接入](docs/CODEX_INTEGRATION.md#v14-右栏快捷指令)
+- **Codex。** 在 Desktop 的「更多工具 → Agent 授权 → MCP 初版连接」核对当次桥进程及批准范围。0.1.40 便携包的 MCP v14 支持 `version: "v3"` 和独立描述授权，0.1.37 配套 v13 桥继续以 `version: "v2"` 管理四类配置。[Codex 接入](docs/CODEX_INTEGRATION.md#v14-右栏快捷指令)
 
 ## 执行入口
 
