@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.107 冻结 Windows x64 0.1.40 正式版本及专项门禁。[执行记录](records/P26.107.md)
+
 P26.106 交付快捷指令导出界面 Windows x64 试用候选，标准及窄窗截图、原生 ZIP 迁移与便携门禁通过。[执行记录](records/P26.106.md)
 
 P26.105 完成快捷指令导出选择页和预览页改版，标准及窄窗口和原生迁移回归通过。[执行记录](records/P26.105.md)
@@ -700,6 +702,9 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.104 | 登记及复现导出弹窗布局 | DONE | [P26.104](records/P26.104.md) | Step-ID: P26.104 |
 | P26.105 | 实现导出选择与预览改版 | DONE | [P26.105](records/P26.105.md) | Step-ID: P26.105 |
 | P26.106 | 验收导出改版试用候选 | DONE | [P26.106](records/P26.106.md) | Step-ID: P26.106 |
+| P26.107 | 同步 Windows x64 0.1.40 正式版本 | DONE | [P26.107](records/P26.107.md) | Step-ID: P26.107 |
+| P26.108 | 交付 Windows x64 0.1.40 正式包 | IN_PROGRESS | P26.107 | 待正式门禁 |
+| P26.109 | 部署 Windows x64 0.1.40 到当前用户 | TODO | P26.108 | 待安装 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |

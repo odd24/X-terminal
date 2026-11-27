@@ -54,6 +54,11 @@ try {
                 $psReadLineNotice = git show "${commit}:vendor/psreadline/LICENSE.txt"
                 if ($LASTEXITCODE -ne 0 -or !$psReadLineNotice) { throw 'Cannot read the PSReadLine notice at the source commit' }
                 $readme += @('', '## PSReadLine 2.0 license', '') + $psReadLineNotice
+                foreach ($dependency in @('zip-8.6.0', 'typed-path-0.12.4')) {
+                    $notice = git show "${commit}:docs/licenses/$dependency-MIT.txt"
+                    if ($LASTEXITCODE -ne 0 -or !$notice) { throw "Missing release license notice: $dependency" }
+                    $readme += @('', "## $dependency license", '') + $notice
+                }
                 [IO.File]::WriteAllText($destination, ($readme -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
             }
             $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -132,6 +137,18 @@ try {
     $shortcutEditorEvidence = Join-Path $staging 'shortcut-editor.json'
     node scripts/Test-Desktop-ShortcutEditor.mjs $desktop $shortcutEditorEvidence
     if ($LASTEXITCODE -ne 0) { throw "Shortcut editor navigation failed. Candidate: $staging" }
+    $newGates = @(
+        @{name='treeTabs';script='Test-Desktop-TreeTabs';file='tree-tabs.json';options=@()},
+        @{name='shortcutStop';script='Test-Desktop-ShortcutAutoClose';file='shortcut-stop.json';options=@()},
+        @{name='pasteEditor';script='Test-Desktop-LocalPasteEditor';file='paste-editor.json';options=@()},
+        @{name='shortcutPackage';script='Test-Desktop-ShortcutPackage';file='shortcut-package.json';options=@('--native-picker')},
+        @{name='exportLayout';script='Test-Desktop-ShortcutExportLayout';file='export-layout.json';options=@()}
+    )
+    foreach ($gate in $newGates) {
+        $options = $gate.options
+        node "scripts/$($gate.script).mjs" $desktop (Join-Path $staging $gate.file) @options
+        if ($LASTEXITCODE -ne 0) { throw "Release feature gate failed: $($gate.name). Candidate: $staging" }
+    }
     node scripts/Test-Desktop-ShortcutRoutes.mjs $desktop
     if ($LASTEXITCODE -ne 0) { throw "SSH and local shortcut routes failed. Candidate: $staging" }
     $previousTarget = $env:CARGO_TARGET_DIR
@@ -215,6 +232,14 @@ try {
     if ($featureReports.fileDrop.source -ne 'Win32 OLE CF_HDROP fixture') {
         throw 'Release file-drop acceptance requires the Windows OLE source'
     }
+    foreach ($gate in $newGates) {
+        $result = Get-Content -LiteralPath (Join-Path $staging $gate.file) -Raw | ConvertFrom-Json
+        if ($result.result -ne 'PASS' -or $result.executable -ne $desktop -or $result.desktopSha256 -ne $desktopHash) {
+            throw "Release feature evidence mismatch: $($gate.name)"
+        }
+        $featureReports[$gate.name] = $result
+    }
+    if (!$featureReports.shortcutPackage.nativePicker) { throw 'Release shortcut package gate requires native pickers' }
     $report = [ordered]@{result='PASS';version=$version;sourceCommit=$commit;directoryOnly=[bool]$DirectoryOnly;zipSha256=$sha256;smoke=$verified;terminalRead=$mcp.read;terminalReadClose=$mcp.close;localTerminal=$local;adbShortcuts=$adb;powerShell=$powershell;localScripts=$scripts;localDirectory=$directory;localTabs=$localTabs;mixedTabs=$mixedTabs;shortcutPreview=$shortcutPreview;shortcutEditor=$shortcutEditor;shortcutSsh=$shortcutSsh;shortcutUart=$shortcutUart;shortcutManagement=$shortcutManagement;desktopShortcuts=$desktopShortcuts;mcpShortcuts=$mcpShortcuts;features=$featureReports}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidence -Encoding utf8
 
