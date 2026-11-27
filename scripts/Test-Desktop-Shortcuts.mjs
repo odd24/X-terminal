@@ -122,10 +122,6 @@ async function connectSsh(directory){
 }
 
 try{
-  const profileCheck=execFileSync(path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),
-    ['-NoProfile','-Command','$PROFILE.CurrentUserCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.AllUsersAllHosts | ForEach-Object {Test-Path -LiteralPath $_}'],
-    {windowsHide:true,encoding:'utf8'});
-  assert.deepEqual(profileCheck.trim().split(/\s+/),Array(4).fill('False'),'avoid running existing profile scripts');
   const directory=path.join(root,'默认目录 中文');await mkdir(directory);
   const owned=await realpath(root),expectedDirectory=await realpath(directory);
   const adb=path.join(owned,'adb.exe'),script=path.join(owned,'样例脚本.cmd');
@@ -134,7 +130,7 @@ try{
   await writeFile(path.join(owned,'fixture-root.txt'),owned);
   await writeFile(path.join(owned,'inventory.txt'),'mock  device product:synthetic\n');
   await writeFile(script,'@echo off\r\necho run>>"%~dp0script-runs.txt"\r\necho SIDE_SCRIPT_SCROLL\r\nfor /l %%i in (1,1,96) do echo script-line-%%i\r\n');
-  ui=await launchDesktop(root,{executable});
+  ui=await launchDesktop(root,{executable,isolatedPowerShell:true,windowsHide:false});
   await ui.invoke('local_adb_settings',{settings:{revision:null,executable:adb,shortcuts:[
     {id:crypto.randomUUID(),name:'模拟设备',command:'adb devices -l'},
     {id:crypto.randomUUID(),name:'脚本样本',script_path:script},

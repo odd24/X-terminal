@@ -60,8 +60,9 @@ async function close() {
 
 try {
   const systemPs=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
-  const summary=() => JSON.parse(execFileSync(systemPs,['-NoLogo','-Command',
-    '@{version=$PSVersionTable.PSVersion.ToString();profile=(Test-Path $PROFILE);adb=(Get-Command adb.exe -ErrorAction SilentlyContinue).Source}|ConvertTo-Json -Compress'
+  const summary=() => JSON.parse(execFileSync(systemPs,['-NoLogo',...(hardware?[]:['-NoProfile']),'-Command',hardware
+    ?'@{version=$PSVersionTable.PSVersion.ToString();profile=(Test-Path $PROFILE);adb=(Get-Command adb.exe -ErrorAction SilentlyContinue).Source}|ConvertTo-Json -Compress'
+    :'@{version=$PSVersionTable.PSVersion.ToString()}|ConvertTo-Json -Compress'
   ],{windowsHide:true,encoding:'utf8'}));
   const externalStart=performance.now();
   result.external=summary();
@@ -78,7 +79,7 @@ try {
     assert.equal(target[1],'device');
     result.inventory={devices:1,state:'device',usedSpaces:!devices[0].includes('\t')};
   }
-  ui=await launchDesktop(root,{executable});
+  ui=await launchDesktop(root,{executable,isolatedPowerShell:!hardware});
   if(hardware){
     await seedAdb(null,[['授权设备 shell','adb shell']]);
     result.firstPromptMs=await openDefault();
@@ -108,7 +109,8 @@ try {
     result.firstPromptMs=await openDefault();
     await command(`Set-Location -LiteralPath ${psPath(root)}`);
     await waitShell();
-    await command(`@{version=$PSVersionTable.PSVersion.ToString();profile=(Test-Path $PROFILE);adb=(Get-Command adb.exe -ErrorAction SilentlyContinue).Source}|ConvertTo-Json -Compress > 'shell.json'`);
+    await saw('SHARED_TERMINAL_ISOLATED_POWERSHELL_READY');
+    await command(`@{version=$PSVersionTable.PSVersion.ToString()}|ConvertTo-Json -Compress > 'shell.json'`);
     let shell;
     for(let n=0;n<80&&!shell;n++){
       const bytes=await readFile(path.join(root,'shell.json')).catch(()=>null);
@@ -116,7 +118,7 @@ try {
       if(!shell)await delay(40);
     }
     assert.deepEqual(shell,result.external);
-    result.checks.push('same Windows PowerShell version, profile presence and PATH adb as ordinary external PowerShell');
+    result.checks.push('same Windows PowerShell version as a standalone NoProfile process and isolated editor ready');
     await focus();await type('Get-Content .\\only-com');await key('Tab','Tab',9);await saw('only-complete-样本.txt');
     await enter();await saw('completion-payload');
     await command("'alpha','beta' | Where-Object { $_ -eq 'beta' } > 'pipeline.txt'");
