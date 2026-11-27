@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.117 完成 Windows x64 0.1.41 当前用户安装、开始菜单回读、隔离启动和原运行进程核验。[执行记录](records/P26.117.md)
+
 P26.116 完成 Windows x64 0.1.41 本地正式包、原生门禁和逐文件完整性验证。[执行记录](records/P26.116.md)
 
 P26.115 同步 Windows x64 0.1.41 正式版本和交互 ADB Shell 发布门禁。[执行记录](records/P26.115.md)
@@ -730,6 +732,7 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.114 | 验收交互 ADB Shell 试用候选 | DONE | [P26.114](records/P26.114.md) | Step-ID: P26.114 |
 | P26.115 | 同步 Windows x64 0.1.41 正式版本 | DONE | [P26.115](records/P26.115.md) | Step-ID: P26.115 |
 | P26.116 | 交付 Windows x64 0.1.41 正式包 | DONE | [P26.116](records/P26.116.md) | Step-ID: P26.116 |
+| P26.117 | 部署 Windows x64 0.1.41 到当前用户 | DONE | [P26.117](records/P26.117.md) | Step-ID: P26.117 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
