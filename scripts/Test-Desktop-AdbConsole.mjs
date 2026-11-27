@@ -61,16 +61,17 @@ try{
     await pressPaste();
     await ui.waitFor('!!document.querySelector('+q(preview)+')');
     const body=await ui.evaluate('document.querySelector('+q(preview+' pre')+')?.textContent');
+    const caption=await ui.evaluate('document.querySelector('+q(preview)+')?.innerText');
     await keys.enter();
     await ui.waitFor('!document.querySelector('+q(preview)+')');
-    return body;
+    return {body,caption};
   }
   const id=await start();
   assert.notEqual(id,origin);
   const startup=await ui.evaluate(rendered);
   if(baseline){
     const clipboard='echo FIRST\necho SECOND\n';
-    const body=await paste(clipboard);
+    const {body}=await paste(clipboard);
     for(let attempt=0;attempt<50;attempt++){
       if((await calls()).includes('proof-line|echo SECOND'))break;
       await delay(40);
@@ -89,6 +90,114 @@ try{
     await ui.waitFor('!document.querySelector('+q('[role=tab][data-connection-id="'+id+'"]')+')');
     assert.ok(!(await calls()).includes('proof-unit|03'));
     mark('Baseline sent original LF lines but the application intercepted Ctrl+C and closed its checked result');
+  }else{
+    const lines=async()=> (await calls()).split(/\r?\n/).filter(line=>line.startsWith('proof-line|')).map(line=>line.slice(11));
+    const units=async()=> (await calls()).split(/\r?\n/).filter(line=>line.startsWith('proof-unit|')).map(line=>line.slice(11));
+    async function waitRead(read,expected){
+      for(let retry=0;retry<120;retry++){
+        const value=await read();
+        if(value.length>=expected)return value;
+        await delay(40);
+      }
+      throw new Error('Owned ADB console input did not reach the expected count');
+    }
+    async function type(text){
+      await ui.waitFor('document.activeElement?.matches('+q(active+' textarea')+')');
+      for(const character of text){
+        if(character===' ')await keys.key(' ','Space',32,{text:' '});
+        else await keys.type(character);
+      }
+    }
+    const command=async text=>{await type(text);await keys.enter();};
+    const cases=[];
+    for(const separator of ['\n','\r\n']){
+      for(const trailing of [false,true]){
+        const clipboard='echo FIRST'+separator+'echo SECOND'+(trailing?separator:'');
+        const normalized=clipboard.replaceAll('\r\n','\n');
+        const n=(await lines()).length, u=(await units()).length;
+        const writes=await ui.evaluate('window.adbConsole.input.length');
+        const {body,caption}=await paste(clipboard);
+        assert.equal(body,normalized);
+        assert.ok(caption.includes('行间换行可能执行上一条命令'));
+        assert.ok(caption.includes(trailing?'原文末尾有换行':'原文末尾无换行'));
+        const received=await waitRead(units,u+normalized.length);
+        assert.deepEqual(received.slice(u),Array.from(Buffer.from(normalized),n=>n.toString(16).padStart(2,'0')));
+        await waitRead(lines,n+(trailing?2:1));
+        assert.deepEqual((await lines()).slice(n),trailing?['echo FIRST','echo SECOND']:['echo FIRST']);
+        const outgoing=await ui.evaluate('window.adbConsole.input.slice('+writes+')');
+        assert.deepEqual(outgoing.map(item=>[item.id,item.text,item.adb_shell_only]),[[id,normalized,true]]);
+        if(!trailing){
+          await keys.enter();
+          await waitRead(lines,n+2);
+          assert.deepEqual((await lines()).slice(n),['echo FIRST','echo SECOND']);
+        }
+        cases.push({separator:separator==='\n'?'LF':'CRLF',trailing,bytes:received.slice(u)});
+      }
+    }
+    evidence.pasteCases=cases;
+    mark('Four LF/CRLF and trailing-line cases send one ordered payload, and explicit Enter is required for the unfinished line');
+
+    const transcript=await ui.evaluate("(()=>{const host=document.querySelector("+q(active+' .local-terminal-output')+");"+
+      "for(let f=host[Object.keys(host).find(k=>k.startsWith('__reactFiber'))];f;f=f.return)"+
+      "for(let h=f.memoizedState;h;h=h.next){const candidate=h.memoizedState?.current;"+
+      "if(candidate?.buffer?.active&&candidate?.element){window.consoleTerm=candidate;return true}}return false})()");
+    assert.equal(transcript,true);
+    const history=()=>ui.evaluate("(()=>{const b=window.consoleTerm.buffer.active;"+
+      "return Array.from({length:b.baseY},(_,i)=>b.getLine(i).translateToString(true)).join('\\n')})()");
+    const beforeRedraw=await history();
+    assert.ok(beforeRedraw.includes('adb -s fixed root'));
+    assert.ok(beforeRedraw.indexOf('adb -s fixed root')<beforeRedraw.indexOf('adb -s fixed shell'));
+    await command('redraw');
+    await seen('OWNED_PTY_REDRAW');
+    assert.equal(await history(),beforeRedraw);
+    assert.ok((await ui.evaluate(rendered)).startsWith('OWNED_PTY_REDRAW'));
+    assert.ok((await ui.evaluate('window.adbConsole.raw')).some(chunk=>chunk.includes('\x1b[H')));
+    mark('A native absolute redraw changes only the shell viewport and preserves the startup transcript in scrollback');
+
+    const instance=Number((await calls()).match(/proof-instance\|(\d+)/)?.[1]);
+    assert.ok(instance>0);
+    let interrupts=(await units()).filter(unit=>unit==='03').length;
+    async function interrupt(){
+      await pressC();interrupts++;
+      for(let retry=0;retry<100;retry++){
+        if((await units()).filter(unit=>unit==='03').length===interrupts)break;
+        await delay(40);
+      }
+      assert.equal((await units()).filter(unit=>unit==='03').length,interrupts);
+      assert.equal(await ui.evaluate(selected),id);
+    }
+    await interrupt();
+    await type('echo discarded-draft');
+    await seen('echo discarded-draft');
+    await interrupt();
+    const from=(await lines()).length;
+    await command('identity');await seen('IDENTITY_'+instance);
+    assert.deepEqual((await waitRead(lines,from+1)).slice(from),['identity']);
+    await command('sleep 20');await seen('OWNED_SLEEP_STARTED');
+    await interrupt();await seen('OWNED_SLEEP_INTERRUPTED');
+    const next=(await lines()).length;
+    await command('identity');
+    assert.deepEqual((await waitRead(lines,next+1)).slice(next),['identity']);
+    assert.deepEqual((await calls()).match(/proof-instance\|\d+/g),['proof-instance|'+instance]);
+    assert.equal((await calls()).includes('proof-line|echo discarded-draft'),false);
+    assert.equal((await ui.evaluate(rendered)).includes('OWNED_SLEEP_FINISHED'),false);
+    const controlInputs=await ui.evaluate("window.adbConsole.input.filter(action=>action.text===String.fromCharCode(3))");
+    assert.deepEqual(controlInputs.map(action=>[action.id,action.adb_shell_only]),Array(3).fill([id,true]));
+    mark('Ctrl+C reaches the same live console at its prompt, with a partial line, and during an interruptible foreground job');
+
+    await command('exit');
+    await ui.waitFor('!document.querySelector('+q('[role=tab][data-connection-id="'+id+'"]')+')');
+    assert.equal(await ui.evaluate(selected),origin);
+    const disconnected=await start();
+    const original=await ui.evaluate('window.adbConsole.input.find(item=>item.adb_shell_only)');
+    await assert.rejects(ui.invoke('local_terminal',{action:{...original,id:disconnected,text:'echo WRONG_TARGET\n'}}),/任务已变化/);
+    assert.equal((await calls()).includes('proof-line|echo WRONG_TARGET'),false);
+    await command('disconnect');
+    await seen('fixture: original transport disconnected');
+    await seen('ADB 交互终端退出码 255');
+    await seen('前台进程退出（255）');
+    assert.equal(await ui.evaluate(selected),disconnected);
+    mark('Explicit exit closes a checked result, a stale task cannot send to the new shell, and unexpected disconnect preserves its reason');
   }
   evidence.result='PASS';
 }catch(error){

@@ -70,6 +70,12 @@ struct Stream {
 }
 
 impl Stream {
+    fn begin_terminal(&self) {
+        let mut output = self.output.lock().unwrap();
+        output.terminal_start = Some(output.bytes.len());
+        self.ready.notify_one();
+    }
+
     fn append(&self, bytes: &[u8], overflow: bool) {
         self.buffer(&mut self.output.lock().unwrap(), bytes, overflow);
     }
@@ -122,7 +128,7 @@ impl Process {
         let worker = thread::Builder::new().spawn(move || {
             let result = run(plan, &cwd, &ctl, &sink);
             let code = match result {
-                Ok(()) => 0,
+                Ok(code) => code,
                 Err(error) => {
                     sink.line(&error);
                     1
@@ -144,28 +150,46 @@ impl Process {
         })
     }
 
-    pub fn input(&self, bytes: Vec<u8>, keyboard: bool) -> Result<(), String> {
+    pub fn is_interactive(&self) -> bool {
+        matches!(
+            self.control.input.lock().unwrap().as_ref(),
+            Some(Input::Terminal(_))
+        )
+    }
+
+    pub fn input(
+        &self,
+        bytes: Vec<u8>,
+        keyboard: bool,
+        adb_shell_only: bool,
+    ) -> Result<bool, String> {
+        let input = self.control.input.lock().unwrap();
+        if let Some(Input::Terminal(terminal)) = input.as_ref() {
+            terminal.input(bytes)?;
+            return Ok(false);
+        }
+        if adb_shell_only {
+            return Err("原 ADB Shell 输入目标已变化".into());
+        }
         if bytes == [3] {
             if keyboard && !self.control.stopped.load(Ordering::Acquire) {
                 self.control.manual_stop.store(true, Ordering::Relaxed);
             }
             self.control.stopped.store(true, Ordering::Release);
-            return Ok(());
+            return Ok(true);
         }
-        match self.control.input.lock().unwrap().as_ref() {
-            Some(Input::Terminal(terminal)) => terminal.input(bytes),
-            Some(Input::Pipe(sender)) => {
-                let bytes = if bytes == [b'\r'] {
-                    b"\r\n".to_vec()
-                } else {
-                    bytes
-                };
-                sender
-                    .try_send(bytes)
-                    .map_err(|_| "本地命令输入队列已满或本步骤已退出".into())
-            }
-            None => Err("本步骤暂无可用的标准输入".into()),
-        }
+        let Some(Input::Pipe(sender)) = input.as_ref() else {
+            return Err("本步骤暂无可用的标准输入".into());
+        };
+        let bytes = if bytes == [b'\r'] {
+            b"\r\n".to_vec()
+        } else {
+            bytes
+        };
+        sender
+            .try_send(bytes)
+            .map_err(|_| "本地命令输入队列已满或本步骤已退出")?;
+        Ok(false)
     }
 
     pub fn resize(&self, cols: u16, rows: u16) {
@@ -436,7 +460,7 @@ fn interactive_shell(
     deadline: Instant,
     control: &Control,
     sink: &Stream,
-) -> Result<(), String> {
+) -> Result<u32, String> {
     let args = stage
         .bound_args(serial)
         .map_err(|error| error.to_string())?;
@@ -446,17 +470,17 @@ fn interactive_shell(
             .map_err(|error| format!("ADB 交互终端启动失败：{error}"))?,
     );
     *control.input.lock().unwrap() = Some(Input::Terminal(process.clone()));
+    sink.begin_terminal();
     let result = loop {
         let output = std::mem::take(&mut *process.output.lock().unwrap());
         if output.ready() {
             sink.append(&output.bytes, output.overflow);
         }
         if let Some(code) = output.exit {
-            break if code == 0 {
-                Ok(())
-            } else {
-                Err(format!("ADB 交互终端退出码 {code}"))
-            };
+            if code != 0 {
+                sink.line(&format!("ADB 交互终端退出码 {code}"));
+            }
+            break Ok(code);
         }
         if control.stopping() {
             break Err("已中断整组命令（Ctrl+C）".into());
@@ -475,7 +499,7 @@ fn interactive_shell(
     result
 }
 
-fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<(), String> {
+fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<u32, String> {
     let deadline = Instant::now() + COMMAND_TIME;
     let total = plan.steps.len();
     sink.line("\r\n在 Windows 本机执行");
@@ -492,8 +516,7 @@ fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<
             && stage.device
             && stage.args == ["shell"]
         {
-            interactive_shell(stage, plan.serial.as_deref(), cwd, deadline, control, sink)?;
-            continue;
+            return interactive_shell(stage, plan.serial.as_deref(), cwd, deadline, control, sink);
         }
         let captured = execute(
             &step.stages,
@@ -545,5 +568,5 @@ fn run(plan: Plan, cwd: &Path, control: &Control, sink: &Arc<Stream>) -> Result<
             }
         }
     }
-    Ok(())
+    Ok(0)
 }

@@ -12,7 +12,8 @@ import type {LocalRightClick} from './local-right-click';
 import {lightweightDrop, type FileDropRoute} from './local-file-drop';
 
 export type LocalView = {cwd:string; startup_warning:string|null; task:string|null; running:boolean; bytes:number[]|Uint8Array; overflow:boolean;
-  message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null; close_after_result?:boolean};
+  message:string|null; command:string|null; exit_code:number|null; script:string|null; script_directory:string|null; close_after_result?:boolean;
+  terminal_start?:number|null; adb_shell?:boolean};
 export type LocalTab = {id:string; title:string; initial:LocalView; powershell:boolean; origin:'ordinary'|'adb-result'|'script'};
 export type LocalPromptState = {busy:boolean; hasDraft:boolean};
 export function terminalAction<T = void>(action: {kind:string; id?:string} & Record<string, unknown>) {
@@ -22,7 +23,7 @@ export function terminalAction<T = void>(action: {kind:string; id?:string} & Rec
 const MAX_HISTORY = 100;
 const MAX_SCROLLBACK = 5000;
 const MAX_LIGHTWEIGHT_LINE=8192;
-type ClipboardTarget={route:number;task:string|null;bracketed:boolean;revision:number};
+type ClipboardTarget={route:number;task:string|null;bracketed:boolean;revision:number;adbShell:boolean};
 type LocalPaste={target:ClipboardTarget;proposal:PasteProposal;editorEpoch?:number;unsupported?:string};
 const outputMetadata=new TextDecoder('utf-8',{fatal:true});
 const localText = (text:string) => text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '�').replaceAll('\n', '\r\n');
@@ -83,11 +84,12 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     if(!alive.current||route===undefined||flight.current||uncertain.current||composing.current
       ||current.running&&!current.task)return;
     return {route,task:current.running?current.task:null,
-      bracketed:current.running&&!!term.current?.modes.bracketedPasteMode,revision:clipboardRevision.current};
+      bracketed:current.running&&!!term.current?.modes.bracketedPasteMode,revision:clipboardRevision.current,adbShell:!!current.adb_shell};
   }
   function clipboardCurrent(target:ClipboardTarget){
     const current=clipboardTarget();
-    return current?.route===target.route&&current.task===target.task&&current.bracketed===target.bracketed&&current.revision===target.revision;
+    return current?.route===target.route&&current.task===target.task&&current.bracketed===target.bracketed
+      &&current.revision===target.revision&&current.adbShell===target.adbShell;
   }
   async function copySelection(clear:boolean){
     const terminal=term.current;
@@ -116,7 +118,9 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     }).catch(error=>{if(alive.current)setFailure(String(error));}).finally(()=>{queue.queued--;});
   }
   function enqueue(text:string,task:string,guard?:()=>boolean,keyboard=false){
-    queueInput(task,()=>terminalAction({kind:'input',id:tab.id,request:task,text,keyboard}),guard);
+    const adbShell=!!view.current.adb_shell;
+    queueInput(task,()=>terminalAction({kind:'input',id:tab.id,request:task,text,keyboard,
+      ...(adbShell?{adb_shell_only:true}:{})}),guard);
   }
   function dropIdentity(){
     const route=latest.current.fileDropRoute();
@@ -149,13 +153,15 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     const {text,payload}=item.proposal;
     if(item.target.task){
       // Confirming closes the preview. Route and task are checked again when input reaches the head of the queue.
-      const {route,task,bracketed}=item.target;
+      const {route,task,bracketed,adbShell}=item.target;
       const current=()=>latest.current.clipboardRoute()===route
-        &&!!term.current?.modes.bracketedPasteMode===bracketed;
+        &&!!term.current?.modes.bracketedPasteMode===bracketed&&!!view.current.adb_shell===adbShell;
       if(item.editorEpoch!==undefined){
         const generation=item.editorEpoch;
         const content=generation===0?payload:text.replace(/\r\n?/g,'\n');
         queueInput(task,()=>terminalAction({kind:'power_shell_paste',id:tab.id,request:task,generation,text:content}),current);
+      }else if(adbShell){
+        enqueue(payload.replace(/\r\n/g,'\n'),task,current);
       }else{
         enqueue(payload,task,current);
       }
@@ -243,14 +249,26 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
       terminal?.reset();
       terminal?.writeln('输出积压，已略过部分历史');
     }
-    if (next.bytes.length) terminal?.write(next.bytes instanceof Uint8Array?next.bytes:Uint8Array.from(next.bytes));
+    if (terminal) {
+      const bytes=next.bytes instanceof Uint8Array?next.bytes:Uint8Array.from(next.bytes);
+      const start=next.terminal_start;
+      if(start!=null){
+        if(start>0)terminal.write(bytes.subarray(0,start));
+        // The fresh ConPTY addresses its own viewport. Keep the host transcript
+        // in scrollback before applying any of its screen-relative output.
+        const scrollOnErase=terminal.options.scrollOnEraseInDisplay;
+        terminal.write('',()=>{terminal.options.scrollOnEraseInDisplay=true;});
+        terminal.write('\x1b[0m\x1b[?6l\x1b[r\x1b[2J\x1b[H',()=>{terminal.options.scrollOnEraseInDisplay=scrollOnErase;});
+        if(start<bytes.length)terminal.write(bytes.subarray(start));
+      }else if(bytes.length)terminal.write(bytes);
+    }
     if (next.message) terminal?.write('\r\n\x1b[0m'+localText(next.message)+'\r\n');
     const diagnostic=lastDiagnostic.current;
     if(diagnostic && (next.exit_code!==null||next.command&&!next.running)) {
       if(next.message && next.exit_code!==0) latest.current.onDiagnostic(diagnostic.intent,{...diagnostic.diagnostic,error:next.message});
       lastDiagnostic.current=undefined;
     }
-    if(view.current.task!==next.task||view.current.running!==next.running){
+    if(view.current.task!==next.task||view.current.running!==next.running||!!view.current.adb_shell!==!!next.adb_shell){
       dropRevision.current++;
       shellEdit.current=undefined;
       invalidateClipboard();
@@ -598,11 +616,15 @@ export function LocalTerminal({tab, visible, focused, preferences, intent, repor
     </ContextMenu>}
     {focused&&pastePreview&&<Dialog label="本地粘贴确认" modal={false} close={cancelPaste}>
       <Panel title="确认粘贴到本地终端">
-        <p>目标：{tab.title} · {pastePreview.editorEpoch?'PowerShell 编辑区':pastePreview.target.task?'当前前台进程':'轻量命令行'}</p>
+        <p>目标：{tab.title} · {pastePreview.target.adbShell?'交互式 ADB Shell':pastePreview.editorEpoch?'PowerShell 编辑区':pastePreview.target.task?'当前前台进程':'轻量命令行'}</p>
         <p>{pastePreview.unsupported??(pastePreview.editorEpoch||!pastePreview.target.task
           ?'确认后可继续编辑。按 Enter 提交命令。'
+          :pastePreview.target.adbShell?'行间换行可能执行上一条命令。应用不会添加末尾换行。'
           :'内容可能执行命令。继续输入、切换标签或结束当前任务会取消预览。')}</p>
-        <pre aria-label="本地粘贴内容预览">{visibleControls(JSON.stringify(pastePreview.proposal.text.slice(0,8192)))}{pastePreview.proposal.text.length>8192?' …预览已截断':''}</pre>
+        <pre aria-label="本地粘贴内容预览">{pastePreview.target.adbShell
+          ?visibleControls(pastePreview.proposal.text.slice(0,8192).replace(/\r\n?/g,'\n'))
+          :visibleControls(JSON.stringify(pastePreview.proposal.text.slice(0,8192)))}{pastePreview.proposal.text.length>8192?' …预览已截断':''}</pre>
+        {pastePreview.target.adbShell&&<p>{/[\r\n]$/.test(pastePreview.proposal.text)?'原文末尾有换行':'原文末尾无换行'}</p>}
         <div className="config-actions" onKeyDown={event=>{
           if(event.key==='Enter'&&!event.nativeEvent.isComposing)event.preventDefault();
         }} onKeyUp={event=>{

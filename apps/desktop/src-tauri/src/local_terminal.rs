@@ -63,10 +63,18 @@ impl Foreground {
             Self::Batch(p) => (&p.output_ready, &p.output_reader),
         }
     }
-    fn input(&self, bytes: Vec<u8>, keyboard: bool) -> Result<(), String> {
+    fn is_adb_shell(&self) -> bool {
+        matches!(self, Self::Batch(p) if p.is_interactive())
+    }
+    fn input(&self, bytes: Vec<u8>, keyboard: bool, adb_shell_only: bool) -> Result<bool, String> {
         match self {
-            Self::Console(p) => p.input_from(bytes, keyboard),
-            Self::Batch(p) => p.input(bytes, keyboard),
+            Self::Console(_) if adb_shell_only => Err("原 ADB Shell 输入目标已变化".into()),
+            Self::Console(p) => {
+                let interrupted = bytes == [3];
+                p.input_from(bytes, keyboard)?;
+                Ok(interrupted)
+            }
+            Self::Batch(p) => p.input(bytes, keyboard, adb_shell_only),
         }
     }
 }
@@ -89,6 +97,8 @@ struct View {
     task: Option<Uuid>,
     running: bool,
     bytes: Vec<u8>,
+    terminal_start: Option<usize>,
+    adb_shell: bool,
     overflow: bool,
     message: Option<String>,
     command: Option<String>,
@@ -138,6 +148,8 @@ pub enum Action {
         text: String,
         #[serde(default)]
         keyboard: bool,
+        #[serde(default)]
+        adb_shell_only: bool,
     },
     FileDropEpoch {
         id: Uuid,
@@ -367,6 +379,8 @@ impl Session {
             task: self.last_request,
             running: self.active.is_some(),
             bytes: output.bytes,
+            terminal_start: output.terminal_start,
+            adb_shell: self.active.as_ref().is_some_and(Foreground::is_adb_shell),
             overflow: output.overflow,
             message: self.message.take(),
             command: None,
@@ -764,17 +778,17 @@ pub async fn local_terminal(
             request,
             text,
             keyboard,
+            adb_shell_only,
         } => {
             let session = sessions.get_mut(&id).ok_or("本地标签已关闭")?;
             if session.last_request != Some(request) || text.len() > MAX_INPUT {
                 return Err("本次输入的前台任务已变化或超过输入上限".into());
             }
-            session
-                .active
-                .as_ref()
-                .ok_or("前台进程已退出")?
-                .input(text.as_bytes().to_vec(), keyboard)?;
-            session.interrupted |= text == "\u{3}";
+            session.interrupted |= session.active.as_ref().ok_or("前台进程已退出")?.input(
+                text.as_bytes().to_vec(),
+                keyboard,
+                adb_shell_only,
+            )?;
             return Ok(serde_json::Value::Null);
         }
         Action::Resize { id, cols, rows } => {

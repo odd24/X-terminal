@@ -37,6 +37,7 @@ const STARTUP_CLEAR: &[u8] = b"\x1b[?25l\x1b[2J\x1b[m\x1b[H";
 #[derive(Default)]
 pub struct Output {
     pub bytes: Vec<u8>,
+    pub terminal_start: Option<usize>,
     pub overflow: bool,
     pub exit: Option<u32>,
     pub manually_stopped: bool,
@@ -44,7 +45,10 @@ pub struct Output {
 
 impl Output {
     pub fn ready(&self) -> bool {
-        !self.bytes.is_empty() || self.overflow || self.exit.is_some()
+        !self.bytes.is_empty()
+            || self.terminal_start.is_some()
+            || self.overflow
+            || self.exit.is_some()
     }
 }
 

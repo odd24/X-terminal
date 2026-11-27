@@ -143,6 +143,7 @@ try {
         @{name='pasteEditor';script='Test-Desktop-LocalPasteEditor';file='paste-editor.json';options=@()},
         @{name='shortcutPackage';script='Test-Desktop-ShortcutPackage';file='shortcut-package.json';options=@('--native-picker')},
         @{name='exportLayout';script='Test-Desktop-ShortcutExportLayout';file='export-layout.json';options=@()}
+        @{name='adbConsole';script='Test-Desktop-AdbConsole';file='adb-console.json';options=@()}
     )
     foreach ($gate in $newGates) {
         $options = $gate.options

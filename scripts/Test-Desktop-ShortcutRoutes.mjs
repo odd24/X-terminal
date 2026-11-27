@@ -308,7 +308,19 @@ async function run(){
   result.checks.push('legacy ADB and BAT open a focused local result from a live remote source; pause retains, exit 0 returns to source, exit 7 retains');
   if(!uart){
     const snapshot=()=>ui.evaluate(`${node(output)}?.innerText`);
-    const consoleLines=async()=>(await snapshot()).split(/\r?\n/).map(line=>line.trimEnd());
+    const consoleLines=()=>ui.evaluate(`(()=>{
+      const host=${node(output)};
+      for(let fiber=host[Object.keys(host).find(key=>key.startsWith('__reactFiber'))];fiber;fiber=fiber.return){
+        for(let hook=fiber.memoizedState;hook;hook=hook.next){
+          const terminal=hook.memoizedState?.current;
+          if(terminal?.buffer?.active&&terminal?.element){
+            const buffer=terminal.buffer.active;
+            return Array.from({length:buffer.length},(_,i)=>buffer.getLine(i).translateToString(true));
+          }
+        }
+      }
+      throw new Error('Owned shortcut result terminal not located');
+    })()`);
     const type=async text=>{await ui.command('Input.insertText',{text});await key('Enter',13);};
     const focus=()=>ui.waitFor("document.activeElement?.matches('.local-terminal:not([hidden]) .xterm-helper-textarea')");
     const recorded=async from=>(await calls()).slice(from.length).trim().split(/\r?\n/);
@@ -374,15 +386,19 @@ async function run(){
       await ui.waitFor(`!${node('[role=tab][data-connection-id="'+ended+'"]')}`);
       assert.equal(await selected(),first.connection_id);
       assert.equal((await recorded(stateStart)).filter(line=>line==='adb|-s|fixed|get-state').length,2);
-      const stopped=await run(stateShell.name);await seen('fixture:/ #');
+      await mode('interactive-proof');
+      const stopped=await run(stateShell.name);await seen('proof:/ #');
       await ui.waitFor(`document.activeElement===${node(localInput)}`);
       await key('c',67,2);
+      await seen('^C');assert.equal(await selected(),stopped);
+      await type('exit');
       await ui.waitFor(`!${node('[role=tab][data-connection-id="'+stopped+'"]')}`);
       assert.equal(await selected(),first.connection_id);
-      result.checks.push('checked interactive ADB shortcut closes after a keyboard stop and restores SSH');
-      const middle=await run(shellGroup.name);await seen('fixture:/ #');
-      await key('c',67,2);await seen('已中断整组命令');
+      result.checks.push('checked interactive ADB shortcut retains the same shell after Ctrl+C and returns to SSH after explicit exit');
+      const middle=await run(shellGroup.name);await seen('proof:/ #');
+      await key('c',67,2);await seen('^C');
       assert.equal(await selected(),middle);await close(middle);
+      await mode('');
       const commandStart=await calls();
       const command=await run(commandShell.name);
       await seen('cold boot');await seen('前台进程退出（0）');
