@@ -5,6 +5,8 @@ use std::{
     thread,
     time::Duration,
 };
+#[path = "adb-shell-console.rs"]
+mod adb_shell_console;
 
 #[repr(C)]
 struct Coord {
@@ -95,13 +97,14 @@ fn main() -> io::Result<()> {
                 "root" if mode == "deny" => {
                     println!("adbd cannot run as root in production builds")
                 }
-                "root" if mode == "already-root" => println!("adbd is already running as root"),
+                "root" if matches!(mode.as_str(), "already-root" | "interactive-proof") => println!("adbd is already running as root"),
                 "root" => println!("restarting adbd as root"),
                 "wait-for-device" if mode == "timeout" || mode == "cancel-wait" => {
                     thread::sleep(Duration::from_secs(90))
                 }
                 "wait-for-device" => thread::sleep(Duration::from_millis(220)),
                 "get-state" => println!("device"),
+                "shell" if args == ["shell"] && mode == "interactive-proof" => return adb_shell_console::run(&mut calls),
                 "shell" if args == ["shell"] => return bare_shell(&mut calls),
                 "shell" => {
                     assert_eq!(args, ["shell", "dmesg -w"]);

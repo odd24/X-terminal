@@ -1,5 +1,7 @@
 # 执行台账
 
+P26.112 复现交互 ADB Shell 的显示坐标覆盖与 Ctrl+C 退出。[执行记录](records/P26.112.md)
+
 P26.109 安装 Windows x64 0.1.40，核对开始菜单和实际启动，保留既有会话、回退入口与 MCP 配置。[执行记录](records/P26.109.md)
 
 P26.108 完成 Windows x64 0.1.40 本地正式包、原生门禁和逐文件完整性验证。[执行记录](records/P26.108.md)
@@ -715,6 +717,9 @@ DONE 的 Git 关联可以是实际短 hash 或 Step-ID trailer 查询；见 [变
 | P26.109 | 部署 Windows x64 0.1.40 到当前用户 | DONE | [P26.109](records/P26.109.md) | Step-ID: P26.109 |
 | P26.110 | 隔离 0.1.40 的 PowerShell 发布夹具 | DONE | [P26.110](records/P26.110.md) | Step-ID: P26.110 |
 | P26.111 | 等待原连接显示后验证原生右键 | DONE | [P26.111](records/P26.111.md) | Step-ID: P26.111 |
+| P26.112 | 复现 ADB Shell 坐标覆盖及中断 | DONE | [P26.112](records/P26.112.md) | Step-ID: P26.112 |
+| P26.113 | 修复 ADB Shell 显示和输入 | IN_PROGRESS | CR-063 | 待实测 |
+| P26.114 | 验收交互 ADB Shell 试用候选 | TODO | CR-063 | 待验收 |
 | P02 | 终端渲染与输出原型 | DONE | [P02](records/P02.md) | Step-ID: P02 |
 | P03 | SSH2 后端试验 | BLOCKED | [P03](records/P03.md) | Step-ID: P03 |
 | P04 | SSH1 兼容试验 | BLOCKED | [P04](records/P04.md) | Step-ID: P04 |
